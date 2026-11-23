@@ -18,13 +18,11 @@ from pathlib import Path
 
 from botocore.config import Config
 from celery.exceptions import SoftTimeLimitExceeded
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.models.image_pyramid import (
-    ImagePyramidGeneration,
-)
+from app.services import image_pyramid_data as pyramid_data
+from app.services import media_item_reads
 from app.observability.metrics import (
     IMAGE_PYRAMID_ASSET_BYTES,
     IMAGE_PYRAMID_DECODED_PIXELS,
@@ -62,7 +60,6 @@ from app.services import (
 from app.services import image_pyramid_storage as physical, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.storage import StorageService
-from app.workers._db import task_session_factory
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -74,17 +71,13 @@ _ORPHAN_KEY_RE = re.compile(
 async def _execute_image_media(job_id: str | None) -> bool:
     from app.services.assets_images import run_image_job
 
-    async with task_session_factory() as factory:
-        return await run_image_job(
-            uuid.UUID(job_id) if job_id else None, session_factory=factory
-        )
+    return await run_image_job(uuid.UUID(job_id) if job_id else None)
 
 
 async def _reconcile_image_media() -> None:
     from app.services.assets_images import maintain_images
 
-    async with task_session_factory() as factory:
-        result = await maintain_images(session_factory=factory)
+    result = await maintain_images()
     if result is not None:
         execute_image_media.delay(None)
 
@@ -115,7 +108,7 @@ def execute_image_media(self, job_id: str | None = None) -> None:
     queue="cleanup",
 )
 def reconcile_image_media(self) -> None:
-    """Run local Assets reconciliation; a selected remote owner polls itself."""
+    """Reconcile Celery-owned image work; split executors maintain themselves."""
     try:
         asyncio.run(_reconcile_image_media())
     except Exception as exc:  # noqa: BLE001 - celery boundary hides source details
@@ -502,16 +495,11 @@ async def _run_image_pyramid(
                 )
                 await db.commit()
             else:
-                from app.db.models.dataset import DatasetItem
-
                 item = owner.source.item_id
-                dataset = (
-                    await db.scalar(
-                        select(DatasetItem.dataset_id).where(DatasetItem.id == item)
-                    )
-                    if item
-                    else None
+                item_facts = (
+                    await media_item_reads.read_item(db, item) if item else None
                 )
+                dataset = item_facts.dataset_id if item_facts is not None else None
                 task = owner.id if item is None and owner.kind == "task" else None
                 async with execution.birth_scope(db, dataset, item, task):
                     generation = await prepare_generation(
@@ -524,7 +512,11 @@ async def _run_image_pyramid(
                 await execution.bind_generation(
                     generation.asset_id, generation.generation
                 )
-            if generation is None or generation.status == "ready":
+            if (
+                generation is None
+                or generation.status == "ready"
+                or generation.job_id is not None
+            ):
                 return
             asset_id, generation_number = generation.asset_id, generation.generation
             authority = await originals.delegated(db, generation.auth_ref)
@@ -535,11 +527,11 @@ async def _run_image_pyramid(
             await db.commit()
             if lease_token is None:
                 return
-            generation = await db.get(
-                ImagePyramidGeneration,
-                (asset_id, generation_number),
-                populate_existing=True,
+            generation = await pyramid_data.read_generation(
+                db, asset_id, generation_number
             )
+            if generation is None:
+                raise ImagePyramidError("lease_lost")
             output_id = generation.output_id
             if execution is not None:
                 await execution.record_pyramid_attempt(
@@ -782,8 +774,6 @@ async def enqueue_image_pyramid(
     args = [owner_kind, str(identifier), force, delegation]
     execution = fixture_media_execution.current()
     if execution is not None and execution.kind == "independent":
-        from app.db.models.dataset import DatasetItem
-
         delivery = uuid.uuid4()
         async with (
             storage_access.engine(db).connect() as business,
@@ -792,13 +782,10 @@ async def enqueue_image_pyramid(
             source = await originals.pin(producer, owner_kind, identifier)
             execution.require_source(originals.receipt(source))
             item = source.item_id
-            dataset = (
-                await producer.scalar(
-                    select(DatasetItem.dataset_id).where(DatasetItem.id == item)
-                )
-                if item
-                else None
+            item_facts = (
+                await media_item_reads.read_item(producer, item) if item else None
             )
+            dataset = item_facts.dataset_id if item_facts is not None else None
             task = identifier if item is None and owner_kind == "task" else None
             async with execution.birth_scope(
                 producer, dataset, item, task, delivery=delivery
@@ -911,11 +898,7 @@ async def _reconcile_image_pyramids() -> None:
         async with factory() as db:
             deleted = await objects.reconcile(db, None)
             IMAGE_PYRAMID_GC_TOTAL.labels(outcome="deleted").inc(deleted)
-            retained = await db.scalar(
-                select(
-                    func.coalesce(func.sum(ImagePyramidGeneration.retained_bytes), 0)
-                ).where(ImagePyramidGeneration.status == "ready")
-            )
+            retained = await pyramid_data.retained_bytes(db)
             IMAGE_PYRAMID_ASSET_BYTES.set(float(retained or 0))
     finally:
         await storage_access.finish(asyncio.create_task(engine.dispose()))

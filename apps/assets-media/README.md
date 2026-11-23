@@ -5,9 +5,10 @@ The portable `aap-assets-media/v1`, `aap-assets-images/v1` and
 `aap-assets-inputs/v1` contracts import only Pydantic and the standard library;
 their native installations are owned by migrations 0219, 0220 and 0221.
 
-Video, image and input HTTP routes share one control process and one function-only
-control LOGIN. The process verifies the full current control/system function set
-(including Native read admission) before becoming ready. The video worker LOGIN
+Product control is embedded in the API. The portable video, image and input HTTP
+routes can still share a separate control process for deployments with a private
+SQL/S3 boundary; it verifies the current control function set, including Native
+read admission, before becoming ready. The video worker LOGIN
 has its own restricted execution and sweep set. Image execution uses a dedicated
 polling worker with 16 image and six input functions, its own SQL LOGIN and its
 own S3 credentials. The image worker uses
@@ -64,12 +65,14 @@ keep their own secrets inside Source. Deployment must provision these settings
 and the matching IAM policy; the repository defaults do not.
 
 For Compose, combine `docker-compose.assets-native.yml` with the Source, media
-and cleanup overlays. The Native overlay mounts the writer binding into the
-image worker and the API-local image executor, the reader binding into shared
-control, and the signer configuration into Source; the cleanup overlay carries
-its own required cleanup binding. Each caller file is readable only by its own
-runtime user; token values match the Source role token without sharing the
-Source files. Cleanup requires its URL and token even when automatic pyramid
+and cleanup overlays. The Native overlay mounts the writer token in the split
+image worker and the existing image-pyramid Celery worker, the reader token into
+the optional private control host, and the signer configuration into Source.
+For embedded control mount its reader token separately; never mount the writer,
+cleanup or Source credentials into the API. Cleanup holds its own required token.
+Each caller file is readable only by its runtime user; token values match the
+Source role token without sharing the files.
+Cleanup requires its URL and token even when automatic pyramid
 generation stays disabled, so running that worker also requires the Source
 signer. Attach `infra/docker/native-source-minio-policy.json` to the separate
 builtin Native identity; do not extend the ordinary media or cleanup
@@ -129,13 +132,21 @@ DatasetItem source snapshot, generation and object identity under a bounded row
 lock; only the Labeling owner may execute it. It is not a media HTTP route and
 does not expand any runtime LOGIN or private table privileges.
 
-The optional `apps/assets-media/Dockerfile` targets are `control`, `worker` and
-`image-worker`. The shared control app is defined in
-`docker-compose.assets-media.yml`; its `assets-images-worker` service uses an
-explicit image database URL, image S3 identity and legacy annotation bucket.
-The default Compose stack remains unchanged. `IMAGE_PYRAMID_AUTO_GENERATE`
-defaults to false; enabling it changes admission behavior and should follow the
-image capacity runbook.
+`docker-compose.assets-media.yml` separately opts in the `assets-video-executor`
+and `assets-image-executor` profiles; set `ASSETS_VIDEO_EXECUTOR=split` or
+`ASSETS_IMAGE_EXECUTOR=split` on the corresponding lane's application processes
+first, after draining old consumers. The other lane can stay `celery`.
+`ASSETS_MEDIA_URL` only selects the independently profiled private control host;
+neither executor requires it. With `celery`, each worker uses its exact
+function-only LOGIN through `ASSETS_CELERY_VIDEO_DATABASE_URL[_FILE]` or
+`ASSETS_CELERY_IMAGE_DATABASE_URL[_FILE]`; neither falls back to the API role.
+Native signer credentials are separate and optional. The existing grant scripts
+also accept `assets_owner=migration_role` for a migration-owned database (omit
+`asset_media_control_role` if not using a private control listener).
+
+The Dockerfile targets remain `control`, `worker` and `image-worker`.
+`IMAGE_PYRAMID_AUTO_GENERATE` still defaults to false; follow the image capacity
+runbook before enabling it.
 
 Video poster and exact-frame extraction each use one decoder, filter and encoder
 thread, rather than FFmpeg's host-CPU-based defaults. Container PID, CPU and memory

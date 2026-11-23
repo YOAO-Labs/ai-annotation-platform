@@ -102,6 +102,7 @@ summary 同时返回：
 ## Saved view 与 URL
 
 - **视图作用域（`entity_scope`）**：`project_task_views.entity_scope` 为 `tasks | objects | tracks`（私有名称唯一键与项目共享名称唯一键均包含 scope，三个粒度可使用同名视图）。创建和更新必须使用对应 schema 的 filter/sort/column 白名单；不兼容字段以 `invalid_fields` 返回，不静默改写。
+- **保存权限**：Insights 只返回当前项目中本人私有或共享的视图；共享视图写入仍要求当前项目管理权。读取或执行已保存的筛选时，匹配项与计数仍按调用者的当前任务访问范围计算。
 - **URL 参数与状态切换**：前端 URL 保存 `section/lens/view/q/filter/sort/columns/selected/layout/selected_tasks`（`section` 为 `overview | data | members`，`lens` 表示数据区域的 grain）。`filter`、`sort` 与 `columns` 使用带版本号的 JSON envelope；切换 grain 时清空不兼容状态，存在未保存修改时先提示确认。
 - **表达式保结构原则**：三个 grain 共享值编辑控件和保留结构的表达式操作，分组绝不展平（避免破坏同对象 `EXISTS` 约束）。关键词仅从独立 `contains` 规则或顶层 `AND` 中的无歧义规则提取；`OR` 内关键词保留在原树中。
 

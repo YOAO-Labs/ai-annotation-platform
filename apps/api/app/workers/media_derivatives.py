@@ -14,8 +14,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.dataset import DatasetItem
-from app.db.models.video_derivative import VideoDerivativeOutput as Output
 from app.services import media_cache_accounting
 from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
@@ -263,53 +261,15 @@ def error_code(exc):
 async def fail(factory, identifier, token, code):
     """A failed or duplicate delivery cannot fail a different physical attempt."""
     async with factory() as db:
-        located = await contract.row(db, Output, identifier)
-        if located is None:
+        if not await objects.fail_attempt(db, identifier, token, code):
             return
-        item = await contract.row(
-            db, DatasetItem, located.dataset_item_id, lock=True, write=True
-        )
-        slot = (
-            await contract._slot(db, item, located.kind, located.spec, lock=True)
-            if item
-            else None
-        )
-        current = await contract.row(db, Output, identifier, lock=True, write=True)
-        if (
-            current is None
-            or current.state != "building"
-            or current.lease_token != token
-        ):
-            return
-        if item is not None and current.kind == "metadata":
-            if item.video_building_output_id == identifier:
-                item.video_building_output_id = None
-                if item.video_output_id is None:
-                    video = {
-                        **((item.metadata_ or {}).get("video") or {}),
-                        "probe_error": code,
-                    }
-                    item.metadata_ = {**(item.metadata_ or {}), "video": video}
-        elif slot is not None and slot.output_id == identifier:
-            slot.output_id, slot.status, slot.error = None, "failed", code
-            slot.storage_key, slot.byte_size = None, None
-            if current.kind == "chunk":
-                slot.generation_mode, slot.diagnostics = None, {}
-        current.state, current.error_code = "retiring", code
-        from app.services.video_asset_retry_jobs import sync_output
-
-        await sync_output(db, current)
         await db.commit()
 
 
 async def _claim(factory, identifier):
     async with factory() as db:
-        output = await contract.row(db, Output, identifier)
-        if (
-            output is None
-            or output.state != "building"
-            or output.lease_token is not None
-        ):
+        output = await objects.locate_pending(db, identifier)
+        if output is None:
             return None
         authority = await originals.delegated(db, output.auth_ref)
         source = await originals.check(db, authority)
@@ -328,7 +288,9 @@ async def _claim(factory, identifier):
         metadata = None
         if frozen.metadata_output_id is not None:
             metadata = objects.snapshot(
-                await contract.row(db, Output, frozen.metadata_output_id)
+                await objects.read_attempt(
+                    db, frozen.dataset_item_id, "metadata", frozen.metadata_output_id
+                )
             )
         await db.commit()
         return Claimed(frozen, authority, source, token, metadata)
@@ -598,10 +560,12 @@ async def run_legacy(
             if source.item_id != identifier:
                 contract.reject("content_binding_changed")
             if kind == "metadata":
-                item = await contract.row(db, DatasetItem, identifier)
+                item = await contract.item_row(db, identifier)
                 force = False
                 if item.video_output_id and not item.video_building_output_id:
-                    active = await contract.row(db, Output, item.video_output_id)
+                    active = await objects.read_attempt(
+                        db, identifier, "metadata", item.video_output_id
+                    )
                     force = (
                         active is not None
                         and active.state == "ready"
@@ -615,7 +579,7 @@ async def run_legacy(
                 if needed:
                     queued.append(output.id)
             else:
-                item = await contract.row(db, DatasetItem, identifier)
+                item = await contract.item_row(db, identifier)
                 generation = await contract.metadata(db, item, source)
                 specs = (
                     [

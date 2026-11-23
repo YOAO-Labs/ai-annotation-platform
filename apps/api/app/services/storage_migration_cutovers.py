@@ -5,16 +5,12 @@ from datetime import datetime, timedelta, timezone
 import uuid
 
 from jose import JWTError, jwt
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import (
-    StorageMaintenanceGate as Gate,
-    StorageOperation,
-)
+from app.db.models.dataset_asset import StorageBinding
+from app.db.models.storage_maintenance import StorageMaintenanceGate as Gate
 from app.db.models.storage_migration_cutovers import StorageMigrationCutover as Cutover
 from app.db.models.storage_migration_finalization import (
     StorageMigrationFinalization as Finalization,
@@ -28,6 +24,7 @@ from app.services import (
     storage_migration_finalizations as finals,
     storage_migration_read_publications as reads,
     storage_migration_windows as windows,
+    storage_registry_data,
 )
 from app.services.storage_migration_inventory import PURPOSES
 
@@ -109,35 +106,23 @@ async def _owner(db, cutover_id, *, lock=False, required=True):
 
 
 async def _positions(db, ids):
-    initial = list(
-        await db.scalars(select(StorageLocation).where(StorageLocation.id.in_(ids)))
-    )
-    if len(initial) != len(ids):
+    initial = [await storage_registry_data.get_location(db, key) for key in ids]
+    links = {row.id: row.connection_id for row in initial if row is not None}
+    if len(links) != len(ids):
         reject()
-    links = {row.id: row.connection_id for row in initial}
     connection_ids = sorted({value for value in links.values() if value is not None})
     try:
-        if connection_ids:
-            await db.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id.in_(connection_ids))
-                .order_by(StorageConnection.id)
-                .with_for_update(read=True, nowait=True)
-            )
-        rows = list(
-            await db.scalars(
-                select(StorageLocation)
-                .where(StorageLocation.id.in_(ids))
-                .order_by(StorageLocation.id)
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        )
+        for key in connection_ids:
+            await storage_registry_data.get_connection(db, key, lock="share_nowait")
+        rows = [
+            await storage_registry_data.get_location(db, key, lock="share_nowait")
+            for key in ids
+        ]
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("cutover_busy")
         raise
-    if {row.id: row.connection_id for row in rows} != links:
+    if {row.id: row.connection_id for row in rows if row is not None} != links:
         reject()
 
 
@@ -178,6 +163,29 @@ def _replay_revision(row, expected_revision, floor):
         reject()
 
 
+def _purpose_target_facts(target, revisions, purpose):
+    owner = managed_s3_target.owner_module(purpose)
+    try:
+        endpoint = owner._endpoint(target["endpoint_url"])
+        bucket = target["bucket"]
+        if not owner._plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
+            raise managed_s3_target.error(purpose, "binding_unproven")
+        prefix = managed_s3_target.managed_prefix(
+            target["base_prefix"], purpose=purpose
+        )
+    except (KeyError, TypeError, ValueError):
+        raise managed_s3_target.error(purpose, "binding_unproven") from None
+    return managed_s3_target.Target(
+        uuid.UUID(target["location_id"]),
+        revisions["location"],
+        revisions["connection"],
+        endpoint,
+        bucket,
+        prefix,
+        purpose=purpose,
+    ).facts
+
+
 async def prepare_activation(
     db,
     actor_id,
@@ -197,7 +205,7 @@ async def prepare_activation(
         db, sorted({initial.source_location_id, initial.target_location_id})
     )
     bindings = await _bindings(db, exclusive=True)
-    final, _, native, _, publication = await reads._prepared(
+    final, _, native, token, publication = await reads._prepared(
         db, actor.id, a_claim, expected_finalization_revision, native_a
     )
     if (
@@ -215,13 +223,9 @@ async def prepare_activation(
         for purpose, facts in before.items()
     ):
         reject("cutover_bindings_unproven")
-    location = await db.get(
-        StorageLocation, publication.target_location_id, populate_existing=True
-    )
+    revisions = token["target_revisions"]
     targets = {
-        purpose: (
-            await managed_s3_target.target_for(db, location, purpose=purpose)
-        ).facts
+        purpose: _purpose_target_facts(publication.target, revisions, purpose)
         for purpose in sorted(PURPOSES)
     }
     if any(
@@ -436,7 +440,7 @@ async def _control(db, actor_id, cutover_id, *, exclusive_bindings=False):
     from app.services import storage_migration_copy_target as targets
     from app.services import storage_migration_inventories as inventories
 
-    identity, _, _, _ = await targets.resolve(db, row.target_location_id)
+    identity, _, _ = await targets.facts(db, row.target_location_id)
     if publication is None or final is None or identity != publication.target:
         reject()
     if await inventories.source_scope(db) != publication.source:
@@ -519,9 +523,11 @@ async def begin_rollback(db, actor_id, cutover_id, expected_revision):
 
 async def _drained(db, target_location_id):
     if await db.scalar(
-        select(StorageOperation.id)
-        .where(StorageOperation.location_id == target_location_id)
-        .limit(1)
+        text(
+            "SELECT open_operations > 0 "
+            "FROM yoao_assets_storage_v1.maintenance_status(:id)"
+        ),
+        {"id": target_location_id},
     ):
         reject("cutover_unsettled")
 
@@ -706,10 +712,11 @@ async def status(db, actor_id, cutover_id):
 
 
 async def require_target_resumable(db, location_id):
+    if db.autoflush:
+        await db.flush()
     if await db.scalar(
-        select(Cutover.id)
-        .where(Cutover.target_location_id == location_id, Cutover.state.in_(ROLLING))
-        .limit(1)
+        text("SELECT yoao_assets_v1.migration_cutover_blocks_target_resume(:id)"),
+        {"id": location_id},
     ):
         reject("cutover_active")
 

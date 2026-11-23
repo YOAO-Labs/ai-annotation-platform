@@ -20,12 +20,13 @@ from yoao_assets_source.connections_contract import (
     CaptureConnectionRequest,
     ConnectionCapture,
     ConnectionRecord,
-    ConnectionRead,
-    ConnectionsPage,
+    ConnectionProbeReceipt,
     CreateConnectionRequest,
     NativeConnectionFacts,
     NativeConnectionRead,
+    NativeConnectionsPage,
     ReadConnectionRequest,
+    TestConnectionRequest,
 )
 from app.api.v1 import storage_connections as routes
 from app.db.enums import UserRole
@@ -149,62 +150,64 @@ async def test_local_native_capture_uses_frozen_three_argument_signature():
 
 
 @pytest.mark.asyncio
-async def test_remote_connection_list_collects_complete_scoped_pages(monkeypatch):
+async def test_connection_list_uses_complete_native_pages_even_with_source_host(
+    monkeypatch,
+):
     actor_id = uuid.uuid4()
     first_id, second_id = uuid.uuid4(), uuid.uuid4()
     base_time = datetime.now(UTC)
     first = _record(first_id, actor_id, "newer", base_time)
     second = _record(second_id, actor_id, "older", base_time - timedelta(seconds=1))
     cursor = ConnectionCursor(created_at=first.created_at, id=first.id)
-    requests = []
-
-    def handler(request: httpx.Request):
-        requests.append(request)
-        body = json.loads(request.content)
-        if body["after"] is None:
-            page = ConnectionsPage(
-                actor_id=actor_id,
-                after=None,
-                next_cursor=cursor,
-                snapshot_digest="a" * 64,
-                total=2,
-                complete=False,
-                connections=[first],
-            )
-        else:
-            page = ConnectionsPage(
-                actor_id=actor_id,
-                after=cursor,
-                next_cursor=None,
-                snapshot_digest="a" * 64,
-                total=2,
-                complete=True,
-                connections=[second],
-            )
-        return httpx.Response(200, json=_wire(page))
-
-    _mock_http(monkeypatch, handler)
+    pages = (
+        NativeConnectionsPage(
+            actor_id=actor_id,
+            after=None,
+            next_cursor=cursor,
+            snapshot_digest="a" * 64,
+            total=2,
+            complete=False,
+            connections=[first],
+        ),
+        NativeConnectionsPage(
+            actor_id=actor_id,
+            after=cursor,
+            next_cursor=None,
+            snapshot_digest="a" * 64,
+            total=2,
+            complete=True,
+            connections=[second],
+        ),
+    )
+    _mock_http(
+        monkeypatch, lambda _request: pytest.fail("sent a metadata read to Source")
+    )
     db = AsyncMock(spec=AsyncSession)
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one=lambda page=page: _wire(page)) for page in pages
+    ]
     result = await AssetsConnectionsGateway(db).list_connections(actor_id)
 
     assert [item.id for item in result] == [first_id, second_id]
-    assert len(requests) == 2
-    assert all(request.url.path == "/v1/connections/list" for request in requests)
+    first_call, second_call = [call.args for call in db.execute.await_args_list]
     assert all(
-        request.headers["authorization"] == f"Bearer {'t' * 40}" for request in requests
+        "yoao_assets_v1.list_storage_connections" in str(statement)
+        and arguments["actor_id"] == actor_id
+        for statement, arguments in (first_call, second_call)
     )
-    assert json.loads(requests[1].content)["after"]["id"] == str(first_id)
-    db.execute.assert_not_awaited()
+    assert first_call[1]["after_id"] is None
+    assert second_call[1]["after_id"] == first_id
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_remote_connection_list_rejects_wrong_cursor_echo(monkeypatch):
+async def test_native_connection_list_rejects_wrong_cursor_echo():
     actor_id, connection_id = uuid.uuid4(), uuid.uuid4()
     now = datetime.now(UTC)
     wrong_after = ConnectionCursor(
         created_at=now - timedelta(seconds=1), id=uuid.uuid4()
     )
-    page = ConnectionsPage(
+    page = NativeConnectionsPage(
         actor_id=actor_id,
         after=wrong_after,
         next_cursor=None,
@@ -213,19 +216,19 @@ async def test_remote_connection_list_rejects_wrong_cursor_echo(monkeypatch):
         complete=True,
         connections=[_record(connection_id, actor_id, "archive", now)],
     )
-    _mock_http(monkeypatch, lambda _request: httpx.Response(200, json=_wire(page)))
     db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(page))
 
     with pytest.raises(AssetsConnectionsGatewayError) as failure:
         await AssetsConnectionsGateway(db).list_connections(actor_id)
 
     assert failure.value.code == "invalid_response"
     assert failure.value.detail == "Assets connection reply escaped request scope"
-    db.execute.assert_not_awaited()
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_remote_connection_list_preserves_results_beyond_one_page_budget(
+async def test_native_connection_list_preserves_results_beyond_one_page_budget(
     monkeypatch,
 ):
     actor_id = uuid.uuid4()
@@ -239,7 +242,7 @@ async def test_remote_connection_list_preserves_results_beyond_one_page_budget(
     pages = []
     for index, record in enumerate(records):
         pages.append(
-            ConnectionsPage(
+            NativeConnectionsPage(
                 actor_id=actor_id,
                 after=None if index == 0 else pages[-1].next_cursor,
                 next_cursor=ConnectionCursor(created_at=record.created_at, id=record.id)
@@ -253,40 +256,47 @@ async def test_remote_connection_list_preserves_results_beyond_one_page_budget(
         )
     maximum = max(len(json.dumps(_wire(page)).encode()) for page in pages)
     monkeypatch.setattr(assets_connections, "_MAX_RESPONSE_BYTES", maximum)
-    remaining = iter(pages)
-    _mock_http(
-        monkeypatch,
-        lambda _request: httpx.Response(200, json=_wire(next(remaining))),
-    )
     db = AsyncMock(spec=AsyncSession)
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one=lambda page=page: _wire(page)) for page in pages
+    ]
 
     result = await AssetsConnectionsGateway(db).list_connections(actor_id)
 
     assert [record.id for record in result] == [record.id for record in records]
     assert sum(len(record.model_dump_json()) for record in result) > maximum
-    db.execute.assert_not_awaited()
+    assert db.execute.await_count == len(pages)
 
 
 @pytest.mark.asyncio
 async def test_remote_connection_scope_failure_does_not_fall_back(monkeypatch):
     actor_id, connection_id = uuid.uuid4(), uuid.uuid4()
     wrong_id = uuid.uuid4()
-    now = datetime.now(UTC)
-    wrong = ConnectionRead(
+    request = TestConnectionRequest(
+        operation_id=uuid.uuid4(), actor_id=actor_id, connection_id=connection_id
+    )
+    wrong = ConnectionProbeReceipt(
+        operation_id=request.operation_id,
         actor_id=actor_id,
         connection_id=wrong_id,
-        connection=_record(wrong_id, actor_id, "escaped", now),
+        ok=True,
+        sample_count=1,
+        message="连接成功",
     )
-    _mock_http(
-        monkeypatch,
-        lambda _request: httpx.Response(200, json=_wire(wrong)),
-    )
+
+    def response(http_request: httpx.Request):
+        assert http_request.url.path == "/v1/connections/test"
+        assert http_request.headers["authorization"] == f"Bearer {'t' * 40}"
+        assert json.loads(http_request.content) == request.model_dump(
+            mode="json", exclude_unset=True
+        )
+        return httpx.Response(200, json=_wire(wrong))
+
+    _mock_http(monkeypatch, response)
     db = AsyncMock(spec=AsyncSession)
 
     with pytest.raises(AssetsConnectionsGatewayError) as failure:
-        await AssetsConnectionsGateway(db).read_connection(
-            ReadConnectionRequest(actor_id=actor_id, connection_id=connection_id)
-        )
+        await AssetsConnectionsGateway(db).test_connection(request)
 
     assert failure.value.code == "invalid_response"
     db.execute.assert_not_awaited()
@@ -298,8 +308,12 @@ async def test_remote_connection_failure_never_falls_back_to_local_sql(monkeypat
     db = AsyncMock(spec=AsyncSession)
 
     with pytest.raises(AssetsConnectionsGatewayError) as failure:
-        await AssetsConnectionsGateway(db).read_connection(
-            ReadConnectionRequest(actor_id=uuid.uuid4(), connection_id=uuid.uuid4())
+        await AssetsConnectionsGateway(db).test_connection(
+            TestConnectionRequest(
+                operation_id=uuid.uuid4(),
+                actor_id=uuid.uuid4(),
+                connection_id=uuid.uuid4(),
+            )
         )
 
     assert failure.value.status_code == 503
@@ -321,8 +335,12 @@ async def test_remote_non_finite_json_is_invalid_response_without_local_fallback
     db = AsyncMock(spec=AsyncSession)
 
     with pytest.raises(AssetsConnectionsGatewayError) as failure:
-        await AssetsConnectionsGateway(db).read_connection(
-            ReadConnectionRequest(actor_id=uuid.uuid4(), connection_id=uuid.uuid4())
+        await AssetsConnectionsGateway(db).test_connection(
+            TestConnectionRequest(
+                operation_id=uuid.uuid4(),
+                actor_id=uuid.uuid4(),
+                connection_id=uuid.uuid4(),
+            )
         )
 
     assert failure.value.code == "invalid_response"
@@ -338,8 +356,12 @@ async def test_remote_inaccessible_connection_is_concealed_as_missing(monkeypatc
     db = AsyncMock(spec=AsyncSession)
 
     with pytest.raises(AssetsConnectionsGatewayError) as failure:
-        await AssetsConnectionsGateway(db).read_connection(
-            ReadConnectionRequest(actor_id=actor_id, connection_id=connection_id)
+        await AssetsConnectionsGateway(db).test_connection(
+            TestConnectionRequest(
+                operation_id=uuid.uuid4(),
+                actor_id=actor_id,
+                connection_id=connection_id,
+            )
         )
 
     assert failure.value.status_code == 404

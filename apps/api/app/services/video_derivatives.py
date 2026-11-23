@@ -2,6 +2,7 @@
 
 from copy import deepcopy
 from datetime import datetime, timezone
+from dataclasses import dataclass
 import hashlib
 import json
 import math
@@ -11,18 +12,13 @@ import binascii
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import delete, select, text
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
-from app.db.models.dataset import (
-    DatasetItem,
-    VideoChunk,
-    VideoFrameCache,
-    VideoFrameIndex,
-)
-from app.db.models.video_derivative import VideoDerivativeOutput as Output
 from app.schemas.task import VideoMetadata
+from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services import storage_access
@@ -40,11 +36,34 @@ def reject(code="video_derivative_changed", status=409):
     raise ContentError(code, status)
 
 
-async def row(db, model, identifier, *, lock=False, write=False):
-    stmt = select(model).where(model.id == identifier)
-    if lock:
-        stmt = stmt.with_for_update(read=not write, nowait=True)
-    return await db.scalar(stmt.execution_options(populate_existing=True))
+@dataclass(frozen=True, slots=True)
+class VideoItem:
+    id: uuid.UUID
+    file_type: str
+    file_path: str
+    width: int | None
+    height: int | None
+    video_output_id: uuid.UUID | None
+    video_building_output_id: uuid.UUID | None
+
+
+async def item_row(db, identifier, *, lock=False, write=False) -> VideoItem | None:
+    if db.autoflush:
+        await db.flush()
+    row = (
+        (
+            await db.execute(
+                text("SELECT * FROM yoao_assets_v1.legacy_video_item(:item, :lock)"),
+                {
+                    "item": identifier,
+                    "lock": ("update" if write else "share") if lock else "read",
+                },
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    return None if row is None else VideoItem(**row)
 
 
 def metadata_result(output):
@@ -168,7 +187,9 @@ def validate_samples(diagnostics, byte_size, spec):
 async def metadata(db, item, source, *, lock=False):
     if item is None or item.video_output_id is None:
         reject("video_metadata_unpinned")
-    output = await row(db, Output, item.video_output_id, lock=lock)
+    output = await objects.read_attempt(
+        db, item.id, "metadata", item.video_output_id, lock="share" if lock else "read"
+    )
     if (
         output is None
         or output.dataset_item_id != item.id
@@ -229,84 +250,73 @@ def chunk_spec(output, chunk_id):
     }
 
 
-async def _waiting_scalar(db, statement, timeout):
-    """Acquire an owned row with the repository's bounded lock-timeout rule.
-
-    `SET LOCAL` scopes the bound to this transaction; a failed wait aborts the
-    transaction instead of leaving a shortened timeout for later statements.
-    """
-    previous = await db.scalar(text("SHOW lock_timeout"))
-    await db.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": timeout},
-    )
-    value = await db.scalar(statement)
-    await db.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": previous},
-    )
-    return value
+@dataclass(frozen=True, slots=True)
+class Slot:
+    id: uuid.UUID
+    dataset_item_id: uuid.UUID
+    output_id: uuid.UUID | None
+    status: str
+    kind: str
 
 
-async def _slot(
-    db, item, kind, spec, *, lock=False, create=False, write=False, wait=False
-):
+async def slot_for(db, item, kind, spec, *, lock=False, create=False, write=False):
     if kind == "metadata":
         return item
-    model = VideoFrameCache if kind == "frame" else VideoChunk
-    predicates = [model.dataset_item_id == item.id]
-    if kind == "frame":
-        predicates += [
-            model.frame_index == spec["frame_index"],
-            model.width == spec["width"],
-            model.format == spec["format"],
-        ]
-    elif kind == "chunk":
-        predicates += [model.chunk_id == spec["chunk_id"]]
-    else:
+    if kind not in {"frame", "chunk"}:
         reject()
-    stmt = select(model).where(*predicates).execution_options(populate_existing=True)
-    if lock:
-        stmt = stmt.with_for_update(read=not (create or write), nowait=not wait)
-    slot = (
-        await _waiting_scalar(db, stmt, ALLOCATION_LOCK_TIMEOUT)
-        if wait
-        else await db.scalar(stmt)
-    )
-    if slot is None and create:
-        values = {"dataset_item_id": item.id, "status": "pending"}
-        if kind == "frame":
-            values.update((k, spec[k]) for k in ("frame_index", "width", "format"))
-        else:
-            values.update(
-                (k, spec[k])
-                for k in (
-                    "chunk_id",
-                    "start_frame",
-                    "end_frame",
-                    "start_pts_ms",
-                    "end_pts_ms",
-                )
+    if db.autoflush:
+        await db.flush()
+    keys = {"item": item.id, "kind": kind, "spec": spec}
+    read = text(
+        "SELECT * FROM yoao_assets_v1.legacy_video_slot(:item, :kind, :spec, :lock)"
+    ).bindparams(bindparam("spec", type_=JSONB))
+    lock_mode = ("update" if create or write else "share") if lock else "read"
+
+    async def selected():
+        if lock:
+            previous = await db.scalar(text("SHOW lock_timeout"))
+            await db.execute(
+                text("SELECT set_config('lock_timeout', :timeout, true)"),
+                {"timeout": ALLOCATION_LOCK_TIMEOUT},
             )
-        slot = model(**values)
+        row = (
+            (await db.execute(read, {**keys, "lock": lock_mode}))
+            .mappings()
+            .one_or_none()
+        )
+        if lock:
+            await db.execute(
+                text("SELECT set_config('lock_timeout', :timeout, true)"),
+                {"timeout": previous},
+            )
+        return row
+
+    facts = await selected()
+    if facts is None and create:
         try:
             async with db.begin_nested():
-                db.add(slot)
-                await db.flush()
+                facts = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT * FROM yoao_assets_v1.legacy_video_create_slot(:item, :kind, :spec)"
+                            ).bindparams(bindparam("spec", type_=JSONB)),
+                            keys,
+                        )
+                    )
+                    .mappings()
+                    .one_or_none()
+                )
         except IntegrityError as exc:
             if (
                 getattr(exc.orig, "sqlstate", None) != "23505"
                 and getattr(exc.orig, "pgcode", None) != "23505"
             ):
                 raise
-            slot = (
-                await _waiting_scalar(db, stmt, ALLOCATION_LOCK_TIMEOUT)
-                if wait
-                else await db.scalar(stmt)
-            )
-            if slot is None:
+            facts = await selected()
+            if facts is None:
                 raise
-    return slot
+    return None if facts is None else Slot(kind=kind, **facts)
 
 
 async def _current_attempt(db, item_id, source, kind, spec):
@@ -321,7 +331,7 @@ async def _current_attempt(db, item_id, source, kind, spec):
     keys = ("frame_index", "width", "format") if kind == "frame" else ("chunk_id",)
     if not all(key in spec for key in keys):
         return None
-    item = await row(db, DatasetItem, item_id, lock=True)
+    item = await item_row(db, item_id, lock=True)
     if item is None or item.file_type != "video":
         return None
     generation = await metadata(db, item, source, lock=True)
@@ -332,10 +342,10 @@ async def _current_attempt(db, item_id, source, kind, spec):
     )
     if spec != expected:
         return None
-    slot = await _slot(db, item, kind, expected)
+    slot = await slot_for(db, item, kind, expected)
     if slot is None or slot.output_id is None:
         return None
-    current = await row(db, Output, slot.output_id)
+    current = await objects.read_attempt(db, item.id, kind, slot.output_id)
     if (
         current is not None
         and current.original_ref == originals.receipt(source)
@@ -359,7 +369,6 @@ async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
     allocation keeps the exclusive Item lock because it rewrites the active and
     building pointers.
     """
-    from app.services import video_derivative_objects as objects
 
     source = await originals.check(db, authority, lock=True)
     if source.item_id != item_id:
@@ -368,7 +377,7 @@ async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
         reused = await _current_attempt(db, item_id, source, kind, spec)
         if reused is not None:
             return reused
-    item = await row(db, DatasetItem, item_id, lock=True, write=kind == "metadata")
+    item = await item_row(db, item_id, lock=True, write=kind == "metadata")
     if item is None or item.file_type != "video":
         reject("video_not_found", 404)
     metadata_output = None
@@ -392,13 +401,19 @@ async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
     if spec is not None and spec != expected_spec:
         reject("video_derivative_spec_changed")
     spec = expected_spec
-    slot = await _slot(db, item, kind, spec, lock=True, create=True, wait=True)
+    slot = await slot_for(db, item, kind, spec, lock=True, create=True)
+    if slot is None:
+        reject()
     current_id = (
         (item.video_building_output_id or item.video_output_id)
         if kind == "metadata"
         else slot.output_id
     )
-    current = await row(db, Output, current_id, lock=True) if current_id else None
+    current = (
+        await objects.read_attempt(db, item.id, kind, current_id, lock="share")
+        if current_id is not None
+        else None
+    )
     if (
         not force
         and current is not None
@@ -422,16 +437,14 @@ async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
         auth_ref=originals.authorization(authority),
         metadata_output_id=metadata_output.id if metadata_output else None,
     )
-    if kind == "metadata":
-        item.video_building_output_id = output.id
-    else:
-        slot.output_id, slot.status = output.id, "pending"
-        slot.storage_key, slot.byte_size, slot.error = None, None, None
-        if kind == "chunk":
-            for name in ("start_frame", "end_frame", "start_pts_ms", "end_pts_ms"):
-                setattr(slot, name, spec[name])
-            slot.generation_mode, slot.diagnostics = None, {}
-    await db.flush()
+    await objects.attach(
+        db,
+        output,
+        slot_id=None if kind == "metadata" else slot.id,
+        previous_output_id=item.video_building_output_id
+        if kind == "metadata"
+        else current_id,
+    )
     return output, True
 
 
@@ -461,19 +474,19 @@ async def check(
         or originals.receipt(source) != output.original_ref
     ):
         reject("content_binding_changed")
-    item = await row(
-        db,
-        DatasetItem,
-        output.dataset_item_id,
-        lock=lock,
-        write=write and output.kind == "metadata",
+    item = await item_row(
+        db, output.dataset_item_id, lock=lock, write=write and output.kind == "metadata"
     )
     if item is None:
         reject("video_not_found", 404)
-    slot = await _slot(
-        db, item, output.kind, output.spec, lock=lock, write=write, wait=lock
+    slot = await slot_for(db, item, output.kind, output.spec, lock=lock, write=write)
+    current = await objects.read_attempt(
+        db,
+        item.id,
+        output.kind,
+        output.id,
+        lock=("update" if write else "share") if lock else "read",
     )
-    current = await row(db, Output, output.id, lock=lock, write=write)
     if current is None or slot is None:
         reject()
     if current.kind == "metadata":
@@ -522,8 +535,6 @@ async def check(
         reject("video_derivative_lease_lost")
     ref = physical.resolve(current).ref
     if token is None and not building and current.state == "ready":
-        from app.services import video_derivative_objects as objects
-
         plan = read_plan or objects.consumed(db, output, authority)
         if plan is None:
             plan = await objects.read_plan(
@@ -617,47 +628,43 @@ def validate_result(output, result, inventory):
 
 
 async def publish(db, output, authority, token, result, inventory, gate_revision):
-    item, slot, current, _ = await check(
+    _, _, current, _ = await check(
         db, output, authority, token=token, gate_revision=gate_revision, write=True
     )
     validate_result(current, result, inventory)
+    info = (
+        VideoMetadata.model_validate(result["video"])
+        if current.kind == "metadata"
+        else None
+    )
+    published = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_publish_attempt("
+                ":output, :token, :result, :inventory, :accessed, :width, :height, :poster)"
+            ).bindparams(
+                bindparam("result", type_=JSONB), bindparam("inventory", type_=JSONB)
+            ),
+            {
+                "output": current.id,
+                "token": token,
+                "result": result,
+                "inventory": inventory,
+                "accessed": now(),
+                "width": info.width if info else None,
+                "height": info.height if info else None,
+                "poster": info.poster_frame_path if info else None,
+            },
+        )
+    ).one_or_none()
+    if published is None:
+        reject("video_derivative_lease_lost")
     current.result, current.inventory, current.state = (
         deepcopy(result),
         deepcopy(inventory),
         "ready",
     )
-    if current.kind == "metadata":
-        info = VideoMetadata.model_validate(result["video"])
-        await db.execute(
-            delete(VideoFrameIndex).where(VideoFrameIndex.dataset_item_id == item.id)
-        )
-        frames = result["frames"]
-        stride = current.spec.get("timetable_stride", 1)
-        last = frames[-1]["frame_index"] if frames else None
-        db.add_all(
-            VideoFrameIndex(dataset_item_id=item.id, **frame)
-            for frame in frames
-            if stride <= 1
-            or frame["frame_index"] % stride == 0
-            or frame["frame_index"] == last
-            or frame["is_keyframe"]
-        )
-        item.width, item.height = info.width, info.height
-        item.metadata_ = {**(item.metadata_ or {}), "video": deepcopy(result["video"])}
-        item.thumbnail_path = info.poster_frame_path
-        item.video_output_id, item.video_building_output_id = current.id, None
-    else:
-        relative = (
-            f"frame.{current.spec['format']}"
-            if current.kind == "frame"
-            else "chunk.mp4"
-        )
-        slot.storage_key = physical.resolve(current).key(relative)
-        slot.byte_size = inventory["objects"][slot.storage_key]["size_bytes"]
-        slot.status, slot.error, slot.last_accessed_at = "ready", None, now()
-        if current.kind == "chunk":
-            slot.generation_mode = result["generation_mode"]
-            slot.diagnostics = deepcopy(result["diagnostics"])
+    current.updated_at, current.fixture_request_versions = published
     from app.services.video_asset_retry_jobs import sync_output
 
     await sync_output(db, current)
@@ -673,7 +680,6 @@ async def verified(db, output, authority, *, relative=None, bytes_limit=None):
     All guards use short owned sessions; this helper never commits caller work.
     """
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from app.services import video_derivative_objects as objects
 
     receipt = objects.snapshot(output)
     validate_result(receipt, receipt.result, receipt.inventory)
@@ -724,8 +730,10 @@ async def ready_output(db, slot, authority, *, expected_output_id=None):
         reject("video_derivative_not_ready")
     if expected_output_id is not None and slot.output_id != expected_output_id:
         reject("video_derivative_generation_changed")
-    output = await row(db, Output, slot.output_id)
-    if output is None or output.dataset_item_id != slot.dataset_item_id:
+    output = await objects.read_attempt(
+        db, slot.dataset_item_id, slot.kind, slot.output_id
+    )
+    if output is None:
         reject()
     await check(db, output, authority)
     validate_result(output, output.result, output.inventory)
@@ -746,13 +754,12 @@ def identity(output, relative):
 
 async def poster(db, item, authority):
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from app.services import video_derivative_objects as objects
 
     objects.begin_reads(db, authority)
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as fresh:
         source = await originals.check(fresh, authority)
-        current_item = await row(fresh, DatasetItem, item.id)
+        current_item = await item_row(fresh, item.id)
         output = objects.snapshot(await metadata(fresh, current_item, source))
         paths = output.result["video"]
     return await verified(
@@ -770,7 +777,6 @@ async def thumbnail(db, *, item_id=None, task_id=None):
     Unknown/legacy media yields no URL, rather than a current-bucket fallback.
     """
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from app.services import video_derivative_objects as objects
 
     if (item_id is None) == (task_id is None):
         reject()
@@ -784,7 +790,7 @@ async def thumbnail(db, *, item_id=None, task_id=None):
             authority = await originals.delegated(
                 fresh, originals.system_authorization(kind, identifier, source)
             )
-            item = await row(fresh, DatasetItem, source.item_id)
+            item = await item_row(fresh, source.item_id)
             output = objects.snapshot(await metadata(fresh, item, source))
             path = output.result["video"].get("poster_frame_path")
         if path is None:
@@ -805,7 +811,16 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         return []
     if delivery_id is not None and len(identifiers) != 1:
         raise ContentError("fixture_media_scope_mismatch", 409)
-    rows = list(await db.scalars(select(Output).where(Output.id.in_(identifiers))))
+    if db.autoflush:
+        await db.flush()
+    rows = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_dispatch_sources(:outputs)"
+            ),
+            {"outputs": identifiers},
+        )
+    ).all()
     outputs = {row.id: row for row in rows}
     if any(identifier not in outputs for identifier in identifiers):
         raise ContentError("video_derivative_output_missing", 409)

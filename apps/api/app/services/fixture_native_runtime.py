@@ -599,6 +599,8 @@ class FixtureNativeRuntime:
                 "MINIO_SECRET_KEY": profile["ASSETS_MEDIA_S3_SECRET_KEY"],
                 "ASSETS_MEDIA_URL": self.environment["ASSETS_MEDIA_URL"],
                 "ASSETS_MEDIA_TOKEN": self.environment["ASSETS_MEDIA_TOKEN"],
+                "ASSETS_VIDEO_EXECUTOR": "split",
+                "ASSETS_IMAGE_EXECUTOR": "split",
                 "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE": str(control_dsn),
                 "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE": target["writer_file"],
             }

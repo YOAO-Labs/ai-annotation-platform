@@ -5,13 +5,13 @@ status: stable
 last_reviewed: 2026-11-16
 ---
 
-# 独立图片与视频媒体接口
+# 图片与视频媒体接口及执行边界
 
 `apps/assets-media` 持有图片尺寸、缩略图、金字塔，以及视频元信息、帧时间表、海报、播放副本、帧、分块、回填和派生缓存清理。公开 REST 仍由主 API 认证并检查原有 scope；内部控制服务再通过原生 owner 能力检查当前账号、素材及 Task 可见性。任务帧重试还在受理事务内检查当前标注写权限。
 
 ## 运行与协议
 
-控制进程使用专用 Bearer token，只提供控制与查询接口；执行进程通过数据库轮询领取作业，没有公开领取 HTTP 接口，也不依赖 Celery 或 Redis。两者使用分开的 SQL LOGIN 和 S3 身份。API 的 `ASSETS_MEDIA_URL` 为空时装配同一套本地实现；显式选中远程后，故障不会回退到本地执行。
+API 默认内嵌控制。`ASSETS_VIDEO_EXECUTOR`、`ASSETS_IMAGE_EXECUTOR` 独立选择执行，取值 `celery` 或 `split`，默认 `celery`。`split` 时 API 仍按当前权限受理并提交同一作业；Celery 不再唤醒、领取或调度已迁移的执行和恢复周期，隔离执行器轮询原账本。保留队列的旧 UUID 金字塔作业不由这两个选择器迁移。`ASSETS_MEDIA_URL` 只为确需单独 SQL／S3 身份的控制宿主使用，失败不回退；它不再选择执行器。
 
 协议标识为 `aap-assets-media/v1`。请求和响应的精确模型随包发布为 `protocol.schema.json`，HTTP 路径及错误状态随包发布为 `openapi.snapshot.json`。成功信封为 `{schema, ok: true, data}`，失败信封为 `{schema, ok: false, error: {code}}`。不要把内部 token、签名 URL 或数据库凭据写入日志。
 
@@ -44,9 +44,13 @@ Task 列表的原始文件引用不依赖 S3 HEAD，避免存储短时不可用�
 
 迁移、精确 grants、secret 文件、就绪探针及显式 Compose 入口见仓库 `DEV.md` 的“视频媒体的独立控制与执行”。可选 worker 会继续使用显式配置的 `MEDIA_PROBE_URL`，远程探测故障也不会回退。Go 仅保留为单独实验。
 
+`docker-compose.assets-media.yml` 提供 `assets-video-executor`、`assets-image-executor`、`assets-media-control` 三个显式 profile。开启某个执行 profile 前，先停止旧领取、确认在途操作已排空，再将对应 `*_EXECUTOR` 在 API 和相关 Worker 统一改为 `split`；该值会关闭该 lane 的 Celery 领取，独立容器拒绝 `celery` 配置。独立执行器不需要控制容器或 broker。常驻 Celery 两项执行各需专用窄 LOGIN，通过 `ASSETS_CELERY_VIDEO_DATABASE_URL[_FILE]`、`ASSETS_CELERY_IMAGE_DATABASE_URL[_FILE]` 安装。API 与 Beat 不挂载这些数据库凭据。
+
+内嵌图片控制读取保存的 Native 代次时，只使用 `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` 与其 reader token；独立 writer 和 Cleanup 继续分别使用自己的 token。未配 reader 即明确拒绝 Native 历史读取，不猜当前缓存桶。文件、DB 与 S3 范围详见[金字塔手册](/ops/runbooks/image-pyramid)。
+
 ## 图片合同与重试
 
-图片使用独立的 `aap-assets-images/v1` 信封，精确数据与 HTTP 工件在包的 `yoao_assets_images` 目录中。它与视频共用控制服务地址、token 和连接池；`POST /v1/images/commands/{operation}` 提供 9 个当前主体操作及 5 个受信任系统操作。来源、原图、批量来源、金字塔及切片签名使用该命名空间中的 reference 路径。图片执行与图片垃圾能力只通过原生接口提供，不暴露为控制 HTTP 命令。
+图片使用独立的 `aap-assets-images/v1` 信封，精确数据与 HTTP 工件在包的 `yoao_assets_images` 目录中。内嵌 API 与独立共享控制使用同一 owner；独立进程共用视频地址、token 和连接池。HTTP 合同不暴露执行、写入和垃圾清理能力。
 
 图片作业先冻结来源代次、快照、对象身份和处理策略，再由独立执行进程领取。上传、ZIP 和连接导入在登记事务中绑定已观察的原始对象并受理工作；兼容 Celery 消息只唤醒已受理作业。小图保留原缩略图和 blurhash 算法，超大图使用独立 libvips 子进程。对象读取带 ETag/version 条件，传输受作业截止时间约束；原始对象没有写入或删除权限。
 

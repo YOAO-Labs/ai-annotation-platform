@@ -12,17 +12,20 @@ import json
 import re
 import uuid
 
-from sqlalchemy import Text, case, cast, func, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.dataset_auxiliary_original import (
     DatasetAuxiliaryOriginal as Original,
 )
 from app.services import managed_original_creation as creation
 from app.services import original_sources as sources
-from app.services import dataset_storage, storage_access, task_originals
+from app.services import (
+    dataset_storage,
+    original_source_data,
+    storage_access,
+    task_originals,
+)
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -208,17 +211,11 @@ def snapshot(row, *, endpoint_url=None):
 async def _persist(db, values):
     async with storage_access.engine(db).begin() as connection:
         await connection.execute(text("SET LOCAL lock_timeout = '1s'"))
-        table = Original.__table__
-        await connection.execute(
-            insert(table)
-            .values(**values)
-            .on_conflict_do_nothing(index_elements=[table.c.id])
+        row = await original_source_data.persist_auxiliary_source(
+            connection, values["id"]
         )
-        row = (
-            (await connection.execute(select(table).where(table.c.id == values["id"])))
-            .mappings()
-            .one()
-        )
+        if row is None:
+            reject("creation_conflict")
         if any(row[key] != values[key] for key in PERSIST_FIELDS):
             reject("creation_conflict")
         return dict(row)
@@ -339,37 +336,10 @@ async def bind_map(db, scene, owner):
     await db.flush()
 
 
-def _bounded(column, name):
-    return case(
-        (func.octet_length(cast(column, Text)) <= MAX_CONTRACT_BYTES * 2, column),
-        else_=None,
-    ).label(name)
-
-
 async def _owner(db, identifier, lock):
     if identifier is None:
         reject("unpinned")
-    fields = [
-        _bounded(Original.source_contract, "source_contract")
-        if name == "source_contract"
-        else case(
-            (func.octet_length(Original.etag) <= 1024, Original.etag), else_=None
-        ).label("etag")
-        if name == "etag"
-        else getattr(Original, name)
-        for name in PERSIST_FIELDS
-    ]
-    row = (
-        (
-            await db.execute(
-                sources._statement(
-                    select(*fields).where(Original.id == identifier), lock
-                )
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
+    row = await original_source_data.auxiliary_source(db, identifier, lock=lock)
     if row is not None and row["source_contract"] is None:
         reject("source_budget_exceeded", 422)
     return row
@@ -401,25 +371,9 @@ async def _resolve_task(db, task_id, kind, lock):
         )
         if relation.item_id is None or relation.original_id is not None:
             reject("unpinned")
-        item = (
-            await db.execute(
-                sources._statement(
-                    select(
-                        DatasetItem.id,
-                        DatasetItem.dataset_id,
-                        DatasetItem.file_path,
-                        DatasetItem.file_type,
-                        DatasetItem.width,
-                        DatasetItem.height,
-                        DatasetItem.scene_id,
-                        DatasetItem.frame_index,
-                        DatasetItem.nuscenes_raw_original_id,
-                        _bounded(DatasetItem.metadata_, "metadata"),
-                    ).where(DatasetItem.id == relation.item_id),
-                    lock,
-                )
-            )
-        ).one_or_none()
+        item = await original_source_data.auxiliary_item(
+            db, relation.item_id, lock=lock
+        )
         if (
             item is None
             or item.file_type != "point_cloud"
@@ -429,20 +383,7 @@ async def _resolve_task(db, task_id, kind, lock):
             reject("contract_changed")
         if item.metadata is None:
             reject("source_budget_exceeded", 422)
-        scene = (
-            await db.execute(
-                sources._statement(
-                    select(
-                        Scene.id,
-                        Scene.dataset_id,
-                        Scene.source_format,
-                        Scene.nuscenes_map_original_id,
-                        _bounded(Scene.source_metadata, "source_metadata"),
-                    ).where(Scene.id == item.scene_id),
-                    lock,
-                )
-            )
-        ).one_or_none()
+        scene = await original_source_data.auxiliary_scene(db, item.scene_id, lock=lock)
         if (
             scene is None
             or scene.dataset_id != item.dataset_id

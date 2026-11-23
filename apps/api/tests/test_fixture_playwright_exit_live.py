@@ -220,6 +220,10 @@ async def test_actual_playwright_owned_exit_preserves_neighbor(
         monkeypatch.setenv("ASSETS_MEDIA_URL", settings.assets_media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setattr(settings, "assets_video_executor", "split")
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
+        monkeypatch.setenv("ASSETS_VIDEO_EXECUTOR", "split")
+        monkeypatch.setenv("ASSETS_IMAGE_EXECUTOR", "split")
         owner_log = tempfile.TemporaryFile()
         owner_process = subprocess.Popen(
             [sys.executable, str(WEB / "e2e/fixtures/seed-request.py")],

@@ -19,15 +19,13 @@ import uuid
 import zlib
 
 from botocore.exceptions import ClientError
-from sqlalchemy import select
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 MAX_BYTES = 64 * 1024**3
 MAX_SOURCE_BYTES = 256 * 1024**3
@@ -357,39 +355,18 @@ async def allocate(db, row) -> dict:
         await ensure_legacy_bindings(db)
     except ValueError:
         _reject("audit_archive_storage_binding_unproven")
-    initial = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "audit-archive")
-        .execution_options(populate_existing=True)
-    )
+    initial = await get_binding(db, "audit-archive")
     if initial is None:
         _reject("audit_archive_storage_binding_unproven")
     binding_facts = initial.location_id, initial.bucket, initial.generation
-    initial_location = await db.get(
-        StorageLocation, initial.location_id, populate_existing=True
-    )
+    initial_location = await get_location(db, initial.location_id)
     if initial_location is None:
         _reject("audit_archive_storage_binding_unproven")
     connection_id = getattr(initial_location, "connection_id", None)
     if connection_id is not None:
-        await db.scalar(
-            select(StorageConnection)
-            .where(StorageConnection.id == connection_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
-    location = await db.scalar(
-        select(StorageLocation)
-        .where(StorageLocation.id == binding_facts[0])
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
-    binding = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "audit-archive")
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
+        await get_connection(db, connection_id, lock="share")
+    location = await get_location(db, binding_facts[0], lock="share")
+    binding = await get_binding(db, "audit-archive", lock="share")
     if (
         location is None
         or location.id != binding_facts[0]
@@ -398,9 +375,9 @@ async def allocate(db, row) -> dict:
         or (binding.location_id, binding.bucket, binding.generation) != binding_facts
     ):
         _reject("audit_archive_storage_binding_unproven")
-    from app.services.audit_archive_storage_target import target_for
+    from app.services.managed_s3_target import target_origin_for
 
-    target = await target_for(db, location)
+    target = await target_origin_for(db, location, purpose="audit-archive")
     if (
         type(binding.generation) is not int
         or binding.generation < 1
@@ -433,7 +410,7 @@ async def io_target(db, row):
     from app.services.audit_archive_storage_target import target_for
 
     identifier = uuid.UUID(owner.ref["location_id"])
-    location = await db.get(StorageLocation, identifier, populate_existing=True)
+    location = await get_location(db, identifier)
     target = await target_for(db, location)
     if (
         target.endpoint_url != owner.ref["endpoint_url"]

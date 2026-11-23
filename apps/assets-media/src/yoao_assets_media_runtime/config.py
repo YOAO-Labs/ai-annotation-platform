@@ -265,6 +265,10 @@ def load_storage_config(
 def load_config(environment: Mapping[str, str] | None = None) -> MediaWorkerConfig:
     """Load the worker login and explicit storage configuration."""
     values = os.environ if environment is None else environment
+    if values.get("ASSETS_VIDEO_EXECUTOR", "split") != "split":
+        raise ConfigurationError(
+            "the standalone video executor requires ASSETS_VIDEO_EXECUTOR=split"
+        )
     return MediaWorkerConfig(
         database_url=_database_url(values),
         storage=load_storage_config(values),

@@ -6,17 +6,15 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import sys
+from types import SimpleNamespace
 import uuid
 
-from sqlalchemy import String, and_, cast, exists, func, or_, select
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.config import settings
-from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.video_derivative import VideoDerivativeOutput as Output
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
@@ -69,6 +67,74 @@ def snapshot(row):
             for name in Receipt.__dataclass_fields__
         }
     )
+
+
+@dataclass(frozen=True, slots=True)
+class CacheOutput:
+    id: uuid.UUID
+    state: str
+    storage_ref: dict = field(repr=False)
+    inventory: dict | None = field(repr=False)
+    fixture_request_versions: dict | None = field(repr=False)
+
+
+async def get_output(db, identifier, *, lock=False) -> CacheOutput | None:
+    if db.autoflush:
+        await db.flush()
+    row = (
+        (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.legacy_video_cache_output(:output, :lock)"
+                ),
+                {"output": identifier, "lock": lock},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    return None if row is None else CacheOutput(**row)
+
+
+async def read_attempt(db, item_id, kind, identifier, *, lock="read"):
+    if db.autoflush:
+        await db.flush()
+    return await _facts(
+        db,
+        text(
+            "SELECT * FROM yoao_assets_v1.legacy_video_attempt(:item, :kind, :output, :lock)"
+        ),
+        {"item": item_id, "kind": kind, "output": identifier, "lock": lock},
+    )
+
+
+async def _facts(db, statement, params):
+    row = (await db.execute(statement, params)).mappings().one_or_none()
+    return None if row is None else SimpleNamespace(**row)
+
+
+async def locate_pending(db, identifier):
+    return await _facts(
+        db,
+        text("SELECT * FROM yoao_assets_v1.legacy_video_locate_pending(:output)"),
+        {"output": identifier},
+    )
+
+
+async def fail_attempt(db, identifier, token, code) -> bool:
+    from app.services.video_asset_retry_jobs import sync_output
+
+    current = await _facts(
+        db,
+        text(
+            "SELECT * FROM yoao_assets_v1.legacy_video_fail_attempt(:output, :token, :error)"
+        ),
+        {"output": identifier, "token": token, "error": code},
+    )
+    if current is None:
+        return False
+    await sync_output(db, current)
+    return True
 
 
 @dataclass(frozen=True)
@@ -282,7 +348,6 @@ def remember_reads(db, output, authority, plan):
 async def allocate(
     db, *, dataset_item_id, kind, spec, original_ref, auth_ref, metadata_output_id=None
 ):
-    """Allocate metadata only; the caller retains its short business transaction."""
     if (
         not isinstance(dataset_item_id, uuid.UUID)
         or kind not in {"metadata", "frame", "chunk"}
@@ -297,7 +362,37 @@ async def allocate(
     identifier = uuid.uuid4()
     ref = await physical.allocate(db, identifier)
     await storage_access.check(db, uuid.UUID(ref["location_id"]), lock=True)
-    output = Output(
+    await db.flush()
+    allocated = (
+        (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.legacy_video_allocate_output("
+                    ":output, :item, :kind, :spec, :original, :auth, :metadata, :target)"
+                ).bindparams(
+                    bindparam("spec", type_=JSONB),
+                    bindparam("original", type_=JSONB),
+                    bindparam("auth", type_=JSONB),
+                    bindparam("target", type_=JSONB),
+                ),
+                {
+                    "output": identifier,
+                    "item": dataset_item_id,
+                    "kind": kind,
+                    "spec": spec,
+                    "original": original_ref,
+                    "auth": auth_ref,
+                    "metadata": metadata_output_id,
+                    "target": ref,
+                },
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if allocated is None:
+        reject("video_derivative_changed")
+    output = SimpleNamespace(
         id=identifier,
         dataset_item_id=dataset_item_id,
         kind=kind,
@@ -305,17 +400,29 @@ async def allocate(
         original_ref=deepcopy(original_ref),
         auth_ref=deepcopy(auth_ref),
         metadata_output_id=metadata_output_id,
-        storage_ref=ref,
         state="building",
+        lease_token=None,
+        lease_expires_at=None,
+        inventory=None,
+        result=None,
+        error_code=None,
+        **allocated,
     )
-    db.add(output)
-    await db.flush()
     if output.fixture_request_versions is not None:
-        await db.refresh(output, ["storage_ref"])
         await storage_access.check(
             db, uuid.UUID(output.storage_ref["location_id"]), lock=True
         )
     return output
+
+
+async def attach(db, output, *, slot_id, previous_output_id):
+    if not await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.legacy_video_attach_output(:output, :slot, :previous)"
+        ),
+        {"output": output.id, "slot": slot_id, "previous": previous_output_id},
+    ):
+        reject("video_derivative_changed")
 
 
 async def claim(db, output, ttl_seconds=900):
@@ -329,10 +436,20 @@ async def claim(db, output, ttl_seconds=900):
         or output.lease_expires_at is not None
     ):
         return None
-    token = uuid.uuid4()
-    output.lease_token = token
-    output.lease_expires_at = utcnow() + timedelta(seconds=ttl_seconds)
     await db.flush()
+    token = uuid.uuid4()
+    claimed = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_claim_attempt(:output, :token, :ttl)"
+            ),
+            {"output": output.id, "token": token, "ttl": ttl_seconds},
+        )
+    ).one_or_none()
+    if claimed is None:
+        return None
+    output.lease_token = token
+    output.lease_expires_at, output.updated_at = claimed
     from app.services.video_asset_retry_jobs import sync_output
 
     await sync_output(db, output)
@@ -401,154 +518,36 @@ async def access(
         await originals.drain(asyncio.create_task(session.close()))
 
 
-def _no_operations(identifier):
-    return ~exists().where(
-        StorageOperation.purpose
-        == "video_derivative_" + func.replace(cast(identifier, String), "-", "")
-    )
-
-
-def _unreferenced(identifier):
-    return and_(
-        ~exists().where(
-            or_(
-                DatasetItem.video_output_id == identifier,
-                DatasetItem.video_building_output_id == identifier,
-            )
-        ),
-        ~exists().where(VideoFrameCache.output_id == identifier),
-        ~exists().where(VideoChunk.output_id == identifier),
-    )
-
-
-async def _in_use(db, identifier, *, except_id=None):
-    statement = select(exists().where(StorageOperation.purpose == purpose(identifier)))
-    if except_id is not None:
-        statement = select(
-            exists().where(
-                StorageOperation.purpose == purpose(identifier),
-                StorageOperation.id != except_id,
-            )
-        )
-    return bool(await db.scalar(statement))
-
-
-async def _has_reference(db, identifier):
-    return not bool(await db.scalar(select(_unreferenced(identifier))))
-
-
-async def _lock_context(db, identifier):
-    item_id = await db.scalar(
-        select(Output.dataset_item_id).where(Output.id == identifier)
-    )
-    if item_id is None:
-        return None, [], [], None
-    item = await db.scalar(
-        select(DatasetItem)
-        .where(DatasetItem.id == item_id)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    frames = list(
-        await db.scalars(
-            select(VideoFrameCache)
-            .where(
-                VideoFrameCache.dataset_item_id == item_id,
-                VideoFrameCache.output_id == identifier,
-            )
-            .order_by(VideoFrameCache.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True)
-        )
-    )
-    chunks = list(
-        await db.scalars(
-            select(VideoChunk)
-            .where(
-                VideoChunk.dataset_item_id == item_id,
-                VideoChunk.output_id == identifier,
-            )
-            .order_by(VideoChunk.id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True)
-        )
-    )
-    output = await db.scalar(
-        select(Output)
-        .where(Output.id == identifier)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    return item, frames, chunks, output
-
-
-def _clear_cache(row):
-    row.output_id = None
-    row.status = "pending"
-    row.storage_key = None
-    row.byte_size = None
-    row.error = None
-    if isinstance(row, VideoChunk):
-        row.generation_mode = None
-        row.diagnostics = {}
-
-
-async def _expire_cache(db, model, kind, cutoff, limit):
-    candidates = list(
+async def _expire_cache(db, kind, cutoff, limit):
+    candidates = (
         await db.execute(
-            select(model.dataset_item_id, model.id, Output.id)
-            .join(Output, model.output_id == Output.id)
-            .where(
-                model.status == "ready",
-                model.last_accessed_at < cutoff,
-                Output.state == "ready",
-                Output.kind == kind,
-                Output.dataset_item_id == model.dataset_item_id,
-                func.yoao_assets_v1.fixture_media_ordinary_gc(
-                    "video_output", Output.id, 0
-                ),
-                _no_operations(Output.id),
-            )
-            .order_by(model.last_accessed_at, model.id)
-            .limit(limit)
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_expired_slots(:kind, :cutoff, :limit)"
+            ),
+            {"kind": kind, "cutoff": cutoff, "limit": limit},
         )
-    )
+    ).all()
     await db.commit()
     for item_id, row_id, identifier in candidates:
         try:
-            await db.scalar(
-                select(DatasetItem.id)
-                .where(DatasetItem.id == item_id)
-                .with_for_update(nowait=True)
+            output = await _facts(
+                db,
+                text(
+                    "SELECT * FROM yoao_assets_v1.legacy_video_expire_slot("
+                    ":kind, :item, :slot, :output, :cutoff)"
+                ),
+                {
+                    "kind": kind,
+                    "item": item_id,
+                    "slot": row_id,
+                    "output": identifier,
+                    "cutoff": cutoff,
+                },
             )
-            row = await db.scalar(
-                select(model)
-                .where(model.id == row_id, model.dataset_item_id == item_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-            output = await db.scalar(
-                select(Output)
-                .where(Output.id == identifier)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
-            if (
-                row is None
-                or output is None
-                or output.state != "ready"
-                or output.kind != kind
-                or output.dataset_item_id != item_id
-                or row.output_id != identifier
-                or row.status != "ready"
-                or row.last_accessed_at is None
-                or row.last_accessed_at >= cutoff
-                or await _in_use(db, identifier)
-            ):
+            if output is None:
                 await db.rollback()
                 continue
             physical.resolve(output)
-            _clear_cache(row)
             await db.commit()
         except (ContentError, physical.VideoDerivativeStorageError):
             await db.rollback()
@@ -558,76 +557,31 @@ async def _expire_cache(db, model, kind, cutoff, limit):
                 raise
 
 
-def _expired(now):
-    return or_(
-        Output.lease_expires_at <= now,
-        and_(
-            Output.lease_token.is_(None),
-            Output.lease_expires_at.is_(None),
-            Output.updated_at < now - timedelta(seconds=originals.JOB_SECONDS),
-        ),
-    )
-
-
 async def _expire_building(db, now, limit):
-    identifiers = list(
+    from app.services.video_asset_retry_jobs import sync_output
+
+    identifiers = (
         await db.scalars(
-            select(Output.id)
-            .where(
-                Output.state == "building",
-                _expired(now),
-                _no_operations(Output.id),
-                func.yoao_assets_v1.fixture_media_ordinary_gc(
-                    "video_output", Output.id, 0
-                ),
-            )
-            .order_by(Output.updated_at, Output.id)
-            .limit(limit)
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_abandoned_attempts(:now, :limit)"
+            ),
+            {"now": now, "limit": limit},
         )
-    )
+    ).all()
     await db.commit()
     for identifier in identifiers:
         try:
-            item, frames, chunks, output = await _lock_context(db, identifier)
-            if (
-                output is None
-                or output.state != "building"
-                or await _in_use(db, identifier)
-            ):
-                await db.rollback()
-                continue
-            expired = (
-                output.lease_expires_at <= now
-                if output.lease_expires_at is not None
-                else output.lease_token is None
-                and output.updated_at < now - timedelta(seconds=originals.JOB_SECONDS)
+            output = await _facts(
+                db,
+                text(
+                    "SELECT * FROM yoao_assets_v1.legacy_video_expire_attempt(:output, :now)"
+                ),
+                {"output": identifier, "now": now},
             )
-            if not expired:
+            if output is None:
                 await db.rollback()
                 continue
             physical.resolve(output)
-            if (
-                item is not None
-                and output.kind == "metadata"
-                and item.video_building_output_id == identifier
-            ):
-                item.video_building_output_id = None
-            for row in (
-                frames
-                if output.kind == "frame"
-                else chunks
-                if output.kind == "chunk"
-                else []
-            ):
-                if row.status == "pending":
-                    _clear_cache(row)
-            age = output.updated_at
-            output.state = "retiring"
-            output.error_code = output.error_code or "lease_expired"
-            output.updated_at = age
-            flag_modified(output, "updated_at")
-            from app.services.video_asset_retry_jobs import sync_output
-
             await sync_output(db, output)
             await db.commit()
         except (ContentError, physical.VideoDerivativeStorageError):
@@ -636,6 +590,16 @@ async def _expire_building(db, now, limit):
             await db.rollback()
             if not storage_access.unavailable(exc):
                 raise
+
+
+async def _sweeping(db, identifier, receipt):
+    current = await _facts(
+        db,
+        text("SELECT * FROM yoao_assets_v1.legacy_video_sweep_attempt(:output)"),
+        {"output": identifier},
+    )
+    if current is None or snapshot(current) != receipt:
+        reject()
 
 
 async def retire_fixture(db, control, identifier):
@@ -648,7 +612,7 @@ async def retire_fixture(db, control, identifier):
         ) as storage:
             return physical.delete_output(storage, output, fixture=fixture)
 
-    await _retire_output(db, control, "video_output", identifier, Output, retire)
+    await _retire_output(db, control, "video_output", identifier, retire)
 
 
 async def reconcile(db, *, limit=100, grace_seconds=3600):
@@ -663,68 +627,43 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
     now = utcnow()
     await _expire_cache(
         db,
-        VideoFrameCache,
         "frame",
         now - timedelta(days=settings.video_frame_cache_ttl_days),
         limit,
     )
     await _expire_cache(
         db,
-        VideoChunk,
         "chunk",
         now - timedelta(days=settings.video_chunk_cache_ttl_days),
         limit,
     )
     await _expire_building(db, now, limit)
     cutoff = now - timedelta(seconds=grace_seconds)
-    identifiers = list(
+    identifiers = (
         await db.scalars(
-            select(Output.id)
-            .where(
-                Output.state != "deleted",
-                func.yoao_assets_v1.fixture_media_ordinary_gc(
-                    "video_output", Output.id, 0
-                ),
-                Output.updated_at < cutoff,
-                or_(Output.state != "building", _expired(now)),
-                _unreferenced(Output.id),
-                _no_operations(Output.id),
-            )
-            .order_by(Output.updated_at, Output.id)
-            .limit(limit)
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_retirement_candidates(:now, :cutoff, :limit)"
+            ),
+            {"now": now, "cutoff": cutoff, "limit": limit},
         )
-    )
+    ).all()
     await db.commit()
     removed = 0
     for identifier in identifiers:
         try:
-            _, _, _, output = await _lock_context(db, identifier)
-            if (
-                output is None
-                or output.state == "deleted"
-                or output.updated_at >= cutoff
-                or await _has_reference(db, identifier)
-                or await _in_use(db, identifier)
-            ):
+            output = await _facts(
+                db,
+                text(
+                    "SELECT * FROM yoao_assets_v1.legacy_video_begin_sweep(:output, :now, :cutoff)"
+                ),
+                {"output": identifier, "now": now, "cutoff": cutoff},
+            )
+            if output is None:
                 await db.rollback()
                 continue
-            if (
-                output.state == "building"
-                and output.lease_expires_at is not None
-                and output.lease_expires_at > now
-            ):
-                await db.rollback()
-                continue
-            physical.resolve(output)
-            published = output.state == "ready"
-            age = output.updated_at
-            output.state = "retiring"
-            output.updated_at = now if published else age
-            flag_modified(output, "updated_at")
-            await db.flush()
             receipt = snapshot(output)
             await db.commit()
-            if published:
+            if output.published:
                 continue
             accounting = removal.recorder(
                 db, receipt, producer="video_derivative_removals", purpose="media_cache"
@@ -736,22 +675,13 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 owned_permit = permit
 
             async def guarded(revision):
-                _, _, _, current = await _lock_context(db, identifier)
-                if (
-                    current is None
-                    or snapshot(current) != receipt
-                    or current.state != "retiring"
-                    or await _has_reference(db, identifier)
+                await _sweeping(db, identifier, receipt)
+                if not await db.scalar(
+                    text(
+                        "SELECT yoao_assets_v1.legacy_video_sweep_permit(:output, :revision)"
+                    ),
+                    {"output": identifier, "revision": revision},
                 ):
-                    reject()
-                operations = list(
-                    await db.scalars(
-                        select(StorageOperation).where(
-                            StorageOperation.purpose == purpose(identifier)
-                        )
-                    )
-                )
-                if len(operations) != 1 or operations[0].revision != revision:
                     reject("storage_operation_unsettled")
                 await storage_access.check(
                     db,
@@ -788,16 +718,14 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
             )
             if failure is not None:
                 raise failure
-            _, _, _, current = await _lock_context(db, identifier)
-            if (
-                current is None
-                or snapshot(current) != receipt
-                or current.state != "retiring"
-                or await _has_reference(db, identifier)
-                or await _in_use(db, identifier)
+            await _sweeping(db, identifier, receipt)
+            if not await db.scalar(
+                text(
+                    "SELECT yoao_assets_v1.legacy_video_finish_sweep(:output, :updated_at)"
+                ),
+                {"output": identifier, "updated_at": receipt.updated_at},
             ):
                 reject()
-            current.state = "deleted"
             await db.commit()
             removed += count
         except (ContentError, physical.VideoDerivativeStorageError):

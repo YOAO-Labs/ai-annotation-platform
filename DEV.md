@@ -467,7 +467,7 @@ API 文档：http://localhost:8000/docs
 
 ### 默认模块装配与旧拆分环境
 
-默认档由 API 和现有 worker 在原事务中调用 Workspace、Labeling 类目／视频写入、Assets Catalog；Identity 签发和 Notifications WebSocket 也留在 API。Jobs 使用同一个 Celery broker，只有恢复队列另用受限 LOGIN。实际需要的 Inference 凭据 owner、媒体隔离和邮件 sender 按[部署与凭据矩阵](docs-site/ops/deploy/docker-compose.md#module-process-selection)选择。
+默认与保留服务以[模块部署进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)为准。独立工作树仅用该模式生成的应用 LOGIN 和资源；M2b 验收须另证这个 LOGIN、两种 LAN 普通 LOGIN 均无私表、列、物化视图、外表、分区或序列的有效权限。不要用本地 owner、维护或 Source 凭据代替普通登录跑通业务。各场景的安装参数见[运维部署](docs-site/ops/deploy/docker-compose.md#module-process-selection)。
 
 原拆分服务、选择器和密钥文件不能带入新装配滚动升级。先看[旧拓扑升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)；M2c 日常切换另行授权。工作树的默认装配不修改日常服务、数据库、共享 `.env` 或既有凭据。
 
@@ -699,7 +699,7 @@ Labeling 类目与视频最终写入复验当前 API／worker 消费者；包级
 
 迁移 `0315` 与 `apps/audit` 发布 `aap-audit-append/v1`，固定函数为 `yoao_audit_v1.append_events(jsonb)`。`AuditService.log`／`log_many`、HTTP 同步回退、原 Celery 持久化任务及筛选夹具的追加复用该能力。原始 actor／request 快照和开放 action 保留；业务追加先在原事务视图中写入，再合并干净 ORM 对象并执行原 full flush，不额外读取 Audit 私表。数据库仍分配 ID 和事务时间，业务调用方保留提交／回滚权。HTTP 元数据继续 best-effort；不存在的 actor 仍回滚后以匿名重试，没有增加 exactly-once 语义。
 
-先安装当前迁移和 module-data owner grants。`infra/docker/audit-append-grants.sql` 仅向明确的 API 角色及独立函数客户端授予追加能力，撤销现有 Audit 父表／分区的 INSERT 和对应序列写权限，保留其他尚未迁移操作需要的权限。它会拒绝 API 拥有分区树或未来默认授权不安全的配置，不修改整个 public schema 的默认权限。当前 LAN／worktree 配置由 Audit owner 持有父表、序列与分区树，固定维护能力负责后续分区；暂缓 Learning 仍需父表 SELECT，不提前统一撤销。**排空旧 API／worker 并部署新工件后才撤销直接写权限**。
+先应用当前迁移和 module-data owner grants，再安装 `infra/docker/audit-append-grants.sql` 或对应 LAN／worktree 运行授权。普通 LOGIN 失去 Audit 父表、分区、私有物化视图和归档发布账本的全部表／列权限，以及序列的直接权限。安装器拒绝继承所有者及不安全的未来默认权限，不改变整个 public schema 的默认权限。主动学习反馈已使用公开事件关系；存储故障在原独立事务中调用固定追加。**先排空旧 API／worker 并部署新工件，再撤销直接权限**。
 
 模块 Node peer 的锁定依赖按 `apps/audit/conformance/node/README.md` 与 `apps/notifications/conformance/node/README.md` 安装到各自目录，验收器在创建资源前执行自检，不向根 Node 目录补装依赖。
 
@@ -711,19 +711,19 @@ Labeling 类目与视频最终写入复验当前 API／worker 消费者；包级
 
 迁移 `0317` 安装 `yoao_audit_v1.query_events(jsonb)`，`apps/audit` 发布 `aap-audit-query/v1`。super-admin 的全局列表及 CSV／JSON 导出使用原 Session 调用固定 owner；项目管理员范围和其他历史事实读取继续使用原入口。总数在游标／分页前计算，导出保留 50,000 行上限以及审计提交后才返回流的顺序。公开 HTTP 参数和响应不变。
 
-先安装匹配迁移及 module-data grants，再使用 `infra/docker/audit-query-grants.sql` 为明确 API LOGIN 和独立查询账号授权。后者只有固定查询能力，无 Audit／Identity 私表、序列及追加权限；API 尚需其他读取权限，不能提前统一撤销。`apps/audit/conformance/node` 提供同合同的 query peer，验收器在创建资源前自检。操作级真实数据库／API、Node 及相邻迁移往返已通过；完整迁移、当前新镜像与完整 Audit 资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#audit-global-query-owner)。
+先安装匹配迁移及 module-data grants，再使用 `infra/docker/audit-query-grants.sql` 为明确 API LOGIN 和独立查询账号授权。查询专用账号只有固定查询能力，无 Audit／Identity 私表、序列及追加权限；普通 API 继续使用公开读关系，不恢复父表 SELECT。`apps/audit/conformance/node` 提供同合同的 query peer，验收器在创建资源前自检。历史与当前验收分别见[唯一台账](docs-site/dev/concepts/module-deployment.md#audit-global-query-owner)。
 
 ### Audit 公开事件关系
 
 迁移 `0320` 发布 `yoao_audit_v1.audit_events` 与 `aap-audit-read-relations/v1`。项目管理员查询、标注历史、批次日志、管理看板和评审贡献者快照通过该关系组合既有范围条件；授权仍由 API 持有。关系保留 14 个原生字段，包含 PostgreSQL INET，物理行键为 `(id, created_at)`；全局查询客户端同样允许 ID 相同、时间不同的合法记录。ORM 兼容绑定仍沿用现有仅按 ID 的 identity map，不改变调用方事务及 autoflush。
 
-先安装迁移和 `module-data-grants.sql`，再按 `infra/docker/audit-read-grants.sql` 文件头向预建 `LOGIN NOINHERIT` 只读账号授权。该账号不得有角色成员关系或数据库 TEMP 权限，只能 SELECT 公开关系，不能读取私表或调用追加函数。普通 API 另获关系 SELECT；月报尾段、DuckDB 和绩效已读取公开关系，维护及尚未迁移的消费者仍需原有权限，不能提前全局撤销。该公开关系本身不按用户过滤，可信调用方必须继续组合授权范围。
+先安装迁移和 `module-data-grants.sql`，再按 `infra/docker/audit-read-grants.sql` 文件头向预建 `LOGIN NOINHERIT` 只读账号授权。该账号不得有角色成员关系或数据库 TEMP 权限，只能 SELECT 公开关系，不能读取私表或调用追加函数。普通 API 同样仅读取公开关系；月报尾段、DuckDB、绩效和主动学习反馈复用公开事件。该关系不按用户过滤，可信调用方必须继续组合授权范围。
 
 ### Audit 日聚合与固定刷新
 
 迁移 `0322` 发布 `yoao_audit_v1.audit_daily_facts` 与 `aap-audit-daily-projection/v1`。月报的已完成日期读取六列聚合事实，原始尾段继续读取公开事件关系。DATE 保留日历日期；BIGINT 在 JSON 中使用无损十进制字符串，数据库仍保留原生类型。
 
-`module-data-grants.sql` 将 `mv_audit_bi_daily`、公开聚合关系和固定无参 `refresh_audit_bi_mv()` 交给 Audit owner。并发刷新需要 owner 的数据库 TEMP 权限；只读客户端和刷新客户端均不需要 TEMP。普通 API 和只读账号只能读取事实，不能读取私有 MV 或刷新；维护调用方沿用现有迁移连接的明确 EXECUTE，保留调用方提交／回滚及维护队列。尚未提供独立维护凭据或完整 Audit 运行工件。LAN 和工作树授权在广泛授权后再次撤销 MV 的表／列权限，不能恢复旧 MV owner 绑定。
+`module-data-grants.sql` 将 MV、公开聚合与固定刷新交给 Audit owner；并发刷新仍需要 owner 的数据库 TEMP 权限。普通 API／worker 可通过 `bo0485` 的固定平台能力刷新、创建分区和发布已有归档输出，不能访问私有 MV 或调用一次性 CLI 的维护函数。CLI 的专用 LOGIN 保持单函数授权。平台仍按原顺序核验对象并提交分区退役、归档发布、审计和作业进度，管理员只读取已发布的记录。
 
 ### Jobs 通知范围事实
 

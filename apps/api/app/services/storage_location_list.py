@@ -2,13 +2,30 @@
 
 from types import SimpleNamespace
 
-from sqlalchemy import Integer, Uuid, column, func, select, values
+from sqlalchemy import DateTime, Integer, Uuid, column, func, select, table, values
+from sqlalchemy.dialects.postgresql import JSONB
 
-from app.db.models.dataset_asset import StorageLocationProbe as Probe
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import StorageMaintenanceGate as Gate
 from app.services import storage_location
 from app.services.storage_source_usage import read_usage_page
+from app.services.storage_registry_data import connection_origin_row
+
+
+_PROBE = table(
+    "probe_health",
+    column("location_id", Uuid),
+    column("node_id"),
+    column("config_revision", Integer),
+    column("observed_at", DateTime(timezone=True)),
+    column("result", JSONB),
+    schema="yoao_assets_storage_v1",
+)
+_GATE = table(
+    "gate_status",
+    column("location_id", Uuid),
+    column("state"),
+    column("revision", Integer),
+    schema="yoao_assets_storage_v1",
+)
 
 
 async def health_page(db, locations, measured_at):
@@ -17,15 +34,16 @@ async def health_page(db, locations, measured_at):
         .data([(row.id, row.config_revision) for row in locations])
         .cte("health_locations")
     )
-    expires_at = Probe.observed_at + storage_location.PROBE_TTL
-    fresh = (Probe.config_revision == page.c.config_revision) & (
+    probe = _PROBE.c
+    expires_at = probe.observed_at + storage_location.PROBE_TTL
+    fresh = (probe.config_revision == page.c.config_revision) & (
         expires_at > measured_at
     )
-    passed = func.coalesce(Probe.result["ok"].as_boolean(), False)
-    window = {"partition_by": Probe.location_id}
+    passed = func.coalesce(probe.result["ok"].as_boolean(), False)
+    window = {"partition_by": probe.location_id}
     ranked = (
         select(
-            Probe,
+            _PROBE,
             func.count().over(**window).label("observed_node_count"),
             func.count()
             .filter(fresh & passed)
@@ -38,10 +56,10 @@ async def health_page(db, locations, measured_at):
             func.count().filter(~fresh).over(**window).label("stale_node_count"),
             func.min(expires_at).filter(fresh).over(**window).label("fresh_until"),
             func.row_number()
-            .over(**window, order_by=(Probe.observed_at.desc(), Probe.node_id))
+            .over(**window, order_by=(probe.observed_at.desc(), probe.node_id))
             .label("rank"),
         )
-        .join(page, page.c.location_id == Probe.location_id)
+        .join(page, page.c.location_id == probe.location_id)
         .subquery()
     )
     rows = (await db.execute(select(ranked).where(ranked.c.rank == 1))).mappings()
@@ -88,13 +106,19 @@ async def list_items(db, locations, actor):
     connection_ids = {row.connection_id for row in locations if row.connection_id}
     connections = {
         row.id: row
-        for row in await db.scalars(
-            select(StorageConnection).where(StorageConnection.id.in_(connection_ids))
-        )
+        for row in (
+            await db.execute(
+                select(connection_origin_row).where(
+                    connection_origin_row.c.id.in_(connection_ids)
+                )
+            )
+        ).mappings()
     }
     gates = {
         row.location_id: row
-        for row in await db.scalars(select(Gate).where(Gate.location_id.in_(ids)))
+        for row in (
+            await db.execute(select(_GATE).where(_GATE.c.location_id.in_(ids)))
+        ).mappings()
     }
     health = await health_page(db, locations, measured_at)
     usage = await read_usage_page(db, locations, actor)

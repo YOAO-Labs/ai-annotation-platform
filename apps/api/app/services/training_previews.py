@@ -8,7 +8,6 @@ from app.services import storage_access
 import hashlib
 import hmac
 import logging
-import secrets
 import tempfile
 from collections import Counter
 from datetime import timedelta
@@ -16,8 +15,7 @@ from pathlib import PurePosixPath
 
 from fastapi import HTTPException
 from PIL import Image
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
+from training_contract.observability import redact_text
 from training_contract.preview import (
     LIMITS,
     POLICY,
@@ -29,12 +27,12 @@ from training_contract.preview import (
 )
 
 from app.config import settings
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
 from app.schemas.training_preview import TrainingPreviewOut, TrainingPreviewReport
-from app.schemas.training_run import TrainingRunCreate
+from app.schemas.training_run import ExecutorFence, TrainingRunCreate
 from app.services import async_job as jobs, training_runs as training
 from app.services import training_adapters as adapters
+from app.services import training_dataset_data as datasets
+from app.services import training_preview_data as data
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage, training_preview_storage
@@ -74,7 +72,10 @@ def qualified_runtime(runtime):
 
 
 async def capabilities(db):
-    lease = await db.get(TrainingPreviewResourceLease, resource_id())
+    return _capabilities(await data.get_lease(db, resource_id()))
+
+
+def _capabilities(lease):
     qualified = bool(lease and qualified_runtime(lease.runtime))
     online = bool(
         qualified
@@ -194,15 +195,7 @@ def select_sources(version, seed):
 async def create(db, project, user, body, api_key_id):
     request = body.model_dump(mode="json")
     request_digest = content_digest(request)
-    existing = await db.scalar(
-        select(TrainingPreview)
-        .where(
-            TrainingPreview.project_id == project.id,
-            TrainingPreview.request_id == body.request_id,
-        )
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
+    existing = await data.request_preview(db, project.id, body.request_id)
     if existing:
         if (
             existing.request_digest != request_digest
@@ -214,17 +207,7 @@ async def create(db, project, user, body, api_key_id):
                 status_code=409, detail="同一预览请求标识不能用于不同输入或身份"
             )
         return existing
-    if (
-        await db.scalar(
-            select(func.count())
-            .select_from(TrainingPreview)
-            .where(
-                TrainingPreview.project_id == project.id,
-                TrainingPreview.status.in_(ACTIVE),
-            )
-        )
-        >= 3
-    ):
+    if await data.active_count(db, project.id) >= 3:
         raise HTTPException(
             status_code=409, detail="项目已有三个预览待完成，请先取消或等待"
         )
@@ -241,12 +224,14 @@ async def create(db, project, user, body, api_key_id):
     )
     try:
         validate_request(config, body.seed, body.epoch, body.count)
-        version = await db.get(TrainingDatasetVersion, body.dataset_id)
+        version = await datasets.read_version(
+            db, body.dataset_id, project_id=project.id
+        )
         sources, summary = select_sources(version, body.seed)
     except (ValueError, TrainingDatasetError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    lease = await db.get(TrainingPreviewResourceLease, resource_id())
-    caps = await capabilities(db)
+    lease = await data.get_lease(db, resource_id())
+    caps = _capabilities(lease)
     if not caps["online"] or not training.runtime_compatible(config, lease.runtime):
         raise HTTPException(
             status_code=409, detail=caps["reason"] or "预览镜像与当前训练配置不一致"
@@ -263,7 +248,8 @@ async def create(db, project, user, body, api_key_id):
         sources=sources,
         pool_summary=summary,
     )
-    preview = TrainingPreview(
+    preview = await data.create_preview(
+        db,
         project_id=project.id,
         dataset_id=body.dataset_id,
         creator_id=user.id,
@@ -273,14 +259,12 @@ async def create(db, project, user, body, api_key_id):
         input_digest=input_digest(spec),
         spec=spec,
         authorization={"api_key_id": str(api_key_id) if api_key_id else None},
-        status="queued",
         resource_id=resource_id(),
         expires_at=now() + timedelta(seconds=LIMITS["ttl_seconds"]),
     )
-    db.add(preview)
-    await db.flush()
     try:
         await training_preview_storage.allocate(db, preview)
+        await data.pin_storage(db, preview.id, preview.storage_ref)
     except TrainingDatasetError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -297,22 +281,13 @@ async def create(db, project, user, body, api_key_id):
             "stage": "queued",
         },
     )
+    await data.attach_job(db, preview.id, job.id)
     preview.async_job_id = job.id
     return preview
 
 
 async def lock_resource(db):
-    await db.execute(
-        insert(TrainingPreviewResourceLease)
-        .values(resource_id=resource_id(), runtime={})
-        .on_conflict_do_nothing()
-    )
-    return await db.scalar(
-        select(TrainingPreviewResourceLease)
-        .where(TrainingPreviewResourceLease.resource_id == resource_id())
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    return await data.get_lease(db, resource_id(), lock=True)
 
 
 def token_for(preview, claim_id):
@@ -324,7 +299,13 @@ def token_for(preview, claim_id):
 
 
 async def terminal(db, preview, status, error=None):
-    preview.status, preview.error_message, preview.completed_at = status, error, now()
+    at = now()
+    await data.finish_queued(db, preview.id, status, at, error)
+    await _terminal_job(db, preview, status, at, error)
+
+
+async def _terminal_job(db, preview, status, at, error):
+    preview.status, preview.error_message, preview.completed_at = status, error, at
     if status == "succeeded":
         await jobs.mark_complete(
             db, preview.async_job_id, result={"preview_id": str(preview.id)}
@@ -353,7 +334,9 @@ async def assignment(db, preview, *, stop=False):
     urls = {}
     if not stop:
         storage_owner(preview)
-        version = await db.get(TrainingDatasetVersion, preview.dataset_id)
+        version = await datasets.read_version_facts(
+            db, preview.dataset_id, project_id=preview.project_id
+        )
         try:
             if version is None or version.project_id != preview.project_id:
                 raise TrainingDatasetError(
@@ -405,16 +388,17 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
         raise HTTPException(status_code=409, detail="CPU 预览资源不属于当前节点")
     lease = await lock_resource(db)
     if lease.preview_id:
-        preview = await db.get(TrainingPreview, lease.preview_id)
+        preview = await data.executor_preview(db, lease.preview_id)
         if (preview.executor_id, preview.boot_id, preview.claim_id) == (
             body.executor_id,
             body.boot_id,
             body.claim_id,
         ):
             token = token_for(preview, body.claim_id)
-            if not secrets.compare_digest(
-                preview.lease_digest, hashlib.sha256(token.encode()).hexdigest()
-            ):
+            proof = ExecutorFence(
+                executor_id=body.executor_id, boot_id=body.boot_id, lease_token=token
+            )
+            if not await data.preview_matches(db, preview.id, proof):
                 raise HTTPException(
                     status_code=409, detail="执行器密钥变化，CPU 租约需要协调"
                 )
@@ -445,24 +429,8 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
         raise HTTPException(
             status_code=409, detail="执行器未通过当前 CPU 预览协议与镜像验证"
         )
-    lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at = (
-        body.executor_id,
-        body.boot_id,
-        body.runtime,
-        now(),
-    )
-    candidates = (
-        await db.scalars(
-            select(TrainingPreview)
-            .where(
-                TrainingPreview.status == "queued",
-                TrainingPreview.resource_id == resource_id(),
-            )
-            .order_by(TrainingPreview.created_at)
-            .limit(100)
-            .with_for_update(skip_locked=True)
-        )
-    ).all()
+    await data.observe_executor(db, body, now())
+    candidates = await data.queue(db, body.resource_id)
     for preview in candidates:
         if preview.expires_at <= now():
             await terminal(db, preview, "cancelled", "原生预览排队期间已过期")
@@ -488,7 +456,9 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
                 raise
             await terminal(db, preview, "failed", "原生预览启动权限已撤销")
             continue
-        version = await db.get(TrainingDatasetVersion, preview.dataset_id)
+        version = await datasets.read_version_facts(
+            db, preview.dataset_id, project_id=preview.project_id
+        )
         if (
             not version
             or version.snapshot_digest != preview.spec["dataset_snapshot_digest"]
@@ -501,12 +471,12 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
             body.boot_id,
             body.claim_id,
         )
-        preview.lease_digest = hashlib.sha256(
-            token_for(preview, body.claim_id).encode()
-        ).hexdigest()
+        at = now()
+        await data.claim_preview(
+            db, preview.id, body, token_for(preview, body.claim_id), at
+        )
         preview.runtime, preview.status = body.runtime, "running"
-        preview.started_at = preview.heartbeat_at = now()
-        lease.preview_id = preview.id
+        preview.started_at = preview.heartbeat_at = at
         await jobs.mark_running(db, preview.async_job_id)
         return await assignment(db, preview)
     return None
@@ -514,7 +484,7 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
 
 async def fenced(db, preview_id, body, *, allow_terminal=False):
     lease = await lock_resource(db)
-    preliminary = await db.get(TrainingPreview, preview_id)
+    preliminary = await data.executor_preview(db, preview_id)
     if preliminary is None:
         raise HTTPException(status_code=404, detail="原生预览不存在")
     from app.services.project_write_guard import lock_actor_project_authority
@@ -523,19 +493,10 @@ async def fenced(db, preview_id, body, *, allow_terminal=False):
         await lock_actor_project_authority(
             db, preliminary.creator_id, preliminary.project_id
         )
-    preview = await db.scalar(
-        select(TrainingPreview)
-        .where(TrainingPreview.id == preview_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    preview = await data.get_preview(db, preliminary.project_id, preview_id, lock=True)
     if (
-        preview.executor_id != body.executor_id
-        or preview.boot_id != body.boot_id
-        or not secrets.compare_digest(
-            preview.lease_digest or "",
-            hashlib.sha256(body.lease_token.encode()).hexdigest(),
-        )
+        preview is None
+        or not await data.preview_matches(db, preview.id, body)
         or (
             not allow_terminal
             and (lease.preview_id != preview.id or preview.status in TERMINAL)
@@ -572,10 +533,12 @@ async def heartbeat(db, preview_id, body, *, training_authority: TrainingAuthori
             if exc.status_code != 409:
                 raise
             stop = "原生预览产物存储归属不可用，正在停止执行"
+    at = now()
+    await data.heartbeat(db, preview.id, body, at, stop)
     if stop:
         preview.status, preview.error_message = "cancelling", stop
         await jobs.request_cancel(db, preview.async_job_id)
-    preview.heartbeat_at = lease.last_seen_at = now()
+    preview.heartbeat_at = at
     return dict(stop=bool(stop), reason=stop)
 
 
@@ -631,8 +594,13 @@ async def uploads(db, preview_id, body, *, training_authority: TrainingAuthority
         raise HTTPException(status_code=422, detail="预览产物清单不完整或超过上限")
     if preview.upload_inventory and preview.upload_inventory != inventory:
         raise HTTPException(status_code=409, detail="已授权的预览产物不能改写")
-    preview.upload_inventory = inventory
-    preview.put_expires_at = now() + timedelta(seconds=LIMITS["put_seconds"])
+    await data.authorize_uploads(
+        db,
+        preview.id,
+        body,
+        inventory,
+        now() + timedelta(seconds=LIMITS["put_seconds"]),
+    )
     await db.commit()
     return await storage_io.run(
         db,
@@ -800,6 +768,7 @@ async def finish(db, preview_id, body, *, training_authority: TrainingAuthorityP
         raise HTTPException(status_code=409, detail="CPU 预览租约已变化")
     stop = due_to_stop(preview)
     status = "cancelled" if stop else body.status
+    verified_artifacts = None
     if status == "succeeded":
         await training.authority(
             training_authority,
@@ -852,10 +821,20 @@ async def finish(db, preview_id, body, *, training_authority: TrainingAuthorityP
                 actor_id=preview.creator_id,
                 api_key_id=preview.authorization.get("api_key_id"),
             )
-            preview.artifacts = artifacts
+            verified_artifacts = artifacts
+    error = stop or body.error_message
+    if error:
+        error = redact_text(
+            error, (settings.training_executor_token, body.lease_token)
+        )[:1000]
+    at = now()
+    await data.finish_executor(
+        db, preview.id, body, status, at, error, receipt, verified_artifacts
+    )
     preview.finish_digest = receipt
-    await terminal(db, preview, status, stop or body.error_message)
-    lease.preview_id = None
+    if verified_artifacts is not None:
+        preview.artifacts = verified_artifacts
+    await _terminal_job(db, preview, status, at, error)
     return preview
 
 
@@ -867,7 +846,15 @@ async def cancel(db, preview):
             "cancelling",
             "已请求取消原生预览，等待确认进程退出",
         )
+        await data.cancel(db, preview.id, preview.error_message)
         await jobs.request_cancel(db, preview.async_job_id)
+
+
+async def expire(db, preview):
+    at = now()
+    await data.expire(db, preview.id, at)
+    preview.expires_at = min(preview.expires_at, at)
+    await cancel(db, preview)
 
 
 async def output(preview, *, include_report=True, db):
@@ -926,53 +913,36 @@ async def cleanup(db):
     lease = await lock_resource(db)
     stopping = 0
     if lease.preview_id:
-        active = await db.scalar(
-            select(TrainingPreview)
-            .where(TrainingPreview.id == lease.preview_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        active = await data.executor_preview(db, lease.preview_id, lock=True)
+        cutoff = now() - timedelta(seconds=30)
         if (
             active
             and active.status == "running"
             and active.heartbeat_at
-            and active.heartbeat_at < now() - timedelta(seconds=30)
+            and active.heartbeat_at < cutoff
         ):
             active.status, active.error_message = (
                 "lost",
                 "执行器心跳失联；CPU 租约保留，等待确认进程退出",
             )
+            await data.declare_lost(db, active.id, cutoff, active.error_message)
         if active and active.expires_at <= now():
             active.status, active.error_message = (
                 "cancelling",
                 "原生预览已过期，等待确认进程退出",
             )
+            await data.cancel(db, active.id, active.error_message)
             await jobs.request_cancel(db, active.async_job_id)
             stopping += 1
     await db.commit()
-    rows = (
-        await db.scalars(
-            select(TrainingPreview)
-            .where(
-                TrainingPreview.expires_at <= now(),
-                TrainingPreview.status.in_(TERMINAL | {"queued"}),
-            )
-            .order_by(TrainingPreview.expires_at)
-            .limit(100)
-            .with_for_update(skip_locked=True)
-        )
-    ).all()
+    rows = await data.cleanup_queue(db, now())
     removed = 0
     for preview in rows:
-        if await db.scalar(
-            select(TrainingPreviewResourceLease.resource_id)
-            .where(TrainingPreviewResourceLease.preview_id == preview.id)
-            .limit(1)
-        ):
+        if await data.preview_has_lease(db, preview.id):
             continue
         if preview.status == "queued":
             await terminal(db, preview, "cancelled", "原生预览已过期")
-        preview.status = "expired"
+        await data.expire_for_cleanup(db, preview.id, now())
         if preview.put_expires_at and preview.put_expires_at >= now():
             continue
         try:
@@ -993,6 +963,6 @@ async def cleanup(db):
         except Exception:
             log.exception("Preview cleanup failed for %s", preview.id)
             continue
-        await db.delete(preview)
-        removed += 1
+        if await data.delete_expired(db, preview.id, owner.ref, now()):
+            removed += 1
     return dict(removed=removed, stopping=stopping)

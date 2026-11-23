@@ -12,31 +12,22 @@ import re
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text, update
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.orm import undefer
 
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.db.models.storage_migration_copy import (
-    StorageMigrationCopy as Copy,
-    StorageMigrationCopyAttempt as Attempt,
-)
+from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.db.models.storage_migration_finalization import (
     StorageMigrationFinalization as Finalization,
 )
-from app.db.models.storage_migration_inventory import (
-    StorageMigrationInventory as Inventory,
-)
-from app.db.models.user import User
 from app.schemas.storage_migration_window import StorageMigrationFinalizationItem
 from app.services import (
     storage_access,
     storage_migration_copies as copies,
     storage_migration_inventories as inventories,
     storage_migration_windows as windows,
+    storage_registry_data,
 )
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 CLAIM_SCHEMA = "aap.storage-migration-fence-claim/v1"
 EVIDENCE_SCHEMA = "aap.storage-migration-final-evidence/v1"
@@ -146,7 +137,7 @@ async def identity(db):
 
 
 async def _actor(db, actor_id):
-    actor = await db.get(User, actor_id, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None:
         reject("finalization_authority_changed", 403)
     try:
@@ -173,22 +164,15 @@ async def _window(db, window_id, *, context=False):
     initial = await windows.owner(db, window_id)
     if context:
         ids = sorted({initial.source_location_id, initial.target_location_id})
-        connections = select(StorageLocation.connection_id).where(
-            StorageLocation.id.in_(ids), StorageLocation.connection_id.is_not(None)
+        locations = [await storage_registry_data.get_location(db, key) for key in ids]
+        connections = sorted(
+            {loc.connection_id for loc in locations if loc and loc.connection_id}
         )
         try:
-            await db.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id.in_(connections))
-                .order_by(StorageConnection.id)
-                .with_for_update(read=True, nowait=True)
-            )
-            await db.execute(
-                select(StorageLocation.id)
-                .where(StorageLocation.id.in_(ids))
-                .order_by(StorageLocation.id)
-                .with_for_update(read=True, nowait=True)
-            )
+            for key in connections:
+                await storage_registry_data.get_connection(db, key, lock="share_nowait")
+            for key in ids:
+                await storage_registry_data.get_location(db, key, lock="share_nowait")
         except DBAPIError as exc:
             if storage_access.unavailable(exc):
                 reject("finalization_busy")
@@ -205,7 +189,7 @@ async def _window(db, window_id, *, context=False):
         await windows.gate(db, row, exclusive=True)
         from app.services import storage_migration_copy_target as targets
 
-        target, _, _, _ = await targets.resolve(db, row.target_location_id)
+        target, _, _ = await targets.facts(db, row.target_location_id)
         if target != row.target:
             reject("finalization_changed")
         await inventories.gate_revision(db, row.target_location_id, lock=True)
@@ -213,46 +197,25 @@ async def _window(db, window_id, *, context=False):
 
 
 async def _copy(db, copy_id, *, private=False):
-    query = select(Copy).where(Copy.id == copy_id)
-    if private:
-        query = query.options(
-            undefer(Copy.source_report), undefer(Copy.catalog), undefer(Copy.baseline)
-        )
-    row = await _lock(db, query)
-    if row is None:
-        reject("finalization_copy_changed")
-    return row
+    try:
+        return await copies.owner(db, copy_id, lock="update_nowait", private=private)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            reject("finalization_copy_changed")
+        raise
+    except DBAPIError as exc:
+        if storage_access.unavailable(exc):
+            reject("finalization_busy")
+        raise
 
 
 async def _settled(db, window):
-    relevant = select(Copy.id).where(
-        (Copy.window_id == window.id) | (Copy.id == window.parent_copy_id)
-    )
-    attempts = list(
-        await db.scalars(select(Attempt).where(Attempt.copy_id.in_(relevant)))
-    )
-    if any(row.status in inventories.ACTIVE for row in attempts) or await db.scalar(
-        select(Inventory.async_job_id)
-        .where(
-            Inventory.window_id == window.id, Inventory.status.in_(inventories.ACTIVE)
-        )
-        .limit(1)
-    ):
-        reject("finalization_unsettled")
-    operation_ids = [
-        value
-        for row in attempts
-        for value in (row.source_operation_id, row.target_operation_id)
-        if value
-    ]
+    if db.autoflush:
+        await db.flush()
     if await db.scalar(
-        select(StorageOperation.id)
-        .where(
-            (StorageOperation.location_id == window.source_location_id)
-            | StorageOperation.id.in_(operation_ids)
-        )
-        .limit(1)
-    ):
+        text("SELECT yoao_assets_v1.migration_operator_copy_window_unsettled(:id)"),
+        {"id": window.id},
+    ) or await inventories.active_for_window(db, window.id):
         reject("finalization_unsettled")
 
 
@@ -341,53 +304,54 @@ def item(row):
 
 
 async def public_for_window(db, window_id):
-    row = await db.scalar(
-        select(Finalization)
-        .where(Finalization.window_id == window_id)
-        .order_by(Finalization.created_at.desc(), Finalization.id.desc())
-        .limit(1)
-        .execution_options(populate_existing=True)
+    if db.autoflush:
+        await db.flush()
+    row = (
+        (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.migration_finalization_for_window(:id)"
+                ),
+                {"id": window_id},
+            )
+        )
+        .mappings()
+        .one_or_none()
     )
-    return item(row) if row else None
+    return (
+        StorageMigrationFinalizationItem.model_validate(row)
+        if row is not None
+        else None
+    )
 
 
 async def require_window_open(db, window_id, *, closing=False):
-    states = ACTIVE if closing else ("invalidating",)
+    if db.autoflush:
+        await db.flush()
     if await db.scalar(
-        select(Finalization.id)
-        .where(Finalization.window_id == window_id, Finalization.state.in_(states))
-        .limit(1)
+        text(
+            "SELECT yoao_assets_v1.migration_finalization_blocks_window(:id, :closing)"
+        ),
+        {"id": window_id, "closing": closing},
     ):
         reject("finalization_active" if closing else "finalization_closing")
 
 
 async def require_resumable(db, location_id):
+    if db.autoflush:
+        await db.flush()
     if await db.scalar(
-        select(Finalization.id)
-        .where(
-            Finalization.source_location_id == location_id,
-            Finalization.state.in_(ACTIVE),
-        )
-        .limit(1)
+        text("SELECT yoao_assets_v1.migration_finalization_blocks_source_resume(:id)"),
+        {"id": location_id},
     ):
         reject("finalization_active")
 
 
 async def frozen_copy(db, copy_id):
-    from app.services import storage_migration_read_publications as publications
-
-    if await publications.frozen_copy(db, copy_id):
-        return True
-    return (
-        await db.scalar(
-            select(Finalization.id)
-            .where(
-                Finalization.copy_id == copy_id,
-                Finalization.state.in_(("sealing", "sealed")),
-            )
-            .limit(1)
-        )
-        is not None
+    if db.autoflush:
+        await db.flush()
+    return await db.scalar(
+        text("SELECT yoao_assets_v1.migration_copy_is_frozen(:id)"), {"id": copy_id}
     )
 
 
@@ -491,8 +455,7 @@ async def bind(db, actor_id, claim, native):
         reject("finalization_unknown")
     await preflight(db, actor_id, window.id, claim["expected_window_revision"])
     native = _native(native, claim, window.source)
-    window.revision += 1
-    window.updated_at = await db.scalar(select(func.statement_timestamp()))
+    window = await windows.bump_finalization_revision(db, window)
     row = _new(window, actor_id, claim, native)
     db.add(row)
     await db.flush()
@@ -567,7 +530,12 @@ async def _verified(db, row, window, copy):
         "source_quiescence_proven": False,
     }:
         reject("finalization_copy_changed")
-    attempt = await _lock(db, select(Attempt).where(Attempt.id == copy.last_attempt_id))
+    try:
+        attempt = await copies.last(db, copy, lock="update_nowait")
+    except DBAPIError as exc:
+        if storage_access.unavailable(exc):
+            reject("finalization_busy")
+        raise
     if (
         attempt is None
         or attempt.copy_id != copy.id
@@ -771,22 +739,3 @@ async def status(db, actor_id, claim):
     if row is None:
         reject("finalization_unknown")
     return item(row)
-
-
-async def changed_checkpoint(db, copy_id):
-    await db.execute(
-        update(Finalization)
-        .where(
-            Finalization.copy_id == copy_id,
-            Finalization.state.in_(("sealing", "sealed")),
-        )
-        .values(
-            state="invalidating",
-            revision=Finalization.revision + 1,
-            updated_at=func.statement_timestamp(),
-            error_code="finalization_checkpoint_changed",
-        )
-    )
-    from app.services import storage_migration_read_publications as publications
-
-    await publications.changed_checkpoint(db, copy_id)

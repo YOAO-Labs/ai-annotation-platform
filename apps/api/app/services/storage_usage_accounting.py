@@ -8,16 +8,8 @@ import logging
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import delete, exists, func, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 
-from app.db.models.storage_usage import (
-    StorageUsageInventoryObject as Observation,
-    StorageUsageMutation as Mutation,
-    StorageUsageReconciliation as Reconciliation,
-    StorageUsageSchedule as Schedule,
-    StorageUsageSnapshot as Snapshot,
-)
 from app.schemas.storage import (
     StorageUsageAccountingSummary,
     StorageUsageReconciliationSummary,
@@ -93,54 +85,39 @@ async def begin_in_transaction(
         )
     )
     identifier = uuid.uuid4()
-    values = dict(
-        id=identifier,
-        idempotency_key=identity,
-        scope_key=scope,
-        object_key=key,
-        key_hash=digest(key),
-        producer=producer,
-        purpose=purpose,
-        owner_id=owner_id,
-        kind=kind,
-        expected_version=version,
-        state="pending",
-        physical_outcome="unknown",
-        evidence={
-            **(evidence or {}),
-            "logical_intent_id": str(identifier),
-            "logical_group": identity,
-            "attempt_nonce": str(identifier),
-        },
-    )
-    created = await db.scalar(
-        insert(Mutation)
-        .values(**values)
-        .on_conflict_do_nothing(index_elements=[Mutation.idempotency_key])
-        .returning(Mutation.id)
-    )
-    if created is None:
-        row = (
-            (
-                await db.execute(
-                    select(Mutation.__table__)
-                    .where(Mutation.idempotency_key == identity)
-                    .with_for_update()
-                )
-            )
-            .mappings()
-            .one()
+    evidence = {
+        **(evidence or {}),
+        "logical_intent_id": str(identifier),
+        "logical_group": identity,
+        "attempt_nonce": str(identifier),
+    }
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.begin_usage_mutation("
+                ":id, :identity, :new_identity, :scope, :key, :producer, :owner,"
+                ":purpose, :kind, :version, CAST(:evidence AS jsonb))"
+            ),
+            {
+                "id": identifier,
+                "identity": identity,
+                "new_identity": digest(f"{identity}:{identifier}")
+                if new_request
+                else None,
+                "scope": scope,
+                "key": key,
+                "producer": producer,
+                "owner": uuid.UUID(str(owner_id)),
+                "purpose": purpose,
+                "kind": kind,
+                "version": version,
+                "evidence": json.dumps(evidence),
+            },
         )
-        if row.object_key != key or row.scope_key != scope or row.kind != kind:
-            raise ValueError("accounting_identity_collision")
-        if new_request:
-            values["idempotency_key"] = digest(identity + ":" + str(identifier))
-            values["evidence"]["logical_intent_id"] = str(row.id)
-            await db.execute(insert(Mutation).values(**values))
-            created = identifier
-        else:
-            identifier = row.id
-    return MutationHandle(identifier, created is not None)
+    ).one()
+    if row.id is None:
+        raise ValueError("accounting_identity_collision")
+    return MutationHandle(row.id, row.fresh)
 
 
 async def begin(
@@ -172,36 +149,27 @@ async def publish(factory, handle, evidence, *, settled=True):
         return
     try:
         async with factory() as db:
-            row = await db.scalar(
-                select(Mutation).where(Mutation.id == handle.id).with_for_update()
-            )
-            if row is None or row.state == "confirmed":
-                return
             fact = dict(evidence)
             delta = fact.pop("current_delta_bytes", None)
             physical = fact.pop("physical_outcome", "unknown")
             size = fact.pop("physical_size_bytes", None)
-            previous = dict(row.evidence or {})
-            if row.physical_outcome in {"written", "deleted"}:
-                physical = row.physical_outcome
-                if previous.get("returned_version") is not None:
-                    if fact.get("returned_version") not in {
-                        None,
-                        previous["returned_version"],
-                    }:
-                        fact["later_returned_version"] = fact["returned_version"]
-                    fact["returned_version"] = previous["returned_version"]
-                if row.physical_size_bytes is not None:
-                    size = row.physical_size_bytes
-            if not settled or not handle.fresh:
-                delta = None
-            row.physical_outcome = physical
-            row.physical_size_bytes = size
-            row.current_delta_bytes = delta
-            row.evidence = {**previous, **fact}
-            row.state = "confirmed" if delta is not None else "unknown"
-            row.finished_at = await db.scalar(select(func.clock_timestamp()))
-            await db.commit()
+            changed = await db.scalar(
+                text(
+                    "SELECT yoao_assets_v1.publish_usage_mutation("
+                    ":id, :fresh, :settled, :delta, :physical, :size, CAST(:fact AS jsonb))"
+                ),
+                {
+                    "id": handle.id,
+                    "fresh": handle.fresh,
+                    "settled": settled,
+                    "delta": delta,
+                    "physical": physical,
+                    "size": size,
+                    "fact": json.dumps(fact),
+                },
+            )
+            if changed:
+                await db.commit()
     except Exception:
         log.warning("Storage accounting publication deferred operation=%s", handle.id)
 
@@ -276,189 +244,64 @@ async def stage_page(db, generation, scope, objects, started, completed):
                 or size < 0
             ):
                 raise ValueError("invalid_inventory_page")
-            values.append(
-                dict(
-                    generation=generation,
-                    scope_key=scope,
-                    key_hash=digest(key),
-                    object_key=key,
-                    size_bytes=size,
-                    observed_from=started,
-                    observed_through=completed,
-                )
-            )
-        await db.execute(insert(Observation), values)
-
-
-_COMPARE = text("""
-WITH p AS (
- SELECT * FROM storage_usage_inventory_objects WHERE scope_key=:scope AND generation=:previous
-), c AS (
- SELECT * FROM storage_usage_inventory_objects WHERE scope_key=:scope AND generation=:current
-), addresses AS (
- SELECT key_hash, object_key FROM p UNION SELECT key_hash, object_key FROM c
- UNION SELECT key_hash, object_key FROM storage_usage_mutations
- WHERE scope_key=:scope AND started_at <= :current_end
- AND (finished_at IS NULL OR finished_at >= :previous_start)
-), compared AS (
- SELECT a.key_hash, a.object_key,
-  COALESCE(c.size_bytes,0)-COALESCE(p.size_bytes,0) AS observed_delta,
-  COALESCE(p.observed_from,:previous_start) AS previous_from,
-  COALESCE(p.observed_through,:previous_end) AS previous_through,
-  COALESCE(c.observed_from,:current_start) AS current_from,
-  COALESCE(c.observed_through,:current_end) AS current_through
- FROM addresses a LEFT JOIN p ON p.key_hash=a.key_hash AND p.object_key=a.object_key
- LEFT JOIN c ON c.key_hash=a.key_hash AND c.object_key=a.object_key
-), facts AS (
- SELECT x.*, m.known_delta, m.uncertain
- FROM compared x CROSS JOIN LATERAL (
-  SELECT COALESCE(SUM(current_delta_bytes) FILTER (
-    WHERE state='confirmed' AND started_at > x.previous_through
-    AND finished_at < x.current_from),0) AS known_delta,
-   COALESCE(BOOL_OR(
-     state!='confirmed' OR current_delta_bytes IS NULL OR
-     (current_delta_bytes!=0 AND NOT (started_at > x.previous_through AND finished_at < x.current_from))
-   ),false) AS uncertain
-  FROM storage_usage_mutations m WHERE m.scope_key=:scope
-   AND m.key_hash=x.key_hash AND m.object_key=x.object_key
-   AND m.started_at <= x.current_through
-   AND (m.finished_at IS NULL OR m.finished_at >= x.previous_from)
- ) m
-)
-SELECT COUNT(*) AS compared_object_count,
- COUNT(*) FILTER (WHERE uncertain) AS uncertain_object_count,
- COUNT(*) FILTER (WHERE NOT uncertain AND observed_delta!=known_delta) AS unexplained_object_count,
- COALESCE(SUM(known_delta),0) AS confirmed_change_bytes,
- COALESCE(SUM(observed_delta-known_delta) FILTER (WHERE NOT uncertain),0) AS known_unexplained_change_bytes
-FROM facts
-""")
-
-
-async def complete_bucket(db, snapshot, generation, started, completed):
-    previous = snapshot.object_generation
-    summary = dict(
-        status="no_baseline",
-        compared_object_count=0,
-        uncertain_object_count=0,
-        unexplained_object_count=0,
-        confirmed_change_bytes=0,
-        known_unexplained_change_bytes=0,
-    )
-    if previous is not None:
-        old = await db.get(Reconciliation, (previous, snapshot.scope_key))
-        if old is not None:
-            summary = dict(
-                (
-                    await db.execute(
-                        _COMPARE,
-                        dict(
-                            scope=snapshot.scope_key,
-                            previous=previous,
-                            current=generation,
-                            previous_start=old.started_at,
-                            previous_end=old.measured_at,
-                            current_start=started,
-                            current_end=completed,
-                        ),
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            summary = {key: int(value) for key, value in summary.items()}
-            summary["status"] = "partial"
-    summary["unexplained_change_bytes"] = (
-        summary["known_unexplained_change_bytes"]
-        if summary["status"] != "no_baseline" and not summary["uncertain_object_count"]
-        else None
-    )
-    db.add(
-        Reconciliation(
-            generation=generation,
-            scope_key=snapshot.scope_key,
-            previous_generation=previous,
-            started_at=started,
-            measured_at=completed,
-            summary=summary,
+            values.append({"object_key": key, "size_bytes": size})
+        await db.execute(
+            text(
+                "SELECT yoao_assets_v1.stage_usage_inventory_objects("
+                ":generation, :scope, CAST(:objects AS jsonb), :started, :completed)"
+            ),
+            {
+                "generation": generation,
+                "scope": scope,
+                "objects": json.dumps(values),
+                "started": started,
+                "completed": completed,
+            },
         )
-    )
-    snapshot.object_generation = generation
-    keep = [generation] + ([previous] if previous else [])
+
+
+async def complete_bucket(db, scope, generation, started, completed):
     await db.execute(
-        delete(Observation).where(
-            Observation.scope_key == snapshot.scope_key,
-            Observation.generation.not_in(keep),
-        )
-    )
-    await db.execute(
-        delete(Reconciliation).where(
-            Reconciliation.scope_key == snapshot.scope_key,
-            Reconciliation.generation.not_in(keep),
-        )
+        text(
+            "SELECT yoao_assets_v1.reconcile_usage_bucket(:scope, :generation, :started, :completed)"
+        ),
+        {
+            "scope": scope,
+            "generation": generation,
+            "started": started,
+            "completed": completed,
+        },
     )
 
 
 async def discard_staging(db, generation, scope=None):
-    published = exists(
-        select(Snapshot.scope_key).where(
-            Snapshot.object_generation == Observation.generation,
-            Snapshot.scope_key == Observation.scope_key,
-        )
+    await db.execute(
+        text("SELECT yoao_assets_v1.discard_usage_staging(:generation, :scope)"),
+        {"generation": generation, "scope": scope},
     )
-    query = delete(Observation).where(Observation.generation == generation, ~published)
-    if scope:
-        query = query.where(Observation.scope_key == scope)
-    await db.execute(query)
 
 
 async def summaries(db, scopes):
     keys = [item["key"] for item in scopes]
     row = (
         await db.execute(
-            select(
-                func.coalesce(
-                    func.sum(Mutation.current_delta_bytes).filter(
-                        Mutation.current_delta_bytes > 0
-                    ),
-                    0,
-                ),
-                func.coalesce(
-                    -func.sum(Mutation.current_delta_bytes).filter(
-                        Mutation.current_delta_bytes < 0
-                    ),
-                    0,
-                ),
-                func.coalesce(func.sum(Mutation.current_delta_bytes), 0),
-                func.count().filter(Mutation.state == "pending"),
-                func.count().filter(Mutation.state == "unknown"),
-            ).where(Mutation.scope_key.in_(keys))
+            text(
+                "SELECT * FROM yoao_assets_v1.usage_mutation_summary(CAST(:keys AS text[]))"
+            ),
+            {"keys": keys},
         )
     ).one()
     accounting = StorageUsageAccountingSummary(
-        **dict(
-            zip(
-                (
-                    "confirmed_added_bytes",
-                    "confirmed_removed_bytes",
-                    "net_change_bytes",
-                    "pending_operation_count",
-                    "unknown_operation_count",
-                ),
-                map(int, row),
-            )
-        )
+        **{key: int(value) for key, value in row._mapping.items()}
     )
-    records = list(
-        await db.scalars(
-            select(Reconciliation)
-            .join(
-                Snapshot,
-                (Snapshot.scope_key == Reconciliation.scope_key)
-                & (Snapshot.object_generation == Reconciliation.generation),
-            )
-            .where(Reconciliation.scope_key.in_(keys))
+    records = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.usage_reconciliation_facts(CAST(:keys AS text[]))"
+            ),
+            {"keys": keys},
         )
-    )
+    ).all()
     reconciliation = None
     if records:
         values = {
@@ -481,7 +324,9 @@ async def summaries(db, scopes):
             if first or values["uncertain_object_count"]
             else values["known_unexplained_change_bytes"],
         )
-    schedule = await db.get(Schedule, "platform")
+    schedule = (
+        await db.execute(text("SELECT * FROM yoao_assets_v1.usage_schedule_summary()"))
+    ).one_or_none()
     return accounting, reconciliation, schedule_summary(schedule)
 
 

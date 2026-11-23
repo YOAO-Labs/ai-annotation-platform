@@ -11,11 +11,9 @@ import hashlib
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import delete, func, select, tuple_
 from training_contract.observability import (
     CHUNK_BYTES,
     LOG_BYTES,
-    LOG_LIMIT,
     METRICS,
     REDACTION_REVISION,
     SAMPLE_LIMIT,
@@ -27,20 +25,14 @@ from training_contract.observability import (
 )
 
 from app.config import settings
-from app.db.models.training_observability import (
-    TrainingLogChunk,
-    TrainingTelemetrySample,
-)
-from app.db.models.training_run import TrainingAttempt, TrainingResourceLease
+from app.services import training_observation_data as data
+from app.services import training_run_data as run_data
 from app.services import training_runs as training
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_authority_contract import TrainingAuthorityPort
 
-STREAMS = {
-    "telemetry": (TrainingTelemetrySample, SAMPLE_LIMIT),
-    "logs": (TrainingLogChunk, LOG_LIMIT),
-}
+STREAMS = ("telemetry", "logs")
 
 
 def conflict(code, message):
@@ -77,7 +69,7 @@ async def ingest(db, attempt_id, body, *, training_authority: TrainingAuthorityP
         }
     state.setdefault("stream_id", stream_id)
     secrets = (settings.training_executor_token, body.lease_token)
-    for name, (model, keep) in STREAMS.items():
+    for name in STREAMS:
         cursor = state.get(name + "_cursor", 0)
         skip = body.skipped.get(name)
         if skip:
@@ -95,6 +87,7 @@ async def ingest(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                     "reason": "producer_retention",
                 },
             ][-16:]
+        pending = {}
         for item in getattr(body, name):
             payload = item.model_dump(mode="json")
             if name == "logs":
@@ -112,7 +105,13 @@ async def ingest(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                     )
             digest = content_digest(payload)
             if item.sequence <= cursor:
-                existing = await db.get(model, (attempt.id, item.sequence))
+                if staged := pending.get(item.sequence):
+                    if staged["digest"] != digest:
+                        conflict(
+                            "observation_content_conflict", "同一观测游标不能改写内容"
+                        )
+                    continue
+                existing = await data.receipt(db, name, attempt.id, item.sequence)
                 if existing is None:
                     conflict("observation_cursor_retired", "该观测游标已被保留策略淘汰")
                 if (
@@ -123,34 +122,18 @@ async def ingest(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 continue
             if item.sequence != cursor + 1:
                 conflict("observation_cursor_gap", "缺失观测必须显式声明生产端保留区间")
-            db.add(
-                model(
-                    attempt_id=attempt.id,
-                    sequence=item.sequence,
-                    stream_id=body.stream_id,
-                    producer_boot_id=item.producer_boot_id,
-                    captured_at=item.captured_at,
-                    content_digest=digest,
-                    payload=payload,
-                )
-            )
+            pending[item.sequence] = {"digest": digest, "payload": payload}
             cursor = item.sequence
+        await data.append(db, name, attempt.id, body, list(pending.values()))
         state[name + "_cursor"] = cursor
-        await db.flush()
-        await db.execute(
-            delete(model).where(
-                model.attempt_id == attempt.id, model.sequence <= cursor - keep
-            )
-        )
     previous = state.get("summary", {})
-    accepted = await db.scalar(
-        select(TrainingTelemetrySample.payload)
-        .where(TrainingTelemetrySample.attempt_id == attempt.id)
-        .order_by(TrainingTelemetrySample.sequence.desc())
-        .limit(1)
-    )
+    accepted = await data.latest_telemetry(db, attempt.id)
     latest = previous.get("latest")
-    if accepted and (not latest or accepted["sequence"] >= latest["sequence"]):
+    if (
+        accepted
+        and accepted["sequence"] > state["telemetry_cursor"] - SAMPLE_LIMIT
+        and (not latest or accepted["sequence"] >= latest["sequence"])
+    ):
         latest = accepted
     peaks = dict(previous.get("peaks", {}))
     for sample in body.telemetry:
@@ -167,27 +150,19 @@ async def ingest(db, attempt_id, body, *, training_authority: TrainingAuthorityP
     }
     if len(encoded(state)) > STATE_BYTES:
         raise HTTPException(status_code=422, detail="持久观测摘要超出上限")
-    attempt.observation_state = state
+    await run_data.save_observation_receipt(db, attempt.id, body, state)
+    for name in STREAMS:
+        await data.trim(db, name, attempt.id)
     return {"stream_id": stream_id, "request_id": str(body.request_id), **cursors}
 
 
 async def page(db, attempt, stream, *, after=None, before=None, limit=120):
-    model, _ = STREAMS[stream]
     state = attempt.observation_state or {}
     latest = state.get(stream + "_cursor", 0)
-    earliest = await db.scalar(
-        select(func.min(model.sequence)).where(model.attempt_id == attempt.id)
+    earliest = await data.earliest(db, stream, attempt.id)
+    rows = await data.page(
+        db, stream, attempt.id, after=after, before=before, limit=limit
     )
-    statement = select(model).where(model.attempt_id == attempt.id)
-    if after is not None:
-        statement = statement.where(model.sequence > after).order_by(model.sequence)
-    else:
-        if before is not None:
-            statement = statement.where(model.sequence < before)
-        statement = statement.order_by(model.sequence.desc())
-    rows = list((await db.scalars(statement.limit(limit))).all())
-    if after is None:
-        rows.reverse()
     next_cursor = (
         rows[-1].sequence
         if rows
@@ -223,19 +198,7 @@ async def page(db, attempt, stream, *, after=None, before=None, limit=120):
 
 async def cleanup(db):
     cutoff = training.now() - timedelta(days=7)
-    counts = {}
-    for name, (model, _) in STREAMS.items():
-        expired = (
-            select(model.attempt_id, model.sequence)
-            .where(model.received_at < cutoff)
-            .order_by(model.received_at)
-            .limit(2000)
-        )
-        result = await db.execute(
-            delete(model).where(tuple_(model.attempt_id, model.sequence).in_(expired))
-        )
-        counts[name] = result.rowcount
-    return counts
+    return {name: await data.cleanup(db, name, cutoff) for name in STREAMS}
 
 
 def read_redacted_log(run, attempt, name, artifact, *, transport=None):
@@ -403,13 +366,9 @@ async def recovery(
     check_storage=True,
     lease=None,
 ):
-    attempt = (
-        await db.get(TrainingAttempt, run.current_attempt_id)
-        if run.current_attempt_id
-        else None
-    )
+    attempt = await run_data.get_attempt(db, run.current_attempt_id)
     if lease is None:
-        lease = await db.get(TrainingResourceLease, run.config["resource_id"])
+        lease = await run_data.get_lease(db, run.config["resource_id"])
     online = bool(
         lease
         and lease.last_seen_at

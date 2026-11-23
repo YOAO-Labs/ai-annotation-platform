@@ -4,12 +4,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import uuid
 
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.site_agent import AgentCredential, AgentRegistration
 from app.services import agent_transport as transport, content_snapshot as snapshots
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.site_agents import SiteAgentError, validate_current
+from app.services.site_agents import SiteAgentError, get_identity, validate_current
 from app.services import agent_availability
+from app.services.storage_registry_data import get_location
 
 
 @dataclass(frozen=True)
@@ -20,19 +19,8 @@ class AgentAccess:
 
 async def configuration(db, location):
     try:
-        agent = await db.get(
-            AgentRegistration,
-            uuid.UUID(location.config["agent_id"]),
-            populate_existing=True,
-        )
-        credential = (
-            await db.get(
-                AgentCredential,
-                (agent.id, agent.credential_revision),
-                populate_existing=True,
-            )
-            if agent
-            else None
+        agent, credential = await get_identity(
+            db, uuid.UUID(location.config["agent_id"])
         )
         validate_current(agent, credential)
     except SiteAgentError as exc:
@@ -64,7 +52,9 @@ async def capture(
     on_acquired=None,
     inspect_quality=False,
 ):
-    location = await db.get(StorageLocation, config.location_id, populate_existing=True)
+    location = await get_location(db, config.location_id)
+    if location is None:
+        raise FilesystemStorageError("agent_unavailable")
     receipt = await transport.exchange(
         db,
         location,

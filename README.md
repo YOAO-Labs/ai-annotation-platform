@@ -79,7 +79,7 @@ YOAO 是一个开源、可私有化部署的多模态 AI 辅助数据标注平�
 完整的依赖安装、推理运行时制品准备与本地启动步骤，请查阅：
 
 - **本地开发环境**：[本地开发教程](./docs-site/dev/tutorials/local-dev.md)（细节与常用命令见 [DEV.md](./DEV.md)）
-- **私有化与局域网部署**：[部署与运维文档](./docs-site/ops/index.md)
+- **私有化与局域网部署**：[部署与运维文档](./docs-site/ops/index.md)（默认宿主、可选进程和切换状态见[进程清单](./docs-site/dev/concepts/module-deployment.md#deployment-convergence)）
 - **本地预览文档站**：
 
 ```bash

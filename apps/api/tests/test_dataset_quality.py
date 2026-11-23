@@ -17,6 +17,7 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_quality import (
     DatasetQualityResult as Result,
+    DatasetQualityRun as Run,
 )
 from app.schemas.dataset_quality import DatasetQualityConfig, DatasetQualityReview
 from app.services import (
@@ -103,8 +104,9 @@ async def world(db_session, super_admin, monkeypatch):
 async def run_all(db, run):
     job = await db.get(AsyncJob, run.async_job_id)
     await worker.execute(db, run.id, job.celery_task_id, "worker:test")
-    await db.refresh(run)
+    run = await db.get(Run, run.id, populate_existing=True)
     assert run.status == "completed", run.error_code
+    return run
 
 
 async def test_fixed_members_full_sha_duplicates_corrupt_and_unverified(world):
@@ -116,7 +118,7 @@ async def test_fixed_members_full_sha_duplicates_corrupt_and_unverified(world):
     )
     db.add(extra)
     await db.commit()
-    await run_all(db, run)
+    run = await run_all(db, run)
     assert run.total == 5 and run.processed == 5
     assert run.summary == {
         "processed_count": 5,
@@ -126,7 +128,9 @@ async def test_fixed_members_full_sha_duplicates_corrupt_and_unverified(world):
         "duplicate_group_count": 1,
         "duplicate_member_count": 2,
     }
-    page = await svc.result_page(db, run, limit=1, offset=1, finding="exact_duplicate")
+    page = await svc.result_page(
+        db, run, actor, limit=1, offset=1, finding="exact_duplicate"
+    )
     assert page["total"] == 2 and len(page["items"]) == 1
     assert page["items"][0].duplicate_count == 2
     rows = list(await db.scalars(select(Result).where(Result.run_id == run.id)))
@@ -149,8 +153,8 @@ async def test_unavailable_and_changed_are_not_corrupt_and_deleted_identity_stay
     blobs[items[1].file_path] = png(color="green")
     await db.execute(delete(DatasetItem).where(DatasetItem.id == items[4].id))
     await db.commit()
-    await run_all(db, run)
-    page = await svc.result_page(db, run, limit=20, offset=0)
+    run = await run_all(db, run)
+    page = await svc.result_page(db, run, actor, limit=20, offset=0)
     rows = {r.file_name: r for r in page["items"]}
     assert rows["a.png"].reason_code == "content_source_unavailable"
     assert rows["b.png"].reason_code in {"source_changed", "content_mismatch"}
@@ -232,7 +236,7 @@ async def test_cancel_resume_keeps_committed_members_and_fences_old_worker_signa
     )
     await svc.cancel_job(db, job, actor)
     await db.commit()
-    await svc.resume(db, ds.id, run.id, actor)
+    run = await svc.resume(db, ds.id, run.id, actor)
     await db.commit()
     assert await svc.fenced(db, run.id, old_job, old_task, generation) is None
     await svc.signal_interrupted(db, old_job, old_task, cancelled=False)
@@ -244,8 +248,9 @@ async def test_cancel_resume_keeps_committed_members_and_fences_old_worker_signa
     await db.commit()
     await svc.signal_interrupted(db, new_job.id, previous_task, cancelled=False)
     await db.commit()
+    run = await svc.require_run(db, ds.id, run.id, actor)
     assert run.status == "pending"
-    await run_all(db, run)
+    run = await run_all(db, run)
     assert (await db.get(Result, committed)).state != "pending" and run.processed == 5
 
 
@@ -270,7 +275,7 @@ async def test_permission_revoked_during_io_does_not_commit_evidence(
         (await db.get(AsyncJob, run.async_job_id)).celery_task_id,
         "worker:test",
     )
-    await db.refresh(run)
+    run = await db.get(Run, run.id, populate_existing=True)
     assert run.status == "failed" and run.error_code == "access_revoked"
     assert not await db.scalar(
         select(Result.id).where(
@@ -279,15 +284,50 @@ async def test_permission_revoked_during_io_does_not_commit_evidence(
     )
 
 
+async def test_snapshot_from_old_attempt_cannot_publish_after_cancel_and_resume(
+    world, monkeypatch
+):
+    db, dataset, actor, *_ = world
+    run = await svc.start(db, dataset.id, actor, DatasetQualityConfig())
+    await db.commit()
+    job = await db.get(AsyncJob, run.async_job_id)
+    original = content.quality_snapshot
+    replacement = []
+
+    async def resume_after_capture(*args, **kwargs):
+        snapshot = await original(*args, **kwargs)
+        await svc.cancel_job(db, job, actor)
+        updated = await svc.resume(db, dataset.id, run.id, actor)
+        await db.commit()
+        replacement.append((args[1], snapshot.file, updated))
+        return snapshot
+
+    monkeypatch.setattr(content, "quality_snapshot", resume_after_capture)
+    await worker.execute(db, run.id, job.celery_task_id, "worker:test")
+    ((item_id, captured_file, updated),) = replacement
+    assert captured_file.closed and updated.async_job_id != job.id
+    current = await svc.require_run(db, dataset.id, run.id, actor)
+    assert current.status == "pending"
+    assert current.generation == updated.generation
+    assert current.processed == updated.processed
+    row = await db.scalar(
+        select(Result).where(Result.run_id == run.id, Result.item_id == item_id)
+    )
+    assert row.state == "pending" and not row.bytes_verified and row.observed_at is None
+
+
 async def test_expired_lease_recovery_rotates_fence(world):
     db, ds, actor, items, blobs = world
     run = await svc.start(db, ds.id, actor, DatasetQualityConfig())
+    run = await db.get(Run, run.id)
     job = await db.get(AsyncJob, run.async_job_id)
     old_task, generation = job.celery_task_id, run.generation
     run.status = "running"
     run.lease_until = svc.now() - timedelta(seconds=1)
     await db.commit()
     await worker.recover(db)
+    await db.refresh(run)
+    await db.refresh(job)
     assert run.status == "pending" and run.generation > generation
     assert job.celery_task_id != old_task
     assert await svc.fenced(db, run.id, job.id, old_task, generation) is None
@@ -392,7 +432,7 @@ async def test_reference_dispatches_to_registered_worker_and_keeps_missing_separ
     )
     assert run.processed == 0
     await worker.execute(db_session, run.id, job.celery_task_id, "worker:content@test")
-    await db_session.refresh(run)
+    run = await db_session.get(Run, run.id, populate_existing=True)
     assert run.status == "completed" and run.summary["checked_count"] == 1
     row = await db_session.scalar(select(Result).where(Result.run_id == run.id))
     assert row.bytes_verified and row.findings == ["dimensions_out_of_range"]

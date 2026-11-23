@@ -1,4 +1,4 @@
-"""Frozen native bitmap packaging and analysis; no database or live storage."""
+"""Frozen native bitmap packaging, analysis and persistent retention."""
 
 from copy import deepcopy
 import hashlib
@@ -10,6 +10,7 @@ import zipfile
 
 import pytest
 from PIL import Image
+from sqlalchemy import text
 
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services.training_dataset_bridge import (
@@ -241,18 +242,26 @@ def test_frozen_mask_reader_uses_independent_training_object_and_digest(
         )
 
 
-def test_gc_roots_keep_retriable_snapshots_and_fixed_trials():
-    from app.workers.cleanup import (
-        _MASK_REFERENCE_QUERIES,
-        _MASK_REFERENCE_EXISTS_QUERIES,
+async def test_gc_roots_keep_retriable_snapshots_and_fixed_trials(db_session):
+    definitions = list(
+        await db_session.scalars(
+            text(
+                "SELECT pg_catalog.pg_get_functiondef(sig::regprocedure) "
+                "FROM unnest(ARRAY["
+                "'yoao_learning_v1.pending_dataset_mask_keys()', "
+                "'yoao_learning_v1.pending_dataset_mask_referenced(text)', "
+                "'yoao_learning_v1.trial_mask_keys()', "
+                "'yoao_learning_v1.trial_mask_referenced(text)']) AS sig"
+            )
+        )
     )
-
-    for queries in (_MASK_REFERENCE_QUERIES, _MASK_REFERENCE_EXISTS_QUERIES):
-        text = "\n".join(queries)
-        assert "training_dataset_versions" in text
-        assert "status <> 'ready'" in text
-        assert "trained_model_deployments" in text
-        assert "jsonb_path_query(trial," in text
+    for definition in definitions[:2]:
+        assert "training_dataset_versions" in definition
+        assert "status <> 'ready'" in definition
+        assert "ultralytics-instance-rle-1" in definition
+    for definition in definitions[2:]:
+        assert "trained_model_deployments" in definition
+        assert "jsonb_path_query(" in definition and "trial" in definition
 
 
 def test_verified_original_dimensions_use_full_image_and_orientation():

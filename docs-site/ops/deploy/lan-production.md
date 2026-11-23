@@ -24,7 +24,7 @@ last_reviewed: 2026-11-16
 | 模型       | 复用运行中的实例及权重，在新库重新注册和探测能力                             |
 | DuckDB     | 生产独立卷，通用 Worker 写，API 只读                                         |
 
-默认 API 内嵌 Identity、Notifications socket、Workspace、Labeling 类目和 Assets Catalog；视频最终写入由 tracker worker 持有。需要额外邮件、推理或媒体隔离时再按[部署与凭据矩阵](./docker-compose#module-process-selection)选配，不重启旧按操作拆分服务。
+默认 API 内嵌 Identity、Notifications socket、Workspace、Labeling 类目和 Assets Catalog；视频最终写入由 tracker worker 持有。按[进程清单](../../dev/concepts/module-deployment#deployment-convergence)选配邮件、推理或媒体隔离，不重启退役的按操作服务。该清单区分源码、已取得的运行证据与 M2b 仍待验证的门槛。
 
 Redis 使用新实例，因为目前全局任务和模型状态推送使用固定频道。Redis Pub/Sub **不按逻辑数据库编号隔离**，仅把 `/0` 改成 `/1` 会让新旧环境仍然收到同一频道消息。[Redis 官方说明](https://redis.io/docs/latest/develop/pubsub/)
 
@@ -60,7 +60,7 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 
 应用 `.env.production` 中**不放 `MIGRATION_DATABASE_URL`**。将完整迁移连接字符串作为一行写入 `$AAP_PRODUCTION_STATE_DIR/migration-database-url`，权限设为 `0400`；仅一次性 `migrate` 服务获得该文件。常驻服务不自动迁移，也不接收迁移 owner 的登录凭据。
 
-在同一目录创建 `known_hosts` 文件，并只读挂载给 API 和消费 `media` 的通用 Worker。未配置 SFTP 时可以为空；接入 SFTP 前必须通过可信渠道核验目标主机公钥并写入该文件，不能自动信任扫描结果。新生产环境使用独立 `CONNECTOR_ENCRYPTION_KEY` 保存连接器凭据；该值与数据库一起备份，不能随重建轮换。
+旧直接访问档把核验过的 SFTP `known_hosts` 和连接器加密 key 交给原读写进程。对 M2b 的已登记自定义 S3／SFTP，改由[既有 Source](./docker-compose#source-registered-io)持有连接器密钥、主机白名单与所需的主机公钥；核对备份中的原加密 key，不在重建时轮换。新边界仍需验收，不得把旧密钥分发给普通 API／worker 来绕过 Source；内建存储和站点 Agent 路径不变。
 
 十个桶变量固定为：
 
@@ -87,7 +87,7 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 
 ```sql
 CREATE ROLE anno_prod_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE ROLE anno_prod_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE anno_prod_app LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE yoao_asset_cleanup_client LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE anno_prod_jobs_dispatch LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE anno_prod_jobs_publication LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -121,26 +121,17 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml run --r
 随后以 `anno_prod_owner` 连接 **`annotation_production`**，执行普通运行授权：
 
 ```bash
-psql -X -U anno_prod_owner -d annotation_production \
+psql -X -v ON_ERROR_STOP=1 -U anno_prod_owner -d annotation_production \
   -v expected_database=annotation_production -v application_role=anno_prod_app \
   -v migration_role=anno_prod_owner -v asset_cleanup_role=yoao_asset_cleanup_client \
   -f infra/docker/lan-production-grants.sql
 ```
 
-每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，授予业务 DML，禁止运行角色修改迁移版本或删除 GPU membership/fence 真值；同时把审计、预测父表及全部子分区、两个统计物化视图交给运行角色维护。
+每次迁移后都按当前文件链重放授权。M2b 的普通应用门禁是 **零有效私有关系和序列权限**：分别以 LAN 内嵌签发、LAN 远程 issuer 下的普通 API consumer 登录，检查关系和列、分区父表和实际子分区、物化视图、外表、序列，以及 PUBLIC、所有权和角色成员关系（`NOINHERIT` 不阻止 `SET ROLE`）。独立工作树须用启动器实际生成的普通 LOGIN 另行验证，不能以 LAN 角色或迁移账号代替。
 
-Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固定公开关系与 Native 命令能力。
-应用角色必须没有角色成员资格；`NOINHERIT` 不能阻止 `SET ROLE`。PUBLIC 或所有权仍提供
-私表访问时，脚本会拒绝并回滚授权；先解除冲突再重试，勿给应用进程迁移 owner 凭据。
-Labeling 类目查询只向普通运行角色开放三个类目查询函数，不用 Labeling 私表权限填补其他能力。各域应用权限只以当前角色的实际授权和验收为准；运行授权源码变更不代表日常环境或任一套生产库已应用。
+只给普通消费者命名的 owner 函数和公开投影；Labeling 类目是三项固定查询权限，不能补私表 ACL。分区 DDL、统计刷新及存储清理按实际维护、owner 或独立服务的授权路径配置，不把普通角色变成维护对象的 owner，不把迁移 DSN 挂到普通消费者。LAN 默认不启动 `assets-cleanup`；启用时按[保留服务清单](../../dev/concepts/module-deployment#deployment-convergence)装自己的完整窄授权。
 
-应用角色保留本地 API/Celery 适配所需的图片媒体 22 项能力，以及已受理图片输入、清单和 Labeling 引用的 16 项能力。受理图片的后台 sweep、垃圾回收和私有回执/Pin helper 不会授给应用角色。这里的 `yoao_asset_cleanup_client` 仅有旧存储删除 outbox 的领取/确认能力；LAN Compose 没有启动独立 `assets-cleanup`。若另行部署清理 overlay，按其 [清理工件说明](../../dev/concepts/module-deployment.md) 单独安装完整角色授权，不要把 overlay 的权限叠加到这个 LAN 配置中。
-
-连接器配置也依赖当前公开的列举、读取、策略、接受快照、观察回执、创建、删除及连通测试能力；
-迁移后须重应用此 profile，而不是给应用角色补私表权限或迁移 owner 凭据。
-来源写入的生命周期和来源保护状态通过有限事务投影读取，行锁仍由原调用方事务持有。
-
-`celery-worker-maintenance` 专门消费 `maintenance` 队列，沿用下面限定维护对象的运行角色权限，不挂载迁移账号 secret。
+完整的三角色实库验收仍在实施。若现用脚本仍把维护对象交给普通角色，或普通角色缺业务所需固定能力，不要继续切换，不给普通 role 补权限。隔离恢复、权限回放与失败处置见[升级门禁](../upgrade-guide#split-topology-upgrade)。
 
 迁移与普通授权完成后，在同一数据库追加 Jobs 恢复授权。以下命令以实际迁移 LOGIN 连接已核对的实例（`PGHOST`／认证文件需由操作者指定）：
 
@@ -155,7 +146,7 @@ psql -X -U anno_prod_owner -d annotation_production \
 
 默认 `ASSETS_VIDEO_EXECUTOR=celery` 需要窄视频执行 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)安装后设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。需要 Native 图片写入时也安装独立 image LOGIN，配置 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`；普通非 Native 图片路径不因此要求新的 DSN。API／Beat 不挂载这些凭据，不向应用 LOGIN 增补执行函数。
 
-**运行角色并非纯 DML 账号**：现有月分区任务需要 CREATE/DROP 子分区，PostgreSQL 的统计刷新需要视图所有权和数据库 TEMPORARY 权限。因此它拥有上述限定维护对象及 `public` schema CREATE 权限；其余业务对象仍由迁移角色所有。迁移角色单向继承运行角色，运行角色不能反过来成为迁移角色，也没有集群管理权限。
+维护队列的身份与权限须单独核对；它能执行维护不构成普通 LOGIN 验收。不能因现有安装给普通角色保留物化视图、分区所有权或 `public` 创建权限，就把这类授权视为新档要求。
 
 启动常驻服务：
 

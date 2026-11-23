@@ -1,5 +1,4 @@
 import asyncio
-import json
 import io
 import tempfile
 from threading import Event
@@ -7,7 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
 
-import httpx
 import pytest
 from fastapi import HTTPException
 from starlette.requests import ClientDisconnect, Request
@@ -17,6 +15,7 @@ from yoao_assets_source.contract import (
     SourceFailure,
     SourceDeletionRequest,
     UploadInitRequest,
+    UploadInitResult,
     UploadOutcome,
 )
 from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
@@ -24,6 +23,8 @@ from yoao_assets_source.ingest_contract import (
     INGEST_SCHEMA,
     SCAN_REQUEST_DIGEST,
     IngestCommand,
+    IngestFailure,
+    IngestFailureDetail,
     IngestReceipt,
 )
 from yoao_assets_source.legacy_upload_contract import (
@@ -49,7 +50,6 @@ DATASET = UUID("20000000-0000-4000-8000-000000000002")
 ITEM = UUID("30000000-0000-4000-8000-000000000003")
 OPERATION = UUID("40000000-0000-4000-8000-000000000004")
 OTHER_ITEM = UUID("50000000-0000-4000-8000-000000000005")
-TOKEN = "source-test-token-" + ("x" * 32)
 
 
 def _ingest_command():
@@ -216,107 +216,56 @@ def _deletion_receipt(request: SourceDeletionRequest) -> DatasetSourceDeletionRe
     )
 
 
-async def test_remote_init_sends_scoped_contract_and_returns_typed_result(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "http://source.internal:8767")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    seen = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(
-            200,
-            json={
-                "schema": "aap-assets-source/v1",
-                "ok": True,
-                "data": {
-                    "actor_id": str(ACTOR),
-                    "dataset_id": str(DATASET),
-                    "item_id": str(ITEM),
-                    "upload_url": "/minio/import/item?signature=abc",
-                    "expires_in": 900,
-                },
-            },
-        )
-
-    db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
-    result = await gateway.init_upload(_upload_init_request())
-
-    assert result.upload_url == "/minio/import/item?signature=abc"
-    assert gateway.is_remote
-    assert len(seen) == 1
-    assert seen[0].url.path == "/v1/source/upload-init"
-    assert seen[0].headers["authorization"] == f"Bearer {TOKEN}"
-    assert json.loads(seen[0].content) == _upload_init_request().model_dump(mode="json")
-    db.scalar.assert_not_awaited()
-    db.commit.assert_not_awaited()
-
-
-@pytest.mark.parametrize(
-    ("status", "payload", "expected_status"),
-    [
-        (503, {"detail": "secret SQL text"}, 503),
-        (
-            200,
-            {
-                "schema": "aap-assets-source/v2",
-                "ok": True,
-                "data": {},
-            },
-            502,
-        ),
-        (
-            200,
-            {
-                "schema": "aap-assets-source/v1",
-                "ok": True,
-                "data": {
-                    "actor_id": str(OTHER_ITEM),
-                    "dataset_id": str(DATASET),
-                    "item_id": str(ITEM),
-                    "upload_url": "https://storage.example/put",
-                    "expires_in": 900,
-                },
-            },
-            502,
-        ),
-    ],
-)
-async def test_remote_failure_never_falls_back_or_leaks_peer_details(
-    monkeypatch, status: int, payload: dict, expected_status: int
+async def test_upload_init_binds_original_workflow_even_with_source_host_configured(
+    monkeypatch,
 ):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+    monkeypatch.setattr(settings, "assets_source_url", "http://source.internal:8767")
+    monkeypatch.setattr(settings, "assets_source_token", "unused")
+    request = _upload_init_request()
+    init = AsyncMock(
+        return_value=UploadInitResult(
+            actor_id=ACTOR,
+            dataset_id=DATASET,
+            item_id=ITEM,
+            upload_url="/minio/import/item?signature=abc",
+            expires_in=900,
+        )
+    )
+    gateway = AssetsSourceGateway(AsyncMock())
+    monkeypatch.setattr(
+        gateway, "_local_workflow", lambda: SimpleNamespace(init_upload=init)
+    )
+    assert (await gateway.init_upload(request)).upload_url.startswith("/minio/import/")
+    init.assert_awaited_once_with(request)
+    gateway._db.commit.assert_not_awaited()
 
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status, json=payload)
 
+@pytest.mark.parametrize("invalid_scope", [False, True])
+async def test_local_upload_init_validation_never_commits(monkeypatch, invalid_scope):
+    init = AsyncMock()
+    if invalid_scope:
+        init.return_value = UploadInitResult(
+            actor_id=OTHER_ITEM,
+            dataset_id=DATASET,
+            item_id=ITEM,
+            upload_url="https://storage.example/put",
+            expires_in=900,
+        )
+    else:
+        init.side_effect = ValueError("private native result")
     db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    gateway = AssetsSourceGateway(db)
+    monkeypatch.setattr(
+        gateway, "_local_workflow", lambda: SimpleNamespace(init_upload=init)
+    )
     with pytest.raises(AssetsSourceGatewayError) as raised:
         await gateway.init_upload(_upload_init_request())
-
-    assert raised.value.status_code == expected_status
-    assert "secret SQL text" not in str(raised.value.detail)
-    db.scalar.assert_not_awaited()
+    assert raised.value.status_code == 502
+    assert "private native result" not in str(raised.value.detail)
     db.commit.assert_not_awaited()
 
 
-async def test_invalid_remote_configuration_does_not_select_local_mode(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", "short")
-    db = AsyncMock()
-
-    with pytest.raises(AssetsSourceGatewayError) as raised:
-        AssetsSourceGateway(db)
-
-    assert raised.value.status_code == 503
-    db.scalar.assert_not_awaited()
-
-
-async def test_local_gateway_composes_the_shared_runtime_workflow(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "")
-    monkeypatch.setattr(settings, "assets_source_token", "")
+async def test_local_gateway_composes_the_shared_runtime_workflow():
     gateway = AssetsSourceGateway(
         AsyncMock(), storage=SimpleNamespace(media_cache_bucket="source-cache")
     )
@@ -327,18 +276,13 @@ async def test_local_gateway_composes_the_shared_runtime_workflow(monkeypatch):
     assert workflow._image_admission._native.caller_transaction is True
     assert workflow._image_admission._native.provider.db is db
     assert workflow._image_admission._native.provider.commit is False
-    assert not gateway.is_remote
 
 
-async def test_local_ingest_uses_shared_workflow_sql_port_and_explicit_bucket(
-    monkeypatch,
-):
+async def test_local_ingest_uses_shared_workflow_sql_port_and_explicit_bucket():
     from yoao_assets_source_runtime.ingest_storage import IngestStorage
     from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
     from app.services.assets_source_ingest import DatasetSourceIngestData
 
-    monkeypatch.setattr(settings, "assets_source_url", "")
-    monkeypatch.setattr(settings, "assets_source_token", "")
     client = object()
     storage = SimpleNamespace(
         client=client,
@@ -359,23 +303,6 @@ async def test_local_ingest_uses_shared_workflow_sql_port_and_explicit_bucket(
     assert workflow._image_admission._native.provider.db is db
     assert workflow._image_admission._native.provider.commit is False
     db.scalar.assert_not_awaited()
-
-
-async def test_remote_response_limit_is_enforced(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            content=b"x" * (16 * 1024 * 1024 + 1),
-            headers={"content-type": "application/json"},
-        )
-
-    gateway = AssetsSourceGateway(AsyncMock(), transport=httpx.MockTransport(handler))
-    with pytest.raises(AssetsSourceGatewayError) as raised:
-        await gateway.init_upload(_upload_init_request())
-    assert raised.value.status_code == 502
 
 
 async def test_legacy_local_binding_uses_frozen_scope_and_metadata_arguments():
@@ -449,8 +376,6 @@ async def test_upload_complete_commits_without_postcommit_thumbnail_dispatch_and
     events = []
 
     class Gateway:
-        is_remote = False
-
         async def complete_upload(self, request):
             events.append(("complete", request))
             return UploadOutcome(
@@ -493,8 +418,6 @@ async def test_upload_missing_or_duplicate_disposition_is_committed_before_error
     events = []
 
     class Gateway:
-        is_remote = False
-
         async def complete_upload(self, request):
             events.append("complete")
             return UploadOutcome(
@@ -523,14 +446,12 @@ async def test_upload_missing_or_duplicate_disposition_is_committed_before_error
 
 
 @pytest.mark.parametrize("item_id", [None, ITEM])
-async def test_delete_routes_forward_operation_key_and_commit_only_local(
+async def test_delete_routes_forward_operation_key_and_commit_caller_transaction(
     monkeypatch, item_id
 ):
     captured = []
 
     class Gateway:
-        is_remote = False
-
         async def delete_source(self, request):
             captured.append(request)
             return _deletion_receipt(request)
@@ -568,125 +489,61 @@ async def test_delete_routes_forward_operation_key_and_commit_only_local(
     db.commit.assert_awaited_once()
 
 
-async def test_delete_route_does_not_commit_local_session_for_remote_owner(monkeypatch):
-    class Gateway:
-        is_remote = True
-
-        async def delete_source(self, request):
-            return _deletion_receipt(request)
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+async def test_failed_delete_does_not_commit_caller_session(monkeypatch):
+    failure = HTTPException(409, "source is retained")
+    gateway = SimpleNamespace(delete_source=AsyncMock(side_effect=failure))
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: gateway)
     monkeypatch.setattr(
         dataset_routes, "_deletion_audit_context", lambda _request: None
     )
     db = SimpleNamespace(commit=AsyncMock())
-    await dataset_routes.delete_dataset(
-        DATASET,
-        SimpleNamespace(),
-        Response(),
-        db,
-        SimpleNamespace(id=ACTOR),
-        idempotency_key=None,
-    )
+    with pytest.raises(HTTPException) as raised:
+        await dataset_routes.delete_dataset(
+            DATASET,
+            SimpleNamespace(),
+            Response(),
+            db,
+            SimpleNamespace(id=ACTOR),
+            idempotency_key=None,
+        )
+    assert raised.value is failure
     db.commit.assert_not_awaited()
 
 
-class _SizedReadStream(io.BytesIO):
-    def read(self, size=-1):
-        assert size >= 0, "ZIP forwarding must not read the full archive at once"
-        return super().read(size)
-
-
-async def test_remote_ingest_zip_streams_raw_bytes_and_never_falls_back(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "http://source.internal:8767")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+@pytest.mark.parametrize("kind", ["zip", "scan"])
+async def test_ingest_passes_exact_command_and_stream_to_owner(monkeypatch, kind):
     command = _ingest_command()
-    seen = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, json=_ingest_reply(command, kind="zip"))
-
-    db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
-    receipt = await gateway.ingest_zip(command, _SizedReadStream(b"zip bytes"))
-
-    assert receipt.kind == "zip"
-    assert len(seen) == 1
-    request = seen[0]
-    assert request.url.path == "/v1/source/upload-zip"
-    assert dict(request.url.params) == {
-        "operation_id": str(OPERATION),
-        "actor_id": str(ACTOR),
-        "dataset_id": str(DATASET),
-        "authority": command.authority.model_dump_json(),
-    }
-    assert request.headers["content-type"] == "application/zip"
-    assert request.headers["authorization"] == f"Bearer {TOKEN}"
-    assert request.content == b"zip bytes"
-    db.scalar.assert_not_awaited()
+    receipt = IngestReceipt.model_validate(_ingest_reply(command, kind=kind)["data"])
+    run = AsyncMock(return_value=receipt)
+    gateway = AssetsSourceGateway(AsyncMock())
+    monkeypatch.setattr(
+        gateway,
+        "_local_ingest_workflow",
+        lambda: SimpleNamespace(upload_zip=run, scan=run),
+    )
+    if kind == "zip":
+        with io.BytesIO(b"zip bytes") as source:
+            assert await gateway.ingest_zip(command, source) == receipt
+            run.assert_awaited_once_with(command, source)
+    else:
+        assert await gateway.ingest_scan(command) == receipt
+        run.assert_awaited_once_with(command)
 
 
-async def test_remote_ingest_scan_sends_typed_command_and_receipt(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
+async def test_ingest_rejects_receipt_for_another_dataset(monkeypatch):
     command = _ingest_command()
-    seen = []
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, json=_ingest_reply(command, kind="scan"))
-
-    db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
-    receipt = await gateway.ingest_scan(command)
-
-    assert receipt.kind == "scan"
-    assert len(seen) == 1
-    assert seen[0].url.path == "/v1/source/scan"
-    assert seen[0].headers["content-type"] == "application/json"
-    assert json.loads(seen[0].content) == command.model_dump(mode="json")
-    db.scalar.assert_not_awaited()
-
-
-async def test_remote_ingest_preserves_archive_failure_and_maps_bad_reply(monkeypatch):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = _ingest_command()
-    failure = {
-        "schema": INGEST_SCHEMA,
-        "ok": False,
-        "error": {
-            "code": "resource_budget_exceeded",
-            "detail": {
-                "reason": "resource_budget_exceeded",
-                "message": "ZIP package exceeds the compressed-byte limit",
-                "budget": "compressed_bytes",
-                "limit": 209715200,
-                "observed": 209715201,
-            },
-        },
-    }
-
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(413, json=failure)
-
-    db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    wrong = IngestReceipt.model_validate(_ingest_reply(command, kind="scan")["data"])
+    wrong = wrong.model_copy(update={"dataset_id": OTHER_ITEM})
+    gateway = AssetsSourceGateway(AsyncMock())
+    monkeypatch.setattr(
+        gateway,
+        "_local_ingest_workflow",
+        lambda: SimpleNamespace(scan=AsyncMock(return_value=wrong)),
+    )
     with pytest.raises(AssetsSourceGatewayError) as raised:
-        await gateway.ingest_zip(command, _SizedReadStream(b"zip"))
-    assert raised.value.status_code == 413
-    assert raised.value.detail == failure["error"]["detail"]
-    db.scalar.assert_not_awaited()
-
-    async def bad_reply(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"schema": INGEST_SCHEMA, "ok": "yes"})
-
-    bad_gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(bad_reply))
-    with pytest.raises(AssetsSourceGatewayError) as bad:
-        await bad_gateway.ingest_scan(command)
-    assert bad.value.status_code == 502
-    db.scalar.assert_not_awaited()
+        await gateway.ingest_scan(command)
+    assert raised.value.status_code == 502
+    gateway._db.commit.assert_not_awaited()
 
 
 @pytest.fixture
@@ -724,7 +581,6 @@ def zip_route(monkeypatch):
     ingest = AsyncMock()
 
     class Gateway:
-        is_remote = False
         ingest_zip = ingest
 
     monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
@@ -957,8 +813,6 @@ async def test_zip_route_closes_spool_when_gateway_fails(monkeypatch):
     streams = []
 
     class Gateway:
-        is_remote = False
-
         async def ingest_zip(self, _command, source):
             streams.append(source)
             assert source.read() == b"zip bytes"
@@ -1027,54 +881,20 @@ async def test_ingest_public_response_is_size_bounded(monkeypatch):
 async def test_ingest_public_error_status_and_detail_mapping(
     monkeypatch, code, detail, status, public_detail
 ):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
     command = _ingest_command()
-    error = {"code": code}
-    if detail is not None:
-        error["detail"] = detail
-
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            status,
-            json={"schema": INGEST_SCHEMA, "ok": False, "error": error},
-        )
-
+    error = IngestFailure(
+        code, IngestFailureDetail.model_validate(detail) if detail is not None else None
+    )
     db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
+    gateway = AssetsSourceGateway(db)
+    monkeypatch.setattr(
+        gateway,
+        "_local_ingest_workflow",
+        lambda: SimpleNamespace(scan=AsyncMock(side_effect=error)),
+    )
     with pytest.raises(AssetsSourceGatewayError) as raised:
         await gateway.ingest_scan(command)
 
     assert raised.value.status_code == status
     assert raised.value.detail == public_detail
-    db.scalar.assert_not_awaited()
-
-
-async def test_remote_ingest_transport_failure_is_503_without_local_fallback(
-    monkeypatch,
-):
-    monkeypatch.setattr(settings, "assets_source_url", "https://source.internal")
-    monkeypatch.setattr(settings, "assets_source_token", TOKEN)
-    command = _ingest_command()
-
-    async def handler(_request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError("source is offline")
-
-    db = AsyncMock()
-    gateway = AssetsSourceGateway(db, transport=httpx.MockTransport(handler))
-    with pytest.raises(AssetsSourceGatewayError) as raised:
-        await gateway.ingest_scan(command)
-
-    assert raised.value.status_code == 503
-    db.scalar.assert_not_awaited()
-
-    async def unavailable(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(503, text="source unavailable")
-
-    unavailable_gateway = AssetsSourceGateway(
-        db, transport=httpx.MockTransport(unavailable)
-    )
-    with pytest.raises(AssetsSourceGatewayError) as unavailable_error:
-        await unavailable_gateway.ingest_scan(command)
-    assert unavailable_error.value.status_code == 503
     db.scalar.assert_not_awaited()

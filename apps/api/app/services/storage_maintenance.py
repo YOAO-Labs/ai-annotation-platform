@@ -6,21 +6,14 @@ import json
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, literal, select
-from sqlalchemy.dialects.postgresql import JSONB, UUID, aggregate_order_by
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.api_key import ApiKey
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import (
-    StorageMaintenanceGate as Gate,
-    StorageOperation as Operation,
-)
-from app.db.models.user import User
 from app.services import storage_access
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.storage_registry_data import get_connection, get_location
 from app.services.storage_maintenance_targets import confirmation_counts
 
 AUDIENCE = "storage-maintenance"
@@ -50,25 +43,17 @@ async def authority(db, actor, api_key_id, scope, *, lock=False):
     if lock:
         try:
             async with db.begin_nested():
-                actor = await db.scalar(
-                    select(User)
-                    .where(User.id == actor.id)
-                    .with_for_update(read=True, nowait=True)
-                    .execution_options(populate_existing=True)
-                )
+                actor = (
+                    await IdentityAccountLockData(db).lock_accounts(
+                        (actor.id,), mode="share"
+                    )
+                ).get(actor.id)
                 if (
                     not actor
                     or not actor.is_active
                     or actor.role != UserRole.SUPER_ADMIN
                 ):
                     reject("platform_administrator_required", 403)
-                if api_key_id:
-                    await db.scalar(
-                        select(ApiKey)
-                        .where(ApiKey.id == api_key_id)
-                        .with_for_update(read=True, nowait=True)
-                        .execution_options(populate_existing=True)
-                    )
         except DBAPIError as exc:
             if storage_access.unavailable(exc):
                 reject("storage_maintenance_busy")
@@ -78,17 +63,12 @@ async def authority(db, actor, api_key_id, scope, *, lock=False):
 
 
 async def location(db, location_id, *, lock=False):
-    statement = (
-        select(StorageLocation)
-        .where(StorageLocation.id == location_id)
-        .execution_options(populate_existing=True)
-    )
     try:
         if lock:
             async with db.begin_nested():
-                row = await db.scalar(statement.with_for_update(nowait=True))
+                row = await get_location(db, location_id, lock="update_nowait")
         else:
-            row = await db.scalar(statement)
+            row = await get_location(db, location_id)
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("storage_maintenance_busy")
@@ -110,11 +90,8 @@ async def lock_gate(db, location_id, *, initialize=False):
             reject(exc.code, exc.status)
     try:
         async with db.begin_nested():
-            return await db.scalar(
-                select(Gate)
-                .where(Gate.location_id == location_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
+            return await storage_access.gate_facts(
+                db, location_id, lock="update_nowait"
             )
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
@@ -122,65 +99,17 @@ async def lock_gate(db, location_id, *, initialize=False):
         raise
 
 
-def status_query(location_id):
-    selected = (
-        select(
-            Operation.id,
-            Operation.purpose,
-            Operation.node_id,
-            Operation.revision,
-            Operation.started_at,
-        )
-        .where(Operation.location_id == location_id)
-        .order_by(Operation.started_at, Operation.id)
-        .limit(50)
-        .subquery()
-    )
-    operations = select(
-        func.coalesce(
-            func.jsonb_agg(
-                aggregate_order_by(
-                    func.jsonb_build_object(
-                        "id",
-                        selected.c.id,
-                        "purpose",
-                        selected.c.purpose,
-                        "node_id",
-                        selected.c.node_id,
-                        "revision",
-                        selected.c.revision,
-                        "started_at",
-                        selected.c.started_at,
-                    ),
-                    selected.c.started_at,
-                    selected.c.id,
-                )
-            ),
-            literal([], type_=JSONB),
-        )
-    ).scalar_subquery()
-    count = (
-        select(func.count())
-        .select_from(Operation)
-        .where(Operation.location_id == location_id)
-        .scalar_subquery()
-    )
-    anchor = select(
-        literal(location_id, type_=UUID(as_uuid=True)).label("location_id")
-    ).subquery()
-    return select(
-        func.coalesce(Gate.state, "active").label("state"),
-        func.coalesce(Gate.revision, 1).label("revision"),
-        Gate.changed_at,
-        Gate.changed_by,
-        func.statement_timestamp().label("measured_at"),
-        count.label("open_operations"),
-        operations.label("operations"),
-    ).select_from(anchor.outerjoin(Gate, Gate.location_id == anchor.c.location_id))
+_MAINTENANCE_STATUS = text(
+    "SELECT * FROM yoao_assets_storage_v1.maintenance_status(:location)"
+)
+_TRANSITION = text(
+    "SELECT * FROM yoao_assets_storage_v1.transition_gate(:location,:revision,:operation,:actor)"
+)
 
 
 async def snapshot(db, location_id):
-    result = dict((await db.execute(status_query(location_id))).mappings().one())
+    rows = await db.execute(_MAINTENANCE_STATUS, {"location": location_id})
+    result = dict(rows.mappings().one())
     return {
         "location_id": location_id,
         **result,
@@ -225,9 +154,7 @@ async def review(db, location_id, payload, actor, api_key_id, *, initialize=Fals
         await require_resumable(db, location_id)
         await require_target_resumable(db, location_id)
     connection = (
-        await db.get(StorageConnection, where.connection_id, populate_existing=True)
-        if where.connection_id
-        else None
+        await get_connection(db, where.connection_id) if where.connection_id else None
     )
     connection_revision = connection.revision if connection else None
     binding = digest(
@@ -268,9 +195,7 @@ async def review(db, location_id, payload, actor, api_key_id, *, initialize=Fals
     if proof != current_proof:
         reject("api_key_authority_revoked", 403)
     if connection:
-        current_connection = await db.get(
-            StorageConnection, where.connection_id, populate_existing=True
-        )
+        current_connection = await get_connection(db, where.connection_id)
         if (
             current_connection is None
             or current_connection.revision != connection_revision
@@ -358,11 +283,18 @@ async def apply(db, location_id, payload, actor, *, api_key_id=None, request=Non
         reject("storage_maintenance_preview_changed")
     decode_token(payload.impact_token)
     previous_revision, previous_state = gate.revision, gate.state
-    gate.state = reviewed["target_state"]
-    gate.revision += 1
-    gate.changed_at = await db.scalar(select(func.statement_timestamp()))
-    gate.changed_by = actor.id
-    await db.flush()
+    result = await db.execute(
+        _TRANSITION,
+        {
+            "location": location_id,
+            "revision": previous_revision,
+            "operation": payload.operation,
+            "actor": actor.id,
+        },
+    )
+    gate = result.mappings().one_or_none()
+    if gate is None:
+        reject("storage_maintenance_changed")
     await AuditService.log(
         db,
         actor=actor,

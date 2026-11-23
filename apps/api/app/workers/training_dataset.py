@@ -7,7 +7,6 @@ import hashlib
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 
 from botocore.exceptions import ClientError
@@ -22,7 +21,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import training_dataset_data as data
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.jobs_lifecycle_data import job_lock_statement
@@ -80,12 +79,9 @@ class Execution:
 
 
 async def guard_execution(db, context, *, lock=False, status="running"):
-    statement = select(TrainingDatasetVersion).where(
-        TrainingDatasetVersion.id == context.version_id
+    version = await data.read_version(
+        db, context.version_id, project_id=context.authority.project_id, lock=lock
     )
-    if lock:
-        statement = statement.with_for_update()
-    version = await db.scalar(statement.execution_options(populate_existing=True))
     job = (
         await db.scalar(
             job_lock_statement(context.job_id, mode="update", populate_existing=True)
@@ -579,19 +575,14 @@ async def _build_dataset_contents(
     unsettled = False
     permit = None
     async with session_factory() as db:
-        version = await db.get(TrainingDatasetVersion, version_id)
+        version = await data.read_version(db, version_id)
         if version is None:
             return
         try:
             await require_authority(db, version)
-            version = (
-                await db.execute(
-                    select(TrainingDatasetVersion)
-                    .where(TrainingDatasetVersion.id == version_id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).scalar_one()
+            version = await data.read_version(db, version_id, lock=True)
+            if version is None:
+                return
             if (
                 version.async_job_id != job_id
                 or version.attempt_id != attempt_id
@@ -615,25 +606,21 @@ async def _build_dataset_contents(
             if celery_task_id is not None and celery_task_id != context.celery_task_id:
                 return
             await guard_execution(db, context, lock=True, status="pending")
-            from app.db.models.storage_maintenance import StorageOperation
-
-            if await db.scalar(
-                select(StorageOperation.id)
-                .where(StorageOperation.purpose == originals.output_purpose(version_id))
-                .limit(1)
+            if await storage_access.operation_is_open(
+                db, originals.output_purpose(version_id)
             ):
                 raise storage_access.mark_unsettled(ContentError("execution_stopping"))
             prefix = owner.prefix.rstrip("/")
-            version.status = "running"
+            if not await data.start_version(db, version):
+                raise Superseded
             await jobs.mark_running(db, job_id)
             snapshot = version.snapshot
             snapshot_digest = version.snapshot_digest
-            parent = (
-                await db.get(TrainingDatasetVersion, version.parent_id)
+            parent_manifest = (
+                await data.read_manifest(db, version.project_id, version.parent_id)
                 if version.parent_id
                 else None
             )
-            parent_manifest = parent.manifest if parent else None
             await db.commit()
             target = await training_storage_io.prepare(db, owner)
             accounting.recorder = training_write_accounting.recorder(
@@ -687,10 +674,10 @@ async def _build_dataset_contents(
                         if source is not None:
                             managed_reads[sample["task_id"]] = source
                         version = await guard_execution(db, context, lock=True)
-                        version.progress_pct = int(
-                            80 * (index + 1) / len(snapshot["samples"])
-                        )
-                        await jobs.update_progress(db, job_id, version.progress_pct)
+                        progress = int(80 * (index + 1) / len(snapshot["samples"]))
+                        if not await data.set_progress(db, version, progress):
+                            raise Superseded
+                        await jobs.update_progress(db, job_id, progress)
                         await db.commit()
                     package = directory / "dataset.zip"
                     manifest = await originals.physical(
@@ -739,13 +726,15 @@ async def _build_dataset_contents(
                     )
 
                     await lock_source_maintenance(db, {"samples": source_reads})
-                version.manifest = manifest
-                version.package_key = package_key
-                version.package_sha256 = package_digest
-                version.size_bytes = package_size
-                version.status = "ready"
-                version.progress_pct = 100
-                version.completed_at = datetime.now(timezone.utc)
+                if not await data.publish_version(
+                    db,
+                    version,
+                    manifest=manifest,
+                    package_key=package_key,
+                    package_sha256=package_digest,
+                    size_bytes=package_size,
+                ):
+                    raise Superseded
                 await jobs.mark_complete(
                     db,
                     job_id,
@@ -774,13 +763,7 @@ async def _build_dataset_contents(
                     status_code=403,
                 )
             await db.rollback()
-            version = (
-                await db.execute(
-                    select(TrainingDatasetVersion)
-                    .where(TrainingDatasetVersion.id == version_id)
-                    .with_for_update()
-                )
-            ).scalar_one_or_none()
+            version = await data.read_version_facts(db, version_id, lock=True)
             if (
                 version is not None
                 and version.attempt_id == attempt_id
@@ -788,27 +771,23 @@ async def _build_dataset_contents(
                 and version.status in {"pending", "running"}
             ):
                 cancelled = isinstance(exc, asyncio.CancelledError)
-                version.status = "cancelled" if cancelled else "failed"
-                version.error_code = (
-                    exc.code
-                    if isinstance(
-                        exc, (TrainingDatasetError, DatasetContractError, ContentError)
-                    )
-                    else "build_failed"
+                known = isinstance(
+                    exc, (TrainingDatasetError, DatasetContractError, ContentError)
                 )
-                version.error_message = (
-                    str(exc)
-                    if isinstance(
-                        exc, (TrainingDatasetError, DatasetContractError, ContentError)
-                    )
-                    else "训练数据构建失败，请检查素材或重试"
-                )
-                version.completed_at = datetime.now(timezone.utc)
+                message = str(exc) if known else "训练数据构建失败，请检查素材或重试"
+                if not await data.fail_version(
+                    db,
+                    version,
+                    job_id,
+                    cancelled=cancelled,
+                    code=None if cancelled else exc.code if known else "build_failed",
+                    message=None if cancelled else message,
+                ):
+                    return
                 if cancelled:
-                    version.error_code = version.error_message = None
                     await jobs.mark_cancelled(db, job_id)
                 else:
-                    await jobs.mark_failed(db, job_id, error=version.error_message)
+                    await jobs.mark_failed(db, job_id, error=message)
                 await notify_job_terminal(db, job_id=job_id)
                 await db.commit()
         finally:
@@ -816,11 +795,8 @@ async def _build_dataset_contents(
             if owner is not None and prefix and not published and not unsettled:
                 cleanup = False
                 try:
-                    referenced_key = await db.scalar(
-                        select(TrainingDatasetVersion.package_key).where(
-                            TrainingDatasetVersion.id == version_id
-                        )
-                    )
+                    current = await data.read_version_facts(db, version_id)
+                    referenced_key = current.package_key if current else None
                     cleanup = (
                         referenced_key != f"{prefix}/attempts/{attempt_id}/dataset.zip"
                     )

@@ -5,23 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import logging
+import json
 import uuid
 from types import SimpleNamespace
 
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageBinding,
-    StorageLocation,
-)
 from app.services.storage import storage_service
+from app.services import storage_registry_data
 
 LEGACY_LOCATION_ID = uuid.uuid5(uuid.NAMESPACE_URL, "aap:platform-storage:legacy")
 MAX_DIRECT_UPLOAD_BYTES = 5 * 1024**3
@@ -41,7 +35,7 @@ PURPOSE_BUCKET_ATTRIBUTES = {
 
 async def validate_legacy_bindings(db):
     """Read-only validation, including all purposes rather than just datasets."""
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    location = await storage_registry_data.get_location(db, LEGACY_LOCATION_ID)
     errors = []
     config = {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
     if location is None:
@@ -52,12 +46,7 @@ async def validate_legacy_bindings(db):
         or location.config_revision != 1
     ):
         errors.append("platform_location_mismatch")
-    bindings = {
-        row.purpose: row
-        for row in await db.scalars(
-            select(StorageBinding).execution_options(populate_existing=True)
-        )
-    }
+    bindings = {row.purpose: row for row in await storage_registry_data.bindings(db)}
     for purpose, attr in PURPOSE_BUCKET_ATTRIBUTES.items():
         binding = bindings.get(purpose)
         if binding is None:
@@ -87,37 +76,20 @@ async def validate_legacy_bindings(db):
             from app.services.bug_attachment_storage import BugAttachmentStorageError
             from app.services.training_dataset_bridge import TrainingDatasetError
 
-            if purpose == "avatars":
-                from app.services.avatar_storage_target import target_for
-            elif purpose == "bug-reports":
-                from app.services.bug_attachment_storage_target import target_for
-            elif purpose == "audit-archive":
-                from app.services.audit_archive_storage_target import target_for
-            elif purpose == "import":
-                from app.services.import_storage_target import target_for
-            elif purpose == "media-cache":
-                from app.services.media_cache_storage import target_for
-            elif purpose == "annotations":
-                from app.services.annotations_storage import target_for
-            elif purpose == "datasets":
-                from app.services.dataset_storage_target import target_for
-            elif purpose == "training":
-                from app.services.training_dataset_storage import target_for
-            else:
-                from app.services.export_storage_target import bound_bucket
+            from app.services.managed_s3_target import target_origin_for
 
-            target_location = await db.get(
-                StorageLocation, binding.location_id, populate_existing=True
+            target_location = await storage_registry_data.get_location(
+                db, binding.location_id
             )
             try:
-                if purpose == "export":
-                    bucket = await bound_bucket(db, target_location)
-                else:
-                    target = await target_for(
-                        db, target_location, require_enabled=False
-                    )
-                    bucket = target.bucket
-                if binding.bucket != bucket:
+                target = await target_origin_for(
+                    db,
+                    target_location,
+                    purpose=purpose,
+                    require_enabled=False,
+                    historical_export=purpose == "export",
+                )
+                if binding.bucket != target.bucket:
                     errors.append(f"binding_mismatch:{purpose}")
             except (
                 AvatarStorageError,
@@ -148,46 +120,15 @@ async def ensure_legacy_bindings(db):
     }
     if any(not bucket for bucket in buckets.values()):
         raise ValueError("Platform storage purpose has no configured bucket")
-    await db.execute(
-        insert(StorageLocation)
-        .values(
-            id=LEGACY_LOCATION_ID, name="legacy-platform-s3", kind="s3", config=config
-        )
-        .on_conflict_do_nothing()
-    )
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    if location is None or location.config != config:
+    if not await storage_registry_data.ensure_embedded_targets(db, config, buckets):
         raise ValueError(
             "Platform storage location differs from its pinned configuration"
         )
-    await db.execute(
-        insert(StorageBinding)
-        .values(
-            [
-                {
-                    "purpose": purpose,
-                    "location_id": LEGACY_LOCATION_ID,
-                    "bucket": bucket,
-                    "generation": 1,
-                }
-                for purpose, bucket in buckets.items()
-            ]
-        )
-        .on_conflict_do_nothing()
-    )
-    bindings = {
-        row.purpose: row
-        for row in (
-            await db.scalars(
-                select(StorageBinding).execution_options(populate_existing=True)
-            )
-        ).all()
-    }
     if await validate_legacy_bindings(db):
         raise ValueError(
             "Platform storage binding differs from its pinned configuration"
         )
-    return bindings["datasets"]
+    return await storage_registry_data.get_binding(db, "datasets")
 
 
 async def register_item_asset(
@@ -211,59 +152,45 @@ async def register_item_asset(
     elif binding is None:
         await ensure_legacy_bindings(db)
         binding = legacy_dataset_binding()
-    await db.execute(
-        select(DatasetItem.id).where(DatasetItem.id == item.id).with_for_update()
-    )
+    if db.autoflush:
+        await db.flush()
+    if not await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.lock_managed_item_asset_slot("
+            "CAST(:item_id AS uuid), :file_path)"
+        ),
+        {"item_id": item.id, "file_path": item.file_path},
+    ):
+        raise ValueError("Dataset locator differs from its pinned Item")
     from app.services.managed_original_reclaim_fence import shared
 
     await shared(db, binding.bucket, item.file_path)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == item.id)
-        .execution_options(populate_existing=True)
-    )
-    if asset is None:
-        asset = DatasetAsset(
-            id=uuid.uuid5(uuid.NAMESPACE_URL, f"aap:dataset-item:{item.id}"),
-            dataset_item_id=item.id,
-            media_type=item.file_type,
-            size_bytes=item.file_size,
-            legacy_hash_hint=item.content_hash,
-            verification_state="unverified",
+    return (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.register_managed_item_asset("
+                "CAST(:item_id AS uuid), CAST(:asset_id AS uuid), :file_path, "
+                "CAST(:location_id AS uuid), :bucket, CAST(:storage_ref AS jsonb), "
+                ":sha256, CAST(:size_bytes AS bigint), :etag, :verified_at)"
+            ),
+            {
+                "item_id": item.id,
+                "asset_id": uuid.uuid5(
+                    uuid.NAMESPACE_URL, f"aap:dataset-item:{item.id}"
+                ),
+                "file_path": item.file_path,
+                "location_id": binding.location_id,
+                "bucket": binding.bucket,
+                "storage_ref": json.dumps(storage_ref, separators=(",", ":"))
+                if storage_ref is not None
+                else None,
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "etag": etag,
+                "verified_at": datetime.now(timezone.utc),
+            },
         )
-        db.add(asset)
-        await db.flush()
-    if sha256 is not None:
-        if asset.verification_state == "verified" and (
-            asset.checksum_value != sha256 or asset.size_bytes != size_bytes
-        ):
-            raise ValueError("Dataset content differs from its verified identity")
-        asset.checksum_algorithm = "sha256"
-        asset.checksum_value = sha256
-        asset.size_bytes = size_bytes
-        asset.verification_state = "verified"
-    replica = await db.get(
-        DatasetAssetLocation, (asset.id, binding.location_id, binding.bucket)
-    )
-    if replica is None:
-        replica = DatasetAssetLocation(
-            asset_id=asset.id,
-            location_id=binding.location_id,
-            bucket=binding.bucket,
-            object_key=item.file_path,
-            storage_ref=storage_ref,
-            reference_state="unverified",
-        )
-        db.add(replica)
-    elif replica.object_key != item.file_path or replica.storage_ref != storage_ref:
-        raise ValueError("Dataset locator differs from its pinned mapping")
-    if sha256 is not None:
-        replica.reference_state = "present"
-        replica.verified_at = datetime.now(timezone.utc)
-    if etag is not None:
-        replica.etag = etag
-    await db.flush()
-    return asset
+    ).one()
 
 
 def legacy_dataset_binding():
@@ -279,40 +206,23 @@ def legacy_dataset_binding():
 async def find_verified_content(
     db, dataset_id, sha256, *, exclude_item_id=None, legacy_md5=None
 ):
-    from app.services.reference_keys import PREFIX
-
-    stmt = (
-        select(DatasetItem)
-        .join(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .where(
-            DatasetItem.dataset_id == dataset_id,
-            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
-            DatasetAsset.verification_state == "verified",
-            DatasetAsset.checksum_value == sha256,
-        )
+    if db.autoflush:
+        await db.flush()
+    candidates = await db.execute(
+        text(
+            "SELECT * FROM yoao_assets_v1.dataset_managed_duplicate_candidates("
+            "CAST(:dataset_id AS uuid), CAST(:exclude AS uuid), :sha256, :legacy_md5)"
+        ),
+        {
+            "dataset_id": dataset_id,
+            "exclude": exclude_item_id,
+            "sha256": sha256,
+            "legacy_md5": legacy_md5,
+        },
     )
-    if exclude_item_id:
-        stmt = stmt.where(DatasetItem.id != exclude_item_id)
-    existing = await db.scalar(stmt.limit(1))
-    if existing is not None or not legacy_md5:
-        return existing
-    candidates = (
-        select(DatasetItem)
-        .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .where(
-            DatasetItem.dataset_id == dataset_id,
-            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
-            DatasetItem.content_hash == legacy_md5,
-            (
-                DatasetAsset.id.is_(None)
-                | (DatasetAsset.verification_state == "unverified")
-            ),
-        )
-        .order_by(DatasetItem.id)
-    )
-    if exclude_item_id:
-        candidates = candidates.where(DatasetItem.id != exclude_item_id)
-    for candidate in await db.scalars(candidates):
+    for candidate in candidates:
+        if candidate.verified:
+            return candidate
         try:
             actual_md5, actual_sha256, size, etag = await run_in_threadpool(
                 hash_stored_object, candidate.file_path

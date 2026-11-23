@@ -50,7 +50,6 @@ from yoao_workspace.contract import MembershipRecord
 from app.services.user_brief import resolve_briefs
 from app.db.models.user import User
 from app.db.models.project import Project
-from app.db.models.project_pipeline import ProjectPipeline
 from app.db.models.project_member import ProjectMember
 from app.db.models.async_job import AsyncJob
 from app.services.jobs_lifecycle_data import job_lock_statement
@@ -108,6 +107,7 @@ from app.services.inference_pipelines import (
     commit_pipeline_command,
     execute_pipeline_command,
     get_pipeline_projection,
+    get_visible_pipeline,
 )
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
@@ -469,9 +469,9 @@ async def apply_project_pipeline(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    pipeline = await db.get(ProjectPipeline, body.pipeline_id)
-    if pipeline is None:
-        raise HTTPException(status_code=404, detail="编排不存在")
+    pipeline = await get_visible_pipeline(
+        db, actor=current_user, pipeline_id=body.pipeline_id
+    )
     canonical_stages = pipeline.stages or []
     from app.services.pipeline_model_scope import assert_model_reference_scope
 

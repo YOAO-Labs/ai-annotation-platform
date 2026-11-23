@@ -6,6 +6,10 @@ Source supplies the shared frame and Scene planner; no API-private code is impor
 it does not import the API application, SQLAlchemy models, Celery, Redis, or ML
 packages.
 
+Production Catalog and spatial calls use the same native boundary in the API's
+request transaction. The independent artifact below is retained for portability
+and contract checks, not as a product deployment option.
+
 The service exposes the frozen internal operations `POST /v1/catalog/list`,
 `/get`, `/items`, `/create`, `/update`, `/dataset-projects`, and
 `/project-datasets`. The last two return the two current Assets association
@@ -26,8 +30,8 @@ buckets or write folder marker objects. It does not move stored files when a
 Dataset name changes. Presigned item URLs use a separate, explicit read-only
 S3 identity and only `GetObject` for the configured datasets and media-cache
 object namespaces. The signer never lists, creates, writes, or deletes objects.
-Source publication and deletion use the separate Assets Source runtime.
-Spatial Scene/frame/pose/calibration state uses this Catalog runtime and the
+Source publication and deletion use the Assets Source workflow.
+Spatial Scene/frame/pose/calibration state uses this Catalog owner and the
 `aap-assets-spatial/v1` contract; task/annotation/link composition stays with Labeling.
 
 ## Configuration
@@ -69,9 +73,9 @@ uv sync --extra server
 python -m yoao_assets_catalog
 ```
 
-The standalone Compose definition is `docker-compose.assets-catalog.yml`. It
-does not publish a host port; the API gateway should call it on the private
-Compose network.
+The product does not select a Catalog HTTP origin or mount its credentials.
+Run the independent artifact only against a compatible database with its exact
+function-only LOGIN, not with the API's SQL or object-store identity.
 
 ## Spatial operations
 
@@ -92,8 +96,8 @@ while unlink/cancel fences final apply.
 
 Conditional calibration reads use only the fixed datasets bucket, a one MiB body
 cap and bounded network timeouts. Capture does not add spatial row locks across
-S3 I/O. Explicit caller-owned composition uses public native capabilities on the
-same SQL connection; normal remote errors never switch to local writes.
+S3 I/O. Product callers bind the same native capabilities to their own SQL
+connection without switching transactions.
 
 Upgrade SQL authorities before the main spatial artifact, reapply owner and
 Catalog grants, then restart the service. Exact-role preflight requires the

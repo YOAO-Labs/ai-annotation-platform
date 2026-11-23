@@ -75,7 +75,7 @@ async def ready_dataset(db, owner):
         snapshot_digest="b" * 64,
         name="Frozen",
         snapshot={},
-        status="ready",
+        status="pending",
         manifest={
             "schema": 1,
             "content_digest": "c" * 64,
@@ -90,6 +90,7 @@ async def ready_dataset(db, owner):
     from app.services.training_dataset_storage import allocate
 
     ref = await allocate(db, dataset)
+    dataset.status = "ready"
     dataset.package_key = ref["prefix"] + "dataset.zip"
     return project, dataset
 
@@ -422,6 +423,7 @@ async def test_cancel_retains_lease_until_exit_and_completion_ack_replays(
     attempt.heartbeat_at = service.now() - timedelta(hours=1)
     await db_session.flush()
     await service.observe_lost(db_session, lease)
+    await db_session.refresh(run)
     assert run.status == "cancelling"
     body = ExecutorFinish(
         **fence(claim, assignment), status="succeeded", process_exited=True
@@ -432,6 +434,7 @@ async def test_cancel_retains_lease_until_exit_and_completion_ack_replays(
         body,
         training_authority=bind_training_authority(db_session),
     )
+    await db_session.refresh(lease)
     assert done.status == "cancelled" and lease.attempt_id is None
     repeated = await service.finish(
         db_session,
@@ -503,6 +506,9 @@ async def test_executor_recovery_rechecks_boot_fence_and_preserves_cancel_preced
     )
 
     assert recovered.status_code == 200 and recovered.json() == {"recovered": True}
+    await db_session.refresh(run)
+    await db_session.refresh(attempt)
+    await db_session.refresh(lease)
     assert run.status == attempt.status == "cancelled"
     assert attempt.failure["code"] == "execution_lost"
     assert attempt.runtime["recovery_boot_id"] == str(recovery.new_boot_id)
@@ -528,6 +534,7 @@ async def test_lost_heartbeat_does_not_release_gpu_or_allow_new_claim(
         )
         is None
     )
+    await db_session.refresh(run)
     assert run.status == "lost"
     lease = await db_session.get(TrainingResourceLease, "test/" + GPU)
     assert lease.attempt_id == attempt.id
@@ -548,6 +555,7 @@ async def test_lost_heartbeat_does_not_release_gpu_or_allow_new_claim(
         training_authority=bind_training_authority(db_session),
     )
     assert result == {"stop": True, "reason": "heartbeat_expired"}
+    await db_session.refresh(run)
     assert run.status == "lost"
     assert run.metrics["epoch"] == 1
     with pytest.raises(HTTPException) as error:
@@ -576,6 +584,8 @@ async def test_upload_inventory_is_immutable_and_reports_uploading(
     artifact = {"name": "train.log", "role": "log", "sha256": "a" * 64, "size_bytes": 1}
     request = ExecutorUpload(**fence(claim, assignment), artifacts=[artifact])
     first = await service.authorize_upload(db_session, attempt.id, request)
+    await db_session.refresh(run)
+    await db_session.refresh(attempt)
     assert run.status == attempt.status == "uploading"
     assert first == await service.authorize_upload(db_session, attempt.id, request)
     run.status = attempt.status = "cancelling"
@@ -649,6 +659,7 @@ async def test_resume_requires_committed_checkpoint_and_fences_old_attempt(
     path = f"/api/v1/projects/{project.id}/training-runs/{run.id}/resume"
     headers = {"Authorization": f"Bearer {token}"}
     assert (await httpx_client.post(path, headers=headers)).status_code == 409
+    attempt = await db_session.get(TrainingAttempt, attempt.id)
     attempt.artifacts = {
         "checkpoint.pt": {
             "role": "checkpoint",

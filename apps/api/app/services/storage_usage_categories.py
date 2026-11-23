@@ -2,26 +2,15 @@
 
 from dataclasses import dataclass
 from datetime import datetime
-import hashlib
+import json
 from importlib import import_module
 import re
 from types import SimpleNamespace
 import uuid
 
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import text
 
 from app.config import settings
-from app.db.models.dataset_asset import DatasetAssetLocation, StorageLocation
-from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
-from app.db.models.dataset_source import DatasetSourcePreview
-from app.db.models.managed_original_creation import ManagedOriginalCreation
-from app.db.models.managed_original_retirement import ManagedOriginalRetirement
-from app.db.models.thumbnail_output import ThumbnailOutput
-from app.db.models.original_cache import OriginalCacheEntry
-from app.db.models.mask_format_upload import MaskFormatUpload
-from app.db.models.mask_format_import import MaskFormatImport
-from app.db.models.task_original import TaskOriginal
-from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
@@ -49,7 +38,7 @@ _TRAINING_SERVICES = {
 
 @dataclass(frozen=True)
 class Family:
-    model: str
+    capability: str
     service: str
     category: str
     pattern: str
@@ -62,7 +51,7 @@ class Family:
 
 FAMILIES = (
     Family(
-        "prediction_input.PredictionInputLease",
+        "yoao_assets_v1.usage_prediction_input_leases",
         "prediction_inputs",
         "temporary",
         rf"^(?:(?:[^/]+/)*_aap_managed/import/)?prediction-inputs/{_UUID}/",
@@ -71,7 +60,7 @@ FAMILIES = (
         ("id",),
     ),
     Family(
-        "image_pyramid.ImagePyramidOutput",
+        "yoao_assets_v1.usage_image_pyramid_outputs",
         "image_pyramid_storage",
         "preview_cache",
         rf"^(?:(?:[^/]+/)*_aap_managed/media-cache/)?image-pyramids/objects/{_UUID}/",
@@ -80,7 +69,7 @@ FAMILIES = (
         ("id",),
     ),
     Family(
-        "video_derivative.VideoDerivativeOutput",
+        "yoao_assets_v1.usage_video_derivative_outputs",
         "video_derivative_storage",
         "preview_cache",
         rf"^(?:(?:[^/]+/)*_aap_managed/media-cache/)?video-derivatives/objects/{_UUID}/",
@@ -89,7 +78,7 @@ FAMILIES = (
         ("id",),
     ),
     Family(
-        "export_media_bundle.ExportMediaBundle",
+        "yoao_export_v1.export_media_usage",
         "export_media_storage",
         "temporary",
         rf"^(?:(?:[^/]+/)*_(?:aap|yoao)_managed/export/)?lidar-export-media/objects/{_UUID}/",
@@ -98,7 +87,7 @@ FAMILIES = (
         ("id",),
     ),
     Family(
-        "training_dataset.TrainingDatasetVersion",
+        "yoao_learning_v1.usage_training_dataset_versions",
         "training_dataset_storage",
         "training_version",
         rf"^{_TRAINING_ROOT}projects/{_UUID}/datasets/{_UUID}/",
@@ -107,7 +96,7 @@ FAMILIES = (
         ("project_id", "id"),
     ),
     Family(
-        "training_run.TrainingRun",
+        "yoao_learning_v1.usage_training_runs",
         "training_run_storage",
         "other_platform",
         rf"^{_TRAINING_ROOT}projects/{_UUID}/runs/{_UUID}/",
@@ -116,7 +105,7 @@ FAMILIES = (
         ("project_id", "id"),
     ),
     Family(
-        "training_preview.TrainingPreview",
+        "yoao_learning_v1.usage_training_previews",
         "training_preview_storage",
         "preview_cache",
         rf"^{_TRAINING_ROOT}projects/{_UUID}/previews/{_UUID}/",
@@ -125,7 +114,7 @@ FAMILIES = (
         ("project_id", "id"),
     ),
     Family(
-        "sample_evaluation.SampleEvaluationRun",
+        "yoao_learning_v1.usage_sample_evaluation_runs",
         "sample_evaluation_storage",
         "other_platform",
         rf"^{_TRAINING_ROOT}projects/{_UUID}/sample-evaluations/{_UUID}/",
@@ -134,7 +123,7 @@ FAMILIES = (
         ("project_id", "id"),
     ),
     Family(
-        "active_learning.ActiveLearningRound",
+        "yoao_learning_v1.usage_active_learning_rounds",
         "active_learning_storage",
         "other_platform",
         rf"^{_TRAINING_ROOT}projects/{_UUID}/active-learning/{_UUID}/",
@@ -143,7 +132,7 @@ FAMILIES = (
         ("project_id", "id"),
     ),
     Family(
-        "avatar_upload.AvatarUpload",
+        "yoao_identity_v1.usage_avatar_uploads",
         "avatar_storage",
         "other_platform",
         r"^(?:(?:[^/]+/)*_aap_managed/avatars/)?([0-9a-f]{32})\.webp$",
@@ -154,7 +143,7 @@ FAMILIES = (
         "token",
     ),
     Family(
-        "bug_attachment_upload.BugAttachmentUpload",
+        "yoao_diagnostics_v1.usage_bug_attachment_uploads",
         "bug_attachment_storage",
         "other_platform",
         rf"^(?:(?:[^/]+/)*_aap_managed/bug-reports/)?bug-report-attachments/{_UUID}/{_UUID}\.[a-z]+$",
@@ -164,7 +153,7 @@ FAMILIES = (
         False,
     ),
     Family(
-        "comment_attachment_upload.CommentAttachmentUpload",
+        "yoao_labeling_v1.usage_comment_attachment_uploads",
         "comment_attachment_storage",
         "other_platform",
         rf"^(?:(?:[^/]+/)*_aap_managed/annotations/)?comment-attachments/{_UUID}/{_UUID}$",
@@ -174,7 +163,7 @@ FAMILIES = (
         False,
     ),
     Family(
-        "guide_asset_upload.GuideAssetUpload",
+        "yoao_workspace_v1.usage_guide_asset_uploads",
         "guide_asset_storage",
         "other_platform",
         rf"^(?:(?:[^/]+/)*_aap_managed/annotations/)?projects/{_UUID}/guide/{_UUID}$",
@@ -184,7 +173,7 @@ FAMILIES = (
         False,
     ),
     Family(
-        "raster_mask_object.RasterMaskObject",
+        "yoao_labeling_v1.usage_raster_mask_objects",
         "raster_object_storage",
         "other_platform",
         rf"^(?:(?:[^/]+/)*_aap_managed/annotations/)?raster-masks/objects/{_UUID}\.json(?:\.gz)?$",
@@ -194,7 +183,7 @@ FAMILIES = (
         False,
     ),
     Family(
-        "export_output.ExportOutput",
+        "yoao_export_v1.export_zip_usage",
         "export_storage",
         "temporary",
         rf"^(?:(?:[^/]+/)*_(?:aap|yoao)_managed/export/)?(image|video)/{_UUID}/{_UUID}/{_UUID}\.zip$",
@@ -204,7 +193,7 @@ FAMILIES = (
         False,
     ),
     Family(
-        "audit_archive_output.AuditArchiveOutput",
+        "yoao_audit_v1.usage_audit_archive_outputs",
         "audit_archive_storage",
         "other_platform",
         rf"^(?:(?:[^/]+/)*_aap_managed/audit-archive/)?[0-9]{{4}}/[0-9]{{2}}/{_UUID}\.jsonl\.gz$",
@@ -232,38 +221,12 @@ def endpoint():
     )
 
 
-def _json_fields(model, names):
-    return func.jsonb_build_object(
-        *[value for name in names for value in (name, getattr(model, name))]
-    )
-
-
-def _model(path):
-    module, name = path.split(".")
-    return getattr(import_module("app.db.models." + module), name)
-
-
-def _claim(model, category, key_column, conditions):
-    return (
-        select(
-            literal(category).label("kind"),
-            func.jsonb_build_object("key", key_column).label("data"),
-        )
-        .select_from(model)
-        .where(*conditions)
-        .distinct()
-    )
-
-
-def _hashed_keys(model, bucket, keys):
-    return (
-        func.md5(model.bucket) == hashlib.md5(bucket.encode()).hexdigest(),
-        func.md5(model.object_key).in_(
-            [hashlib.md5(key.encode()).hexdigest() for key in keys]
-        ),
-        model.bucket == bucket,
-        model.object_key.in_(keys),
-    )
+def _namespace_ids(keys, namespace):
+    return [
+        uuid.UUID(match[2])
+        for key in keys
+        if (match := re.fullmatch(rf"{namespace}/{_UUID}/{_UUID}/payload", key))
+    ]
 
 
 def _contains(owner, key, prefix):
@@ -296,7 +259,7 @@ def _contains(owner, key, prefix):
 
 
 async def classify(db, bucket, objects):
-    """One SQL query, bounded candidates and no provider/content operations."""
+    """One snapshot of bounded owner candidates, with no provider operations."""
     if len(objects) > 1000:
         raise ValueError("invalid_inventory_page")
     keys = list(dict.fromkeys(row["key"] for row in objects))
@@ -307,162 +270,54 @@ async def classify(db, bucket, objects):
         return result
     identity = managed_storage_identity(endpoint(), bucket)
     claims = {key: set() for key in keys}
-    initial_location = select(StorageLocation.id).where(
-        StorageLocation.id == LEGACY_LOCATION_ID,
-        StorageLocation.kind == "s3",
-        StorageLocation.config_revision == 1,
-        StorageLocation.config
-        == {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl},
-    )
+    params = {
+        "legacy": LEGACY_LOCATION_ID,
+        "config": json.dumps(
+            {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
+        ),
+        "endpoint": endpoint(),
+        "bucket": bucket,
+        "identity": identity,
+        "keys": keys,
+        "tasks": _namespace_ids(keys, "__aap_task_originals__"),
+        "auxiliary": _namespace_ids(keys, "__aap_auxiliary_originals__"),
+    }
     queries = [
-        _claim(
-            ManagedOriginalCreation,
-            "managed_original",
-            ManagedOriginalCreation.object_key,
-            (
-                ManagedOriginalCreation.storage_identity == identity,
-                ManagedOriginalCreation.bucket == bucket,
-                ManagedOriginalCreation.object_key.in_(keys),
-            ),
-        ),
-        _claim(
-            ManagedOriginalCreation,
-            "temporary",
-            ManagedOriginalCreation.staging_key,
-            (
-                func.coalesce(
-                    ManagedOriginalCreation.staging_ref["endpoint_url"].astext,
-                    ManagedOriginalCreation.configuration["endpoint"].astext,
-                )
-                == endpoint(),
-                ManagedOriginalCreation.staging_bucket == bucket,
-                ManagedOriginalCreation.staging_key.in_(keys),
-            ),
-        ),
-        _claim(
-            DatasetAssetLocation,
-            "managed_original",
-            DatasetAssetLocation.object_key,
-            (
-                *_hashed_keys(DatasetAssetLocation, bucket, keys),
-                DatasetAssetLocation.location_id.in_(initial_location),
-                DatasetAssetLocation.role == "managed_original",
-            ),
-        ),
-        _claim(
-            ManagedOriginalRetirement,
-            "managed_original",
-            ManagedOriginalRetirement.object_key,
-            (
-                *_hashed_keys(ManagedOriginalRetirement, bucket, keys),
-                ManagedOriginalRetirement.identity_state == "verified_binding",
-                ManagedOriginalRetirement.storage_identity == identity,
-            ),
-        ),
-        _claim(
-            DatasetSourcePreview,
-            "preview_cache",
-            DatasetSourcePreview.object_key,
-            (
-                *_hashed_keys(DatasetSourcePreview, bucket, keys),
-                DatasetSourcePreview.location_id.in_(initial_location),
-            ),
-        ),
+        """
+        SELECT * FROM yoao_assets_v1.usage_original_and_preview_claims(
+            :legacy, CAST(:config AS jsonb), :endpoint, :bucket, :identity,
+            CAST(:keys AS text[]), CAST(:tasks AS uuid[]), CAST(:auxiliary AS uuid[])
+        )
+        """,
+        """
+        SELECT 'mask_upload', data FROM yoao_labeling_v1.usage_mask_format_uploads(
+            :endpoint, :bucket, CAST(:keys AS text[])
+        ) AS data
+        """,
+        """
+        SELECT 'mask_batch', data FROM yoao_labeling_v1.usage_mask_format_imports(
+            :endpoint, :bucket, CAST(:keys AS text[])
+        ) AS data
+        """,
     ]
-    thumbnail_key = ThumbnailOutput.storage_ref["prefix"].astext + "thumbnail.webp"
-    queries.append(
-        _claim(
-            ThumbnailOutput,
-            "preview_cache",
-            thumbnail_key,
-            (
-                ThumbnailOutput.storage_ref["endpoint_url"].astext == endpoint(),
-                ThumbnailOutput.storage_ref["bucket"].astext == bucket,
-                ThumbnailOutput.storage_ref["storage_identity"].astext == identity,
-                thumbnail_key.in_(keys),
-            ),
-        )
-    )
-    for model in (DatasetAssetLocation, DatasetAuxiliaryOriginal, TaskOriginal):
-        queries.append(
-            _claim(
-                model,
-                "managed_original",
-                model.object_key,
-                (
-                    *_hashed_keys(model, bucket, keys),
-                    model.storage_ref["endpoint_url"].astext == endpoint(),
-                    model.storage_ref["storage_identity"].astext == identity,
-                    model.storage_ref["object_key"].astext == model.object_key,
-                    model.storage_ref["bucket"].astext == model.bucket,
-                ),
-            )
-        )
-    for model, field, tag in (
-        (MaskFormatUpload, "logical_object_key", "mask_upload"),
-        (MaskFormatImport, "staged_object_key", "mask_batch"),
-    ):
-        logical_key = getattr(model, field)
-        ref = model.storage_ref if tag == "mask_upload" else model.staging_ref
-        physical_key = ref["key_prefix"].astext + func.substring(
-            logical_key, func.length(func.regexp_replace(logical_key, "[^/]+$", "")) + 1
-        )
-        queries.append(
-            select(
-                literal(tag).label("kind"),
-                func.jsonb_build_object(
-                    "logical_key", logical_key, "storage_ref", ref
-                ).label("data"),
-            ).where(
-                ref["endpoint_url"].astext == endpoint(),
-                ref["bucket"].astext == bucket,
-                physical_key.in_(keys),
-            )
-        )
-    for model, namespace in (
-        (TaskOriginal, "__aap_task_originals__"),
-        (DatasetAuxiliaryOriginal, "__aap_auxiliary_originals__"),
-    ):
-        identifiers = {
-            uuid.UUID(match[2])
-            for key in keys
-            if (match := re.fullmatch(rf"{namespace}/{_UUID}/{_UUID}/payload", key))
-        }
-        if identifiers:
-            queries.append(
-                _claim(
-                    model,
-                    "managed_original",
-                    model.object_key,
-                    (
-                        model.id.in_(identifiers),
-                        model.storage_identity == identity,
-                        model.bucket == bucket,
-                        model.object_key.in_(keys),
-                    ),
-                )
-            )
     families = {}
     for index, family in enumerate(FAMILIES):
         matches = [re.match(family.pattern, key) for key in keys]
         ids = {match[family.group] for match in matches if match}
         if not ids:
             continue
-        model = _model(family.model)
-        tag = f"ref:{index}"
-        fields = tuple(
-            dict.fromkeys((family.identifier, "storage_ref", *family.arguments))
+        tag, param = f"ref:{index}", f"ids{index}"
+        token = family.identifier == "token"
+        params[param] = list(ids) if token else [uuid.UUID(value) for value in ids]
+        kind = "text" if token else "uuid"
+        projection = (
+            "pg_catalog.to_jsonb(data)"
+            if family.capability.startswith("yoao_export_v1.")
+            else "data"
         )
         queries.append(
-            select(
-                literal(tag).label("kind"), _json_fields(model, fields).label("data")
-            ).where(
-                getattr(model, family.identifier).in_(
-                    ids
-                    if family.identifier == "token"
-                    else [uuid.UUID(value) for value in ids]
-                )
-            )
+            f"SELECT '{tag}', {projection} FROM {family.capability}"
+            f"(CAST(:{param} AS {kind}[])) AS data"
         )
         families[tag] = family
     cache_ids = {
@@ -476,21 +331,10 @@ async def classify(db, bucket, objects):
         )
     }
     if cache_ids:
+        params["cache_ids"] = list(cache_ids)
         queries.append(
-            select(
-                literal("cache").label("kind"),
-                _json_fields(
-                    OriginalCacheEntry,
-                    (
-                        "id",
-                        "asset_id",
-                        "sha256",
-                        "storage_identity",
-                        "bucket",
-                        "storage_ref",
-                    ),
-                ).label("data"),
-            ).where(OriginalCacheEntry.id.in_(cache_ids))
+            "SELECT 'cache', data FROM yoao_assets_v1.usage_original_cache_entries"
+            "(CAST(:cache_ids AS uuid[])) AS data"
         )
     prefixes = {
         match[0]
@@ -502,18 +346,13 @@ async def classify(db, bucket, objects):
         )
     }
     if prefixes:
+        params["prefixes"] = list(prefixes)
         queries.append(
-            select(
-                literal("training_deletion").label("kind"),
-                _json_fields(TrainingStorageDeletion, ("storage_ref", "prefix")).label(
-                    "data"
-                ),
-            ).where(
-                TrainingStorageDeletion.bucket == bucket,
-                TrainingStorageDeletion.prefix.in_(prefixes),
-            )
+            "SELECT 'training_deletion', data FROM "
+            "yoao_learning_v1.usage_training_storage_deletions"
+            "(:bucket, CAST(:prefixes AS text[])) AS data"
         )
-    for kind, data in await db.execute(union_all(*queries)):
+    for kind, data in await db.execute(text(" UNION ALL ".join(queries)), params):
         if kind in CATEGORIES:
             claims[data["key"]].add(kind)
             continue
@@ -536,6 +375,8 @@ async def classify(db, bucket, objects):
             if kind == "cache":
                 from app.services.original_cache import object_key
 
+                if data["invalid_ref"]:
+                    continue
                 key = object_key(SimpleNamespace(**data))
                 if (
                     data["storage_identity"] == identity

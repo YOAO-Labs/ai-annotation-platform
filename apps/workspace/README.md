@@ -180,6 +180,13 @@ functions remain supported; this shared runtime is not the strict 32-function
 consumer. The default storage boundary has separate local qualification in the
 single module ledger; no daily or independent-topology cutover is implied.
 
+In the default profile, guide allocation, exact mounted-file lookups, clone
+snapshots and retirement use fixed Workspace capabilities. The API still
+resolves the saved storage target and checks current authority before and after
+physical I/O. Optional guide uploads do not expand the strict 32-function
+profile; a missing allocation capability fails before creating a pending row
+or uploading bytes.
+
 The portable conformance image checks its configured `/ready` endpoint. This
 checks the enabled SQL capabilities, not the lazy Inference or Identity
 dependencies. There is no Workspace runtime readiness endpoint to deploy for

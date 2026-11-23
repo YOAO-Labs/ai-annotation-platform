@@ -1,4 +1,4 @@
-"""Closed SQL registry, optional columns, readonly snapshots and safe CLI results."""
+"""Closed SQL capabilities, readonly snapshots and safe CLI results."""
 
 import ast
 import asyncio
@@ -11,6 +11,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
 import uuid
+
+from sqlalchemy.exc import DBAPIError
 
 import inventory_storage_references as cli
 import storage_migration_references as core
@@ -41,47 +43,20 @@ def family_for(table):
     return next(family for family in cli.FAMILIES if family.table == table)
 
 
-def model_columns():
-    columns = {}
-    for path in (ROOT / "apps/api/app/db/models").glob("*.py"):
-        for model in ast.parse(path.read_text()).body:
-            if not isinstance(model, ast.ClassDef):
-                continue
-            names = {
-                node.target.id
-                for node in model.body
-                if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
-            }
-            for node in model.body:
-                if isinstance(node, ast.Assign) and any(
-                    isinstance(target, ast.Name) and target.id == "__tablename__"
-                    for target in node.targets
-                ):
-                    columns[ast.literal_eval(node.value)] = names
-    return columns
+def function_source(name):
+    resource = ROOT / "apps/api/alembic/sql/0497_storage_inventory_capabilities.sql"
+    marker = f".{name}("
+    return next(
+        statement
+        for statement in resource.read_text().split("-- aap-statement-break")
+        if statement.lstrip().startswith("CREATE FUNCTION ")
+        and marker in statement.lstrip().splitlines()[0]
+    )
 
 
-MODEL_COLUMNS = model_columns()
-
-
-def schema_columns(version="0254"):
-    columns = {table: names.copy() for table, names in MODEL_COLUMNS.items()}
-    for table, column, introduced in (
-        ("bug_attachment_uploads", "object_version_id", "0245"),
-        ("managed_original_creations", "staging_ref", "0250"),
-        ("mask_format_imports", "staging_ref", "0250"),
-        ("dataset_asset_locations", "storage_ref", "0251"),
-        ("dataset_auxiliary_originals", "storage_ref", "0251"),
-        ("original_cache_entries", "storage_ref", "0252"),
-        ("task_originals", "storage_ref", "0253"),
-    ):
-        if version < introduced:
-            columns[table].remove(column)
-    if version < "0250":
-        columns.pop("mask_format_uploads")
-    if version < "0252":
-        columns.pop("thumbnail_outputs")
-    return columns
+class SqlFailure(Exception):
+    def __init__(self, state):
+        self.sqlstate = state
 
 
 class Result:
@@ -94,13 +69,16 @@ class Result:
     def mappings(self):
         return self
 
+    def scalars(self):
+        return self
+
     def all(self):
         return self.rows
 
 
 class Engine:
-    def __init__(self, *, version="0254", rows=()):
-        self.version, self.rows = version, rows
+    def __init__(self, *, version="bo0497", rows=(), fault=None):
+        self.version, self.rows, self.fault = version, rows, fault
         self.calls, self.open = [], False
 
     @asynccontextmanager
@@ -115,26 +93,24 @@ class Engine:
     async def begin(self):
         yield self
 
-    async def scalars(self, statement):
-        self.calls.append(str(statement))
+    def _record(self, statement):
+        sql = str(statement)
+        self.calls.append(sql)
+        if self.fault and self.fault[0] in sql:
+            raise DBAPIError(sql, None, SqlFailure(self.fault[1]))
+        return sql
+
+    async def scalar(self, statement):
+        assert "migration_inventory_revisions()" in self._record(statement)
         return [self.version]
 
     async def execute(self, statement, params=None):
-        sql = str(statement)
-        self.calls.append(sql)
-        if "information_schema.columns" in sql:
-            return Result(
-                [
-                    (table, column)
-                    for table, names in schema_columns(self.version).items()
-                    for column in names
-                ]
-            )
-        if 'FROM "bug_attachment_uploads"' in sql and "jsonb_each" not in sql:
+        sql = self._record(statement)
+        if "inventory_bug_attachment_uploads(" in sql:
             rows = [
                 row
                 for row in self.rows
-                if not params.get("last0") or row["id"] > params["last0"]
+                if params["id"] is None or row["id"] > params["id"]
             ]
             return Result(rows[: params["limit"]])
         return Result()
@@ -354,7 +330,12 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
                 spool = cli.Spool(path, core.Budget(core.Limits()))
                 try:
                     await cli.expand_inventory(
-                        engine, family_for(table), spool, spool.budget, {"state"}
+                        engine,
+                        family_for(table),
+                        spool,
+                        spool.budget,
+                        "yoao_assets_v1.inventory_objects",
+                        record=False,
                     )
                 finally:
                     spool.stream.close()
@@ -409,7 +390,12 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
                     spool = cli.Spool(path, core.Budget(core.Limits()))
                     try:
                         await cli.expand_inventory(
-                            engine, family_for(table), spool, spool.budget, {"state"}
+                            engine,
+                            family_for(table),
+                            spool,
+                            spool.budget,
+                            "yoao_assets_v1.inventory_objects",
+                            record=False,
                         )
                     finally:
                         spool.stream.close()
@@ -425,28 +411,23 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
                         )
 
     def test_staging_projection_is_separate_and_excludes_entire_config(self):
-        columns = schema_columns()["managed_original_creations"] | {"staging_ref"}
-        sql = cli.projection(family_for("managed_original_creations"), columns)
-        self.assertIn("r.staging_ref->'endpoint_url'", sql)
-        self.assertNotIn('r."configuration"', sql)
+        sql = function_source("inventory_managed_original_creations")
+        self.assertIn("_inventory_saved_locator(r.staging_ref, false)", sql)
+        self.assertIn("r.configuration->>'endpoint'", sql)
+        self.assertNotIn("'configuration', r.configuration", sql)
         self.assertNotIn("evidence", sql)
-        self.assertIn(
-            "staging_ref",
-            cli.allowed_columns(family_for("managed_original_creations"), columns),
-        )
 
-    async def test_current_missing_saved_column_is_not_silently_old_schema(self):
-        columns = schema_columns()
-        columns["task_originals"].remove("storage_ref")
-        engine = Engine(version="0254")
-        spool = cli.Spool(self.root / "missing-current", core.Budget(core.Limits()))
+    async def test_hidden_family_is_not_reported_as_absent(self):
+        engine = Engine(fault=("inventory_task_originals(", "42501"))
+        spool = cli.Spool(self.root / "denied", core.Budget(core.Limits()))
         try:
-            with patch(__name__ + ".schema_columns", return_value=columns):
-                metadata = await cli.collect(engine, spool, spool.budget)
+            metadata = await cli.collect(engine, spool, spool.budget)
         finally:
             spool.stream.close()
         self.assertFalse(metadata["enumeration_complete"])
-        self.assertEqual(metadata["issue"], "family_columns_missing")
+        self.assertEqual(metadata["issue"], "database_snapshot_denied")
+        self.assertNotIn("families_not_present_in_schema", metadata)
+        self.assertNotIn("task_originals", metadata["families"])
 
     def test_all_existing_schema_one_and_two_owner_families_are_supported(self):
         for table, purpose, kind in (
@@ -573,48 +554,25 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(record.get("endpoint_url"))
         self.assertNotEqual(record.get("bucket"), "today")
 
-    async def test_known_older_tables_and_columns_are_skipped_without_false_current_success(
-        self,
-    ):
-        for version, count in (
-            ("0244", 25),
-            ("0245", 25),
-            ("0249", 25),
-            ("0250", 26),
-            ("0251", 26),
-            ("0252", 27),
-            ("0253", 27),
-            ("0254", 27),
+    async def test_old_or_partially_installed_capabilities_fail_closed(self):
+        for capability, state in (
+            ("migration_inventory_revisions()", "42883"),
+            ("inventory_thumbnail_outputs(", "42883"),
+            ("inventory_mask_format_uploads(", "42P01"),
+            ("inventory_task_originals(", "42703"),
         ):
-            with self.subTest(version=version):
-                engine = Engine(version=version)
-                spool = cli.Spool(self.root / version, core.Budget(core.Limits()))
+            with self.subTest(capability=capability, state=state):
+                engine = Engine(fault=(capability, state))
+                spool = cli.Spool(
+                    self.root / f"missing-{capability}", core.Budget(core.Limits())
+                )
                 try:
                     result = await cli.collect(engine, spool, spool.budget)
                 finally:
                     spool.stream.close()
-                self.assertTrue(result["enumeration_complete"], result)
-                self.assertEqual(len(result["families"]), count)
-                task_sql = next(
-                    sql for sql in engine.calls if 'FROM "task_originals"' in sql
-                )
-                self.assertEqual("r.storage_ref" in task_sql, version >= "0253")
-        for version in ("0254", "9999"):
-            for missing in ("mask_format_uploads", "thumbnail_outputs"):
-                with self.subTest(version=version, missing=missing):
-                    columns = schema_columns()
-                    columns.pop(missing)
-                    engine = Engine(version=version)
-                    spool = cli.Spool(
-                        self.root / (version + missing), core.Budget(core.Limits())
-                    )
-                    try:
-                        with patch(__name__ + ".schema_columns", return_value=columns):
-                            result = await cli.collect(engine, spool, spool.budget)
-                    finally:
-                        spool.stream.close()
-                    self.assertFalse(result["enumeration_complete"])
-                    self.assertEqual(result["issue"], "family_columns_missing")
+                self.assertFalse(result["enumeration_complete"])
+                self.assertEqual(result["issue"], "inventory_capabilities_unavailable")
+                self.assertNotIn("families_not_present_in_schema", result)
 
     async def test_total_snapshot_deadline_cancels_and_closes_connection(self):
         engine = Engine()
@@ -693,7 +651,14 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         engine.execute = AsyncMock(return_value=Result([row]))
         spool = cli.Spool(self.root / "spool", core.Budget(core.Limits()))
         try:
-            await cli.expand_inventory(engine, family, spool, spool.budget, {"state"})
+            await cli.expand_inventory(
+                engine,
+                family,
+                spool,
+                spool.budget,
+                "yoao_assets_v1.inventory_prediction_input_leases_objects",
+                record=False,
+            )
         finally:
             spool.stream.close()
         value = json.loads((self.root / "spool").read_bytes())
@@ -701,8 +666,10 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(value["owner_state"], "retired")
         self.assertEqual(value["version_id"], "null")
         sql = str(engine.execute.call_args_list[-1].args[0])
-        self.assertIn('r."state"', sql)
-        self.assertNotIn("o.value AS", sql)
+        self.assertIn("inventory_prediction_input_leases_objects(", sql)
+        projection = function_source("inventory_prediction_input_leases_objects")
+        self.assertIn("'state', r.state", projection)
+        self.assertNotIn("'inventory', r.inventory", projection)
 
     def test_registry_covers_all_existing_classifier_owner_families(self):
         source = ast.parse(
@@ -719,63 +686,41 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         )
         tables = set()
         for call in assignment.value.elts:
-            module, name = ast.literal_eval(call.args[0]).split(".")
-            model = ast.parse(
-                (ROOT / f"apps/api/app/db/models/{module}.py").read_text()
+            capability = ast.literal_eval(call.args[0]).split(".")[1]
+            tables.add(
+                {
+                    "export_zip_usage": "export_outputs",
+                    "export_media_usage": "export_media_bundles",
+                }.get(capability, capability.removeprefix("usage_"))
             )
-            cls = next(
-                node
-                for node in model.body
-                if isinstance(node, ast.ClassDef) and node.name == name
-            )
-            value = next(
-                node.value
-                for node in cls.body
-                if isinstance(node, ast.Assign)
-                and any(
-                    isinstance(target, ast.Name) and target.id == "__tablename__"
-                    for target in node.targets
-                )
-            )
-            tables.add(ast.literal_eval(value))
         self.assertEqual(len(tables), 16)
         self.assertTrue(tables <= {family.table for family in cli.FAMILIES})
         self.assertEqual(len(cli.FAMILIES), 27)
 
     def test_projection_never_selects_sensitive_or_whole_documents(self):
         for family in cli.FAMILIES:
-            columns = schema_columns()[family.table] | {
+            if family.table in {"export_outputs", "export_media_bundles"}:
+                continue
+            sql = function_source("inventory_" + family.table)
+            for name in (
                 "authority",
                 "secret_enc",
-                "payload",
                 "snapshot",
                 "source_ref",
-            }
-            sql = cli.projection(family, columns)
-            self.assertNotIn("authority", sql)
-            self.assertNotIn("secret_enc", sql)
-            self.assertNotIn("payload", sql)
-            self.assertIn('r."snapshot" IS NOT NULL', sql)
+                "evidence",
+            ):
+                self.assertNotIn(f"'{name}', r.{name}", sql)
             self.assertNotIn("r.*", sql)
-            self.assertNotIn("r.storage_ref AS", sql)
-            self.assertNotIn("evidence", sql)
-
-    def test_0244_optional_version_is_not_named_as_a_missing_column(self):
-        family = next(f for f in cli.FAMILIES if f.table == "bug_attachment_uploads")
-        self.assertNotIn(
-            'r."object_version_id"',
-            cli.projection(
-                family, schema_columns("0244")[family.table], revisions=("0244",)
-            ),
-        )
+            self.assertNotIn("'storage_ref', r.storage_ref", sql)
+            self.assertIn("p_limit BETWEEN 1 AND 1001", sql)
         self.assertIn(
-            'r."object_version_id"',
-            cli.projection(family, schema_columns()[family.table]),
+            "'snapshot_unexpanded', r.snapshot IS NOT NULL",
+            function_source("inventory_training_dataset_versions"),
         )
 
-    def test_missing_required_table_shape_is_explicit(self):
-        with self.assertRaisesRegex(core.ReferenceError, "family_columns_missing"):
-            cli.projection(cli.FAMILIES[0], set())
+    def test_saved_version_fact_remains_in_closed_projection(self):
+        sql = function_source("inventory_bug_attachment_uploads")
+        self.assertIn("'object_version_id', r.object_version_id", sql)
 
     def test_unknown_schema_and_missing_owner_are_reported_without_fallback(self):
         family = next(f for f in cli.FAMILIES if f.table == "bug_attachment_uploads")
@@ -842,8 +787,10 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(package["sha256"], "package")
         self.assertIsNone(package["prefix"])
 
-    async def test_snapshot_is_readonly_paginated_and_closed_for_both_revisions(self):
-        for version in ("0244", "0245"):
+    async def test_snapshot_is_readonly_paginated_and_closed_for_observed_revisions(
+        self,
+    ):
+        for version in ("bo0498", "bo0500"):
             path = self.root / f"{version}.jsonl"
             budget = core.Budget(core.Limits(page_size=1))
             rows = [
@@ -869,16 +816,26 @@ class CommandTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(metadata["enumeration_complete"], metadata)
             self.assertFalse(engine.open)
             self.assertEqual(metadata["revisions"], [version])
-            self.assertEqual(len(metadata["families"]), 25)
             self.assertEqual(
-                set(metadata["families_not_present_in_schema"]),
-                {"mask_format_uploads", "thumbnail_outputs"},
+                metadata["families"], [family.table for family in cli.FAMILIES]
             )
+            self.assertNotIn("families_not_present_in_schema", metadata)
             self.assertEqual(
                 engine.calls[0],
                 "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY",
             )
-            self.assertTrue(any(":last0" in sql for sql in engine.calls))
+            self.assertTrue(
+                any(
+                    "inventory_bug_attachment_uploads(CAST(:id AS uuid)" in sql
+                    for sql in engine.calls
+                )
+            )
+            self.assertFalse(
+                any(
+                    "information_schema" in sql or "alembic_version" in sql
+                    for sql in engine.calls
+                )
+            )
             records = list(map(json.loads, path.read_text().splitlines()))
             self.assertEqual(len(records), 3)
             self.assertTrue(all(row["owner_state"] == "retired" for row in records))

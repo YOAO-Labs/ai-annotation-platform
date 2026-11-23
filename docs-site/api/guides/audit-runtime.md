@@ -24,6 +24,10 @@ HTTP 元数据在响应生成后投递；broker 明确失败时同步回退，�
 也可能重复。现有 Celery 任务提前确认消息，确认后的进程丢失可能缺行，重启不会自动补齐。
 这条旁路不提供可靠投递或去重保证；业务审计仍沿用各业务操作的原事务边界。
 
+主动学习反馈通过既有公开事件关系读取驳回证据。
+存储故障继续以独立、有超时的事务记录；固定追加保留原旁路错误和作用域状态的原子性，
+失败不提交业务会话。只通过 Identity 的账号事实识别已提交的 actor。
+
 `aap-audit-maintenance/v1` 的固定入口是
 `yoao_audit_v1.maintenance_command(jsonb)`。请求包含 `schema`、`operation` 及该操作
 声明的字段，拒绝未知字段。成功回复为 `schema/ok/data`。
@@ -79,9 +83,14 @@ Compose 的数据库 `_FILE` 指向宿主 secret 文件；归档访问 key 的�
 
 先应用当前代码的完整迁移，再安装 `module-data-grants.sql` 的 Audit NOLOGIN owner。
 分区树与序列由 Audit owner 持有，创建未来固定月分区所需的 schema CREATE 和并发刷新
-所需的 TEMPORARY 留在该 owner。普通 API／worker 通过固定能力调用，默认授权入口
-撤销 Audit 私表及列写入、序列写入和分区所有权。Learning 暂缓消费者仍需要父表
-SELECT，因此不能据此宣称全部私表读取已退出。
+所需的 TEMPORARY 留在该 owner。普通 API／worker 不再持有父表、分区、归档发布表、
+私有物化视图的表／列权限或 Audit 序列权限；既有 `audit_events` 和 `audit_daily_facts`
+是只读关系。安装器在撤权后检查实际有效权限，拒绝会暴露未来分区或序列的 owner 默认授权。
+
+`bo0485` 为平台新增固定分区及归档账本能力。平台仍按源分区顺序流式读取、比对内容摘要，
+先完成对象写入，再在原事务锁内退役分区、发布管理员可读的归档记录、记录 Audit 事件和
+推进 Jobs 回执。管理员列表和读取仍校验当前账号与原始凭据。独立 CLI 沿用单函数 LOGIN，
+不可调用平台发布能力；它的旧对象键与清理方式不会生成可供管理员读取的记录。
 
 维护命令还承接原 E2E seed 路由的固定筛选夹具清理。该操作只允许 `_test`／`_e2e`
 数据库和调用方已开启的不可变性维护标记，只匹配原 seed 路径与共享标记或精确 namespace。

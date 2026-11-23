@@ -4,21 +4,21 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import select
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import (
-    StorageLocationProbe,
+from app.services import (
+    content_snapshot as snapshots,
+    dataset_scan_data as scan_data,
+    dataset_scans as scans,
+    filesystem_storage as fs,
+    reference_storage,
+    storage_access,
+    storage_fault_events,
+    storage_location as locations,
+    storage_observation_rates as rates,
 )
-from app.db.models.dataset_source import DatasetScanEntry
-from app.services import content_snapshot as snapshots
-from app.services import dataset_scans as scans
-from app.services import filesystem_storage as fs
-from app.services import storage_location as locations
-from app.services import reference_storage
-from app.services import storage_access, storage_fault_events
-from app.services import storage_observation_rates as rates
+from app.services.media_item_reads import read_item
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_probe
 
 
 def content_http_error(exc):
@@ -57,20 +57,13 @@ async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=No
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
     if run.status != "completed" or not run.complete:
         raise snapshots.ContentError("scan_incomplete")
-    stmt = select(DatasetScanEntry).where(
-        DatasetScanEntry.run_id == run_id, DatasetScanEntry.path_digest == path_digest
+    entry = await scan_data.observed_file(
+        db, run_id, path_digest, actor_id=actor.id, lock=lock
     )
-    if lock:
-        stmt = stmt.with_for_update()
-    entry = await db.scalar(stmt.execution_options(populate_existing=True))
-    if entry is None or entry.kind != "file" or entry.state != "observed":
+    if entry is None:
         raise HTTPException(404, "Observed image not found")
     node = node_id or locations.api_node_id()
-    probe = await db.get(
-        StorageLocationProbe,
-        (location.id, locations.probe_node_id(location, node)),
-        populate_existing=True,
-    )
+    probe = await get_probe(db, location.id, locations.probe_node_id(location, node))
     proof = locations.probe_out(probe, location) if probe else None
     if node_id is not None and probe is not None:
         proof = (
@@ -288,12 +281,18 @@ async def scan_snapshot(
         if before_commit is not None:
             await before_commit(db)
         if verify and current.verified_content is None:
-            current.verified_content = {
-                **snapshot.public(),
-                "node_id": node,
-                "observation": snapshot.observation,
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-            }
+            if not await scan_data.verify_file(
+                db,
+                actor.id,
+                current,
+                {
+                    **snapshot.public(),
+                    "node_id": node,
+                    "observation": snapshot.observation,
+                    "verified_at": datetime.now(timezone.utc).isoformat(),
+                },
+            ):
+                raise snapshots.ContentError("content_binding_changed")
             from app.services.audit import AuditAction, AuditService
 
             await AuditService.log(
@@ -568,7 +567,7 @@ async def quality_identity(db, item_id, actor, *, node_id=None, lock=False):
 
     dataset_id = await access.managed_dataset(db, item_id, actor, lock=lock)
     source = await original_sources.resolve_item(db, item_id, lock=lock)
-    item = await db.get(DatasetItem, item_id, populate_existing=True)
+    item = await read_item(db, item_id)
     if item is None or item.dataset_id != dataset_id:
         raise snapshots.ContentError("content_binding_changed")
     if item.file_type != "image" or source.media_type != "image":

@@ -6,12 +6,15 @@ import logging
 import re
 import uuid
 
-from sqlalchemy import insert, select, text
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncConnection
 
-from app.db.models.audit_log import AuditLog
-from app.db.models.user import User
+from yoao_audit.append_contract import AppendEvent, AppendRequest
+from yoao_audit.postgres import AuditAppendPostgresData
+
 from app.middleware.request_id import request_id_var
 from app.services import storage_access, storage_observation_rates as rates
+from app.services.identity_read_relations import account_profiles
 
 log = logging.getLogger(__name__)
 ACTION = "storage.fault"
@@ -56,21 +59,48 @@ def classify(exc, *, preview=False):
     return (category, code) if category else None
 
 
+async def append_observation(
+    connection: AsyncConnection,
+    *,
+    action: str,
+    detail: dict,
+    actor_id: str | None,
+    request_id: str | None,
+) -> None:
+    committed_actor_id = None
+    if actor_id is not None:
+        committed_actor_id = await connection.scalar(
+            select(account_profiles.c.id).where(
+                account_profiles.c.id == uuid.UUID(actor_id)
+            )
+        )
+    event = AppendEvent(
+        actor_id=committed_actor_id,
+        actor_email=None,
+        actor_role=None,
+        action=action,
+        target_type="storage_location",
+        target_id=detail["location_id"],
+        method=None,
+        path=None,
+        status_code=None,
+        ip=None,
+        detail_json=detail,
+        request_id=request_id,
+    )
+    await AuditAppendPostgresData(connection).append(AppendRequest.create([event]))
+
+
 async def _persist(db, detail, actor_id, request_id):
     async with storage_access.engine(db).begin() as connection:
         await connection.execute(text("SET LOCAL lock_timeout = '250ms'"))
         await connection.execute(text("SET LOCAL statement_timeout = '1s'"))
-        await connection.execute(
-            insert(AuditLog).values(
-                actor_id=select(User.id).where(User.id == actor_id).scalar_subquery()
-                if actor_id
-                else None,
-                action=ACTION,
-                target_type="storage_location",
-                target_id=detail["location_id"],
-                request_id=request_id,
-                detail_json=detail,
-            )
+        await append_observation(
+            connection,
+            action=ACTION,
+            detail=detail,
+            actor_id=actor_id,
+            request_id=request_id,
         )
 
 

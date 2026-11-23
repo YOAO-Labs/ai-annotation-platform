@@ -7,18 +7,28 @@ services:
       ASSETS_SOURCE_DATABASE_URL_FILE: /run/secrets/assets_source_database_url
       ASSETS_SOURCE_TOKEN_FILE: /run/secrets/assets_source_token
       ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE: /run/secrets/assets_source_import_verify_token
+      ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE: ${ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE:+/run/secrets/assets_source_saved_io_database_url}
+      ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE:+/run/secrets/assets_source_saved_io_read_token}
+      ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE:+/run/secrets/assets_source_saved_io_write_token}
+      ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cleanup_token}
+      ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cutover_token}
+      ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE: ${ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE:+/run/secrets/assets_source_connections_token}
       ASSETS_SOURCE_S3_ACCESS_KEY_FILE: /run/secrets/assets_source_s3_access_key
       ASSETS_SOURCE_S3_SECRET_KEY_FILE: /run/secrets/assets_source_s3_secret_key
       ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY: ${ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY:-}
-      ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE: ${ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE:-}
+      ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE: ${ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE:+/run/secrets/assets_source_connector_encryption_key}
       ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST: ${ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST:-[]}
-      ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE: ${ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE:-}
+      ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE: ${ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE:+/run/secrets/assets_source_sftp_known_hosts}
       ASSETS_SOURCE_S3_ENDPOINT: ${ASSETS_SOURCE_S3_ENDPOINT:?Set the service-reachable S3 origin}
       ASSETS_SOURCE_S3_PUBLIC_ENDPOINT: ${ASSETS_SOURCE_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
       ASSETS_SOURCE_S3_REGION: ${ASSETS_SOURCE_S3_REGION:-us-east-1}
       ASSETS_SOURCE_DATASETS_BUCKET: ${ASSETS_SOURCE_DATASETS_BUCKET:?Set the datasets bucket}
       ASSETS_SOURCE_IMPORT_BUCKET: ${ASSETS_SOURCE_IMPORT_BUCKET:?Set the import staging bucket}
       ASSETS_SOURCE_MEDIA_CACHE_BUCKET: ${ASSETS_SOURCE_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_SOURCE_ANNOTATIONS_BUCKET: ${ASSETS_SOURCE_ANNOTATIONS_BUCKET:-}
+      ASSETS_SOURCE_SAVED_IO_SPOOL_DIR: ${ASSETS_SOURCE_SAVED_IO_SPOOL_DIR:+/var/lib/yoao/assets-source/spool}
+      ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES: ${ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES:-68719476736}
+      STORAGE_SFTP_ROOTS:
       ASSETS_SOURCE_HOST: 0.0.0.0
       ASSETS_SOURCE_PORT: 8767
       ASSETS_SOURCE_MAX_REQUEST_BYTES: ${ASSETS_SOURCE_MAX_REQUEST_BYTES:-1048576}
@@ -36,8 +46,64 @@ services:
       - assets_source_import_verify_token
       - assets_source_s3_access_key
       - assets_source_s3_secret_key
+    volumes:
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_database_url
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_read_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_write_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_cleanup_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_cutover_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_connections_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_SPOOL_DIR:-/dev/null}
+        target: /var/lib/yoao/assets-source/spool
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE:-/dev/null}
+        target: /run/secrets/assets_source_connector_encryption_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE:-/dev/null}
+        target: /run/secrets/assets_source_sftp_known_hosts
+        read_only: true
+        bind:
+          create_host_path: false
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - ${ASSETS_SOURCE_NETWORK:-default}
     expose:
       - "8767"
     read_only: true

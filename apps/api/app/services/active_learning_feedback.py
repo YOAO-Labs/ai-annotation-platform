@@ -6,15 +6,9 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app.db.models.active_learning import (
-    ActiveLearningDecision as Decision,
-    ActiveLearningFeedback as Feedback,
-)
-from app.db.models.sample_evaluation import (
-    SampleEvaluationAttempt as EvaluationAttempt,
-    SampleEvaluationRun as Evaluation,
-)
 from app.services import active_learning as rounds, active_learning_pool as pool
+from app.services import active_learning_data as data
+from app.services import evaluation_data
 from app.services import sample_evaluations
 from app.services import active_learning_references as source_references
 from app.services.audit_read_relations import audit_event
@@ -120,16 +114,12 @@ async def bounded(db, query):
 async def evaluation_facts(db, project, round, references):
     facts = []
     for ref in references:
-        run = await db.scalar(
-            select(Evaluation)
-            .where(
-                Evaluation.id == ref.evaluation_id, Evaluation.project_id == project.id
-            )
-            .with_for_update(read=True)
+        run = await evaluation_data.get_run(
+            db, project.id, ref.evaluation_id, share=True
         )
         if not run or run.deletion_requested_at:
             raise rounds.reject("evaluation_missing", "后续评估不存在或正在删除", 404)
-        attempt = await db.get(EvaluationAttempt, ref.attempt_id)
+        attempt = await evaluation_data.get_attempt(db, run.id, ref.attempt_id)
         if not attempt or attempt.run_id != run.id:
             raise rounds.reject("attempt_missing", "后续评估执行尝试不存在", 404)
         from yoao_task_contract import normalize_task
@@ -204,22 +194,12 @@ async def snapshot(
         required_scopes=pool.SCOPES,
     )
     round = await rounds.load_round(db, project.id, round_id, lock=True)
-    existing = await db.scalar(
-        select(Feedback).where(
-            Feedback.round_id == round.id, Feedback.request_id == body.request_id
-        )
-    )
+    existing = await data.feedback_request(db, round.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise rounds.reject("request_conflict", "同一请求标识不能用于不同反馈快照")
         return existing
-    decisions = (
-        await db.scalars(
-            select(Decision)
-            .where(Decision.round_id == round.id, Decision.action == "accept")
-            .order_by(Decision.created_at, Decision.id)
-        )
-    ).all()
+    decisions = await data.accepted_decisions(db, round.id)
     accepted = {}
     for decision in decisions:
         rounds.decision_output(decision)
@@ -340,14 +320,6 @@ async def snapshot(
             "部分接纳或不同审核量不能证明效率收益",
         ],
     }
-    row = Feedback(
-        round_id=round.id,
-        actor_id=user.id,
-        request_id=body.request_id,
-        request_digest=digest,
-        snapshot=value,
-        snapshot_digest=content_digest(value),
+    return await data.record_feedback(
+        db, round, user.id, body.request_id, digest, value, content_digest(value)
     )
-    db.add(row)
-    await db.flush()
-    return row

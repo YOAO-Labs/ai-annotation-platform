@@ -3,43 +3,47 @@
 import logging
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from uuid import uuid4
 
-from app.db.models.training_storage_deletion import TrainingStorageDeletion
+from sqlalchemy import func, literal, select
+from sqlalchemy.dialects.postgresql import JSONB
+
 from app.services import training_storage_io as storage_io
 from app.services.training_dataset_bridge import TrainingDatasetError
 
 log = logging.getLogger(__name__)
 
 
-def stage_deletion(db, record, prefix):
-    """Stage one pinned storage intent; the caller owns deletion and commit."""
-    from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.db.models.training_run import TrainingRun
+async def stage_deletion(db, record, prefix):
+    """Copy the persisted owner into the caller's uncommitted deletion intent."""
     from app.services import training_dataset_storage, training_run_storage
 
-    if not isinstance(record, (TrainingDatasetVersion, TrainingRun)):
-        raise TrainingDatasetError(
-            "training_storage_identity_changed",
-            "无法核实清理对象的存储归属",
-            status_code=409,
-        )
-    owner = (
-        training_dataset_storage
-        if isinstance(record, TrainingDatasetVersion)
-        else training_run_storage
-    ).resolve(record)
+    dataset = prefix == training_dataset_storage.prefix_for(
+        record.project_id, record.id
+    )
+    purpose = "training-dataset" if dataset else "training-run"
+    resolver = training_dataset_storage if dataset else training_run_storage
+    owner = resolver.resolve(record)
     if prefix != owner.logical_prefix:
         raise TrainingDatasetError(
             "training_storage_invalid_key",
             "删除前缀与固定版本不一致",
             status_code=409,
         )
-    intent = TrainingStorageDeletion(
-        bucket=owner.bucket, prefix=owner.prefix, storage_ref=owner.ref
+    intent_id = await db.scalar(
+        select(
+            func.yoao_learning_v1.training_storage_stage_deletion(
+                uuid4(), record.id, purpose, literal(owner.ref, JSONB)
+            )
+        )
     )
-    db.add(intent)
-    return intent
+    if intent_id is None:
+        raise TrainingDatasetError(
+            "training_storage_identity_changed",
+            "清理对象的存储归属已变化",
+            status_code=409,
+        )
+    return intent_id
 
 
 async def purge_committed(db, intent_id):
@@ -76,16 +80,13 @@ def _pinned_owner(intent):
 
 
 async def purge_requested(db, intent_id):
-    intent = await db.scalar(
-        select(TrainingStorageDeletion)
-        .where(TrainingStorageDeletion.id == intent_id)
-        .with_for_update(skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
+    source = func.yoao_learning_v1.training_storage_claim_deletion(
+        intent_id, datetime.now(timezone.utc)
+    ).table_valued("bucket", "prefix", "storage_ref")
+    intent = (await db.execute(select(source))).one_or_none()
     if intent is None:
         return False
     prefix, bucket = intent.prefix, intent.bucket
-    intent.last_attempted_at = datetime.now(timezone.utc)
     await db.commit()
     owner = _pinned_owner(intent)
     await storage_io.run(
@@ -94,32 +95,23 @@ async def purge_requested(db, intent_id):
         "training_cleanup",
         lambda transport: transport.delete_prefix(prefix, bucket=bucket),
     )
-    intent = await db.scalar(
-        select(TrainingStorageDeletion)
-        .where(TrainingStorageDeletion.id == intent_id)
-        .with_for_update()
+    await db.execute(
+        select(
+            func.yoao_learning_v1.training_storage_complete_deletion(
+                intent_id, literal(intent.storage_ref, JSONB)
+            )
+        )
     )
-    if intent is not None:
-        await db.delete(intent)
-        await db.commit()
+    await db.commit()
     return True
 
 
 async def maintain(factory):
     async with factory() as db:
-        ids = list(
-            (
-                await db.scalars(
-                    select(TrainingStorageDeletion.id)
-                    .order_by(
-                        TrainingStorageDeletion.last_attempted_at.asc().nulls_first(),
-                        TrainingStorageDeletion.created_at,
-                        TrainingStorageDeletion.id,
-                    )
-                    .limit(100)
-                )
-            ).all()
+        batch = func.yoao_learning_v1.training_storage_deletion_batch().table_valued(
+            "id"
         )
+        ids = list(await db.scalars(select(batch.c.id)))
     for intent_id in ids:
         async with factory() as db:
             try:

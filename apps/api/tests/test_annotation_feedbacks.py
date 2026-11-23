@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.annotation_feedback import AnnotationFeedbackCreate
+from app.schemas.bug_report import BugReportCreate
 from app.services.feedback import FeedbackService
 from tests.factory import create_project, create_task
 
@@ -160,15 +161,15 @@ async def test_mirror_bug_report_creates_feedback(db_session, super_admin):
 
     bug_svc = BugReportService(db_session)
     await bug_svc.create(
-        reporter_id=user.id,
-        user_role="super_admin",
-        project_id=proj.id,
-        task_id=task.id,
+        user.id,
+        BugReportCreate(
+            project_id=proj.id,
+            task_id=task.id,
+            title="按钮无响应",
+            description="点保存没反应",
+            severity="high",
+        ),
         route="/workbench",
-        title="按钮无响应",
-        description="点保存没反应",
-        severity="high",
-        status="new",
     )
     await db_session.flush()
 
@@ -204,13 +205,9 @@ async def test_mirror_bug_report_skips_when_project_null(db_session, super_admin
 
     bug_svc = BugReportService(db_session)
     await bug_svc.create(
-        reporter_id=user.id,
-        user_role="super_admin",
+        user.id,
+        BugReportCreate(title="登录失败", description="点击登录无响应"),
         route="/login",
-        title="登录失败",
-        description="点击登录无响应",
-        severity="medium",
-        status="new",
     )
     await db_session.flush()
 
@@ -289,15 +286,11 @@ async def test_view_unions_sources(db_session, super_admin):
         thread_parent_id=None,
     )
     await BugReportService(db_session).create(
-        reporter_id=user.id,
-        user_role="super_admin",
-        project_id=proj.id,
-        task_id=task.id,
+        user.id,
+        BugReportCreate(
+            project_id=proj.id, task_id=task.id, title="bug", description="desc"
+        ),
         route="/workbench",
-        title="bug",
-        description="desc",
-        severity="medium",
-        status="new",
     )
     task.status = "rejected"
     task.reject_reason = "标错了"
@@ -337,15 +330,11 @@ async def test_compute_feedback_drift_zero_when_mirrored(db_session, super_admin
     await db_session.flush()
 
     await BugReportService(db_session).create(
-        reporter_id=user.id,
-        user_role="super_admin",
-        project_id=proj.id,
-        task_id=task.id,
+        user.id,
+        BugReportCreate(
+            project_id=proj.id, task_id=task.id, title="bug", description="desc"
+        ),
         route="/workbench",
-        title="bug",
-        description="desc",
-        severity="medium",
-        status="new",
     )
     task.status = "rejected"
     task.reject_reason = "标错了"

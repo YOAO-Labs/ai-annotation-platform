@@ -77,10 +77,8 @@ from yoao_assets_catalog.spatial_contract import (
 from yoao_assets_catalog.spatial_values import FramePose
 
 from app.services.assets_catalog import (
-    AssetsCatalogGateway,
     CatalogGatewayError,
-    _encode_request,
-    _peer_url,
+    _require_request_budget,
     _MAX_RESPONSE_BYTES,
 )
 from app.services.storage import storage_service
@@ -179,7 +177,6 @@ def _json_value(value: Any) -> Any:
 class AssetsSpatialGateway:
     def __init__(self, db: AsyncSession):
         self.db = db
-        self._catalog = AssetsCatalogGateway(db)
 
     def _spatial_workflow(self):
         from yoao_assets_catalog.object_signer import SpatialCalibrationSourceReader
@@ -361,7 +358,7 @@ class AssetsSpatialGateway:
         result_type: type[_RESULT],
         *,
         same_session_native: bool = False,
-    ) -> tuple[_RESULT, bool]:
+    ) -> _RESULT:
         if SPATIAL_OPERATIONS[operation] != (type(request), result_type):
             raise TypeError(f"Invalid request/result pair for {operation}")
         casts = SPATIAL_NATIVE_SIGNATURES[operation].split(",")
@@ -382,32 +379,27 @@ class AssetsSpatialGateway:
                 argument_names, casts, arguments, strict=True
             )
         }
-        reply, remote = await self._catalog._call(
-            operation,
-            f"SELECT yoao_assets_v1.{operation}({placeholders})",
-            parameters,
-            b"" if same_session_native else _encode_request(request),
-            result_type,
-            decoder=_decode_spatial,
-            namespace="spatial",
-            same_session_native=same_session_native,
+        if not same_session_native:
+            _require_request_budget(request)
+        native = await self.db.execute(
+            text(f"SELECT yoao_assets_v1.{operation}({placeholders})"), parameters
         )
-        if not remote:
-            size = 0
-            encoder = json.JSONEncoder(
-                ensure_ascii=False, allow_nan=False, separators=(",", ":")
-            )
-            envelope = {
-                "schema": SPATIAL_SCHEMA,
-                "ok": True,
-                "data": reply.model_dump(mode="json"),
-            }
-            for chunk in encoder.iterencode(envelope):
-                size += len(chunk.encode("utf-8"))
-                if size > _MAX_RESPONSE_BYTES:
-                    raise self._invalid_response(
-                        "Assets spatial reply exceeds the response budget"
-                    )
+        reply = _decode_spatial(native.scalar_one(), result_type)
+        size = 0
+        encoder = json.JSONEncoder(
+            ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        )
+        envelope = {
+            "schema": SPATIAL_SCHEMA,
+            "ok": True,
+            "data": reply.model_dump(mode="json"),
+        }
+        for chunk in encoder.iterencode(envelope):
+            size += len(chunk.encode("utf-8"))
+            if size > _MAX_RESPONSE_BYTES:
+                raise self._invalid_response(
+                    "Assets spatial reply exceeds the response budget"
+                )
         try:
             require_spatial_scope(request, reply)
         except (TypeError, ValueError, KeyError) as exc:
@@ -416,36 +408,12 @@ class AssetsSpatialGateway:
                 "Assets spatial reply escaped its request scope",
                 502,
             ) from exc
-        return reply, remote
-
-    async def _remote_workflow(
-        self,
-        operation: str,
-        request: BaseModel,
-        result_type: type[_RESULT],
-    ) -> _RESULT:
-        result, _ = await self._catalog._call(
-            operation,
-            "SELECT NULL",
-            {},
-            _encode_request(request),
-            result_type,
-            decoder=_decode_spatial,
-            namespace="spatial",
-            remote_only=True,
-        )
-        try:
-            require_spatial_scope(request, result)
-        except (TypeError, ValueError, KeyError) as exc:
-            raise self._invalid_response(
-                "Assets workflow reply escaped request scope"
-            ) from exc
-        return result
+        return reply
 
     async def guard_spatial_actor(
         self, request: GuardSpatialActorRequest
     ) -> SpatialActorResult:
-        result, _ = await self._call(
+        result = await self._call(
             "guard_spatial_actor",
             request,
             (request.actor_id, request.access),
@@ -460,7 +428,7 @@ class AssetsSpatialGateway:
         same_session_native: bool = False,
     ) -> ScenePage:
         cursor = request.after
-        result, _ = await self._call(
+        result = await self._call(
             "list_spatial_scenes",
             request,
             (
@@ -476,7 +444,7 @@ class AssetsSpatialGateway:
         return result
 
     async def get_spatial_scene(self, request: GetSceneRequest) -> SceneResult:
-        result, _ = await self._call(
+        result = await self._call(
             "get_spatial_scene",
             request,
             (request.actor_id, request.scene_id),
@@ -485,7 +453,7 @@ class AssetsSpatialGateway:
         return result
 
     async def read_spatial_layout(self, request: ReadLayoutRequest) -> LayoutPage:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_layout",
             request,
             (
@@ -500,7 +468,7 @@ class AssetsSpatialGateway:
         return result
 
     async def read_spatial_items(self, request: ReadItemsRequest) -> ItemFactsPage:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_items",
             request,
             (
@@ -514,7 +482,7 @@ class AssetsSpatialGateway:
         return result
 
     async def read_spatial_poses(self, request: ReadPosesRequest) -> PosePage:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_poses",
             request,
             (
@@ -531,7 +499,7 @@ class AssetsSpatialGateway:
         self, request: ReadCalibrationsRequest
     ) -> CalibrationPage:
         cursor = request.after
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_calibrations",
             request,
             (
@@ -548,7 +516,7 @@ class AssetsSpatialGateway:
     async def read_spatial_pose_pairs(
         self, request: ReadPosePairsRequest
     ) -> PosePairsResult:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_pose_pairs",
             request,
             ([pair.model_dump(mode="json") for pair in request.pairs],),
@@ -577,7 +545,7 @@ class AssetsSpatialGateway:
     async def lock_spatial_calibration_facts(
         self, request: LockCalibrationFactsRequest
     ) -> CalibrationRecord:
-        result, _ = await self._call(
+        result = await self._call(
             "lock_spatial_calibration_facts",
             request,
             (
@@ -594,7 +562,7 @@ class AssetsSpatialGateway:
     async def mutate_spatial_scene(
         self, request: MutateSceneRequest
     ) -> SceneMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "mutate_spatial_scene",
             request,
             (
@@ -611,7 +579,7 @@ class AssetsSpatialGateway:
     async def apply_spatial_layout(
         self, request: ApplyLayoutRequest
     ) -> LayoutMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "apply_spatial_layout",
             request,
             (
@@ -630,7 +598,7 @@ class AssetsSpatialGateway:
     async def read_spatial_layout_receipt(
         self, request: BackfillScenesRequest
     ) -> LayoutReceiptResult:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_layout_receipt",
             request,
             (
@@ -647,7 +615,7 @@ class AssetsSpatialGateway:
     async def upsert_spatial_poses(
         self, request: UpsertPosesRequest
     ) -> PoseMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "upsert_spatial_poses",
             request,
             (request.operation_id, request.scene_id, request.poses),
@@ -658,7 +626,7 @@ class AssetsSpatialGateway:
     async def create_spatial_scene(
         self, request: CreateSceneRequest
     ) -> SceneMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "create_spatial_scene",
             request,
             (
@@ -677,7 +645,7 @@ class AssetsSpatialGateway:
     async def assign_spatial_items(
         self, request: AssignItemsRequest
     ) -> AssignmentMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "assign_spatial_items",
             request,
             (request.operation_id, request.dataset_id, request.assignments),
@@ -688,7 +656,7 @@ class AssetsSpatialGateway:
     async def set_spatial_scene_source(
         self, request: SetSceneSourceRequest
     ) -> SceneMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "set_spatial_scene_source",
             request,
             (
@@ -704,7 +672,7 @@ class AssetsSpatialGateway:
     async def update_spatial_calibration(
         self, request: ApplyCalibrationRequest
     ) -> CalibrationMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "update_spatial_calibration",
             request,
             (
@@ -727,7 +695,7 @@ class AssetsSpatialGateway:
     async def read_pointcloud_preparation(
         self, request: ReadPreparationRequest
     ) -> PreparationPage:
-        result, _ = await self._call(
+        result = await self._call(
             "read_pointcloud_preparation",
             request,
             (
@@ -742,7 +710,7 @@ class AssetsSpatialGateway:
     async def apply_pointcloud_preparation(
         self, request: ApplyPreparationRequest
     ) -> PreparationMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "apply_pointcloud_preparation",
             request,
             (
@@ -758,7 +726,7 @@ class AssetsSpatialGateway:
     async def read_spatial_camera_target(
         self, request: ReadCameraTargetRequest
     ) -> CameraTargetResult:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_camera_target",
             request,
             (request.actor_id, request.task_id, request.camera_role),
@@ -769,7 +737,7 @@ class AssetsSpatialGateway:
     async def record_spatial_calibration_provenance(
         self, request: RecordCalibrationProvenanceRequest
     ) -> ProvenanceMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "record_spatial_calibration_provenance",
             request,
             (request.operation_id, request.dataset_id, request.entries),
@@ -783,7 +751,7 @@ class AssetsSpatialGateway:
         *,
         same_session_native: bool = False,
     ) -> DatasetAxisMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "set_spatial_dataset_axis",
             request,
             (request.operation_id, request.dataset_id, request.axis_convention),
@@ -802,17 +770,13 @@ class AssetsSpatialGateway:
         result = await self.set_spatial_dataset_axis(
             request, same_session_native=same_session_native
         )
-        if commit and not same_session_native and _peer_url() is None:
+        if commit and not same_session_native:
             await self.db.commit()
         return result
 
     async def backfill_scenes(
         self, request: BackfillScenesRequest, *, commit: bool = True
     ) -> LayoutMutationResult:
-        if _peer_url() is not None:
-            return await self._remote_workflow(
-                "backfill_scenes", request, LayoutMutationResult
-            )
         result = await self._spatial_workflow().backfill_scenes(
             request, native=SameSessionAssetsSpatialGateway(self.db)
         )
@@ -822,8 +786,6 @@ class AssetsSpatialGateway:
         return result
 
     async def sniff_axis(self, request: SniffAxisRequest) -> AxisSniffResult:
-        if _peer_url() is not None:
-            return await self._remote_workflow("sniff_axis", request, AxisSniffResult)
         result = await self._spatial_workflow().sniff_axis(
             request, native=SameSessionAssetsSpatialGateway(self.db)
         )
@@ -837,11 +799,6 @@ class AssetsSpatialGateway:
         same_session_native: bool = False,
         commit: bool = True,
     ) -> PreparationMutationResult:
-        if not same_session_native:
-            if _peer_url() is not None:
-                return await self._remote_workflow(
-                    "prepare_pointcloud", request, PreparationMutationResult
-                )
         result = await self._spatial_workflow().prepare_pointcloud(
             request, native=SameSessionAssetsSpatialGateway(self.db)
         )
@@ -854,7 +811,7 @@ class AssetsSpatialGateway:
         self, actor_id: uuid.UUID, access: SpatialAccess
     ) -> SpatialActorResult:
         request = GuardSpatialActorRequest(actor_id=actor_id, access=access)
-        result, _ = await self._call(
+        result = await self._call(
             "guard_spatial_actor",
             request,
             (request.actor_id, request.access),
@@ -939,7 +896,7 @@ class AssetsSpatialGateway:
         return page.total > 0
 
     async def get_scene(self, request: GetSceneRequest) -> SceneResult:
-        result, _ = await self._call(
+        result = await self._call(
             "get_spatial_scene",
             request,
             (request.actor_id, request.scene_id),
@@ -1226,7 +1183,7 @@ class AssetsSpatialGateway:
         *,
         same_session_native: bool = True,
     ) -> CalibrationRecord:
-        result, _ = await self._call(
+        result = await self._call(
             "lock_spatial_calibration_facts",
             request,
             (
@@ -1244,7 +1201,7 @@ class AssetsSpatialGateway:
     async def read_camera_target(
         self, request: ReadCameraTargetRequest
     ) -> CameraTargetResult:
-        result, _ = await self._call(
+        result = await self._call(
             "read_spatial_camera_target",
             request,
             (request.actor_id, request.task_id, request.camera_role),
@@ -1258,7 +1215,7 @@ class AssetsSpatialGateway:
         *,
         commit: bool = True,
     ) -> SceneMutationResult:
-        result, remote = await self._call(
+        result = await self._call(
             "mutate_spatial_scene",
             request,
             (
@@ -1270,7 +1227,7 @@ class AssetsSpatialGateway:
             ),
             SceneMutationResult,
         )
-        if commit and not remote:
+        if commit:
             await self.db.commit()
         return result
 
@@ -1280,7 +1237,7 @@ class AssetsSpatialGateway:
         *,
         commit: bool = True,
     ) -> LayoutMutationResult:
-        result, remote = await self._call(
+        result = await self._call(
             "apply_spatial_layout",
             request,
             (
@@ -1294,7 +1251,7 @@ class AssetsSpatialGateway:
             ),
             LayoutMutationResult,
         )
-        if commit and not remote:
+        if commit:
             await self.db.commit()
         return result
 
@@ -1304,7 +1261,7 @@ class AssetsSpatialGateway:
         *,
         same_session_native: bool = False,
     ) -> SceneMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "create_spatial_scene",
             request,
             (
@@ -1327,7 +1284,7 @@ class AssetsSpatialGateway:
         *,
         same_session_native: bool = False,
     ) -> AssignmentMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "assign_spatial_items",
             request,
             (request.operation_id, request.dataset_id, request.assignments),
@@ -1342,7 +1299,7 @@ class AssetsSpatialGateway:
         *,
         same_session_native: bool = False,
     ) -> SceneMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "set_spatial_scene_source",
             request,
             (
@@ -1362,7 +1319,7 @@ class AssetsSpatialGateway:
         *,
         same_session_native: bool = False,
     ) -> PoseMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "upsert_spatial_poses",
             request,
             (request.operation_id, request.scene_id, request.poses),
@@ -1378,10 +1335,6 @@ class AssetsSpatialGateway:
         same_session_native: bool = False,
         commit: bool = True,
     ) -> CalibrationMutationResult:
-        if not same_session_native and _peer_url() is not None:
-            return await self._remote_workflow(
-                "update_calibration", request, CalibrationMutationResult
-            )
         result = await self._spatial_workflow().update_calibration(
             request, native=SameSessionAssetsSpatialGateway(self.db)
         )
@@ -1399,7 +1352,7 @@ class AssetsSpatialGateway:
         self,
         request: RecordCalibrationProvenanceRequest,
     ) -> ProvenanceMutationResult:
-        result, _ = await self._call(
+        result = await self._call(
             "record_spatial_calibration_provenance",
             request,
             (request.operation_id, request.dataset_id, request.entries),
@@ -1503,7 +1456,7 @@ class SameSessionAssetsSpatialGateway(AssetsSpatialGateway):
         result_type: type[_RESULT],
         *,
         same_session_native: bool = False,
-    ) -> tuple[_RESULT, bool]:
+    ) -> _RESULT:
         return await super()._call(
             operation,
             request,

@@ -5,22 +5,19 @@ import uuid
 
 from celery.utils.nodenames import worker_direct
 from fastapi import HTTPException
+from sqlalchemy import inspect
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.models.dataset_source import DatasetScanRun, DatasetSource
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_asset import StorageLocation
+from app.services import dataset_scan_data as data
 from app.services import dataset_scans as svc
 from app.services import filesystem_storage as fs, storage_access, storage_fault_events
+from app.services.storage_registry_data import get_location
 from app.workers.celery_app import celery_app
 
 
 async def dispatch(db, run_id):
-    run = await db.get(DatasetScanRun, run_id)
-    source = await db.get(DatasetSource, run.source_id)
-    job = await db.get(AsyncJob, run.async_job_id)
-    task_id, node = job.celery_task_id, source.config["node_id"]
+    task_id, node = await data.dispatch_route(db, run_id)
     try:
         await asyncio.wait_for(
             asyncio.to_thread(_publish, run_id, task_id, node), timeout=3
@@ -35,7 +32,7 @@ async def dispatch(db, run_id):
         ):
             await svc.finish(db, current, current_job, "failed", "dispatch_unavailable")
         await db.commit()
-    await db.refresh(run)
+    await data.execution_run(db, run_id)
 
 
 def _publish(run_id, task_id, node):
@@ -93,9 +90,7 @@ async def execute_scan(run_id, task_id, node_id):
                     if work.get("kind") == "agent":
                         from app.services import agent_transport
 
-                        location = await db.get(
-                            StorageLocation, work["location_id"], populate_existing=True
-                        )
+                        location = await get_location(db, work["location_id"])
                         if location is None:
                             raise fs.FilesystemStorageError("location_unavailable")
                         receipt = await agent_transport.exchange(
@@ -188,8 +183,8 @@ async def retire_agent_receipt(db, receipt, code):
     try:
         from app.services import agent_transport
 
-        await db.refresh(receipt)
-        if receipt.closed is not True:
+        receipt = await agent_transport.get_receipt(db, inspect(receipt).identity[0])
+        if receipt is None or receipt.closed is not True:
             return
         await agent_transport.acknowledge(db, receipt, accepted=False, code=code)
         await db.commit()

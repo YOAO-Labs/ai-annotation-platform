@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from app.db.models.export_media_bundle import ExportMediaMemberVersion
+from app.services import export_delivery_data as data
 
 from app.services import async_job, fixture_original_read
 from app.services import export_execution_context
@@ -490,13 +490,10 @@ async def copy_source(
         async def persist_version(value):
             async with _session(db) as owned:
                 await bundles.check_claim(owned, snapshot, lock=True)
-                owned.add(
-                    ExportMediaMemberVersion(
-                        bundle_id=snapshot.id,
-                        member_id=uuid.UUID(relative[:-4]),
-                        version_id=value,
-                    )
-                )
+                if not await data.save_media_version(
+                    owned, snapshot, uuid.UUID(relative[:-4]), value
+                ):
+                    bundles.reject("lease_lost")
                 await owned.commit()
 
         def capture_version(value):
@@ -661,11 +658,9 @@ async def read_copy(db, snapshot, *, relative, guard, read):
         version = None
         if owner.external:
             async with _session(db) as owned:
-                saved = await owned.get(
-                    ExportMediaMemberVersion, (snapshot.id, uuid.UUID(relative[:-4]))
+                version = await data.media_version(
+                    owned, snapshot.id, uuid.UUID(relative[:-4])
                 )
-                if saved is not None:
-                    version = saved.version_id
 
         @contextmanager
         def context():

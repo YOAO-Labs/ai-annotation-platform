@@ -6,7 +6,7 @@ locks in reverse order. Neither helper commits or holds a lock over object I/O.
 """
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 
 def identity(bucket, object_key):
@@ -15,39 +15,35 @@ def identity(bucket, object_key):
     return group_lock_identity(bucket, object_key)
 
 
-async def _lock(db, bucket, object_key, *, exclusive):
-    lock = (
-        func.pg_try_advisory_xact_lock
-        if exclusive
-        else func.pg_try_advisory_xact_lock_shared
-    )
+async def exclusive(db, bucket, object_key):
+    """Serialize the GC MVCC recheck against all defined publication seams."""
     if not await db.scalar(
-        select(lock(func.hashtextextended(identity(bucket, object_key), 0)))
+        select(
+            func.pg_try_advisory_xact_lock(
+                func.hashtextextended(identity(bucket, object_key), 0)
+            )
+        )
     ):
         raise HTTPException(409, detail={"code": "managed_original_reclaim_busy"})
 
 
-async def exclusive(db, bucket, object_key):
-    """Serialize the GC MVCC recheck against all defined publication seams."""
-    await _lock(db, bucket, object_key, exclusive=True)
+def check_shared_result(result):
+    if result == "claimed":
+        raise HTTPException(409, detail={"code": "managed_original_reclaim_claimed"})
+    if result == "busy":
+        raise HTTPException(409, detail={"code": "managed_original_reclaim_busy"})
+    if result != "ok":
+        raise RuntimeError("invalid managed original fence result")
 
 
 async def shared(db, bucket, object_key):
     """Protect a publication until commit, rejecting durable deletion claims."""
-    from app.db.models.managed_original_reclaim import ManagedOriginalReclaimClaim
-
-    await _lock(db, bucket, object_key, exclusive=False)
-    claim = await db.scalar(
-        select(ManagedOriginalReclaimClaim.id)
-        .where(
-            ManagedOriginalReclaimClaim.bucket == bucket,
-            ManagedOriginalReclaimClaim.object_key == object_key,
-            ManagedOriginalReclaimClaim.state != "released",
+    check_shared_result(
+        await db.scalar(
+            text("SELECT yoao_assets_v1.protect_original_group(:bucket, :key)"),
+            {"bucket": bucket, "key": object_key},
         )
-        .limit(1)
     )
-    if claim is not None:
-        raise HTTPException(409, detail={"code": "managed_original_reclaim_claimed"})
 
 
 async def protect_source(db, source):
@@ -60,13 +56,7 @@ async def protect_snapshot_references(db, snapshot):
     """Hold saved accepted-reference physical groups through version publication."""
     import uuid
 
-    from app.db.models.dataset_asset import StorageLocation
-    from app.db.models.dataset_source import (
-        DatasetReference,
-        DatasetScanEntry,
-        DatasetScanRun,
-        DatasetSource,
-    )
+    from app.services.dataset_references import directory_reference_reclaim_facts
 
     groups = set()
     for sample in snapshot.get("samples", []):
@@ -75,43 +65,21 @@ async def protect_snapshot_references(db, snapshot):
             continue
         try:
             lineage = sample.get("source_lineage")
-            if lineage is None:
-                reference = await db.get(
-                    DatasetReference, uuid.UUID(identity["dataset_item_id"])
-                )
-                if reference is None:
-                    raise ValueError
-                run_id, path = reference.run_id, reference.path_digest
-            else:
-                run_id, path = uuid.UUID(lineage["scan_run_id"]), lineage["path_digest"]
-            facts = (
-                await db.execute(
-                    select(
-                        DatasetScanRun,
-                        DatasetScanEntry,
-                        DatasetSource,
-                        StorageLocation.kind,
-                    )
-                    .join(
-                        DatasetScanEntry, DatasetScanEntry.run_id == DatasetScanRun.id
-                    )
-                    .join(DatasetSource, DatasetSource.id == DatasetScanRun.source_id)
-                    .join(
-                        StorageLocation, StorageLocation.id == DatasetSource.location_id
-                    )
-                    .where(
-                        DatasetScanRun.id == run_id,
-                        DatasetScanEntry.path_digest == path,
-                    )
-                )
-            ).one_or_none()
+            run_id = uuid.UUID(lineage["scan_run_id"]) if lineage is not None else None
+            path = lineage["path_digest"] if lineage is not None else None
+            facts = await directory_reference_reclaim_facts(
+                db,
+                uuid.UUID(identity["dataset_item_id"]),
+                run_id=run_id,
+                path_digest=path,
+            )
             if facts is None:
                 raise ValueError
-            run, entry, source, kind = facts
+            kind = facts.kind
             receipt, observed, anchor = (
-                entry.verified_content,
-                entry.observed,
-                run.snapshot["anchor"],
+                facts.verified_content,
+                facts.observed,
+                facts.snapshot["anchor"],
             )
             if (
                 not isinstance(receipt, dict)
@@ -120,8 +88,8 @@ async def protect_snapshot_references(db, snapshot):
                 or (
                     lineage is not None
                     and (
-                        str(source.id) != lineage["source_id"]
-                        or str(source.location_id) != lineage["location_id"]
+                        str(facts.source_id) != lineage["source_id"]
+                        or str(facts.location_id) != lineage["location_id"]
                     )
                 )
             ):
@@ -144,9 +112,9 @@ async def protect_snapshot_references(db, snapshot):
                 if (
                     observed["key"]
                     != directory_prefix(
-                        anchor["prefix"], run.snapshot["config"]["relative_path"]
+                        anchor["prefix"], facts.snapshot["config"]["relative_path"]
                     )
-                    + entry.relative_path
+                    + facts.relative_path
                 ):
                     raise ValueError
                 groups.add((observed["bucket"], observed["key"]))
@@ -214,40 +182,10 @@ async def require_resumable(db, location_id):
     lock. Job status, elapsed time and an apparently empty operation table cannot
     release an active claim or an unsettled physical responsibility.
     """
-    from app.db.models.managed_original_reclaim import (
-        ManagedOriginalReclaimAttempt as Attempt,
-        ManagedOriginalReclaimClaim as Claim,
-    )
-    from app.db.models.storage_maintenance import StorageOperation
-
-    active = await db.scalar(
-        select(Claim.id)
-        .join(Attempt, Attempt.id == Claim.current_attempt_id)
-        .where(
-            Attempt.target["location_id"].astext == str(location_id),
-            (Claim.state == "claimed")
-            | Attempt.status.in_(("pending", "running"))
-            | (~Attempt.physical_settled),
-        )
-        .limit(1)
-    )
-    unsettled = await db.scalar(
-        select(Attempt.id)
-        .where(
-            Attempt.target["location_id"].astext == str(location_id),
-            Attempt.status.in_(("pending", "running")) | (~Attempt.physical_settled),
-        )
-        .limit(1)
-    )
-    operation = await db.scalar(
-        select(StorageOperation.id)
-        .where(
-            StorageOperation.location_id == location_id,
-            StorageOperation.purpose == "managed_original_reclaim",
-        )
-        .limit(1)
-    )
-    if active is not None or unsettled is not None or operation is not None:
+    if await db.scalar(
+        text("SELECT yoao_assets_v1.original_reclaim_gate_blocked(:location)"),
+        {"location": location_id},
+    ):
         raise HTTPException(409, detail={"code": "managed_original_reclaim_unsettled"})
 
 
@@ -259,47 +197,10 @@ async def require_source_readable(db, source):
     precedes this check, no SDK read may start. Settled tombstones do not prohibit
     a future inventory of the remaining versions.
     """
-    from app.db.models.managed_original_reclaim import (
-        ManagedOriginalReclaimAttempt as Attempt,
-        ManagedOriginalReclaimClaim as Claim,
-    )
-    from app.db.models.storage_maintenance import StorageOperation
-
-    buckets = tuple(sorted(set(source["purpose_buckets"].values())))
-    operation_exists = (
-        select(StorageOperation.id)
-        .where(StorageOperation.id == Attempt.operation_id)
-        .exists()
-    )
-    active = await db.scalar(
-        select(Claim.id)
-        .join(Attempt, Attempt.id == Claim.current_attempt_id)
-        .where(
-            Claim.bucket.in_(buckets),
-            (Claim.state == "claimed")
-            | Attempt.status.in_(("pending", "running"))
-            | (~Attempt.physical_settled)
-            | operation_exists,
-        )
-        .limit(1)
-    )
-    unsettled = await db.scalar(
-        select(Attempt.id)
-        .where(
-            Attempt.target["bucket"].astext.in_(buckets),
-            (~Attempt.physical_settled) | operation_exists,
-        )
-        .limit(1)
-    )
-    orphan = await db.scalar(
-        select(StorageOperation.id)
-        .where(
-            StorageOperation.purpose == "managed_original_reclaim",
-            ~select(Attempt.id)
-            .where(Attempt.operation_id == StorageOperation.id)
-            .exists(),
-        )
-        .limit(1)
-    )
-    if active is not None or unsettled is not None or orphan is not None:
+    if await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.original_reclaim_source_blocked(CAST(:buckets AS text[]))"
+        ),
+        {"buckets": sorted(set(source["purpose_buckets"].values()))},
+    ):
         raise HTTPException(409, detail={"code": "managed_original_reclaim_unsettled"})

@@ -22,6 +22,7 @@ from app.db.models.training_run import TrainingResourceLease
 from app.schemas.training_preview import PreviewClaim, PreviewFinish, PreviewUploads
 from app.schemas.training_run import ExecutorFence
 from app.services import training_artifacts, training_previews as service
+from app.services.training_preview_data import get_preview
 from app.services.training_datasets import bind_training_authority
 from tests.factory import create_membership, create_project
 from tests.test_training_dataset_analysis import inputs
@@ -188,6 +189,8 @@ async def claimed(db, row):
         db, claim, training_authority=bind_training_authority(db)
     )
     assert assignment["preview_id"] == str(row.id)
+    if isinstance(row, TrainingPreview):
+        await db.refresh(row)
     return claim, assignment
 
 
@@ -245,6 +248,8 @@ async def test_idle_recovery_after_upgrade_preserves_lease_until_fresh_claim(
         db_session, current, training_authority=bind_training_authority(db_session)
     )
     assert assignment["preview_id"] == str(row.id)
+    await db_session.refresh(row)
+    await db_session.refresh(lease)
     assert lease.preview_id == row.id and row.status == "running"
     assert lease.boot_id == current.boot_id and lease.runtime == current.runtime
     assert lease.last_seen_at > previous[3]
@@ -348,7 +353,7 @@ async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
     )
     row.heartbeat_at = service.now() - timedelta(hours=1)
     await db_session.flush()
-    assert (await service.output(row)).status == "lost"
+    assert (await service.output(row, db=db_session)).status == "lost"
     lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
     assert lease.preview_id == row.id
     with pytest.raises(HTTPException) as stale:
@@ -379,6 +384,7 @@ async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
             training_authority=bind_training_authority(db_session),
         )
     ).status == "cancelled"
+    await db_session.refresh(lease)
     assert lease.preview_id is None
     assert (
         await service.finish(
@@ -675,6 +681,7 @@ async def test_deadline_and_revocation_stop_without_releasing_unknown_process(
         ExecutorFence(**fence(claim, assignment)),
         training_authority=bind_training_authority(db_session),
     )
+    await db_session.refresh(row)
     assert result["stop"] and row.status == "cancelling"
     lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
     assert lease.preview_id == row.id
@@ -689,6 +696,7 @@ async def test_deadline_and_revocation_stop_without_releasing_unknown_process(
         PreviewFinish(**fence(claim, assignment), status="failed", process_exited=True),
         training_authority=bind_training_authority(db_session),
     )
+    await db_session.refresh(lease)
     assert done.status == "cancelled" and lease.preview_id is None
 
 
@@ -753,7 +761,9 @@ async def test_expiry_and_terminal_cancellation_roll_back_together(
     original_payload = copy.deepcopy((await db_session.get(AsyncJob, job_id)).payload)
     savepoint = await db_session.begin_nested()
 
-    await service.expire(db_session, row)
+    facts = await get_preview(db_session, row.project_id, row.id, lock=True)
+    await service.expire(db_session, facts)
+    await db_session.refresh(row)
 
     assert row.status == "cancelled"
     assert (await db_session.get(AsyncJob, job_id)).status == "cancelled"
@@ -794,7 +804,7 @@ async def test_expiry_hides_results_and_cleanup_waits_for_put_window(
     assert (await service.cleanup(db_session))["removed"] == 1
     await db_session.flush()
     assert removed == [service.prefix(row)]
-    assert await db_session.get(TrainingPreview, row.id) is None
+    assert await db_session.get(TrainingPreview, row.id, populate_existing=True) is None
 
 
 def test_pool_bounds_and_missing_labels_are_explicit():
@@ -928,8 +938,7 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
             body.model_copy(update={"request_id": uuid.uuid4()}),
             None,
         )
-        await service.cancel(seed, expired)
-        expired.expires_at = service.now() - timedelta(seconds=1)
+        await service.expire(seed, expired)
         await seed.commit()
     entered, release = threading.Event(), threading.Event()
 

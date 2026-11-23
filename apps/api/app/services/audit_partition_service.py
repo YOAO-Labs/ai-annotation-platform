@@ -10,13 +10,16 @@ from datetime import datetime, timezone
 from tempfile import TemporaryFile
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from yoao_audit.maintenance_config import load_archive_s3_config
-from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 from yoao_audit.maintenance_contract import AuditPartition
+from yoao_audit.maintenance_postgres import (
+    AuditMaintenancePostgresData,
+    platform_maintenance,
+)
 from yoao_audit.partitions import AuditPartitionManager
 
 from app.config import settings
@@ -28,16 +31,24 @@ from app.services import audit_archive_storage as archive_storage
 from app.services import conditional_write_accounting
 from app.services import storage_access
 from app.services.audit import AuditAction, AuditService
+from app.services.audit_archive_output_data import (
+    has_ready_output,
+    lock_pending_output,
+    save_candidate,
+)
 from app.services.audit_archive_partitions import (
     AuditArchiveCancelled,
     AuditArchiveError,
     SourcePartition,
     build_archive,
     catalog,
+    ensure_month,
+    lock_retirement,
     lock_source,
     month_mutex,
     next_month,
     partition_name,
+    publish_source,
     retention_cutoff,
     stream_source,
     verify_source,
@@ -117,7 +128,7 @@ class AuditArchiveReadService:
 
     @staticmethod
     async def refresh_daily(db: AsyncSession) -> None:
-        await AuditMaintenancePostgresData(db).refresh_daily()
+        await platform_maintenance(db, "refresh_daily")
 
     @staticmethod
     def list_archives() -> list[dict]:
@@ -202,29 +213,14 @@ async def _running_job(
 
 
 async def _ready_exists(db: AsyncSession, source: SourcePartition) -> None:
-    if (
-        await db.scalar(
-            select(AuditArchiveOutput.id).where(
-                AuditArchiveOutput.year == source.year,
-                AuditArchiveOutput.month == source.month,
-                AuditArchiveOutput.state == "ready",
-            )
-        )
-        is not None
-    ):
+    if await has_ready_output(db, source.year, source.month):
         raise AuditArchiveError("audit_archive_month_already_ready")
 
 
-async def _pending_owner(db: AsyncSession, receipt) -> AuditArchiveOutput:
-    row = await db.scalar(
-        select(AuditArchiveOutput)
-        .where(AuditArchiveOutput.id == receipt.id)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True)
-    )
+async def _pending_owner(db: AsyncSession, receipt) -> None:
+    row = await lock_pending_output(db, receipt.id)
     if row is None or row.state != "pending" or not archive_storage.same(row, receipt):
         raise AuditArchiveError("audit_archive_owner_changed")
-    return row
 
 
 async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, file):
@@ -250,7 +246,7 @@ async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, fi
     )
     await build_archive(db, source, row, file)
     row.storage_ref = await archive_storage.allocate(db, row)
-    db.add(row)
+    await save_candidate(db, row)
     await db.flush()
     receipt = archive_storage.snapshot(row)
     await _running_job(db, job_id)
@@ -349,8 +345,8 @@ async def _publish(
 ) -> dict:
     await _begin(db)
     await month_mutex(db, source.month_start)
-    job = await _running_job(db, receipt.job_id)
-    row = await _pending_owner(db, receipt)
+    await _running_job(db, receipt.job_id)
+    await _pending_owner(db, receipt)
     await _ready_exists(db, source)
     await lock_source(db, source)
     observed = await stream_source(db, source, expected_rows=receipt.row_count)
@@ -359,13 +355,7 @@ async def _publish(
         or observed.sha256 != receipt.source_sha256
     ):
         raise AuditArchiveError("audit_archive_source_changed")
-    await db.execute(
-        text("LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT")
-    )
-    await db.execute(
-        text(f"LOCK TABLE ONLY {source.qualified} IN ACCESS EXCLUSIVE MODE NOWAIT")
-    )
-    await verify_source(db, source)
+    await lock_retirement(db, source)
     await storage_access.check(
         db,
         UUID(str(receipt.storage_ref["location_id"])),
@@ -373,11 +363,9 @@ async def _publish(
         lock=True,
     )
     job = await _running_job(db, receipt.job_id)
-    row = await _pending_owner(db, receipt)
+    await _pending_owner(db, receipt)
     _not_cancelled()
-    await db.execute(text(f"DROP TABLE {source.qualified}"))
-    row.state = "ready"
-    row.published_at = datetime.now(timezone.utc)
+    await publish_source(db, source, receipt.id, datetime.now(timezone.utc))
     key = archive_storage.key_for(source.year, source.month, receipt.id)
     await AuditService.log(
         db,
@@ -401,8 +389,12 @@ async def _publish(
     result["archive_keys"].append(key)
     result["output_ids"].append(str(receipt.id))
     result["total_rows"] += receipt.row_count
-    job.result = result
-    job.progress_pct = min(99, len(result["output_ids"]) * 100 // candidate_count)
+    await jobs.update_progress(
+        db,
+        job.id,
+        min(99, len(result["output_ids"]) * 100 // candidate_count),
+        result=result,
+    )
     await db.flush()
     _not_cancelled()
     await db.commit()
@@ -442,27 +434,7 @@ class AuditPartitionService:
                 if name in children:
                     await verify_source(db, children[name])
                 else:
-                    await db.execute(
-                        text(
-                            "LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT"
-                        )
-                    )
-                    if (
-                        await db.scalar(
-                            text("SELECT to_regclass(:name)"),
-                            {"name": f"public.{name}"},
-                        )
-                        is not None
-                    ):
-                        raise AuditArchiveError("audit_archive_source_invalid")
-                    end = next_month(current)
-                    await db.execute(
-                        text(
-                            f'CREATE TABLE public."{name}" PARTITION OF public.audit_logs '
-                            f"FOR VALUES FROM ('{current.isoformat()} 00:00:00+00') "
-                            f"TO ('{end.isoformat()} 00:00:00+00')"
-                        )
-                    )
+                    await ensure_month(db, current)
                     observed = {source.name: source for source in await catalog(db)}
                     if name not in observed or observed[name].month_start != current:
                         raise AuditArchiveError("audit_archive_source_invalid")

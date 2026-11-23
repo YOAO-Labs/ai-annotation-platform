@@ -2,9 +2,7 @@
 
 import uuid
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
 from app.db.models.project import Project
-from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_recipe import (
     TrainingConfigurationResolve,
@@ -13,6 +11,7 @@ from app.schemas.training_recipe import (
     TrainingRecipeWrite,
     TrainingReuseCandidate,
 )
+from app.services import learning_selection_data as data
 from app.services import training_recipes as service
 from app.services.identity_contracts import IdentityActorFacts
 
@@ -39,15 +38,8 @@ async def list_recipes(
     offset: int = Query(0, ge=0),
     include_archived: bool = False,
 ):
-    query = select(TrainingRecipe).where(TrainingRecipe.project_id == project.id)
-    if not include_archived:
-        query = query.where(TrainingRecipe.archived.is_(False))
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    recipes = await db.scalars(
-        query.order_by(TrainingRecipe.created_at.desc(), TrainingRecipe.id.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    total = await data.recipe_count(db, project.id, include_archived)
+    recipes = await data.recipes_page(db, project.id, include_archived, limit, offset)
     items = []
     for recipe in recipes:
         _, revision = await service.recipe_revision(db, project.id, recipe.id)
@@ -108,17 +100,8 @@ async def list_revisions(
     offset: int = Query(0, ge=0),
 ):
     recipe, _ = await service.recipe_revision(db, project.id, recipe_id)
-    where = TrainingRecipeRevision.recipe_id == recipe.id
-    total = await db.scalar(
-        select(func.count()).select_from(TrainingRecipeRevision).where(where)
-    )
-    revisions = await db.scalars(
-        select(TrainingRecipeRevision)
-        .where(where)
-        .order_by(TrainingRecipeRevision.ordinal.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    total = await data.revision_count(db, recipe.id)
+    revisions = await data.revisions_page(db, recipe.id, limit, offset)
     return {
         "total": total,
         "items": [

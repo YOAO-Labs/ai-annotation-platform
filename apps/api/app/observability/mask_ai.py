@@ -37,80 +37,12 @@ TRACKER_JOB_KINDS = ("tracking", "correction")
 
 
 async def refresh_mask_ai_inventory(db: Any) -> dict[str, Any]:
-    correction_rows = (
-        await db.execute(
-            text(
-                """
-                SELECT status, COUNT(*)
-                FROM video_tracker_jobs
-                WHERE job_kind = 'correction'
-                GROUP BY status
-                """
-            )
-        )
-    ).all()
-    correction_counts = {str(status): int(count) for status, count in correction_rows}
-
-    age_rows = (
-        await db.execute(
-            text(
-                """
-                SELECT status,
-                       EXTRACT(EPOCH FROM (now() - MIN(
-                           CASE
-                               WHEN status IN ('pending_review', 'partially_reviewed')
-                               THEN COALESCE(completed_at, updated_at, created_at)
-                               ELSE COALESCE(started_at, created_at)
-                           END
-                       )))
-                FROM video_tracker_jobs
-                WHERE job_kind = 'correction'
-                  AND status IN ('queued', 'running', 'pending_review', 'partially_reviewed')
-                GROUP BY status
-                """
-            )
-        )
-    ).all()
-    correction_ages = {
-        str(status): max(0.0, float(age or 0.0)) for status, age in age_rows
-    }
-
-    staged_rows = (
-        await db.execute(
-            text(
-                """
-                SELECT job_kind, COUNT(DISTINCT value #>> '{}')
-                FROM video_tracker_jobs,
-                     LATERAL jsonb_path_query(staged_result, '$.**.object_key') value
-                WHERE staged_result IS NOT NULL
-                  AND status IN ('pending_review', 'partially_reviewed', 'cancelled')
-                  AND value #>> '{}' LIKE 'raster-masks/sha256/%'
-                GROUP BY job_kind
-                """
-            )
-        )
-    ).all()
-    staged_counts = {str(kind): int(count) for kind, count in staged_rows}
-
-    decision_row = (
-        await db.execute(
-            text(
-                """
-                SELECT COUNT(*) FILTER (WHERE expires_at > now()),
-                       COUNT(*) FILTER (WHERE expires_at <= now()),
-                       COALESCE(EXTRACT(EPOCH FROM (
-                           now() - MIN(expires_at) FILTER (WHERE expires_at <= now())
-                       )), 0)
-                FROM ai_mask_accept_decisions
-                """
-            )
-        )
-    ).one()
-    decision_counts = {
-        "active": int(decision_row[0] or 0),
-        "expired": int(decision_row[1] or 0),
-    }
-    oldest_expired_age = max(0.0, float(decision_row[2] or 0.0))
+    inventory = await db.scalar(text("SELECT yoao_labeling_v1.mask_ai_inventory()"))
+    correction_counts = inventory["correction_jobs"]
+    correction_ages = inventory["correction_oldest_age_seconds"]
+    staged_counts = inventory["staged_mask_references"]
+    decision_counts = inventory["accept_decisions"]
+    oldest_expired_age = inventory["oldest_expired_decision_age_seconds"]
 
     for status in CORRECTION_STATUSES:
         MASK_AI_CORRECTION_JOBS.labels(status=status).set(

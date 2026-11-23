@@ -142,6 +142,18 @@ _LOCK_REPAIR_MODEL_ROWS = text(
     f"SELECT {_SCHEMA}.lock_repair_model_rows(CAST(:project_id AS uuid),"
     "CAST(:pool_id AS uuid),CAST(:registry_ids AS uuid[]))"
 )
+_LOCK_VIDEO_PREDICTION_REGISTRY = text(
+    f"SELECT state, capabilities FROM {_SCHEMA}.lock_video_prediction_registry("
+    "CAST(:registry_id AS uuid))"
+)
+_LOCK_VIDEO_PREDICTION_POOL = text(
+    f"SELECT {_SCHEMA}.lock_video_prediction_pool("
+    "CAST(:project_id AS uuid), CAST(:registry_id AS uuid), CAST(:expected_pool_id AS uuid))"
+)
+_LOCK_NATIVE_PREDICTION_ROUTE = text(
+    f"SELECT {_SCHEMA}.lock_native_prediction_route("
+    "CAST(:project_id AS uuid), CAST(:pool_id AS uuid), CAST(:registry_id AS uuid))"
+)
 _UPSERT_MEMBER = text(
     f"SELECT {_SCHEMA}.upsert_member(CAST(:pool_id AS uuid),"
     "CAST(:registry_id AS uuid),CAST(:weight AS integer),CAST(:expected AS text))"
@@ -849,6 +861,34 @@ class InferenceTopologyData:
         if type(status) is not str or status not in _REPAIR_MODEL_LOCK_STATUSES:
             raise RuntimeError("topology repair model lock returned malformed status")
         return status
+
+    async def lock_video_prediction_registry(self, registry_id: UUID):
+        if self.db.autoflush:
+            await self.db.flush()
+        result = await self.db.execute(
+            _LOCK_VIDEO_PREDICTION_REGISTRY, {"registry_id": registry_id}
+        )
+        return result.one_or_none()
+
+    async def lock_video_prediction_pool(
+        self, project_id: UUID, registry_id: UUID, expected_pool_id: UUID | None
+    ) -> UUID | None:
+        return await self._scalar(
+            _LOCK_VIDEO_PREDICTION_POOL,
+            {
+                "project_id": project_id,
+                "registry_id": registry_id,
+                "expected_pool_id": expected_pool_id,
+            },
+        )
+
+    async def lock_native_prediction_route(
+        self, project_id: UUID, pool_id: UUID | None, registry_id: UUID
+    ) -> bool:
+        return await self._scalar(
+            _LOCK_NATIVE_PREDICTION_ROUTE,
+            {"project_id": project_id, "pool_id": pool_id, "registry_id": registry_id},
+        )
 
     async def upsert_member(
         self,

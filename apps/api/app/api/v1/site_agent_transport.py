@@ -73,7 +73,9 @@ async def poll(
         await db.commit()
         until = time.monotonic() + 15
         while True:
-            command = await svc.lease(db, agent.id, payload.session_id)
+            command = await svc.lease(
+                db, agent.id, payload.session_id, credential=credential
+            )
             await db.commit()
             if command is not None or time.monotonic() >= until:
                 return {"protocol_version": 1, "command": command}

@@ -16,15 +16,14 @@ import uuid
 from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.prediction_input import PredictionInputLease
 from app.services import prediction_inputs as service
 from app.services.content_snapshot import ContentError, capture
 from app.services.dataset_assets import ensure_legacy_bindings
-from tests.test_export_media_bundle_models import _migration
 
 
 class MemoryStorage:
@@ -276,44 +275,12 @@ async def input_storage_world(engine, monkeypatch):
 
 
 @pytest.fixture
-async def input_world(test_engine, monkeypatch):
-    schema = "prediction_inputs_" + uuid.uuid4().hex
-    async with test_engine.begin() as connection:
-        source = await connection.scalar(text("SELECT current_schema()"))
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        for table in (
-            "storage_locations",
-            "storage_bindings",
-            "storage_maintenance_gates",
-            "storage_operations",
-            "storage_usage_mutations",
-        ):
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" '
-                    f'(LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    try:
-        async with engine.begin() as connection:
-            for revision in (
-                "0212_prediction_input_leases",
-                "0238_prediction_input_ownership",
-                "0239_prediction_input_versions",
-            ):
-                await connection.run_sync(
-                    lambda sync, name=revision: _migration(sync, name).upgrade()
-                )
+async def input_world(test_db_url, monkeypatch):
+    from tests.managed_image_inference_fixtures import managed_database
+
+    async with managed_database(test_db_url) as engine:
         async with input_storage_world(engine, monkeypatch) as world:
             yield world
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 async def open_inputs(world, **kwargs):

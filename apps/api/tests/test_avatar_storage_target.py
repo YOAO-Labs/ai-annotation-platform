@@ -10,7 +10,6 @@ import uuid
 from botocore.exceptions import ClientError
 import pytest
 
-from app.db.models.dataset_asset import StorageLocation
 from app.services import avatar, avatar_storage, avatar_storage_target as targets
 from tests.test_avatar_storage import TOKEN, external_reference
 
@@ -382,10 +381,10 @@ async def test_io_target_uses_rotated_credentials_without_rewriting_saved_locati
     )
     connection.secret_enc = b"rotated-encrypted-secret"
 
-    async def get(model, _identifier, **_kwargs):
-        return location if model is StorageLocation else connection
-
-    db = SimpleNamespace(get=AsyncMock(side_effect=get))
+    db = SimpleNamespace(get=AsyncMock(return_value=connection))
+    monkeypatch.setattr(
+        avatar_storage.registry, "get_location", AsyncMock(return_value=location)
+    )
     monkeypatch.setattr(
         targets.connector_guard, "get_allowlist", AsyncMock(return_value=[])
     )

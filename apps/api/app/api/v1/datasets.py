@@ -43,10 +43,7 @@ from yoao_assets_source.connectors.registry import (
     target_host as connector_target_host,
     validate_source_path as validate_connector_source_path,
 )
-from yoao_assets_catalog import (
-    CreateDatasetRequest,
-    GetDatasetRequest,
-)
+from yoao_assets_catalog import CreateDatasetRequest, GetDatasetRequest
 from yoao_assets_catalog.associations_contract import ListDatasetProjectsRequest
 from app.deps import (
     get_db,
@@ -419,21 +416,23 @@ async def update_dataset(
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     await recheck_directory_write(request, db, dataset_id)
+    operation_id = idempotency_key or uuid.uuid4()
     svc = DatasetService(db)
     update_kwargs: dict = {}
     if "axis_convention" in data.model_fields_set:
         update_kwargs["axis_convention"] = data.axis_convention
-    ds = await svc.update(
+    result = await svc.update(
         dataset_id,
         name=data.name,
         description=data.description,
+        actor_id=current_user.id,
+        operation_id=operation_id,
         **update_kwargs,
     )
-    if not ds:
+    if result is None:
         raise HTTPException(status_code=404, detail="Dataset not found")
     await db.commit()
-    await db.refresh(ds)
-    result = await svc.get_with_project_count(dataset_id)
+    response.headers["Idempotency-Key"] = str(operation_id)
     return result
 
 
@@ -514,8 +513,7 @@ async def delete_dataset(
             audit_context=_deletion_audit_context(request),
         )
     )
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
@@ -608,21 +606,14 @@ async def get_dataset_item_preview(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(require_roles(*_MANAGERS)),
 ):
-    from app.db.models.dataset import DatasetItem
-    from app.db.models.dataset_source import DatasetSourceItem
     from app.services.content_snapshot import SnapshotResponse
     from app.services.dataset_content import content_http_error
     from app.services.directory_previews import read_preview
-    from app.services.dataset_workbench import visible_mapping_query
+    from app.services.dataset_workbench import preferred_preview_mapping
 
     if request.headers.get("range") is not None:
         raise HTTPException(416, "Range is not supported for previews")
-    mapping = await db.scalar(
-        visible_mapping_query(item_id, actor)
-        .join(DatasetItem, DatasetItem.id == DatasetSourceItem.dataset_item_id)
-        .where(DatasetItem.id == item_id, DatasetItem.dataset_id == dataset_id)
-        .limit(1)
-    )
+    mapping = await preferred_preview_mapping(db, dataset_id, item_id, actor)
     if mapping is None:
         raise HTTPException(404, "Dataset item preview not found")
     try:
@@ -779,8 +770,7 @@ async def upload_init(
             content_type=data.content_type,
         )
     )
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(result.item_id)
     return DatasetUploadInitResponse(
         item_id=result.item_id,
@@ -819,8 +809,7 @@ async def upload_complete(
     )
     gateway = AssetsSourceGateway(db)
     outcome = await gateway.complete_upload(request)
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(request.operation_id)
     if outcome.duplicate_of is not None:
         raise HTTPException(
@@ -852,14 +841,12 @@ async def upload_complete(
 
 async def _ingest_public_response(
     db: AsyncSession,
-    gateway: AssetsSourceGateway,
     receipt: IngestReceipt,
     operation_id: uuid.UUID,
 ) -> Response:
     try:
         body = encode_ingest_public_result(receipt)
-        if not gateway.is_remote:
-            await db.commit()
+        await db.commit()
     except SQLAlchemyError as exc:
         await db.rollback()
         raise HTTPException(503, detail="Assets source service is unavailable") from exc
@@ -971,7 +958,7 @@ async def upload_zip(
     except Exception:
         await db.rollback()
         raise
-    return await _ingest_public_response(db, gateway, receipt, operation_id)
+    return await _ingest_public_response(db, receipt, operation_id)
 
 
 @router.post(
@@ -1009,7 +996,7 @@ async def scan_items(
     except Exception:
         await db.rollback()
         raise
-    return await _ingest_public_response(db, gateway, receipt, operation_id)
+    return await _ingest_public_response(db, receipt, operation_id)
 
 
 _MEDIA_BACKFILL_STATUS = {
@@ -1354,8 +1341,7 @@ async def delete_item(
             audit_context=_deletion_audit_context(request),
         )
     )
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 

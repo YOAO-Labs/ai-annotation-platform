@@ -4,7 +4,7 @@ import re
 import uuid
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.user import User
@@ -24,16 +24,15 @@ from app.services.reference_keys import is_reference, parse_reference, PREFIX
 async def reject_reference_scope(
     db, *, project_id=None, task_ids=None, item_ids=None, dataset_id=None
 ):
-    from app.db.models.dataset import DatasetItem
+    from app.services.assets_spatial_views import labeling_dataset_item_facts
 
     if item_ids is not None or dataset_id is not None:
-        stmt = select(DatasetItem.id).where(
-            DatasetItem.file_path.startswith(PREFIX, autoescape=True)
-        )
+        item = labeling_dataset_item_facts
+        stmt = select(item.id).where(item.file_path.startswith(PREFIX, autoescape=True))
         if item_ids is not None:
-            stmt = stmt.where(DatasetItem.id.in_(item_ids))
+            stmt = stmt.where(item.id.in_(item_ids))
         if dataset_id is not None:
-            stmt = stmt.where(DatasetItem.dataset_id == dataset_id)
+            stmt = stmt.where(item.dataset_id == dataset_id)
     else:
         stmt = select(task_row.id).where(
             task_row.file_path.startswith(PREFIX, autoescape=True)
@@ -309,23 +308,20 @@ async def reference_task_guard(
             scope=scope,
         )
         snapshot.close()
-        from app.db.models.dataset_source import DatasetReference, DatasetSource
-        from app.db.models.dataset_asset import StorageLocation
         from sqlalchemy.exc import DBAPIError
 
-        ref = await db.get(DatasetReference, item_id)
-        source = await db.get(DatasetSource, ref.source_id)
         try:
             async with db.begin_nested():
                 await db.execute(
-                    select(StorageLocation.id)
-                    .where(StorageLocation.id == source.location_id)
-                    .with_for_update(read=True, nowait=True)
-                )
-                await db.execute(
-                    select(DatasetSource.id)
-                    .where(DatasetSource.id == source.id)
-                    .with_for_update(read=True, nowait=True)
+                    text(
+                        "SELECT yoao_assets_v1.lock_directory_reference_bindings("
+                        "ARRAY[]::uuid[], CAST(:locations AS uuid[]), "
+                        "CAST(:sources AS uuid[]), ARRAY[]::uuid[])"
+                    ),
+                    {
+                        "locations": [context["location_id"]],
+                        "sources": [context["source_id"]],
+                    },
                 )
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) != "55P03":
@@ -333,7 +329,7 @@ async def reference_task_guard(
             raise HTTPException(409, detail={"code": "source_busy"}) from None
         await storage_access.check(
             db,
-            source.location_id,
+            context["location_id"],
             expected_revision=context["maintenance_revision"],
             lock=True,
         )

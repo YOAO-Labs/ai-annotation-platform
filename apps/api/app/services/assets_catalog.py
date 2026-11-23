@@ -1,13 +1,11 @@
-"""Bind the public catalog API to its local SQL capability or remote owner."""
+"""Bind the public catalog API to its request-time Assets SQL capability."""
 
 from __future__ import annotations
 
 import asyncio
 import json
-from typing import Callable, Literal, TypeVar
-from urllib.parse import urlsplit
+from typing import Callable, TypeVar
 
-import httpx
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
@@ -41,7 +39,6 @@ from yoao_assets_images.transport import ImageSourceReference
 from yoao_assets_media.contract import MediaFailure, ReadSourceRequest
 from yoao_assets_media.transport import SourceReference
 
-from app.config import settings
 from app.services.assets_media import browser_media_url, media_gateway
 from app.services.image_source_references import image_source_references
 from app.services.storage import storage_service
@@ -76,36 +73,8 @@ _ASSOCIATION_ERRORS: dict[str, tuple[int, str, dict[str, str] | None]] = {
 }
 
 
-def _peer_url() -> str | None:
-    value = settings.assets_catalog_url
-    if not value:
-        return None
-    try:
-        parsed = urlsplit(value)
-        parsed.port
-        valid = (
-            parsed.scheme in {"http", "https"}
-            and bool(parsed.hostname)
-            and parsed.username is None
-            and parsed.password is None
-            and not parsed.query
-            and not parsed.fragment
-        )
-    except ValueError:
-        valid = False
-    token = settings.assets_catalog_token
-    if (
-        not valid
-        or len(token) < 32
-        or not token.isascii()
-        or any(character.isspace() for character in token)
-    ):
-        raise CatalogGatewayError("unavailable", "Invalid Assets catalog configuration")
-    return value.rstrip("/")
-
-
 class CatalogGatewayError(HTTPException):
-    """A selected peer or its response failed; local SQL is never a fallback."""
+    """A native catalog reply or capability failed."""
 
     def __init__(
         self,
@@ -118,24 +87,12 @@ class CatalogGatewayError(HTTPException):
         super().__init__(status_code=status_code, detail=message, headers=headers)
 
 
-def _encode_request(request: BaseModel) -> bytes:
-    body = request.model_dump_json(exclude_unset=True).encode("utf-8")
-    if len(body) > _MAX_REQUEST_BYTES:
+def _require_request_budget(request: BaseModel) -> None:
+    body = request.model_dump_json(exclude_unset=True)
+    if len(body.encode("utf-8")) > _MAX_REQUEST_BYTES:
         raise CatalogGatewayError(
             "invalid_request", "Assets catalog request is too large", 422
         )
-    return body
-
-
-async def _read_response(response: httpx.Response) -> bytes:
-    body = bytearray()
-    async for chunk in response.aiter_bytes(chunk_size=16 * 1024):
-        body.extend(chunk)
-        if len(body) > _MAX_RESPONSE_BYTES:
-            raise CatalogGatewayError(
-                "invalid_response", "Assets catalog response is too large", 502
-            )
-    return bytes(body)
 
 
 def _decode(payload: object, result_type: type[_RESULT]) -> _RESULT:
@@ -167,9 +124,8 @@ class AssetsCatalogGateway:
         self.db = db
 
     async def list(self, request: ListDatasetsRequest) -> DatasetPage:
-        body = _encode_request(request)
-        reply, _ = await self._call(
-            "list",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.list_catalog_datasets(
                 CAST(:actor_id AS uuid), CAST(:search AS text),
@@ -185,7 +141,6 @@ class AssetsCatalogGateway:
                 "limit": request.limit,
                 "offset": request.offset,
             },
-            body,
             DatasetPage,
         )
         if (reply.limit, reply.offset) != (request.limit, request.offset):
@@ -193,16 +148,14 @@ class AssetsCatalogGateway:
         return reply
 
     async def get(self, request: GetDatasetRequest) -> DatasetResult:
-        body = _encode_request(request)
-        reply, _ = await self._call(
-            "get",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.get_catalog_dataset(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid)
             )
             """,
             {"actor_id": request.actor_id, "dataset_id": request.dataset_id},
-            body,
             DatasetResult,
         )
         if reply.dataset.id != request.dataset_id:
@@ -210,9 +163,8 @@ class AssetsCatalogGateway:
         return reply
 
     async def items(self, request: ListItemsRequest) -> ItemPage:
-        body = _encode_request(request)
-        reply, remote = await self._call(
-            "items",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.list_catalog_items(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid),
@@ -225,7 +177,6 @@ class AssetsCatalogGateway:
                 "limit": request.limit,
                 "offset": request.offset,
             },
-            body,
             ItemPage,
         )
         if (
@@ -322,9 +273,7 @@ class AssetsCatalogGateway:
                     if item.file_type == "image"
                     else self._video_item(item, video_references_by_id.get(item.id))
                     if item.file_type == "video"
-                    else self._other_item(
-                        item, other_references_by_id.get(item.id), remote=remote
-                    )
+                    else self._other_item(item, other_references_by_id.get(item.id))
                     for item in reply.items
                 ]
             }
@@ -332,9 +281,8 @@ class AssetsCatalogGateway:
         return reply
 
     async def create(self, request: CreateDatasetRequest) -> DatasetMutationResult:
-        body = _encode_request(request)
-        reply, remote = await self._call(
-            "create",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.create_catalog_dataset(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
@@ -346,7 +294,6 @@ class AssetsCatalogGateway:
                 "actor_id": request.actor_id,
                 "payload": json.dumps(request.native_payload(), separators=(",", ":")),
             },
-            body,
             DatasetMutationResult,
         )
         if (
@@ -355,14 +302,17 @@ class AssetsCatalogGateway:
             or reply.dataset.created_by != request.actor_id
         ):
             raise self._invalid_scope()
-        if not remote:
-            await self.db.commit()
+        await self.db.commit()
         return reply
 
-    async def update(self, request: UpdateDatasetRequest) -> DatasetMutationResult:
-        body = _encode_request(request)
-        reply, remote = await self._call(
-            "update",
+    async def update(
+        self,
+        request: UpdateDatasetRequest,
+        *,
+        commit: bool = True,
+    ) -> DatasetMutationResult:
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.update_catalog_dataset(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
@@ -375,7 +325,6 @@ class AssetsCatalogGateway:
                 "dataset_id": request.dataset_id,
                 "payload": json.dumps(request.native_payload(), separators=(",", ":")),
             },
-            body,
             DatasetMutationResult,
         )
         if (
@@ -384,23 +333,21 @@ class AssetsCatalogGateway:
             or reply.dataset.id != request.dataset_id
         ):
             raise self._invalid_scope()
-        if not remote:
+        if commit:
             await self.db.commit()
         return reply
 
     async def list_dataset_projects(
         self, request: ListDatasetProjectsRequest
     ) -> DatasetProjectsResult:
-        body = _encode_request(request)
-        reply, _ = await self._call(
-            "dataset-projects",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.list_dataset_projects(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid)
             )
             """,
             {"actor_id": request.actor_id, "dataset_id": request.dataset_id},
-            body,
             DatasetProjectsResult,
             decoder=_decode_associations,
             local_errors_unavailable=True,
@@ -412,16 +359,14 @@ class AssetsCatalogGateway:
     async def list_project_datasets(
         self, request: ListProjectDatasetsRequest
     ) -> ProjectDatasetsResult:
-        body = _encode_request(request)
-        reply, _ = await self._call(
-            "project-datasets",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.list_project_datasets(
                 CAST(:actor_id AS uuid), CAST(:project_id AS uuid)
             )
             """,
             {"actor_id": request.actor_id, "project_id": request.project_id},
-            body,
             ProjectDatasetsResult,
             decoder=_decode_associations,
             local_errors_unavailable=True,
@@ -432,85 +377,23 @@ class AssetsCatalogGateway:
 
     async def _call(
         self,
-        operation: str,
         sql: str,
         parameters: dict,
-        body: bytes,
         result_type: type[_RESULT],
         *,
         decoder: Callable[[object, type[_RESULT]], _RESULT] = _decode,
         local_errors_unavailable: bool = False,
-        namespace: Literal["catalog", "spatial"] = "catalog",
-        same_session_native: bool = False,
-        remote_only: bool = False,
-    ) -> tuple[_RESULT, bool]:
-        if same_session_native and remote_only:
-            raise ValueError("A native same-session call cannot be remote-only")
-        peer = None if same_session_native else _peer_url()
-        if remote_only and peer is None:
-            raise CatalogGatewayError(
-                "unavailable",
-                "Assets spatial workflow requires its configured owner",
-                503,
-            )
-        if peer is None:
-            try:
-                result = await self.db.execute(text(sql), parameters)
-                payload = result.scalar_one()
-            except SQLAlchemyError:
-                if local_errors_unavailable:
-                    raise CatalogGatewayError(
-                        "unavailable", "Assets catalog service is unavailable", 503
-                    ) from None
-                raise
-            return decoder(payload, result_type), False
+    ) -> _RESULT:
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.assets_catalog_timeout_seconds,
-                trust_env=False,
-                follow_redirects=False,
-            ) as client:
-                async with client.stream(
-                    "POST",
-                    f"{peer}/v1/{namespace}/{operation}",
-                    headers={
-                        "Authorization": f"Bearer {settings.assets_catalog_token}",
-                        "Content-Type": "application/json",
-                    },
-                    content=body,
-                ) as response:
-                    if response.status_code != 200:
-                        status_code = (
-                            503
-                            if response.status_code >= 500
-                            or response.status_code in {401, 403}
-                            else 502
-                        )
-                        raise CatalogGatewayError(
-                            "unavailable",
-                            "Assets catalog service is unavailable",
-                            status_code,
-                        )
-                    content_type = (
-                        response.headers.get("content-type", "")
-                        .split(";", 1)[0]
-                        .strip()
-                        .lower()
-                    )
-                    if content_type != "application/json":
-                        raise CatalogGatewayError(
-                            "invalid_response",
-                            "Assets catalog returned an invalid response",
-                            502,
-                        )
-                    payload = json.loads(await _read_response(response))
-        except CatalogGatewayError:
+            result = await self.db.execute(text(sql), parameters)
+            payload = result.scalar_one()
+        except SQLAlchemyError:
+            if local_errors_unavailable:
+                raise CatalogGatewayError(
+                    "unavailable", "Assets catalog service is unavailable", 503
+                ) from None
             raise
-        except (httpx.HTTPError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise CatalogGatewayError(
-                "unavailable", "Assets catalog service is unavailable", 503
-            ) from exc
-        return decoder(payload, result_type), True
+        return decoder(payload, result_type)
 
     @staticmethod
     def _invalid_scope() -> CatalogGatewayError:
@@ -519,28 +402,11 @@ class AssetsCatalogGateway:
         )
 
     @staticmethod
-    def _sign_item(item: CatalogItem) -> CatalogItem:
-        updates: dict[str, str | None] = {"file_url": None, "thumbnail_url": None}
-        if item.file_type not in {"video", "image"}:
-            if item.thumbnail_path:
-                try:
-                    bucket = storage_service.bucket_for_cache_key(
-                        item.thumbnail_path, default=storage_service.datasets_bucket
-                    )
-                    updates["thumbnail_url"] = storage_service.generate_download_url(
-                        item.thumbnail_path, bucket=bucket
-                    )
-                except Exception:
-                    pass
-        return item.model_copy(update=updates)
-
-    @classmethod
     def _other_item(
-        cls, item: CatalogItem, reference: SourceReference | None, *, remote: bool
+        item: CatalogItem, reference: SourceReference | None
     ) -> CatalogItem:
-        result = item if remote else cls._sign_item(item)
         source = reference.source if reference is not None else None
-        url = None
+        url = thumbnail_url = None
         if (
             source is not None
             and source.dataset_item_id == item.id
@@ -553,7 +419,17 @@ class AssetsCatalogGateway:
             and reference.original_url is not None
         ):
             url = browser_media_url(reference.original_url)
-        return result.model_copy(update={"file_url": url})
+            if item.thumbnail_path:
+                try:
+                    bucket = storage_service.bucket_for_cache_key(
+                        item.thumbnail_path, default=storage_service.datasets_bucket
+                    )
+                    thumbnail_url = storage_service.generate_download_url(
+                        item.thumbnail_path, bucket=bucket
+                    )
+                except Exception:
+                    pass
+        return item.model_copy(update={"file_url": url, "thumbnail_url": thumbnail_url})
 
     @staticmethod
     def _image_item(

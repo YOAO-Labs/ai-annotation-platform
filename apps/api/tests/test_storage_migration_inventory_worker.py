@@ -9,11 +9,9 @@ import uuid
 
 import pytest
 from botocore.hooks import HierarchicalEmitter
-from sqlalchemy import delete, select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.async_job import AsyncJob
-from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
@@ -22,51 +20,28 @@ from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage_migration_inventory import InventoryStopped
 from app.workers import storage_migration_inventory as worker
 from tests.factory import create_user
+from tests.managed_image_inference_fixtures import managed_database
 from tests.test_storage_migration_inventories import EmptySource
 
 
 @pytest.fixture
-async def world(test_engine):
-    maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    async with maker() as db:
-        await ensure_legacy_bindings(db)
-        actor = await create_user(
-            db, "super_admin", f"inventory-{uuid.uuid4()}@test.local", "Inventory"
-        )
-        actor_id = actor.id
-        row, job, _ = await service.start(db, actor)
-        job_id, task_id = job.id, row.task_id
-        await db.commit()
-    try:
+async def world(test_db_url):
+    async with managed_database(test_db_url) as engine:
+        maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with maker() as db:
+            await ensure_legacy_bindings(db)
+            actor = await create_user(
+                db, "super_admin", f"inventory-{uuid.uuid4()}@test.local", "Inventory"
+            )
+            row, job, _ = await service.start(db, actor)
+            await db.commit()
         yield SimpleNamespace(
             maker=maker,
-            job_id=job_id,
-            task_id=task_id,
-            actor_id=actor_id,
+            job_id=job.id,
+            task_id=row.task_id,
+            actor_id=actor.id,
             source=row.source,
         )
-    finally:
-        async with maker() as db:
-            row = await service.by_job(db, job_id)
-            if row and row.operation_id:
-                await db.execute(
-                    delete(StorageOperation).where(
-                        StorageOperation.id == row.operation_id
-                    )
-                )
-            await db.execute(
-                delete(Notification).where(Notification.target_id == job_id)
-            )
-            await db.execute(delete(AsyncJob).where(AsyncJob.id == job_id))
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(
-                delete(AuditLog).where(
-                    AuditLog.actor_id == actor_id,
-                    AuditLog.action == "storage.migration_inventory_start",
-                )
-            )
-            await db.execute(delete(User).where(User.id == actor_id))
-            await db.commit()
 
 
 def fake_storage(monkeypatch, source, *, close_error=False):

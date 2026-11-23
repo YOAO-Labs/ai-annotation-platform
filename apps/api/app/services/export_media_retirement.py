@@ -5,19 +5,16 @@ escape hatch: an unresolved physical operation always retains responsibility.
 """
 
 import logging
-import re
 import uuid
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from sqlalchemy import Text, and_, cast, func, literal, or_, select, text
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import aliased, load_only
+from sqlalchemy import select, text
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
-from app.db.models.storage_maintenance import StorageOperation
+from app.services import export_delivery_data as data
 from app.services import export_media_bundles as bundles
 from app.services import export_media_removal_accounting as removal
 from app.services import export_media_storage as physical
@@ -29,7 +26,6 @@ from app.services.content_snapshot import ContentError
 
 log = logging.getLogger(__name__)
 _TERMINAL = {"completed", "failed", "cancelled"}
-_SHA = re.compile(r"[0-9a-f]{64}")
 _FIELDS = (
     "id",
     "project_id",
@@ -83,111 +79,8 @@ def purposes(owner):
     )
 
 
-def _operations(owner, *, ignore=None):
-    if owner is Bundle:
-        media = "export_media_" + func.replace(cast(Bundle.id, Text), "-", "")
-        zip_id = func.replace(cast(Bundle.zip_output_id, Text), "-", "")
-        names = (media, "export_write_" + zip_id, "export_read_" + zip_id)
-    else:
-        names = purposes(owner)
-    query = select(StorageOperation.id).where(StorageOperation.purpose.in_(names))
-    if ignore is not None:
-        query = query.where(StorageOperation.id != ignore)
-    return query.exists()
-
-
 async def has_operations(db, owner, *, ignore=None):
-    return bool(await db.scalar(select(_operations(owner, ignore=ignore))))
-
-
-def _replacement_query():
-    replacement = aliased(Bundle)
-    proofs = []
-    keys = {"lidar_media", "image_media", "video_media"}
-    for key, schema in (
-        ("lidar_media", 1),
-        ("lidar_media", 2),
-        ("image_media", 3),
-        ("video_media", 4),
-    ):
-        proof = func.jsonb_build_object(
-            "schema",
-            schema,
-            "bundle_id",
-            cast(replacement.id, Text),
-            "input_digest",
-            replacement.input_digest,
-        )
-        proofs.append(
-            and_(
-                replacement.input_snapshot["schema"] == literal(schema, type_=JSONB),
-                AsyncJob.payload[key] == proof,
-                *(~AsyncJob.payload.has_key(other) for other in sorted(keys - {key})),
-            )
-        )
-    return (
-        select(replacement.id)
-        .join(AsyncJob, AsyncJob.id == replacement.job_id)
-        .where(
-            AsyncJob.id == Bundle.job_id,
-            AsyncJob.kind == "export",
-            AsyncJob.project_id == Bundle.project_id,
-            replacement.id != Bundle.id,
-            replacement.project_id == Bundle.project_id,
-            or_(*proofs),
-        )
-        .correlate(Bundle)
-        .exists()
-    )
-
-
-def _ended_predicate(current):
-    job = select(AsyncJob.id).where(AsyncJob.id == Bundle.job_id)
-    ended = or_(
-        Bundle.expires_at <= current,
-        Bundle.lease_expires_at <= current,
-        ~job.exists(),
-        job.where(AsyncJob.status.in_(_TERMINAL)).exists(),
-        _replacement_query(),
-    )
-    return or_(
-        and_(Bundle.published_at.is_not(None), Bundle.expires_at <= current),
-        and_(Bundle.published_at.is_(None), ended),
-    )
-
-
-def candidate_predicate(current):
-    return and_(
-        Bundle.state != "deleted", ~_operations(Bundle), _ended_predicate(current)
-    )
-
-
-def pending_zip_predicate(current):
-    from app.db.models.export_output import ExportOutput
-
-    return (
-        select(Bundle.id)
-        .where(
-            Bundle.id == ExportOutput.media_bundle_id,
-            Bundle.published_at.is_(None),
-            _ended_predicate(current),
-            ~_operations(Bundle),
-        )
-        .exists()
-    )
-
-
-def zip_operations_predicate():
-    from app.db.models.export_output import ExportOutput
-
-    return (
-        select(Bundle.id)
-        .where(
-            Bundle.id == ExportOutput.media_bundle_id,
-            _operations(Bundle),
-        )
-        .exists()
-    )
+    return bool(await data.media_has_operations(db, owner.id, ignore))
 
 
 async def attempt_ended(db, owner, *, current=None):
@@ -198,69 +91,11 @@ async def attempt_ended(db, owner, *, current=None):
         owner.lease_expires_at is not None and owner.lease_expires_at <= current
     ):
         return True
-    job = await db.get(AsyncJob, owner.job_id, populate_existing=True)
-    if job is None or job.status in _TERMINAL:
-        return True
-    payload = job.payload if type(job.payload) is dict else {}
-    protocols = {"lidar_media": {1, 2}, "image_media": {3}, "video_media": {4}}
-    keys = set(payload).intersection(protocols)
-    if len(keys) != 1:
-        return False
-    key = keys.pop()
-    proof, schemas = payload[key], protocols[key]
-    if (
-        job.kind != "export"
-        or job.project_id != owner.project_id
-        or type(proof) is not dict
-        or set(proof) != {"schema", "bundle_id", "input_digest"}
-        or type(proof["schema"]) is not int
-        or proof["schema"] not in schemas
-        or type(proof["bundle_id"]) is not str
-        or type(proof["input_digest"]) is not str
-        or _SHA.fullmatch(proof["input_digest"]) is None
-    ):
-        return False
-    try:
-        identifier = uuid.UUID(proof["bundle_id"])
-    except ValueError:
-        return False
-    if str(identifier) != proof["bundle_id"] or identifier == owner.id:
-        return False
-    replacement = (
-        await db.execute(
-            select(
-                Bundle.id,
-                Bundle.project_id,
-                Bundle.job_id,
-                Bundle.input_digest,
-                Bundle.input_snapshot["schema"].label("input_schema"),
-            ).where(Bundle.id == identifier)
-        )
-    ).one_or_none()
-    return replacement is not None and (
-        replacement.project_id == owner.project_id
-        and replacement.job_id == owner.job_id
-        and replacement.input_digest == proof["input_digest"]
-        and type(replacement.input_schema) is int
-        and replacement.input_schema == proof["schema"]
-    )
+    return bool(await data.media_attempt_ended(db, owner.id, current))
 
 
 async def lock_owner(db, identifier, *, inventory=False):
-    fields = (*_FIELDS, "inventory") if inventory else _FIELDS
-    return await db.scalar(
-        select(Bundle)
-        .options(load_only(*(getattr(Bundle, name) for name in fields)))
-        .where(
-            Bundle.id == identifier,
-            or_(
-                Bundle.published_at.is_(None),
-                Bundle.expires_at <= func.clock_timestamp(),
-            ),
-        )
-        .with_for_update(skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
+    return await data.lock_media_retirement(db, identifier, inventory=inventory)
 
 
 async def zip_eligible(db, owner, output, *, ignore=None):
@@ -299,14 +134,17 @@ class Receipt:
         return deepcopy(self._inventory)
 
 
-def snapshot(row):
+def snapshot(row, *, retiring_at=None):
+    facts = {
+        name: physical.input_schema(row)
+        if name == "input_schema"
+        else deepcopy(getattr(row, name))
+        for name in _VALUES
+    }
+    if retiring_at is not None:
+        facts.update(state="retiring", retired_at=retiring_at)
     result = Receipt(
-        tuple(
-            physical.input_schema(row)
-            if name == "input_schema"
-            else deepcopy(getattr(row, name))
-            for name in _VALUES
-        ),
+        tuple(facts.values()),
         deepcopy(row.storage_ref),
         deepcopy(row.inventory),
     )
@@ -329,15 +167,9 @@ async def _guard(db, receipt, permit, *, zip_output=None):
             if row.published_at is not None and row.expires_at > now():
                 reject()
         else:
-            from app.db.models.export_output import ExportOutput
             from app.services import export_outputs
 
-            output = await owned.scalar(
-                select(ExportOutput)
-                .where(ExportOutput.id == zip_output.id)
-                .with_for_update(skip_locked=True)
-                .execution_options(populate_existing=True)
-            )
+            output = await data.zip_receipt(owned, zip_output.id, mode="retirement")
             if (
                 output is None
                 or output.state != "retired"
@@ -440,25 +272,20 @@ async def _cleanup_one(db, identifier):
     if row.fixture_run_id is not None and not await fixture_owner_session(db):
         await db.commit()
         return False
-    row.last_attempted_at = now()
-    if await has_operations(db, row) or not await attempt_ended(db, row):
+    retired_at = await data.start_media_retirement(db, identifier, now())
+    if retired_at is None:
         await db.commit()
         return False
-    if row.state != "retiring":
-        row.state, row.retired_at = "retiring", now()
     await db.commit()
-    receipt = snapshot(row)
+    receipt = snapshot(row, retiring_at=retired_at)
     await _physical_delete(db, receipt)
     current = await lock_owner(db, identifier, inventory=True)
     if current is None or current.state != "retiring" or snapshot(current) != receipt:
         await db.commit()
         return False
-    if await has_operations(db, current) or (
-        current.published_at is not None and current.expires_at > now()
-    ):
+    if not await data.finish_media_retirement(db, identifier, now()):
         await db.commit()
         return False
-    current.state = "deleted"
     await db.commit()
     return True
 
@@ -608,19 +435,7 @@ async def retire_fixture_export(db, *, run_id, project_id, job_id):
 
 async def cleanup(db, *, limit=100):
     limit = max(1, min(limit, 100))
-    identifiers = list(
-        await db.scalars(
-            select(Bundle.id)
-            .where(candidate_predicate(now()), Bundle.fixture_run_id.is_(None))
-            .order_by(
-                Bundle.last_attempted_at.asc().nulls_first(),
-                Bundle.created_at,
-                Bundle.id,
-            )
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        )
-    )
+    identifiers = await data.media_retirement_queue(db, now(), limit)
     await db.commit()
     counts = {"deleted": 0, "retained": 0, "failed": 0}
     for identifier in identifiers:

@@ -261,6 +261,10 @@ def load_storage_config(
 def load_config(environment: Mapping[str, str] | None = None) -> ImageWorkerConfig:
     """Load the dedicated image login and fixed storage configuration."""
     values = os.environ if environment is None else environment
+    if values.get("ASSETS_IMAGE_EXECUTOR", "split") != "split":
+        raise ConfigurationError(
+            "the standalone image executor requires ASSETS_IMAGE_EXECUTOR=split"
+        )
     poll_seconds = _positive_float(
         values, "ASSETS_IMAGES_POLL_SECONDS", "5", maximum=3600
     )

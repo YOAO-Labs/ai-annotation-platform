@@ -30,6 +30,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from grant_sql import read_runtime_grant_statements
 from worktree_env import (
     WorktreeError,
     _validate_environment_sources,
@@ -53,554 +54,11 @@ _OWNED_ROLE_SUFFIXES = {
     "runtime": "app",
     "jobs-dispatch": "jobs_claim",
     "jobs-publication": "jobs_pub",
+    "assets-video": "assets_video",
+    "assets-image": "assets_image",
 }
 _JOBS_ROLE_PURPOSES = ("jobs-dispatch", "jobs-publication")
-IDENTITY_RUNTIME_CAPABILITIES = (
-    "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
-    "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
-    "yoao_identity_v1.authentication_policy()",
-    "yoao_identity_v1.read_provisioning_account(text)",
-    "yoao_identity_v1.create_provisioning_account(jsonb)",
-    "yoao_identity_v1.create_seed_persona_account(jsonb)",
-    "yoao_identity_v1.read_scale_seed_super_admin()",
-    "yoao_identity_v1.read_scale_seed_annotator(uuid[])",
-    "yoao_identity_v1.read_actor_context(uuid,text)",
-    "yoao_identity_v1.read_actor_facts(uuid)",
-    "yoao_identity_v1.lock_accounts_share(uuid[],boolean)",
-    "yoao_identity_v1.lock_accounts_update(uuid[],boolean)",
-    "yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)",
-    "yoao_identity_v1.lock_super_admin_invariant()",
-    "yoao_identity_v1.super_admin_status(uuid)",
-    "yoao_identity_briefs_v1.briefs_policy()",
-    "yoao_identity_briefs_v1.execute_briefs_command(jsonb)",
-    "yoao_identity_deactivation_v1.deactivation_policy()",
-    "yoao_identity_deactivation_v1.execute_deactivation_command(jsonb)",
-    "yoao_identity_deactivation_v1.due_policy()",
-    "yoao_identity_deactivation_v1.process_due_deactivations(jsonb)",
-    "yoao_notifications_v1.identity_delivery_policy()",
-    "yoao_notifications_v1.claim_identity_deliveries(jsonb)",
-    "yoao_notifications_v1.finish_identity_delivery(jsonb)",
-    "yoao_identity_v1.read_jwt_principal(uuid,uuid,bigint,timestamptz,boolean)",
-    "yoao_identity_v1.read_api_key_candidates(text,uuid,integer)",
-    "yoao_identity_v1.confirm_api_key_principal(uuid,text)",
-    "yoao_identity_v1.get_credential_generation(uuid)",
-    "yoao_identity_v1.advance_credential_generation(uuid)",
-    "yoao_identity_v1.revoke_jti(uuid,timestamptz)",
-    "yoao_identity_v1.is_jti_revoked(uuid)",
-    "yoao_identity_v1.retire_account_credentials(uuid)",
-    "yoao_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[])",
-    "yoao_identity_keys_v1.key_policy()",
-    "yoao_identity_keys_v1.execute_key_command(jsonb)",
-    "yoao_identity_sessions_v1.session_policy()",
-    "yoao_identity_sessions_v1.read_login_candidate(text)",
-    "yoao_identity_sessions_v1.execute_session_command(jsonb)",
-    "yoao_identity_directory_v1.directory_policy()",
-    "yoao_identity_directory_v1.execute_directory_command(jsonb)",
-    "yoao_identity_admin_passwords_v1.admin_password_policy()",
-    "yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)",
-    "yoao_identity_platform_roles_v1.platform_role_policy()",
-    "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)",
-    "yoao_identity_suspensions_v1.suspension_policy()",
-    "yoao_identity_suspensions_v1.execute_suspension_command(jsonb)",
-    "yoao_identity_deletions_v1.deletion_policy()",
-    "yoao_identity_deletions_v1.execute_deletion_command(jsonb)",
-    "yoao_identity_offboarding_v1.offboarding_policy()",
-    "yoao_identity_offboarding_v1.prepare_offboarding_command(jsonb)",
-    "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)",
-    "yoao_identity_groups_v1.group_policy()",
-    "yoao_identity_groups_v1.execute_group_command(jsonb)",
-    "yoao_identity_invitations_v1.invitation_policy()",
-    "yoao_identity_invitations_v1.prepare_invitation_command(jsonb)",
-    "yoao_identity_invitations_v1.apply_invitation_command(jsonb)",
-    "yoao_identity_accounts_v1.account_policy()",
-    "yoao_identity_accounts_v1.prepare_account_command(jsonb)",
-    "yoao_identity_accounts_v1.apply_account_command(jsonb)",
-    "yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
-    "yoao_identity_recovery_v1.recovery_policy()",
-    "yoao_identity_recovery_v1.prepare_recovery_command(jsonb)",
-    "yoao_identity_recovery_v1.apply_recovery_command(jsonb)",
-    "yoao_identity_recovery_v1.read_registration_status(jsonb)",
-)
-IDENTITY_MAIL_SENDER_CAPABILITIES = (
-    "yoao_identity_mail_v2.mail_policy()",
-    "yoao_identity_mail_v2.claim_mail(jsonb)",
-    "yoao_identity_mail_v2.renew_mail(jsonb)",
-    "yoao_identity_mail_v2.finish_mail(jsonb)",
-    "yoao_identity_recovery_v1.mail_policy()",
-    "yoao_identity_recovery_v1.claim_mail(jsonb)",
-    "yoao_identity_recovery_v1.renew_mail(jsonb)",
-    "yoao_identity_recovery_v1.finish_mail(jsonb)",
-    "yoao_settings_v1.mail_delivery_policy(jsonb)",
-)
-NOTIFICATION_DELIVERY_READ_CAPABILITIES = (
-    "yoao_notifications_v1.read_notification(uuid)",
-    "yoao_notifications_v1.find_terminal_notification(uuid,text,uuid)",
-    "yoao_notifications_v1.delivery_job_scopes(uuid[])",
-    "yoao_notifications_v1.delivery_member_pairs(jsonb)",
-    "yoao_notifications_v1.delivery_reviewer_pairs(jsonb)",
-    "yoao_notifications_v1.delivery_owner_pairs(jsonb)",
-    "yoao_notifications_v1.delivery_super_pairs(jsonb)",
-)
-NOTIFICATION_RUNTIME_CAPABILITIES = (
-    "yoao_notifications_v1.read_state_command_scoped(jsonb)",
-    "yoao_notifications_v1.delete_command_scoped(jsonb)",
-    "yoao_notifications_v1.inbox_page_scoped(uuid,text,boolean,integer,integer)",
-    "yoao_notifications_v1.inbox_total_count_scoped(uuid,text)",
-    "yoao_notifications_v1.inbox_unread_count_scoped(uuid,text)",
-    "yoao_notifications_v1.preference_command(jsonb)",
-    "yoao_notifications_v1.append_notification(jsonb)",
-    "yoao_notifications_v1.append_job_terminal_notification(jsonb)",
-    "yoao_notifications_v1.read_state_command(jsonb)",
-    "yoao_notifications_v1.delete_command(pg_catalog.jsonb)",
-    "yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)",
-    "yoao_notifications_v1.inbox_total_count(uuid,text)",
-    "yoao_notifications_v1.inbox_unread_count(uuid,text)",
-    *NOTIFICATION_DELIVERY_READ_CAPABILITIES,
-)
-AUDIT_RUNTIME_CAPABILITIES = (
-    "yoao_audit_v1.append_events(jsonb)",
-    "yoao_audit_v1.query_events(pg_catalog.jsonb)",
-    "yoao_audit_v1.maintenance_command(jsonb)",
-)
-JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
-    "yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
-    "yoao_jobs_v1.read_job_execution_snapshot(uuid)",
-    "yoao_jobs_v1.read_job_progress(uuid)",
-    "yoao_jobs_v1.read_job_progress_for_update(uuid,text,text)",
-    "yoao_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)",
-    "yoao_jobs_v1.read_job(uuid)",
-    "yoao_jobs_v1.find_video_retry_job(uuid,uuid,text)",
-    "yoao_jobs_v1.lock_video_retry_jobs(uuid)",
-    "yoao_jobs_v1.jobs_by_execution_id(text)",
-    "yoao_jobs_v1.insert_video_summary(uuid,text,uuid,uuid,jsonb,text)",
-    "yoao_jobs_v1.apply_lifecycle(uuid,jsonb)",
-    "yoao_jobs_v1.mark_dispatch_failed(uuid,timestamptz,text)",
-    "yoao_jobs_v1.cancel_batch_predict_jobs(uuid,timestamptz)",
-    "yoao_jobs_v1.delete_batch_predict_jobs(uuid)",
-    "yoao_jobs_v1.delete_terminal_jobs_before(timestamptz,text[])",
-)
-JOBS_LIST_RUNTIME_CAPABILITIES = (
-    "yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)",
-    "yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)",
-)
-JOBS_ROW_LOCK_RUNTIME_CAPABILITIES = (
-    "yoao_jobs_v1.read_job_for_update(uuid)",
-    "yoao_jobs_v1.read_job_for_share_nowait(uuid)",
-    "yoao_jobs_v1.read_job_for_update_nowait(uuid)",
-)
-JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES = (
-    "yoao_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
-    "yoao_jobs_v1.active_cross_frame_job(uuid,text)",
-    "yoao_jobs_v1.cross_frame_job_page(uuid,text,integer)",
-    "yoao_jobs_v1.cross_frame_job_count(uuid,text)",
-    "yoao_jobs_v1.latest_batch_prediction_times(uuid[])",
-    "yoao_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid)",
-)
-JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES = (
-    "yoao_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)",
-    "yoao_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)",
-)
-JOBS_DISPATCH_RUNTIME_CAPABILITIES = (
-    "yoao_jobs_v1.prepare_dispatch(jsonb)",
-    "yoao_jobs_v1.finish_dispatch(jsonb)",
-    "yoao_jobs_v1.dispatch_status(uuid)",
-)
-_JOBS_DISPATCH_RUNTIME_ACL = """
-DO $jobs_dispatch_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_columns text;
-BEGIN
-    EXECUTE format(
-        'REVOKE EXECUTE ON FUNCTION yoao_jobs_v1.claim_dispatches(jsonb) FROM %I, PUBLIC',
-        v_runtime
-    );
-    EXECUTE format(
-        'REVOKE ALL ON TABLE yoao_jobs_v1.dispatch_intents FROM %I, PUBLIC',
-        v_runtime
-    );
-    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
-    INTO v_columns FROM pg_catalog.pg_attribute
-    WHERE attrelid = 'yoao_jobs_v1.dispatch_intents'::regclass
-      AND attnum > 0 AND NOT attisdropped;
-    IF v_columns IS NOT NULL THEN
-        EXECUTE format(
-            'REVOKE ALL (%s) ON TABLE yoao_jobs_v1.dispatch_intents FROM %I, PUBLIC',
-            v_columns, v_runtime
-        );
-    END IF;
-    IF pg_catalog.has_table_privilege(
-        v_runtime, 'yoao_jobs_v1.dispatch_intents',
-        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
-    ) OR pg_catalog.has_any_column_privilege(
-        v_runtime, 'yoao_jobs_v1.dispatch_intents', 'SELECT,INSERT,UPDATE,REFERENCES'
-    ) OR pg_catalog.has_function_privilege(
-        v_runtime, 'yoao_jobs_v1.claim_dispatches(jsonb)', 'EXECUTE'
-    ) THEN
-        RAISE EXCEPTION 'Runtime retains private Jobs dispatch or relay authority';
-    END IF;
-END
-$jobs_dispatch_acl$;
-"""
-_JOBS_CREATION_RUNTIME_ACL = """
-DO $jobs_creation_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_columns text;
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_catalog.pg_class
-        WHERE oid IN ('public.async_jobs'::regclass,
-                      'yoao_jobs_v1.async_job_creation'::regclass)
-          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
-    ) THEN
-        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs creation authority';
-    END IF;
-    EXECUTE format('REVOKE INSERT ON TABLE public.async_jobs FROM %I, PUBLIC',
-                   v_runtime);
-    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
-    INTO v_columns FROM pg_catalog.pg_attribute
-    WHERE attrelid = 'public.async_jobs'::regclass
-      AND attnum > 0 AND NOT attisdropped;
-    IF v_columns IS NOT NULL THEN
-        EXECUTE format('REVOKE INSERT (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
-                       v_columns, v_runtime);
-    END IF;
-    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'INSERT')
-       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'INSERT') THEN
-        RAISE EXCEPTION 'The runtime role still has effective private Jobs INSERT privileges';
-    END IF;
-    IF NOT pg_catalog.has_table_privilege(v_runtime, 'yoao_jobs_v1.async_job_creation', 'SELECT')
-       OR NOT pg_catalog.has_table_privilege(v_runtime, 'yoao_jobs_v1.async_job_creation', 'INSERT') THEN
-        RAISE EXCEPTION 'The runtime role is missing the Jobs creation capability';
-    END IF;
-END
-$jobs_creation_acl$;
-"""
-_JOBS_DELETE_RUNTIME_ACL = """
-DO $jobs_delete_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-BEGIN
-    EXECUTE format('REVOKE DELETE ON TABLE public.async_jobs FROM %I, PUBLIC',
-                   v_runtime);
-    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'DELETE') THEN
-        RAISE EXCEPTION 'The runtime role still has effective private Jobs DELETE privileges';
-    END IF;
-END
-$jobs_delete_acl$;
-"""
-_JOBS_UPDATE_RUNTIME_ACL = """
-DO $jobs_update_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_columns text;
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_catalog.pg_class
-        WHERE oid = 'public.async_jobs'::regclass
-          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
-    ) THEN
-        RAISE EXCEPTION 'The runtime role must not own or inherit Jobs update authority';
-    END IF;
-    EXECUTE format('REVOKE UPDATE ON TABLE public.async_jobs FROM %I, PUBLIC', v_runtime);
-    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
-    INTO v_columns FROM pg_catalog.pg_attribute
-    WHERE attrelid = 'public.async_jobs'::regclass
-      AND attnum > 0 AND NOT attisdropped;
-    IF v_columns IS NOT NULL THEN
-        EXECUTE format('REVOKE UPDATE (%s) ON TABLE public.async_jobs FROM %I, PUBLIC',
-                       v_columns, v_runtime);
-    END IF;
-    IF pg_catalog.has_table_privilege(v_runtime, 'public.async_jobs', 'UPDATE')
-       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.async_jobs', 'UPDATE') THEN
-        RAISE EXCEPTION 'The runtime role still has effective private Jobs UPDATE privileges';
-    END IF;
-END
-$jobs_update_acl$;
-"""
-_IMAGE_EXPORT_SCOPE_RUNTIME_ACL = """
-DO $image_export_scope_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_columns text;
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_catalog.pg_class
-        WHERE oid = 'public.image_export_scopes'::regclass
-          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
-    ) THEN
-        RAISE EXCEPTION 'The runtime role must not own or inherit image export scope authority';
-    END IF;
-    EXECUTE format('REVOKE ALL ON TABLE public.image_export_scopes FROM %I, PUBLIC', v_runtime);
-    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
-    INTO v_columns FROM pg_catalog.pg_attribute
-    WHERE attrelid = 'public.image_export_scopes'::regclass
-      AND attnum > 0 AND NOT attisdropped;
-    IF v_columns IS NOT NULL THEN
-        EXECUTE format('REVOKE ALL (%s) ON TABLE public.image_export_scopes FROM %I, PUBLIC',
-                       v_columns, v_runtime);
-    END IF;
-    IF pg_catalog.has_table_privilege(v_runtime, 'public.image_export_scopes',
-           'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.image_export_scopes',
-           'SELECT,INSERT,UPDATE,REFERENCES') THEN
-        RAISE EXCEPTION 'The runtime role retains private image export scope access';
-    END IF;
-    IF NOT pg_catalog.has_function_privilege(v_runtime,
-           'public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[])', 'EXECUTE')
-       OR NOT pg_catalog.has_function_privilege(v_runtime,
-           'public.image_export_scope_matches(uuid,uuid)', 'EXECUTE') THEN
-        RAISE EXCEPTION 'The runtime role is missing image export scope capabilities';
-    END IF;
-END
-$image_export_scope_acl$;
-"""
-
-
-_IDENTITY_PRIVATE_RUNTIME_ACL = """
--- Preserve embedded command capabilities while denying direct Identity storage.
-DO $identity_private_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_relation record;
-    v_columns text;
-BEGIN
-    IF current_database() <> current_setting('yoao.expected_database')
-       OR v_runtime=current_user
-       OR pg_catalog.pg_has_role(v_runtime,current_user,'MEMBER')
-       OR EXISTS (
-           SELECT 1 FROM pg_catalog.pg_auth_members
-           WHERE member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname=v_runtime)
-       )
-       OR NOT EXISTS (
-           SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=v_runtime AND rolcanlogin
-             AND NOT (rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication OR rolbypassrls)
-       ) THEN
-        RAISE EXCEPTION 'Invalid embedded Identity runtime ownership';
-    END IF;
-    FOR v_relation IN
-        SELECT c.oid,n.nspname,c.relname
-        FROM pg_catalog.pg_class c
-        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-        WHERE c.relkind IN ('r','p','v','m','f') AND (
-            (n.nspname='public' AND (
-                c.relname IN ('users','api_keys','groups','organizations',
-                    'organization_members','user_invitations',
-                    'password_reset_tokens','email_verification_tokens')
-                OR pg_catalog.left(c.relname,9)='identity_'
-            )) OR (
-                n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
-                AND c.relkind <> 'v'
-            )
-        )
-    LOOP
-        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM %I',
-            v_relation.nspname,v_relation.relname,v_runtime);
-        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attname),',' ORDER BY attnum)
-        INTO v_columns FROM pg_catalog.pg_attribute
-        WHERE attrelid=v_relation.oid AND attnum>0 AND NOT attisdropped;
-        IF v_columns IS NOT NULL THEN
-            EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %I.%I FROM %I',
-                v_columns,v_relation.nspname,v_relation.relname,v_runtime);
-        END IF;
-        IF pg_catalog.has_table_privilege(v_runtime,v_relation.oid,
-                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-           OR pg_catalog.has_any_column_privilege(v_runtime,v_relation.oid,
-                'SELECT,INSERT,UPDATE,REFERENCES') THEN
-            RAISE EXCEPTION 'Embedded runtime retains private Identity access: %.%',
-                v_relation.nspname,v_relation.relname;
-        END IF;
-    END LOOP;
-END;
-$identity_private_acl$;
-"""
-_AUDIT_PRIVATE_RUNTIME_ACL = """
-DO $audit_private_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_partition record;
-    v_columns text;
-    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
-BEGIN
-    IF current_database() <> current_setting('yoao.expected_database') THEN
-        RAISE EXCEPTION 'Unexpected database while fencing Audit storage';
-    END IF;
-    IF EXISTS (
-        SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
-        JOIN pg_catalog.pg_class AS relation ON relation.oid=partition.relid
-        WHERE pg_catalog.pg_has_role(v_runtime,relation.relowner,'MEMBER')
-    ) THEN
-        RAISE EXCEPTION 'The runtime role must not own or inherit Audit storage';
-    END IF;
-    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.audit_logs FROM %I, PUBLIC',
-        v_runtime);
-    SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
-    INTO v_columns FROM pg_catalog.pg_attribute AS attribute
-    WHERE attribute.attrelid='public.audit_logs'::pg_catalog.regclass
-      AND attribute.attnum>0 AND NOT attribute.attisdropped;
-    EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE public.audit_logs FROM %I, PUBLIC',
-        v_columns,v_runtime);
-    EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.audit_logs TO %I',v_runtime);
-    FOR v_partition IN
-        SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
-        WHERE relid<>'public.audit_logs'::pg_catalog.regclass
-    LOOP
-        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC',
-            v_partition.relid::pg_catalog.regclass,v_runtime);
-        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
-        INTO v_columns FROM pg_catalog.pg_attribute AS attribute
-        WHERE attribute.attrelid=v_partition.relid
-          AND attribute.attnum>0 AND NOT attribute.attisdropped;
-        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC',
-            v_columns,v_partition.relid::pg_catalog.regclass,v_runtime);
-    END LOOP;
-    IF v_sequence IS NULL THEN
-        RAISE EXCEPTION 'Audit log sequence is missing';
-    END IF;
-    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC',
-        v_sequence,v_runtime);
-    EXECUTE pg_catalog.format(
-        'REVOKE ALL ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) FROM %I, PUBLIC',
-        v_runtime);
-    EXECUTE pg_catalog.format(
-        'GRANT EXECUTE ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) TO %I',
-        v_runtime);
-    EXECUTE pg_catalog.format(
-        'REVOKE ALL ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() FROM %I, PUBLIC',
-        v_runtime);
-    IF NOT pg_catalog.has_table_privilege(v_runtime,'public.audit_logs','SELECT')
-       OR pg_catalog.has_table_privilege(v_runtime,'public.audit_logs',
-            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-       OR pg_catalog.has_any_column_privilege(v_runtime,'public.audit_logs',
-            'INSERT,UPDATE,REFERENCES')
-       OR pg_catalog.has_sequence_privilege(v_runtime,v_sequence,'SELECT,UPDATE,USAGE')
-       OR NOT pg_catalog.has_function_privilege(v_runtime,
-            'yoao_audit_v1.maintenance_command(jsonb)','EXECUTE')
-       OR pg_catalog.has_function_privilege(v_runtime,
-            'yoao_audit_v1.refresh_audit_bi_mv()','EXECUTE')
-       OR EXISTS (
-            SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
-            WHERE partition.relid<>'public.audit_logs'::pg_catalog.regclass
-              AND (pg_catalog.has_table_privilege(v_runtime,partition.relid,
-                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                   OR pg_catalog.has_any_column_privilege(v_runtime,partition.relid,
-                       'SELECT,INSERT,UPDATE,REFERENCES'))
-       ) THEN
-        RAISE EXCEPTION 'The runtime role retains direct Audit storage or refresh access';
-    END IF;
-END
-$audit_private_acl$;
-"""
-VIDEO_RUNTIME_CAPABILITIES = (
-    "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
-    "yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
-    "yoao_assets_v1.finish_video_control_original(uuid,uuid)",
-    "yoao_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
-    "yoao_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
-    "yoao_assets_v1.finish_tracker_control_original(uuid,uuid)",
-    "yoao_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_accepted_video_original(uuid,uuid)",
-    "yoao_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_tracker_video_original(uuid,uuid)",
-    "yoao_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
-    "yoao_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
-    "yoao_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
-    "yoao_assets_v1.prepare_accepted_video_member(uuid,uuid,uuid,text,bigint,uuid,text,bigint,jsonb,text)",
-    "yoao_assets_v1.seal_accepted_video_manifest(uuid,uuid,uuid,text)",
-    "yoao_assets_v1.read_accepted_video_input(uuid,uuid,uuid,uuid)",
-    "yoao_assets_v1.read_accepted_video_input_work(uuid,uuid,uuid,uuid)",
-    "yoao_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)",
-    "yoao_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
-    "yoao_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
-    "yoao_assets_v1.claim_accepted_video_input(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)",
-    "yoao_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)",
-    "yoao_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)",
-    "yoao_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)",
-    "yoao_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)",
-    "yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
-    "yoao_labeling_v1.attach_annotation_video_input_source(uuid,uuid,jsonb)",
-    "yoao_labeling_v1.copy_annotation_video_input_sources(uuid,uuid)",
-    "yoao_labeling_v1.accepted_video_input_referenced(uuid)",
-)
-IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
-    "yoao_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)",
-    "yoao_assets_v1.finish_image_original_read(uuid,uuid)",
-    "yoao_assets_v1.begin_image_original_system(text,uuid,text,text)",
-    "yoao_assets_v1.finish_image_original_system(uuid,uuid)",
-    "yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
-    "yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
-    "yoao_assets_v1.finish_image_original_worker(uuid,uuid)",
-    "yoao_assets_v1.read_video_derivative_links(uuid[])",
-    "yoao_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid)",
-    "yoao_assets_v1.read_image_source(uuid,uuid,uuid)",
-    "yoao_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb)",
-    "yoao_assets_v1.read_image_summaries(uuid,jsonb,text)",
-    "yoao_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)",
-    "yoao_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
-    "yoao_assets_v1.read_image_work(uuid,uuid)",
-    "yoao_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean)",
-    "yoao_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb)",
-    "yoao_assets_v1.cancel_image_media(uuid,uuid,uuid)",
-    "yoao_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)",
-    "yoao_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)",
-    "yoao_assets_v1.read_internal_image_work(uuid)",
-    "yoao_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
-    "yoao_assets_v1.read_image_usage()",
-    "yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
-    "yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
-    "yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
-    "yoao_assets_v1.reconcile_image_media(jsonb,integer)",
-    "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
-    "yoao_assets_v1.complete_image_garbage(uuid,uuid)",
-)
-INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
-    "yoao_inference_routing_v1.model_dispatch_step(text)",
-    "yoao_inference_routing_v1.prediction_scope_reserve(text)",
-    "yoao_inference_routing_v1.prediction_test_scope_reserve(text)",
-    "yoao_inference_routing_v1.routing_policy()",
-    "yoao_inference_routing_v1.routing_step(text,text)",
-    "yoao_inference_routing_v1.scope_retirement_step(text,text)",
-    "yoao_inference_routing_v1.supersede_unbegun_scope(text)",
-    "yoao_inference_routing_v1.video_execution_scope_step(text,text)",
-)
-IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
-    "yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_accepted_image_original(uuid,uuid)",
-    "yoao_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
-    "yoao_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)",
-    "yoao_assets_v1.read_accepted_image_input(uuid,uuid,uuid)",
-    "yoao_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
-    "yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
-    "yoao_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
-)
-IMAGE_MANIFEST_RUNTIME_CAPABILITIES = (
-    "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)",
-    "yoao_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid)",
-    "yoao_assets_v1.read_accepted_image_input_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
-    "yoao_assets_v1.prepare_accepted_image_input_manifest_member(uuid,uuid,uuid,text,bigint,uuid,text,jsonb,text)",
-    "yoao_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)",
-)
-IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES = (
-    "yoao_labeling_v1.attach_annotation_input_source(uuid,uuid,text)",
-    "yoao_labeling_v1.copy_annotation_input_sources(uuid,uuid)",
-)
-IMAGE_ACCEPTED_RUNTIME_CAPABILITIES = (
-    *IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES,
-    *IMAGE_MANIFEST_RUNTIME_CAPABILITIES,
-    *IMAGE_LABELING_INPUT_RUNTIME_CAPABILITIES,
-)
+ASSETS_EXECUTION_LANES = ("video", "image")
 
 
 def _without_buckets(manifest: dict, *names: str) -> dict:
@@ -858,6 +316,8 @@ class LocalResources:
                 "run.json",
                 "services.json",
                 "runtime-credentials.json",
+                "assets-image-credentials.json",
+                "assets-video-credentials.json",
                 "fixture-store-owner.json",
             )
         ):
@@ -994,6 +454,20 @@ class LocalResources:
             password=credentials["password"],
         )
 
+    def assets_worker_url(self, lane):
+        credentials = self._runtime_credentials(required=True, purpose=f"assets-{lane}")
+        return self.url.set(
+            username=credentials["role"], password=credentials["password"]
+        )
+
+    def assets_worker_environment(self) -> dict:
+        return {
+            f"ASSETS_CELERY_{lane.upper()}_DATABASE_URL": self.assets_worker_url(
+                lane
+            ).render_as_string(hide_password=False)
+            for lane in ASSETS_EXECUTION_LANES
+        }
+
     async def _runtime_role_record(self, connection, operator_oid, *, role=None):
         result = (
             (
@@ -1099,7 +573,7 @@ class LocalResources:
                     if not (operator["rolsuper"] or operator["rolcreaterole"]):
                         if purpose != "runtime":
                             raise WorktreeError(
-                                "迁移账号需要 CREATEROLE 创建隔离 Jobs 账号"
+                                f"迁移账号需要 CREATEROLE 创建隔离的 {purpose} 账号"
                             )
                         raise WorktreeError(
                             "同账号配置需要迁移账号具备 CREATEROLE；请由管理员预配置普通运行账号，"
@@ -1295,9 +769,77 @@ class LocalResources:
             except (PostgresError, OSError, FunctionRoleUnavailable):
                 raise WorktreeError(f"无法核对本环境的 {purpose} 函数账号") from None
 
-    def manage_jobs_roles(self, action: str) -> None:
-        for purpose in _JOBS_ROLE_PURPOSES:
+    def manage_worker_roles(self, action: str) -> None:
+        for purpose in (
+            *_JOBS_ROLE_PURPOSES,
+            *(f"assets-{lane}" for lane in ASSETS_EXECUTION_LANES),
+        ):
             asyncio.run(self.owned_runtime_role(action, purpose=purpose))
+
+    async def prepare_assets_worker_roles(self) -> None:
+        from yoao_assets_images_runtime.health import check_connection as check_image
+        from yoao_assets_media_runtime.health import (
+            check_worker_connection as check_video,
+        )
+
+        self._require_preparation_allowed()
+        profiles = (
+            ("video", "media", "asset_media_worker_role", check_video),
+            ("image", "image", "asset_image_worker_role", check_image),
+        )
+        engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
+        try:
+            async with engine.begin() as connection:
+                await self.verify_database_server(connection)
+                quote = connection.dialect.identifier_preparer.quote_identifier
+                database = quote(self.resources["database"])
+                operator = await connection.scalar(
+                    text("SELECT current_user::regrole::oid")
+                )
+                for lane, script, variable, _ in profiles:
+                    credentials = self._runtime_credentials(
+                        required=True, purpose=f"assets-{lane}"
+                    )
+                    name = credentials["role"]
+                    role = await self._runtime_role_record(
+                        connection, operator, role=name
+                    )
+                    if role is None:
+                        raise WorktreeError(f"缺少 Assets {lane} worker 专用账号")
+                    self._validate_runtime_role(role, credentials)
+                    grants = (
+                        self.code_root / f"infra/docker/assets-{script}-grants.sql"
+                    ).read_text()
+                    prefix = f'\n    TO :"{variable}";'
+                    if grants.count(prefix) != 1:
+                        raise WorktreeError(f"Assets {lane} worker 授权片段缺失或重复")
+                    functions = grants.split(prefix, 1)[0].rsplit(
+                        "\nGRANT EXECUTE ON FUNCTION\n", 1
+                    )[1]
+                    await connection.exec_driver_sql(
+                        f"GRANT CONNECT ON DATABASE {database} TO {quote(name)}"
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT USAGE ON SCHEMA yoao_assets_v1 TO {quote(name)}"
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT EXECUTE ON FUNCTION {functions} TO {quote(name)}"
+                    )
+        finally:
+            await engine.dispose()
+        for lane, _, _, check in profiles:
+            worker = create_async_engine(
+                self.assets_worker_url(lane), poolclass=NullPool, hide_parameters=True
+            )
+            try:
+                async with worker.connect() as connection:
+                    raw = await connection.get_raw_connection()
+                    if not await check(raw.driver_connection):
+                        raise WorktreeError(
+                            f"Assets {lane} worker 专用账号的有效权限不符"
+                        )
+            finally:
+                await worker.dispose()
 
     def environment(self) -> dict:
         if getattr(self, "_retire_finished_bootstrap", False):
@@ -1495,7 +1037,9 @@ class LocalResources:
                 if self.url.host != "127.0.0.1":
                     raise WorktreeError("Raster PostgreSQL 必须使用原始 loopback 端口")
                 verified_postgres(raster, self.resources, port=self.url.port or 5432)
-        runtime = make_url(self.settings.database_url).set(database="postgres")
+        runtime = make_url(self.settings.database_url).set(
+            database=owner_connection.engine.url.database
+        )
         engine = create_async_engine(
             runtime,
             poolclass=NullPool,
@@ -1697,526 +1241,36 @@ class LocalResources:
         finally:
             await engine.dispose()
 
-    def private_runtime_acl(self, domain: str) -> str:
-        sql = (self.code_root / "infra/docker/lan-production-grants.sql").read_text()
-        start = f"DO ${domain}_private_acl$"
-        end = f"${domain}_private_acl$;"
-        if sql.count(start) != 1 or sql.count(end) != 1:
-            raise WorktreeError(
-                f"{domain.title()} runtime ACL block is missing or duplicated"
-            )
-        return start + sql.split(start, 1)[1].split(end, 1)[0] + end
-
     async def grant_runtime(self) -> None:
-        """Grant embedded capabilities and fence a distinct application role."""
+        """Apply the same ordinary capability profile as the LAN installer."""
         self._require_preparation_allowed()
         runtime = self.runtime_url()
+        directory = self.code_root / "infra/docker"
+        grants = read_runtime_grant_statements(
+            directory / "m2b-runtime-grants.sql", role=runtime.username
+        )
+        revoke = (directory / "ordinary-runtime-revoke.sql").read_text()
+        verify = (directory / "ordinary-runtime-verify.sql").read_text()
         engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
+        quote = engine.dialect.identifier_preparer.quote_identifier
+        role = quote(runtime.username)
+        database = quote(self.resources["database"])
         try:
-            role = engine.dialect.identifier_preparer.quote_identifier(runtime.username)
-            database = engine.dialect.identifier_preparer.quote_identifier(
-                self.resources["database"]
-            )
-            video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
-            audit_function_grant = ", ".join(AUDIT_RUNTIME_CAPABILITIES)
-            fixture_grants = (
-                "REVOKE ALL ON FUNCTION yoao_jobs_v1.delete_fixture_project_jobs(uuid[]) "
-                f"FROM {role}, PUBLIC",
-                "REVOKE ALL ON FUNCTION yoao_jobs_v1.delete_fixture_media_backfills(uuid,uuid) "
-                f"FROM {role}, PUBLIC",
-                "REVOKE ALL ON FUNCTION yoao_labeling_v1.delete_fixture_project_rows(uuid[]) "
-                f"FROM {role}, PUBLIC",
-                "REVOKE ALL ON FUNCTION yoao_labeling_v1.e2e_fixture_command(jsonb) "
-                f"FROM {role}, PUBLIC",
-                "REVOKE ALL ON FUNCTION yoao_labeling_v1.prepare_filtering_rendering(jsonb) "
-                f"FROM {role}, PUBLIC",
-                "REVOKE ALL ON FUNCTION yoao_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
-                f"FROM {role}, PUBLIC",
-                "REVOKE ALL ON FUNCTION "
-                "yoao_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text), "
-                "yoao_identity_v1.replace_fixture_preferences(uuid,jsonb), "
-                "yoao_labeling_v1.screenshot_operations_command(jsonb), "
-                "yoao_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]), "
-                "yoao_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid), "
-                "yoao_labeling_v1.create_scale_seed_tasks(text,uuid,uuid), "
-                "yoao_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer), "
-                "yoao_workspace_v1.create_scale_seed_project(uuid,text), "
-                "yoao_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid), "
-                "yoao_workspace_v1.guard_scale_seed_cleanup(text), "
-                "yoao_workspace_v1.delete_scale_seed_projects(text,uuid[]), "
-                "yoao_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean), "
-                "yoao_assets_v1.guard_scale_fixture_originals(uuid,uuid[]) "
-                f"FROM {role}, PUBLIC",
-                f"REVOKE ALL ON SCHEMA yoao_identity_fixture_v1, yoao_workspace_fixture_v1 FROM {role}",
-                "REVOKE ALL ON ALL TABLES IN SCHEMA yoao_identity_fixture_v1, yoao_workspace_fixture_v1 "
-                f"FROM {role}",
-                "REVOKE ALL ON ALL SEQUENCES IN SCHEMA yoao_identity_fixture_v1, yoao_workspace_fixture_v1 "
-                f"FROM {role}",
-                "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_identity_fixture_v1, yoao_workspace_fixture_v1 "
-                f"FROM {role}",
-            )
-            identity_function_grant = ", ".join(IDENTITY_RUNTIME_CAPABILITIES)
-            identity_mail_sender_revoke = ", ".join(IDENTITY_MAIL_SENDER_CAPABILITIES)
-            image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
-            image_accepted_function_grant = ", ".join(
-                IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
-            )
-            inference_routing_function_grant = ", ".join(
-                INFERENCE_ROUTING_RUNTIME_CAPABILITIES
-            )
-            notification_function_grant = ", ".join(NOTIFICATION_RUNTIME_CAPABILITIES)
-            jobs_function_grant = ", ".join(
-                (
-                    *JOBS_LIST_RUNTIME_CAPABILITIES,
-                    *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
-                    *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
-                    *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-                    *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
-                    *JOBS_DISPATCH_RUNTIME_CAPABILITIES,
-                    "yoao_jobs_v1.fixture_media_backfill_route(uuid)",
-                    "yoao_jobs_v1.fixture_media_work_exists(text,text)",
-                )
-            )
-            notification_delivery_read_check = " AND ".join(
-                f"pg_catalog.has_function_privilege(:role, '{signature}', 'EXECUTE')"
-                for signature in NOTIFICATION_DELIVERY_READ_CAPABILITIES
-            )
             async with engine.begin() as connection:
-                for sql in (
-                    f"GRANT CONNECT ON DATABASE {database} TO {role}",
-                    f"GRANT USAGE ON SCHEMA public TO {role}",
-                    f"REVOKE ALL ON SCHEMA yoao_fixture_v1 FROM {role}",
-                    f"REVOKE ALL ON ALL TABLES IN SCHEMA yoao_fixture_v1 FROM {role}",
-                    f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA yoao_fixture_v1 FROM {role}",
-                    f"REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_fixture_v1 FROM {role}",
-                    *fixture_grants,
-                    f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
-                    f"REVOKE ALL ON TABLE public.fixture_export_zip_retirements FROM {role}, PUBLIC",
-                    "REVOKE ALL ON FUNCTION public.fixture_export_owner_session(), "
-                    "public.retire_fixture_native_export_output(uuid), "
-                    f"public.confirm_fixture_export_zip_absent(uuid) FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
-                    "REVOKE ALL (day, action, target_type, actor_role, status_family, event_count) "
-                    f"ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE public.notifications FROM {role}, PUBLIC",
-                    "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
-                    f"ON TABLE public.notifications FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE public.notification_preferences FROM {role}, PUBLIC",
-                    "REVOKE ALL (user_id, type, channels, updated_at) "
-                    f"ON TABLE public.notification_preferences FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
-                    "REVOKE ALL (notification_id, operation_id, recipient_id, notification_type, "
-                    "state, attempt, available_at, worker_id, lease_id, lease_expires_at, "
-                    "last_reason, created_at, delivered_at) "
-                    f"ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE public.identity_credential_mail_outbox FROM {role}, PUBLIC",
-                    "REVOKE ALL (id, actor_id, challenge_id, purpose, email, frontend_base_url, "
-                    "token_hash, token_ciphertext, encryption_id, expires_at, status, attempt, "
-                    "available_at, worker_id, lease_token, lease_seconds, lease_expires_at, "
-                    "last_reason, created_at, updated_at, invitation_id, invitation_context) "
-                    f"ON TABLE public.identity_credential_mail_outbox FROM {role}, PUBLIC",
-                    f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_inference_v1, yoao_inference_pipelines_v1, yoao_inference_backend_probe_v1, yoao_inference_health_observation_v1, yoao_inference_health_data_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_assets_v1, yoao_labeling_v1, yoao_labeling_class_query_v1, yoao_jobs_v1, yoao_learning_v1, yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_briefs_v1, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_audit_v1, yoao_notifications_v1, yoao_settings_v1 TO {role}",
-                    f"REVOKE ALL ON SCHEMA yoao_identity_mail_v2 FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON FUNCTION {identity_mail_sender_revoke} FROM {role}, PUBLIC",
-                    "GRANT SELECT ON yoao_assets_v1.spatial_item_references, "
-                    "yoao_assets_v1.spatial_scene_references, "
-                    f"yoao_assets_v1.labeling_dataset_item_facts TO {role}",
-                    "GRANT SELECT ON yoao_identity_v1.account_profiles, "
-                    f"yoao_identity_v1.invitation_audit_targets TO {role}",
-                    "REVOKE ALL ON TABLE yoao_notifications_v1.notification_facts "
-                    f"FROM {role}, PUBLIC",
-                    "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
-                    "ON TABLE yoao_notifications_v1.notification_facts "
-                    f"FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE yoao_audit_v1.audit_events FROM {role}, PUBLIC",
-                    "REVOKE ALL (id, actor_id, actor_email, actor_role, action, target_type, "
-                    "target_id, method, path, status_code, ip, detail_json, request_id, created_at) "
-                    f"ON TABLE yoao_audit_v1.audit_events FROM {role}, PUBLIC",
-                    f"GRANT SELECT ON yoao_audit_v1.audit_events TO {role}",
-                    f"REVOKE ALL ON TABLE yoao_audit_v1.audit_daily_facts FROM {role}, PUBLIC",
-                    "REVOKE ALL (day, action, target_type, actor_role, status_family, event_count) "
-                    f"ON TABLE yoao_audit_v1.audit_daily_facts FROM {role}, PUBLIC",
-                    f"GRANT SELECT ON yoao_audit_v1.audit_daily_facts TO {role}",
-                    f"REVOKE ALL ON TABLE yoao_jobs_v1.notification_scope_facts FROM {role}, PUBLIC",
-                    "REVOKE ALL (id, kind, scope_project_id) "
-                    f"ON TABLE yoao_jobs_v1.notification_scope_facts FROM {role}, PUBLIC",
-                    f"GRANT SELECT ON yoao_jobs_v1.notification_scope_facts TO {role}",
-                    "GRANT SELECT ON yoao_labeling_v1.task_rows, yoao_labeling_v1.batch_rows, yoao_labeling_v1.annotation_rows, yoao_labeling_v1.prediction_rows, yoao_labeling_v1.prediction_meta_rows, yoao_labeling_v1.failed_prediction_rows, yoao_labeling_v1.task_lock_rows, yoao_labeling_v1.task_dataset_item_link_rows, "
-                    "yoao_labeling_v1.scene_track_rows, "
-                    "yoao_labeling_v1.scene_track_interval_rows, "
-                    "yoao_labeling_v1.video_segment_rows, "
-                    "yoao_labeling_v1.video_tracker_job_rows, "
-                    "yoao_labeling_v1.video_track_quality_run_rows, "
-                    "yoao_labeling_v1.annotation_comment_facts, "
-                    "yoao_labeling_v1.annotation_feedback_facts, "
-                    "yoao_labeling_v1.task_event_facts, "
-                    f"yoao_labeling_v1.annotation_draft_rows TO {role}",
-                    "GRANT EXECUTE ON FUNCTION "
-                    "yoao_labeling_v1.next_batch_display_id(), "
-                    "yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]), "
-                    "yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]) "
-                    f"TO {role}",
-                    "REVOKE EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() "
-                    f"FROM {role}, PUBLIC",
-                    f"GRANT SELECT ON yoao_workspace_v1.project_member_facts TO {role}",
-                    "GRANT SELECT ON yoao_workspace_v1.project_facts, "
-                    f"yoao_labeling_v1.project_catalog_counters TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION yoao_workspace_owner_transfer_v1.owner_transfer_policy(), "
-                    "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb), "
-                    "yoao_identity_v1.workspace_template_query_org_ids(uuid), "
-                    "yoao_workspace_template_query_v1.template_query_policy(), "
-                    "yoao_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text), "
-                    "yoao_labeling_class_query_v1.class_query_policy(), "
-                    "yoao_labeling_class_query_v1.class_counts(uuid), "
-                    "yoao_labeling_class_query_v1.attribute_rows(uuid), "
-                    "yoao_workspace_directory_query_v1.directory_query_policy(), "
-                    "yoao_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb), "
-                    "yoao_workspace_project_query_v1.project_query_policy(), "
-                    "yoao_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer), "
-                    "yoao_workspace_project_query_v1.project_search_scope(uuid, text), "
-                    "yoao_workspace_project_query_v1.project_search_member_ids(uuid, text), "
-                    "yoao_workspace_configuration_v1.configuration_policy(), "
-                    "yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[]), "
-                    "yoao_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb), "
-                    "yoao_inference_pipelines_v1.pipeline_policy(), "
-                    "yoao_inference_pipelines_v1.pipeline_step(jsonb, text, jsonb, text[], text[]), "
-                    "yoao_workspace_membership_v1.membership_policy(), "
-                    "yoao_workspace_membership_v1.prepare_membership_command(jsonb), "
-                    "yoao_workspace_membership_v1.apply_membership_command(jsonb), "
-                    f"yoao_workspace_v1.lock_project_reference(uuid), "
-                    "yoao_workspace_v1.lock_project_reference_nowait(uuid), "
-                    "yoao_workspace_v1.read_project_row(uuid), "
-                    "yoao_workspace_v1.actor_project_memberships(uuid), "
-                    "yoao_workspace_v1.lock_project_references_for_update(uuid[]), "
-                    "yoao_labeling_v1.write_project_counter_projection(uuid, jsonb), "
-                    "yoao_labeling_v1.decrement_project_review_count(uuid), "
-                    "yoao_labeling_v1.decrement_project_completed_count(uuid), "
-                    "yoao_labeling_v1.record_project_review_approval(uuid), "
-                    "yoao_workspace_v1.lock_project_member_reference(uuid, uuid, boolean), "
-                    "yoao_workspace_v1.project_member_rows(uuid, uuid[], boolean), "
-                    "yoao_workspace_v1.lock_project_manager(uuid, uuid), "
-                    "yoao_workspace_v1.project_access_step(uuid, uuid, text), "
-                    "yoao_workspace_v1.lock_project_row(uuid, boolean), "
-                    "yoao_workspace_v1.clear_primary_backend_bindings(uuid), "
-                    "yoao_workspace_v1.read_import_project(text), "
-                    "yoao_workspace_v1.create_import_project(uuid,text,text,uuid,jsonb), "
-                    "yoao_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb), "
-                    "yoao_workspace_v1.write_nuscenes_seed_defaults(uuid,text,jsonb), "
-                    "yoao_workspace_v1.write_seed_members(jsonb), "
-                    "yoao_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb), "
-                    "yoao_workspace_v1.write_seed_project_projection(uuid,jsonb), "
-                    "yoao_workspace_v1.pin_seed_member_assignment(uuid,timestamptz), "
-                    "yoao_workspace_v1.write_point_cloud_quality_config(uuid,jsonb), "
-                    "yoao_inference_backend_probe_v1.backend_probe_policy(), "
-                    "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid), "
-                    "yoao_inference_health_observation_v1.health_observation_policy(), "
-                    "yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision), "
-                    "yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid), "
-                    "yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text), "
-                    "yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text), "
-                    "yoao_inference_health_data_v1.health_data_policy(), "
-                    "yoao_inference_v1.ai_mask_pool_reference_row(uuid), "
-                    "yoao_inference_health_data_v1.backend_row(uuid,boolean), "
-                    "yoao_inference_health_data_v1.membership_row(uuid,text,boolean), "
-                    "yoao_inference_health_data_v1.observation_clock(), "
-                    "yoao_inference_health_data_v1.lock_resource(text), "
-                    "yoao_inference_health_data_v1.try_promotion(), "
-                    "yoao_inference_health_data_v1.write_backend(uuid,text,timestamp with time zone,text,boolean,boolean), "
-                    "yoao_inference_health_data_v1.member_pool(uuid), "
-                    "yoao_inference_health_data_v1.pool_row(uuid,uuid), "
-                    "yoao_inference_health_data_v1.member_row(uuid), "
-                    "yoao_inference_health_data_v1.apply_reconciliation(uuid,uuid,text,text,text,bigint,text,text), "
-                    "yoao_inference_registry_ingress_v1.registry_ingress_policy(), "
-                    "yoao_inference_registry_ingress_v1.registry_by_url(text), "
-                    "yoao_inference_registry_ingress_v1.registry_candidates(text), "
-                    "yoao_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text), "
-                    "yoao_inference_registry_ingress_v1.singleton_pool(uuid), "
-                    "yoao_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text), "
-                    "yoao_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamp with time zone,text,boolean,text), "
-                    "yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid,text), "
-                    "yoao_inference_registry_ingress_v1.tag_seed_registry(uuid,text), "
-                    "yoao_inference_registry_ingress_v1.sync_result(uuid,text), "
-                    "yoao_inference_registry_ingress_v1.record_sync_result(uuid,text,integer), "
-                    f"{inference_routing_function_grant}, "
-                    "yoao_learning_v1.registry_evaluation_reference_exists(uuid), "
-                    "yoao_jobs_v1.count_running_registry_predictions(uuid), "
-                    "yoao_jobs_v1.video_execution_step(text,text), "
-                    "yoao_jobs_v1.video_execution_checkpoint_step(text,text), "
-                    "yoao_labeling_v1.video_writer_step(text,text), "
-                    "yoao_labeling_v1.task_edit_lock_command(jsonb), "
-                    "yoao_labeling_v1.task_workflow_command(jsonb), "
-                    "yoao_labeling_v1.annotation_statistics_command(jsonb), "
-                    "yoao_labeling_v1.scene_track_domain_command(jsonb), "
-                    "yoao_labeling_v1.annotation_write_command(jsonb), "
-                    "yoao_labeling_v1.annotation_bulk_command(jsonb), "
-                    "yoao_labeling_v1.video_bbox_editing_command(jsonb), "
-                    "yoao_labeling_v1.batch_control_command(jsonb), "
-                    "yoao_labeling_v1.prediction_record_command(jsonb), "
-                    "yoao_labeling_v1.prediction_partition_command(jsonb), "
-                    "yoao_labeling_v1.scene_track_command(jsonb), "
-                    "yoao_labeling_v1.cross_frame_write_command(jsonb), "
-                    "yoao_labeling_v1.annotation_prediction_command(jsonb), "
-                    "yoao_labeling_v1.annotation_maintenance_command(jsonb), "
-                    "yoao_labeling_v1.discussion_command(jsonb), "
-                    "yoao_labeling_v1.task_event_command(jsonb), "
-                    "yoao_labeling_v1.mask_edit_command(jsonb), "
-                    "yoao_labeling_v1.mask_revision_command(jsonb), "
-                    "yoao_labeling_v1.ai_mask_accept_command(jsonb), "
-                    "yoao_labeling_v1.scene_read_query(jsonb), "
-                    "yoao_labeling_v1.lock_video_segment_for_core_read(uuid,uuid), "
-                    "yoao_labeling_v1.lock_task_rows_for_core_read(uuid[],uuid,uuid), "
-                    "yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid), "
-                    "yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid), "
-                    "yoao_labeling_v1.lock_prediction_for_core_read_share(uuid,uuid), "
-                    "yoao_labeling_v1.lock_prediction_meta_for_core_read_share(uuid), "
-                    "yoao_labeling_v1.lock_video_segment_for_core_read_share(uuid,uuid), "
-                    "yoao_labeling_v1.publish_task_original(uuid,uuid,uuid,uuid,uuid,text), "
-                    "yoao_labeling_v1.video_control_command(jsonb), "
-                    "yoao_labeling_v1.video_segment_lifecycle_command(jsonb), "
-                    "yoao_labeling_v1.annotation_transfer_command(jsonb), "
-                    "yoao_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid), "
-                    "yoao_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer), "
-                    "yoao_labeling_v1.lock_batch_rows_for_core_read(uuid[],uuid,text,boolean), "
-                    "yoao_labeling_v1.lock_annotation_rows_for_core_read(uuid[],uuid,uuid,text,boolean), "
-                    "yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer), "
-                    "yoao_labeling_v1.lock_prediction_rows_for_core_read_share(uuid,uuid[],integer), "
-                    "yoao_labeling_v1.lock_scene_track_rows_for_core_read(uuid[],integer), "
-                    "yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer), "
-                    "yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer), "
-                    "yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer), "
-                    "yoao_labeling_v1.mask_qc_command(jsonb), "
-                    "yoao_labeling_v1.mask_repair_command(jsonb), "
-                    "yoao_labeling_v1.raster_mask_retention_query(jsonb), "
-                    "yoao_labeling_v1.spatial_quality_command(jsonb), "
-                    "yoao_labeling_v1.task_maintenance_command(jsonb), "
-                    "yoao_workspace_v1.delete_project(uuid, uuid, uuid, jsonb), "
-                    "yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid), "
-                    "yoao_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb), "
-                    "yoao_assets_v1.read_dataset_source_authority(uuid, boolean), "
-                    "yoao_assets_v1.lock_dataset_reference(uuid), "
-                    "yoao_assets_v1.lock_current_association(uuid, uuid), "
-                    "yoao_assets_v1.associate_project(uuid, uuid, uuid), "
-                    "yoao_assets_v1.lock_scene_source_references(uuid[]), "
-                    "yoao_assets_v1.delete_dataset(uuid, uuid, uuid, text, jsonb), "
-                    "yoao_assets_v1.delete_dataset_item(uuid, uuid, uuid, uuid, text, jsonb), "
-                    "yoao_assets_v1.reserve_dataset_upload(uuid, uuid, uuid, text, text), "
-                    "yoao_assets_v1.lock_dataset_upload(uuid, uuid, uuid), "
-                    "yoao_assets_v1.find_dataset_upload_duplicate(uuid, uuid, uuid, text), "
-                    "yoao_assets_v1.complete_dataset_upload(uuid, uuid, uuid, uuid, bigint, text, integer, integer), "
-                    "yoao_assets_v1.discard_dataset_upload(uuid, uuid, uuid, text), "
-                    "yoao_assets_v1.pending_storage_deletions(uuid, integer), "
-                    "yoao_assets_v1.complete_storage_deletion(uuid, uuid), "
-                    "yoao_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid), "
-                    "yoao_assets_v1.read_legacy_dataset_upload(uuid, uuid, uuid, uuid), "
-                    "yoao_assets_v1.complete_legacy_dataset_upload(uuid, uuid, uuid, uuid, text, bigint, text, integer, integer), "
-                    "yoao_assets_v1.is_fixture_original_source(text,text), "
-                    "yoao_assets_v1.classify_fixture_original_reclaim(uuid,text), "
-                    "yoao_assets_v1.list_catalog_datasets(uuid, text, text, boolean, integer, bigint), "
-                    "yoao_assets_v1.get_catalog_dataset(uuid, uuid), "
-                    "yoao_assets_v1.list_catalog_items(uuid, uuid, integer, bigint), "
-                    "yoao_assets_v1.create_catalog_dataset(uuid, uuid, jsonb), "
-                    "yoao_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.list_dataset_projects(uuid, uuid), "
-                    "yoao_assets_v1.list_project_datasets(uuid, uuid), "
-                    "yoao_assets_v1.is_fixture_spatial_dataset(uuid), "
-                    "yoao_assets_v1.begin_spatial_calibration_original(uuid,uuid,text), "
-                    "yoao_assets_v1.finish_spatial_calibration_original(uuid,uuid), "
-                    "yoao_assets_v1.guard_spatial_actor(uuid,text), "
-                    "yoao_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer), "
-                    "yoao_assets_v1.get_spatial_scene(uuid,uuid), "
-                    "yoao_assets_v1.read_spatial_layout(uuid,uuid,uuid,uuid,integer), "
-                    "yoao_assets_v1.read_spatial_items(uuid,uuid[],uuid,integer), "
-                    "yoao_assets_v1.read_spatial_poses(uuid,uuid,integer,integer), "
-                    "yoao_assets_v1.read_spatial_pose_pairs(jsonb), "
-                    "yoao_assets_v1.read_spatial_calibrations(uuid[],boolean,uuid,integer,integer), "
-                    "yoao_assets_v1.lock_spatial_calibration_facts(uuid,uuid,text,uuid,jsonb), "
-                    "yoao_assets_v1.mutate_spatial_scene(uuid,uuid,uuid,jsonb,jsonb), "
-                    "yoao_assets_v1.apply_spatial_layout(uuid,uuid,uuid,text,boolean,jsonb,jsonb), "
-                    "yoao_assets_v1.read_spatial_layout_receipt(uuid,uuid,uuid,text,boolean), "
-                    "yoao_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb), "
-                    "yoao_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), "
-                    "yoao_assets_v1.assign_spatial_items(uuid,uuid,jsonb), "
-                    "yoao_assets_v1.set_spatial_scene_source(uuid,uuid,text,jsonb), "
-                    "yoao_assets_v1.update_spatial_calibration(uuid,uuid,uuid,text,integer,text,jsonb,text,text,jsonb,jsonb), "
-                    "yoao_assets_v1.read_pointcloud_preparation(uuid,uuid,integer), "
-                    "yoao_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb), "
-                    "yoao_assets_v1.read_spatial_camera_target(uuid,uuid,text), "
-                    "yoao_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb), "
-                    "yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text), "
-                    "yoao_assets_v1.prepare_dataset_import(uuid, uuid, uuid), "
-                    "yoao_assets_v1.accept_dataset_import(uuid, uuid, uuid, uuid, jsonb, jsonb, jsonb), "
-                    "yoao_assets_v1.cancel_dataset_import(uuid, uuid), "
-                    "yoao_assets_v1.claim_dataset_import_delivery(uuid, integer), "
-                    "yoao_assets_v1.dataset_import_delivery_target_is_current(text, uuid), "
-                    "yoao_assets_v1.complete_dataset_import_delivery(uuid, uuid), "
-                    "yoao_assets_v1.begin_dataset_ingest(uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.prepare_dataset_ingest_batch(uuid, uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.stage_dataset_ingest_batch(uuid, uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.complete_dataset_ingest_batch(uuid, uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.read_dataset_ingest_layout(uuid, uuid, uuid, uuid, integer), "
-                    "yoao_assets_v1.finish_dataset_ingest(uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.list_storage_connections(uuid, timestamptz, uuid, integer), "
-                    "yoao_assets_v1.read_storage_connection(uuid, uuid), "
-                    "yoao_assets_v1.read_storage_connection_policy(uuid, jsonb), "
-                    "yoao_assets_v1.capture_storage_connection(uuid, uuid, text), "
-                    "yoao_assets_v1.read_storage_connection_receipt(uuid, uuid, text, uuid, jsonb), "
-                    "yoao_assets_v1.create_storage_connection(uuid, uuid, jsonb, jsonb, text, text, jsonb, jsonb), "
-                    "yoao_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb), "
-                    "yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]), "
-                    "yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean), "
-                    "yoao_assets_v1.delete_storage_connection(uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.record_storage_connection_test(uuid, uuid, uuid, text, text, jsonb, jsonb, jsonb), "
-                    "yoao_assets_v1.create_operator_image_dataset(uuid, uuid, text, text), "
-                    "yoao_assets_v1.publish_operator_item_original(jsonb), "
-                    "yoao_assets_v1.operator_item_original_facts(uuid,uuid), "
-                    "yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid), "
-                    "yoao_assets_v1.begin_operator_auxiliary(jsonb), "
-                    "yoao_assets_v1.publish_operator_auxiliary(uuid), "
-                    "yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid), "
-                    "yoao_assets_v1.operator_auxiliary_material(uuid,uuid), "
-                    "yoao_assets_v1.operator_item_original_material(uuid,uuid), "
-                    "yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid), "
-                    "yoao_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid), "
-                    "yoao_assets_v1.operator_dataset_state(uuid), "
-                    "yoao_assets_v1.operator_scene_state(uuid,uuid), "
-                    "yoao_assets_v1.open_operator_storage_operation(uuid), "
-                    "yoao_assets_v1.record_operator_original_prepared(uuid,jsonb), "
-                    "yoao_assets_v1.mark_operator_original_writing(uuid), "
-                    "yoao_assets_v1.record_operator_original_written(uuid,jsonb), "
-                    "yoao_assets_v1.record_operator_original_verified(uuid,jsonb), "
-                    "yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb), "
-                    "yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean), "
-                    "yoao_assets_v1.ensure_operator_nuscenes_dataset(uuid, uuid, jsonb), "
-                    "yoao_assets_v1.append_operator_items(uuid, uuid, jsonb), "
-                    "yoao_assets_v1.patch_operator_items(uuid, uuid, jsonb), "
-                    "yoao_assets_v1.recount_operator_items(uuid, uuid), "
-                    "yoao_assets_v1.read_operator_items(uuid, uuid, integer), "
-                    "yoao_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text), "
-                    "yoao_assets_v1.finish_media_original_read(uuid,uuid), "
-                    "yoao_assets_v1.begin_media_original_system(uuid,text,text), "
-                    "yoao_assets_v1.finish_media_original_system(uuid,uuid), "
-                    "yoao_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text), "
-                    "yoao_assets_v1.finish_media_original_worker(uuid,uuid), "
-                    "yoao_assets_v1.read_media_source(uuid, uuid, uuid), "
-                    "yoao_assets_v1.read_media_summaries(uuid[]), "
-                    "yoao_assets_v1.ensure_video_media(uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.observe_media_source(uuid, uuid, uuid, text, jsonb), "
-                    "yoao_assets_v1.request_video_media(uuid, uuid, uuid, jsonb, boolean), "
-                    "yoao_assets_v1.read_video_timetable(uuid, uuid, uuid, integer, integer, integer, integer), "
-                    "yoao_assets_v1.read_video_samples(uuid, uuid, uuid, integer, integer, integer), "
-                    "yoao_assets_v1.read_video_failures(uuid, integer, bigint), "
-                    "yoao_assets_v1.retry_video_media(uuid, uuid, jsonb), "
-                    "yoao_assets_v1.invalidate_video_media(uuid, uuid, uuid, jsonb), "
-                    "yoao_assets_v1.cancel_video_media(uuid, uuid, uuid), "
-                    "yoao_assets_v1.read_media_preferences(), "
-                    "yoao_assets_v1.resolve_internal_media_source(uuid, text, jsonb), "
-                    "yoao_assets_v1.schedule_video_media(uuid, uuid, jsonb, boolean), "
-                    "yoao_assets_v1.read_video_work(uuid, uuid), "
-                    "yoao_assets_v1.scan_video_backfill(jsonb, uuid, integer), "
-                    "yoao_assets_v1.read_video_media_totals(uuid[]), "
-                    "yoao_assets_v1.read_internal_video_frame(uuid, integer, integer, text), "
-                    "yoao_assets_v1.claim_video_media(uuid, uuid, integer, text[]), "
-                    "yoao_assets_v1.heartbeat_video_media(uuid, bigint, uuid, integer), "
-                    "yoao_assets_v1.stage_video_timetable(uuid, bigint, uuid, jsonb), "
-                    "yoao_assets_v1.finish_video_media(uuid, bigint, uuid, jsonb), "
-                    "yoao_assets_v1.fail_video_media(uuid, bigint, uuid, text, text), "
-                    "yoao_assets_v1.expire_video_media(integer, integer, integer), "
-                    "yoao_assets_v1.claim_video_media_garbage(uuid, integer, integer), "
-                    "yoao_assets_v1.complete_video_media_garbage(uuid, uuid), "
-                    "yoao_assets_v1.advance_video_backfill(uuid, bigint, uuid, integer), "
-                    "yoao_assets_v1.read_video_media_usage(), "
-                    "yoao_assets_v1.claim_dataset_source_ingest_delivery(uuid, integer), "
-                    "yoao_assets_v1.complete_dataset_source_ingest_delivery(uuid, uuid), "
-                    "yoao_labeling_v1.read_media_visible_video_item(uuid, uuid), "
-                    "yoao_labeling_v1.read_mask_write_epochs(jsonb), "
-                    "yoao_labeling_v1.begin_mask_content_write(jsonb), "
-                    "yoao_labeling_v1.lock_mask_write_epochs(jsonb), "
-                    "yoao_labeling_v1.register_tracker_running_mask_root(jsonb), "
-                    "yoao_labeling_v1.capture_video_tracker_input(uuid,uuid,integer), "
-                    "yoao_labeling_v1.lock_video_tracker_input_for_stage(uuid,uuid,uuid,uuid,text,text), "
-                    "yoao_labeling_v1.lock_video_tracker_input_for_accept(uuid,uuid,uuid,uuid,text,text), "
-                    "yoao_labeling_v1.attach_annotation_video_tracker_input_source(uuid,uuid,uuid,jsonb), "
-                    "yoao_labeling_v1.copy_annotation_video_tracker_input_sources(uuid,uuid,uuid), "
-                    "yoao_labeling_v1.claim_mask_gc_sweep(jsonb), "
-                    "yoao_labeling_v1.stage_mask_gc_page(jsonb), "
-                    "yoao_labeling_v1.claim_mask_gc_deletes(jsonb), "
-                    "yoao_labeling_v1.finish_mask_gc_delete(jsonb), "
-                    "yoao_labeling_v1.read_mask_gc_progress(jsonb), "
-                    "yoao_labeling_v1.inspect_mask_gc_page(jsonb), "
-                    "yoao_labeling_v1.admit_prediction_retry(jsonb), "
-                    "yoao_labeling_v1.read_prediction_retry(jsonb), "
-                    "yoao_labeling_v1.finish_prediction_retry_write(jsonb), "
-                    "yoao_labeling_v1.finish_prediction_retry_failure(jsonb), "
-                    "yoao_jobs_v1.claim_prediction_retry_deliveries(jsonb), "
-                    "yoao_jobs_v1.finish_prediction_retry_delivery(jsonb), "
-                    "yoao_labeling_v1.begin_batch_result(jsonb), "
-                    "yoao_labeling_v1.put_batch_result_part(jsonb), "
-                    "yoao_labeling_v1.seal_batch_result(jsonb), "
-                    "yoao_labeling_v1.read_batch_result(jsonb), "
-                    "yoao_labeling_v1.lock_batch_result_write(jsonb), "
-                    "yoao_labeling_v1.finish_batch_result_write(jsonb), "
-                    "yoao_labeling_v1.finish_batch_result_failure(jsonb), "
-                    "yoao_jobs_v1.claim_batch_result_execution(jsonb), "
-                    "yoao_jobs_v1.heartbeat_batch_result_execution(jsonb), "
-                    "yoao_jobs_v1.release_batch_result_execution(jsonb), "
-                    "yoao_jobs_v1.stage_batch_result_members(jsonb), "
-                    "yoao_jobs_v1.start_batch_result_execution(jsonb), "
-                    "yoao_jobs_v1.read_batch_result_execution(jsonb), "
-                    "yoao_jobs_v1.mark_batch_result_overwrite(jsonb), "
-                    "yoao_jobs_v1.skip_batch_result_member(jsonb), "
-                    "yoao_jobs_v1.finish_batch_result_execution(jsonb), "
-                    "yoao_jobs_v1.start_batch_result_member(jsonb), "
-                    "yoao_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid), "
-                    "yoao_jobs_v1.bind_prediction_mask_object(uuid,uuid), "
-                    "yoao_jobs_v1.finish_prediction_mask_producer(uuid), "
-                    "yoao_jobs_v1.prediction_mask_object_retained(uuid), "
-                    "yoao_jobs_v1.prepare_media_delivery(jsonb), "
-                    "public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[]), "
-                    "public.image_export_scope_matches(uuid,uuid), "
-                    "public.fixture_native_export_lifetime(uuid,uuid), "
-                    "public.fixture_native_export_cleanup_eligible(uuid), "
-                    "yoao_labeling_v1.append_dataset_items(uuid, uuid[], uuid), "
-                    "yoao_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer), "
-                    "yoao_labeling_v1.prepare_dataset_task_creation(uuid, jsonb), "
-                    "yoao_labeling_v1.read_dataset_task_creation(uuid), "
-                    "yoao_labeling_v1.advance_dataset_task_creation(uuid, integer), "
-                    "yoao_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid), "
-                    "yoao_jobs_v1.find_task_creation_job(uuid, uuid, uuid, uuid), "
-                    "yoao_jobs_v1.claim_task_creation_job(uuid, text), "
-                    "yoao_jobs_v1.finish_task_creation_job(uuid, uuid), "
-                    "yoao_jobs_v1.fail_task_creation_job(uuid, uuid, text), "
-                    f"yoao_jobs_v1.cancel_task_creation_job(uuid, uuid) TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {video_function_grant} TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {audit_function_grant} TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {identity_function_grant} TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {notification_function_grant} TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {jobs_function_grant} TO {role}",
-                    f"GRANT SELECT, INSERT ON yoao_jobs_v1.async_job_creation TO {role}",
-                    "REVOKE ALL ON FUNCTION yoao_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]), "
-                    "yoao_jobs_v1._jobs_lifecycle_is_truthy(jsonb), "
-                    "yoao_jobs_v1._jobs_lifecycle_integer(jsonb) "
-                    f"FROM {role}, PUBLIC",
-                    "REVOKE ALL ON FUNCTION "
-                    "yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text) "
-                    f"FROM {role}, PUBLIC",
-                    "REVOKE EXECUTE ON FUNCTION yoao_notifications_v1._visible_inbox_rows(uuid,text), "
-                    "yoao_notifications_v1._visible_inbox_rows_scoped(uuid,text), "
-                    "yoao_notifications_v1._notification_is_migration_inventory(uuid) "
-                    f"FROM {role}, PUBLIC",
-                    "REVOKE EXECUTE ON FUNCTION "
-                    "yoao_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb) "
-                    f"FROM {role}, PUBLIC",
-                    f"GRANT EXECUTE ON FUNCTION {image_media_function_grant} TO {role}",
-                    f"GRANT EXECUTE ON FUNCTION {image_accepted_function_grant} TO {role}",
-                ):
-                    await connection.exec_driver_sql(sql)
+                await connection.exec_driver_sql(
+                    "SET LOCAL search_path = pg_catalog, pg_temp"
+                )
                 await connection.execute(
                     text(
                         "SELECT set_config('yoao.application_role', :role, true), "
-                        "set_config('yoao.expected_database', :database, true)"
+                        "set_config('yoao.expected_database', :database, true), "
+                        "set_config('yoao.migration_role', :migration, true)"
                     ),
-                    {"role": runtime.username, "database": self.resources["database"]},
+                    {
+                        "role": runtime.username,
+                        "database": self.resources["database"],
+                        "migration": self.url.username,
+                    },
                 )
                 if make_url(self.settings.database_url).username == self.url.username:
                     operator_oid = await connection.scalar(
@@ -2228,175 +1282,16 @@ class LocalResources:
                     self._validate_runtime_role(
                         observed, self._runtime_credentials(required=True)
                     )
-                await connection.exec_driver_sql(_JOBS_CREATION_RUNTIME_ACL)
-                await connection.exec_driver_sql(_JOBS_DELETE_RUNTIME_ACL)
-                await connection.exec_driver_sql(_JOBS_UPDATE_RUNTIME_ACL)
-                await connection.exec_driver_sql(_JOBS_DISPATCH_RUNTIME_ACL)
-                await connection.exec_driver_sql(_IMAGE_EXPORT_SCOPE_RUNTIME_ACL)
-                await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
-                await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
-                await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
-                await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
-                await connection.exec_driver_sql(self.private_runtime_acl("inference"))
-                notification_result = await connection.execute(
-                    text(
-                        "SELECT pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.preference_command(jsonb)'), 'EXECUTE') "
-                        "AS preferences, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.append_notification(jsonb)'), 'EXECUTE') "
-                        "AS append, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.append_job_terminal_notification(jsonb)'), 'EXECUTE') "
-                        "AS terminal_append, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.read_state_command(jsonb)'), 'EXECUTE') "
-                        "AS read_state, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.delete_command(pg_catalog.jsonb)'), 'EXECUTE') "
-                        "AS notification_delete, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.inbox_page(uuid,text,boolean,integer,integer)'), 'EXECUTE') "
-                        "AS inbox_page, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.inbox_total_count(uuid,text)'), 'EXECUTE') "
-                        "AS inbox_total, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1.inbox_unread_count(uuid,text)'), 'EXECUTE') "
-                        "AS inbox_unread, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_notifications_v1._visible_inbox_rows(uuid,text)'), 'EXECUTE') "
-                        "AS inbox_private_helper, (pg_catalog.has_table_privilege("
-                        ":role, 'public.notifications', "
-                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_table_privilege(:role, 'public.notification_preferences', "
-                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_table_privilege(:role, 'public.notification_delivery_outbox', "
-                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) "
-                        "AS notification_private, (pg_catalog.has_any_column_privilege("
-                        ":role, 'public.notifications', 'SELECT,INSERT,UPDATE,REFERENCES') OR "
-                        "pg_catalog.has_any_column_privilege(:role, 'public.notification_preferences', "
-                        "'SELECT,INSERT,UPDATE,REFERENCES') OR "
-                        "pg_catalog.has_any_column_privilege(:role, 'public.notification_delivery_outbox', "
-                        "'SELECT,INSERT,UPDATE,REFERENCES')) "
-                        "AS notification_column_private, pg_catalog.has_table_privilege("
-                        ":role, 'yoao_notifications_v1.notification_facts', 'SELECT') "
-                        "AS notification_facts, pg_catalog.has_any_column_privilege("
-                        ":role, 'yoao_notifications_v1.notification_facts', 'SELECT') "
-                        "AS notification_facts_column_read, ("
-                        f"{notification_delivery_read_check}) AS notification_delivery_reads, "
-                        "pg_catalog.has_table_privilege("
-                        ":role, 'yoao_notifications_v1.notification_facts', "
-                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
-                        "AS notification_facts_write, pg_catalog.has_any_column_privilege("
-                        ":role, 'yoao_notifications_v1.notification_facts', "
-                        "'INSERT,UPDATE,REFERENCES') "
-                        "AS notification_facts_column_write, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_audit_v1.append_events(jsonb)'), 'EXECUTE') "
-                        "AS audit_append, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_audit_v1.query_events(pg_catalog.jsonb)'), 'EXECUTE') "
-                        "AS audit_query, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_audit_v1.maintenance_command(jsonb)'), 'EXECUTE') "
-                        "AS audit_maintenance, pg_catalog.has_table_privilege("
-                        ":role, 'public.audit_logs', 'SELECT') AS audit_parent_read, ("
-                        "pg_catalog.has_table_privilege(:role, 'public.audit_logs', "
-                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_any_column_privilege(:role, 'public.audit_logs', "
-                        "'INSERT,UPDATE,REFERENCES')) AS audit_log_write, "
-                        "pg_catalog.has_sequence_privilege(:role, "
-                        "pg_catalog.pg_get_serial_sequence('public.audit_logs','id'), "
-                        "'SELECT,UPDATE,USAGE') AS audit_sequence_private, "
-                        "pg_catalog.has_table_privilege("
-                        ":role, 'yoao_audit_v1.audit_events', 'SELECT') AS audit_read, "
-                        "pg_catalog.has_table_privilege("
-                        ":role, 'yoao_audit_v1.audit_events', "
-                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS audit_read_write, "
-                        "pg_catalog.has_any_column_privilege("
-                        ":role, 'yoao_audit_v1.audit_events', "
-                        "'INSERT,UPDATE,REFERENCES') AS audit_read_column_write, "
-                        "pg_catalog.has_table_privilege("
-                        ":role, 'yoao_audit_v1.audit_daily_facts', 'SELECT') AS audit_daily_read, "
-                        "(pg_catalog.has_table_privilege("
-                        ":role, 'yoao_audit_v1.audit_daily_facts', "
-                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_any_column_privilege("
-                        ":role, 'yoao_audit_v1.audit_daily_facts', "
-                        "'INSERT,UPDATE,REFERENCES')) AS audit_daily_write, "
-                        "(pg_catalog.has_table_privilege("
-                        ":role, 'public.mv_audit_bi_daily', "
-                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_any_column_privilege("
-                        ":role, 'public.mv_audit_bi_daily', "
-                        "'SELECT,INSERT,UPDATE,REFERENCES')) AS audit_daily_private, "
-                        "pg_catalog.has_function_privilege("
-                        ":role, 'yoao_audit_v1.refresh_audit_bi_mv()', 'EXECUTE') "
-                        "AS audit_daily_refresh, pg_catalog.has_table_privilege("
-                        ":role, 'yoao_jobs_v1.notification_scope_facts', 'SELECT') "
-                        "AS jobs_notification_scope, (pg_catalog.has_table_privilege("
-                        ":role, 'yoao_jobs_v1.notification_scope_facts', "
-                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_any_column_privilege("
-                        ":role, 'yoao_jobs_v1.notification_scope_facts', "
-                        "'INSERT,UPDATE,REFERENCES')) AS jobs_notification_scope_write"
-                        ", pg_catalog.has_function_privilege(:role, "
-                        "'yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)', "
-                        "'EXECUTE') AS jobs_list_page, "
-                        "pg_catalog.has_function_privilege(:role, "
-                        "'yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)', "
-                        "'EXECUTE') AS jobs_list_total, "
-                        "pg_catalog.has_function_privilege(:role, "
-                        "'yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)', "
-                        "'EXECUTE') AS jobs_list_private_helper"
-                    ),
-                    {"role": runtime.username},
+                await connection.exec_driver_sql(revoke)
+                await connection.exec_driver_sql(
+                    f"REVOKE ALL ON DATABASE {database} FROM {role}"
                 )
-                notification_grants = notification_result.mappings().one()
-                if (
-                    notification_grants["preferences"] is not True
-                    or notification_grants["append"] is not True
-                    or notification_grants["terminal_append"] is not True
-                    or notification_grants["read_state"] is not True
-                    or notification_grants["notification_delete"] is not True
-                    or notification_grants["inbox_page"] is not True
-                    or notification_grants["inbox_total"] is not True
-                    or notification_grants["inbox_unread"] is not True
-                    or notification_grants["inbox_private_helper"] is not False
-                    or notification_grants["notification_private"] is not False
-                    or notification_grants["notification_column_private"] is not False
-                    or notification_grants["notification_facts"] is not False
-                    or notification_grants["notification_facts_column_read"]
-                    is not False
-                    or notification_grants["notification_delivery_reads"] is not True
-                    or notification_grants["notification_facts_write"] is not False
-                    or notification_grants["notification_facts_column_write"]
-                    is not False
-                    or notification_grants["audit_append"] is not True
-                    or notification_grants["audit_query"] is not True
-                    or notification_grants["audit_maintenance"] is not True
-                    or notification_grants["audit_parent_read"] is not True
-                    or notification_grants["audit_log_write"] is not False
-                    or notification_grants["audit_sequence_private"] is not False
-                    or notification_grants["audit_read"] is not True
-                    or notification_grants["audit_read_write"] is not False
-                    or notification_grants["audit_read_column_write"] is not False
-                    or notification_grants["audit_daily_read"] is not True
-                    or notification_grants["audit_daily_write"] is not False
-                    or notification_grants["audit_daily_private"] is not False
-                    or notification_grants["audit_daily_refresh"] is not False
-                    or notification_grants["jobs_notification_scope"] is not True
-                    or notification_grants["jobs_notification_scope_write"] is not False
-                    or notification_grants["jobs_list_page"] is not True
-                    or notification_grants["jobs_list_total"] is not True
-                    or notification_grants["jobs_list_private_helper"] is not False
-                ):
-                    raise WorktreeError(
-                        "Notifications read/write boundary and Audit "
-                        f"capabilities were not granted: {notification_grants}"
-                    )
+                await connection.exec_driver_sql(
+                    f"GRANT CONNECT, TEMPORARY ON DATABASE {database} TO {role}"
+                )
+                for statement in grants:
+                    await connection.exec_driver_sql(statement)
+                await connection.exec_driver_sql(verify)
         finally:
             await engine.dispose()
 
@@ -2679,7 +1574,7 @@ class LocalResources:
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
         asyncio.run(self.owned_runtime_role("check_create"))
-        self.manage_jobs_roles("check_create")
+        self.manage_worker_roles("check_create")
         self.touched = True
         path = state_path(self.root, self.resources["mode"], "resources.json")
         if not path.exists():
@@ -2693,7 +1588,7 @@ class LocalResources:
             self.manifest,
         )
         asyncio.run(self.owned_runtime_role("create"))
-        self.manage_jobs_roles("create")
+        self.manage_worker_roles("create")
         asyncio.run(self.database("create"))
         raster_owner = getattr(self, "_raster_redis_birth_owner", None)
         if raster_owner is not None and "postgres" in raster_owner.data["raster"]:
@@ -2752,6 +1647,7 @@ class LocalResources:
         asyncio.run(self.grant_runtime())
         asyncio.run(self.grant_jobs_recovery())
         asyncio.run(self.verify_runtime_login())
+        asyncio.run(self.prepare_assets_worker_roles())
         if self.resources["mode"] in {"test", "e2e"}:
             from fixture_suite_coordinator import prepare_worktree_store
 
@@ -3265,7 +2161,7 @@ class LocalResources:
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         asyncio.run(self.owned_runtime_role("check_drop"))
-        self.manage_jobs_roles("check_drop")
+        self.manage_worker_roles("check_drop")
         inference = None
         if self.resources["mode"] == "e2e":
             from fixture_inference_services import FixtureInferenceServices
@@ -3643,7 +2539,7 @@ class LocalResources:
         if inference is not None:
             inference.finish_destroy()
         asyncio.run(self.owned_runtime_role("drop"))
-        self.manage_jobs_roles("drop")
+        self.manage_worker_roles("drop")
         if prepared.storage != "raster_provider_retired" and require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]
         ):

@@ -19,6 +19,7 @@ from yoao_assets_media import contract as c
 from yoao_assets_media.client import MediaClient
 from yoao_assets_media_runtime.database import validate_native_result
 from app.config import settings
+from app.services.assets_executor_db import executor_sessions
 
 
 class SqlAlchemyMediaDatabase:
@@ -244,13 +245,12 @@ class MediaGateway:
         *,
         caller_transaction=False,
         local_execution=True,
-        session_factory=None,
     ):
         self.provider = provider
         self.caller_transaction = caller_transaction
         self.local_execution = local_execution
-        self.session_factory = session_factory
         self._executor = None
+        self._execution_scope = None
 
     def __getattr__(self, name):
         if self.caller_transaction and name.endswith("reference"):
@@ -267,15 +267,11 @@ class MediaGateway:
 
     async def close(self):
         failures = []
-        if self._executor is not None:
-            executor, self._executor = self._executor, None
+        if self._execution_scope is not None:
+            scope, self._execution_scope = self._execution_scope, None
+            self._executor = None
             try:
-                await executor.close()
-                close_original = getattr(
-                    executor.storage, "close_additional_original", None
-                )
-                if callable(close_original):
-                    close_original()
+                await scope.__aexit__(None, None, None)
             except BaseException as exc:
                 failures.append(exc)
         storage = getattr(self.provider, "storage", None)
@@ -294,11 +290,11 @@ class MediaGateway:
         if not self.local_execution:
             return False
         if self._executor is None:
-            self._executor = (
-                _executor()
-                if self.session_factory is None
-                else _executor(session_factory=self.session_factory)
-            )
+            scope = media_execution_session()
+            self._executor = await scope.__aenter__()
+            self._execution_scope = scope
+            if self._executor is None:
+                return False
         return await self._executor.execute_once(job_id=job_id) is not None
 
     async def source_references(self, requests, *, raw_only=False):
@@ -401,7 +397,6 @@ def media_gateway(
     independent_session_factory = session_factory
     if (
         not caller_transaction
-        and not settings.assets_media_url
         and independent_session_factory is None
         and db is not None
     ):
@@ -420,9 +415,7 @@ def media_gateway(
             bind, class_=AsyncSession, expire_on_commit=False
         )
 
-    if settings.assets_media_url:
-        if caller_transaction:
-            raise c.MediaFailure("invalid_request")
+    if settings.assets_media_url and not caller_transaction:
         provider = MediaClient(
             settings.assets_media_url,
             settings.assets_media_token,
@@ -440,34 +433,40 @@ def media_gateway(
         provider = MediaControl(
             database,
             media_storage(control=True),
-            wakeup=None if caller_transaction else _wake,
+            wakeup=(
+                _wake
+                if not caller_transaction and settings.assets_video_executor == "celery"
+                else None
+            ),
         )
     return MediaGateway(
         provider,
         caller_transaction=caller_transaction,
-        local_execution=not bool(settings.assets_media_url),
-        session_factory=independent_session_factory,
+        local_execution=settings.assets_video_executor == "celery",
     )
 
 
 @asynccontextmanager
-async def media_execution_session(*, session_factory=None):
-    if settings.assets_media_url:
+async def media_execution_session():
+    if settings.assets_video_executor == "split":
         yield None
         return
-    executor = _executor(session_factory=session_factory)
-    try:
-        yield executor
-    finally:
-        await executor.close()
-        close_original = getattr(executor.storage, "close_additional_original", None)
-        if callable(close_original):
-            close_original()
+    async with executor_sessions("video") as factory:
+        executor = _executor(session_factory=factory)
+        try:
+            yield executor
+        finally:
+            await executor.close()
+            close_original = getattr(
+                getattr(executor, "storage", None), "close_additional_original", None
+            )
+            if callable(close_original):
+                close_original()
 
 
-async def run_media_job(job_id: UUID | None = None, *, session_factory=None) -> bool:
-    """Run one accepted local job; a remote provider is never executed locally."""
-    async with media_execution_session(session_factory=session_factory) as executor:
+async def run_media_job(job_id: UUID | None = None) -> bool:
+    """Claim one video job only when Celery owns its execution lane."""
+    async with media_execution_session() as executor:
         return (
             False
             if executor is None
@@ -475,13 +474,16 @@ async def run_media_job(job_id: UUID | None = None, *, session_factory=None) -> 
         )
 
 
-async def maintain_video_media(*, session_factory=None):
-    async with media_execution_session(session_factory=session_factory) as executor:
+async def maintain_video_media():
+    async with media_execution_session() as executor:
         return None if executor is None else await executor.maintenance_once()
 
 
 async def probe_video_timetable(source: c.MediaSource, *, sparse_stride: int = 1):
     """Trusted CLI dry-run uses the portable decoder, without publication."""
+    if settings.assets_media_url:
+        raise c.MediaFailure("storage_unavailable")
+
     from yoao_assets_media_runtime.original_read import admitted_original
     from yoao_assets_media_runtime.processing import probe_source_timetable
     from app.services.media_probe import configured_probe_client

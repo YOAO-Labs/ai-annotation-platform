@@ -136,3 +136,47 @@ class JobsDomainQueryPostgresData:
             ),
             {"kind": kind, "project_id": project_id, "actor_id": actor_id, "key": key},
         )
+
+    async def dataset_job_visible(self, actor_id, job_id):
+        if self.db.autoflush:
+            await self.db.flush()
+        return bool(
+            await self.db.scalar(
+                text(
+                    "SELECT yoao_jobs_v1.dataset_job_visible("
+                    "CAST(:actor_id AS pg_catalog.uuid), CAST(:job_id AS pg_catalog.uuid))"
+                ),
+                {"actor_id": actor_id, "job_id": job_id},
+            )
+        )
+
+    async def directory_job_page(self, actor_id, location_id, limit, offset):
+        if self.db.autoflush:
+            await self.db.flush()
+        rows = await self.db.execute(
+            text(
+                "SELECT id, kind, status, created_at, completed_at "
+                "FROM yoao_jobs_v1.directory_job_page("
+                "CAST(:actor_id AS pg_catalog.uuid), CAST(:location_id AS pg_catalog.uuid), "
+                "CAST(:limit AS pg_catalog.int4), CAST(:offset AS pg_catalog.int4)) "
+                "ORDER BY created_at DESC, id"
+            ),
+            {
+                "actor_id": actor_id,
+                "location_id": location_id,
+                "limit": limit,
+                "offset": offset,
+            },
+        )
+        return list(rows.mappings())
+
+    async def directory_job_total(self, actor_id, location_id):
+        if self.db.autoflush:
+            await self.db.flush()
+        return await self.db.scalar(
+            text(
+                "SELECT yoao_jobs_v1.directory_job_total("
+                "CAST(:actor_id AS pg_catalog.uuid), CAST(:location_id AS pg_catalog.uuid))"
+            ),
+            {"actor_id": actor_id, "location_id": location_id},
+        )

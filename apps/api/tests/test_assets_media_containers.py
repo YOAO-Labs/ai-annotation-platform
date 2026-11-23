@@ -18,6 +18,9 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from yoao_assets_media import contract as media
+from app.services.assets_media import media_gateway, run_media_job
+
 from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from tests.factory import create_project
@@ -34,7 +37,10 @@ from tests.test_asset_storage_cleanup_runtime import (
     _wait_healthy,
 )
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
-from tests.test_assets_catalog_runtime import _write_environment
+from tests.test_assets_catalog_runtime import (
+    _ordinary_assets_engine,
+    _write_environment,
+)
 from tests.test_assets_media_live import (
     _delete_objects,
     _guard_role_url,
@@ -101,6 +107,7 @@ def _container_environment(
         }
     else:
         role_values = {
+            "ASSETS_VIDEO_EXECUTOR": "split",
             "ASSETS_MEDIA_WORKER_DATABASE_URL": database_url,
             "ASSETS_MEDIA_POLL_SECONDS": "0.2",
             "ASSETS_MEDIA_LEASE_SECONDS": "30",
@@ -212,6 +219,8 @@ def _verify_container(
     if control:
         required.add("ASSETS_MEDIA_TOKEN")
         required.add("ASSETS_IMAGES_LEGACY_BUCKET")
+    else:
+        required.add("ASSETS_VIDEO_EXECUTOR")
     forbidden_credentials = (
         {"ASSETS_MEDIA_WORKER_DATABASE_URL"}
         if control
@@ -296,7 +305,7 @@ def _memory_peak(container_id: str) -> int | None:
 
 
 async def test_restricted_media_images_serve_real_video_assets(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, monkeypatch
 ):
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
@@ -421,6 +430,8 @@ async def test_restricted_media_images_serve_real_video_assets(
     actor_id = dataset_id = project_id = None
     source_uploaded = False
     control_container = worker_container = None
+    embedded_engine = _ordinary_assets_engine(test_engine)
+    control_sessions = async_sessionmaker(embedded_engine, expire_on_commit=False)
 
     try:
         owner_s3.put_object(
@@ -474,6 +485,26 @@ async def test_restricted_media_images_serve_real_video_assets(
                 )
             )
 
+        monkeypatch.setattr(settings, "assets_media_url", "")
+        monkeypatch.setattr(settings, "assets_video_executor", "split")
+        monkeypatch.setattr(settings, "minio_public_url", public_s3)
+        with monkeypatch.context() as scoped:
+            scoped.setattr(settings, "minio_access_key", control_access)
+            scoped.setattr(settings, "minio_secret_key", control_secret)
+            async with media_gateway(session_factory=control_sessions) as embedded:
+                accepted = await embedded.call(
+                    "request_video_media",
+                    media.RequestWorkRequest(
+                        operation_id=uuid4(),
+                        actor_id=actor_id,
+                        dataset_item_id=item_id,
+                        spec=media.MetadataSpec(),
+                    ),
+                )
+                assert embedded.provider.wakeup is None
+                assert accepted.work.status == "pending"
+            assert not await run_media_job(accepted.work.job_id)
+
         control_container = _start_container(
             role="control",
             name=control_name,
@@ -490,6 +521,15 @@ async def test_restricted_media_images_serve_real_video_assets(
         )
         await _wait_healthy(control_container, timeout=90)
         await _wait_healthy(worker_container, timeout=90)
+        _docker(
+            "exec",
+            worker_container,
+            "python",
+            "-m",
+            "yoao_assets_media_runtime.worker",
+            "--healthcheck",
+            timeout=30,
+        )
         control_origin = _verify_container(
             container_id=control_container,
             role="control",
@@ -568,6 +608,19 @@ async def test_restricted_media_images_serve_real_video_assets(
             )
             frame_response = await client.get(frame["url"])
             assert frame_response.status_code == 200 and frame_response.content
+            with monkeypatch.context() as scoped:
+                scoped.setattr(settings, "minio_access_key", control_access)
+                scoped.setattr(settings, "minio_secret_key", control_secret)
+                async with media_gateway(session_factory=control_sessions) as embedded:
+                    current = await embedded.ready_source_reference(
+                        media.ReadSourceRequest(
+                            actor_id=actor_id, dataset_item_id=item_id, task_id=task_id
+                        )
+                    )
+                    assert (
+                        current.source.source_snapshot == source_data["source_snapshot"]
+                    )
+                    assert current.poster_url is not None
         for role, container_id in (
             ("control", control_container),
             ("worker", worker_container),
@@ -575,9 +628,48 @@ async def test_restricted_media_images_serve_real_video_assets(
             peak = _memory_peak(container_id)
             if peak is not None:
                 record_property(f"{role}_cgroup_memory_peak_bytes", peak)
+
+        _docker("stop", worker_container, timeout=90)
+        async with media_gateway(session_factory=control_sessions) as embedded:
+            work = await embedded.call(
+                "request_video_media",
+                media.RequestWorkRequest(
+                    operation_id=uuid4(),
+                    actor_id=actor_id,
+                    dataset_item_id=item_id,
+                    spec=media.FrameSpec(
+                        frame_index=2,
+                        width=96,
+                        expected_source_snapshot=source_data["source_snapshot"],
+                    ),
+                ),
+            )
+        with monkeypatch.context() as scoped:
+            scoped.setattr(
+                settings,
+                "database_url",
+                embedded_engine.url.render_as_string(hide_password=False),
+            )
+            scoped.setattr(settings, "assets_video_executor", "celery")
+            scoped.setattr(
+                settings,
+                "assets_celery_video_database_url",
+                worker_url.render_as_string(hide_password=False),
+            )
+            scoped.setattr(settings, "assets_celery_video_database_url_file", "")
+            scoped.setattr(settings, "minio_access_key", worker_access)
+            scoped.setattr(settings, "minio_secret_key", worker_secret)
+            assert await run_media_job(work.work.job_id)
+        async with media_gateway(session_factory=control_sessions) as embedded:
+            status = await embedded.call(
+                "read_video_work",
+                media.WorkStatusRequest(job_id=work.work.job_id, actor_id=actor_id),
+            )
+        assert status.work.status == "ready"
     finally:
         primary = sys.exception()
         cleanup_errors = []
+        await embedded_engine.dispose()
         for role, container_id in (
             ("worker", worker_container),
             ("control", control_container),

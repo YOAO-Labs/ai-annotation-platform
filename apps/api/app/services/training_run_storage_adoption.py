@@ -219,15 +219,8 @@ def verify_operation(owner, state):
 async def pin(db, run_id, actor, project, key_id):
     """Hold only this stopped run against writers while verifying retained bytes."""
     from fastapi import HTTPException
-    from sqlalchemy import select
-    from app.db.models.api_key import ApiKey
-    from app.db.models.dataset_asset import StorageLocation
-    from app.db.models.training_run import (
-        TrainingRun,
-        TrainingAttempt,
-        TrainingResourceLease,
-    )
     from app.services import storage_access, training_run_storage as owners
+    from app.services import storage_registry_data, training_run_data as data
     from app.services.content_snapshot import ContentError
     from app.services.dataset_content import key_authority
     from app.services.project_write_guard import lock_actor_project_authority
@@ -240,47 +233,21 @@ async def pin(db, run_id, actor, project, key_id):
         )
         if not access.is_manager:
             raise HTTPException(403, detail="项目管理权限已变化")
-        if key_id is not None:
-            await db.execute(
-                select(ApiKey.id).where(ApiKey.id == key_id).with_for_update(read=True)
-            )
         return [
             await key_authority(db, actor, key_id, scope)
             for scope in ["annotations:read", "datasets:read", "datasets:write"]
         ]
 
     async def context():
-        run = await db.scalar(
-            select(TrainingRun)
-            .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        run = await data.get_run(db, project.id, run_id, lock=True)
         if run is None:
             raise HTTPException(404, detail="训练实验不存在")
         if run.storage_ref is not None:
             return run, None
-        attempts = list(
-            await db.scalars(
-                select(TrainingAttempt)
-                .where(TrainingAttempt.run_id == run.id)
-                .order_by(TrainingAttempt.id)
-                .limit(MAX_ATTEMPTS + 1)
-                .with_for_update(read=True)
-                .execution_options(populate_existing=True)
-            )
-        )
+        attempts = await data.adoption_attempts(db, run.id)
         if len(attempts) > MAX_ATTEMPTS:
             reject("legacy_storage_inventory_limit")
-        if await db.scalar(
-            select(TrainingResourceLease.resource_id)
-            .where(
-                TrainingResourceLease.attempt_id.in_(
-                    select(TrainingAttempt.id).where(TrainingAttempt.run_id == run.id)
-                )
-            )
-            .limit(1)
-        ):
+        if await data.run_has_lease(db, run.id):
             reject("legacy_storage_version_active")
         state = {
             "id": str(run.id),
@@ -368,10 +335,8 @@ async def pin(db, run_id, actor, project, key_id):
                 CAPACITY.release()
         if await authority() != initial_authority:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-        await db.execute(
-            select(StorageLocation.id)
-            .where(StorageLocation.id == uuid.UUID(candidate["location_id"]))
-            .with_for_update(read=True)
+        await storage_registry_data.get_location(
+            db, uuid.UUID(candidate["location_id"]), lock="share"
         )
         current, current_state = await context()
         if (
@@ -395,6 +360,7 @@ async def pin(db, run_id, actor, project, key_id):
                 "api_key_id": str(key_id) if key_id else None,
             },
         }
+        await data.pin_storage(db, current.id, current.storage_ref, retained=True)
         await db.commit()
         return current
     except TrainingDatasetError as exc:

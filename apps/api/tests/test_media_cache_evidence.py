@@ -194,7 +194,9 @@ async def test_b_cache_evidence_survives_current_a_binding_and_credential_rotati
         db, world[3].id, world[2], item_ids=[item_id]
     )
     assert ids == [entry.id] and seen == [b"rotated-credentials"]
-    obs = workbench.observations(world[3].id, world[2], cache_entry_ids=ids)
+    obs = workbench.observations(
+        world[3].id, world[2], item_ids=[item_id], cache_entry_ids=ids
+    )
     row = (
         (await db.execute(select(obs).where(obs.c.original_cache_entry_id == entry.id)))
         .mappings()

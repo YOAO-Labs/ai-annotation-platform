@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 from fastapi import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -61,20 +60,6 @@ def _wire(model):
     }
 
 
-def _mock_http(monkeypatch, handler):
-    monkeypatch.setattr(
-        assets_catalog.settings, "assets_catalog_url", "http://catalog.test"
-    )
-    monkeypatch.setattr(assets_catalog.settings, "assets_catalog_token", "t" * 40)
-    transport = httpx.MockTransport(handler)
-    original_client = httpx.AsyncClient
-    monkeypatch.setattr(
-        assets_catalog.httpx,
-        "AsyncClient",
-        lambda **kwargs: original_client(transport=transport, **kwargs),
-    )
-
-
 @pytest.mark.asyncio
 async def test_local_spatial_read_uses_exact_owner_function_on_caller_session():
     actor_id, scene_id, dataset_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
@@ -100,7 +85,7 @@ async def test_local_spatial_read_uses_exact_owner_function_on_caller_session():
 
 
 @pytest.mark.asyncio
-async def test_remote_scene_list_collects_pages_without_local_fallback(monkeypatch):
+async def test_spatial_list_collects_pages_in_caller_session():
     actor_id, dataset_id = uuid.uuid4(), uuid.uuid4()
     first_id, second_id = uuid.uuid4(), uuid.uuid4()
     base_time = datetime.now(UTC)
@@ -109,53 +94,47 @@ async def test_remote_scene_list_collects_pages_without_local_fallback(monkeypat
         second_id, dataset_id, "two", base_time + timedelta(seconds=1)
     )
     cursor = SceneCursor(created_at=first_scene.created_at, scene_id=first_scene.id)
-    requests = []
-
-    def handler(request: httpx.Request):
-        requests.append(request)
-        body = json.loads(request.content)
-        if body.get("after") is None:
-            page = ScenePage(
-                actor_id=actor_id,
-                dataset_id=dataset_id,
-                after=None,
-                next_cursor=cursor,
-                snapshot_digest="a" * 64,
-                total=2,
-                complete=False,
-                scenes=[first_scene],
-            )
-        else:
-            page = ScenePage(
-                actor_id=actor_id,
-                dataset_id=dataset_id,
-                after=cursor,
-                next_cursor=None,
-                snapshot_digest="a" * 64,
-                total=2,
-                complete=True,
-                scenes=[second_scene],
-            )
-        return httpx.Response(200, json=_wire(page))
-
-    _mock_http(monkeypatch, handler)
+    pages = (
+        ScenePage(
+            actor_id=actor_id,
+            dataset_id=dataset_id,
+            after=None,
+            next_cursor=cursor,
+            snapshot_digest="a" * 64,
+            total=2,
+            complete=False,
+            scenes=[first_scene],
+        ),
+        ScenePage(
+            actor_id=actor_id,
+            dataset_id=dataset_id,
+            after=cursor,
+            next_cursor=None,
+            snapshot_digest="a" * 64,
+            total=2,
+            complete=True,
+            scenes=[second_scene],
+        ),
+    )
     db = AsyncMock(spec=AsyncSession)
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one=lambda page=page: _wire(page)) for page in pages
+    ]
     result = await AssetsSpatialGateway(db).list_scenes(
         ListScenesRequest(actor_id=actor_id, dataset_id=dataset_id, page_size=1)
     )
 
     assert [scene.id for scene in result] == [first_id, second_id]
-    assert len(requests) == 2
+    first, second = [call.args for call in db.execute.await_args_list]
     assert all(
-        request.url.path == "/v1/spatial/list_spatial_scenes" for request in requests
+        "yoao_assets_v1.list_spatial_scenes" in str(statement)
+        and parameters["actor_id"] == actor_id
+        and parameters["dataset_id"] == dataset_id
+        for statement, parameters in (first, second)
     )
-    assert all(
-        request.headers["authorization"] == f"Bearer {'t' * 40}" for request in requests
-    )
-    assert requests[1].content and json.loads(requests[1].content)["after"][
-        "scene_id"
-    ] == str(first_id)
-    db.execute.assert_not_awaited()
+    assert first[1]["after_scene_id"] is None
+    assert second[1]["after_scene_id"] == first_id
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -187,9 +166,7 @@ async def test_spatial_reply_scope_mismatch_fails_closed():
 
 
 @pytest.mark.asyncio
-async def test_same_session_native_override_ignores_remote_catalog_configuration(
-    monkeypatch,
-):
+async def test_same_session_native_spatial_read_does_not_commit():
     actor_id, scene_id, dataset_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     now = datetime.now(UTC)
     expected = SceneResult(
@@ -199,14 +176,13 @@ async def test_same_session_native_override_ignores_remote_catalog_configuration
     )
     db = AsyncMock(spec=AsyncSession)
     db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(expected))
-    _mock_http(monkeypatch, lambda _request: pytest.fail("remote must not be called"))
-
     result = await SameSessionAssetsSpatialGateway(db).get_scene(
         GetSceneRequest(actor_id=actor_id, scene_id=scene_id)
     )
 
     assert result.scene.name == "local"
     assert "yoao_assets_v1.get_spatial_scene" in str(db.execute.await_args.args[0])
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -224,7 +200,6 @@ async def test_explicit_atomic_preparation_uses_native_binding_without_commit(
     db = AsyncMock(spec=AsyncSession)
     monkeypatch.setattr(assets_catalog, "_MAX_REQUEST_BYTES", 32)
     db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(expected))
-    _mock_http(monkeypatch, lambda _request: pytest.fail("atomic mode must stay local"))
     apply_request = ApplyPreparationRequest(
         creation_operation_id=creation_operation_id,
         snapshot={},
@@ -273,7 +248,6 @@ async def test_native_spatial_reply_budget_rejects_before_commit(monkeypatch):
     db = AsyncMock(spec=AsyncSession)
     db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(result))
     monkeypatch.setattr(assets_spatial, "_MAX_RESPONSE_BYTES", 1024)
-    monkeypatch.setattr(assets_catalog.settings, "assets_catalog_url", "")
     with pytest.raises(CatalogGatewayError, match="response budget"):
         await AssetsSpatialGateway(db).mutate_scene(
             MutateSceneRequest(
@@ -287,20 +261,19 @@ async def test_native_spatial_reply_budget_rejects_before_commit(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_pose_pair_reads_bound_each_request_to_its_exact_chunk(monkeypatch):
+async def test_pose_pair_reads_bound_each_request_to_its_exact_chunk():
     scene_id = uuid.uuid4()
     captured = []
 
-    def handler(request):
-        assert request.url.path == "/v1/spatial/read_spatial_pose_pairs"
-        pairs = json.loads(request.content)["pairs"]
+    def handler(statement, parameters):
+        assert "yoao_assets_v1.read_spatial_pose_pairs" in str(statement)
+        pairs = json.loads(parameters["pairs"])
         captured.append(
             [(uuid.UUID(pair["scene_id"]), pair["frame_index"]) for pair in pairs]
         )
         generation = len(captured)
-        return httpx.Response(
-            200,
-            json=_wire(
+        return SimpleNamespace(
+            scalar_one=lambda: _wire(
                 PosePairsResult(
                     pairs=pairs,
                     poses=[
@@ -319,8 +292,9 @@ async def test_pose_pair_reads_bound_each_request_to_its_exact_chunk(monkeypatch
             ),
         )
 
-    _mock_http(monkeypatch, handler)
-    gateway = AssetsSpatialGateway(AsyncMock(spec=AsyncSession))
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.side_effect = handler
+    gateway = AssetsSpatialGateway(db)
     assert await gateway.read_pose_pairs(set()) == {}
     assert captured == []
     wanted = {(scene_id, index) for index in range(1000)}

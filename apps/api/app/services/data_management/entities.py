@@ -8,9 +8,6 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy import Integer, String, cast, func, literal, select, union_all
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
-
-from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
 from app.schemas.data_manager import (
     DataManagerEntityLocation,
@@ -20,6 +17,7 @@ from app.schemas.data_manager import (
     DataManagerObjectOut,
     DataManagerObjectQueryResponse,
 )
+from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.identity_read_relations import account_profiles
 from app.services.data_management.cursor import (
@@ -165,7 +163,7 @@ def _parse_cursor_value(field: str, value: Any) -> Any:
     return value
 
 
-def _object_projection(created_by, item, scene):
+def _object_projection(created_by, item):
     video_frame = cast(annotation_row.geometry["frame_index"].astext, Integer)
     return [
         annotation_row.id.label("annotation_id"),
@@ -188,10 +186,10 @@ def _object_projection(created_by, item, scene):
         annotation_row.created_at,
         annotation_row.updated_at,
         _feedback_count_sq(annotation_row).label("unresolved_feedback_count"),
-        item.id.label("dataset_item_id"),
-        item.scene_id.label("scene_id"),
-        scene.name.label("scene_name"),
-        item.frame_index.label("scene_frame_index"),
+        item.c.item_id.label("dataset_item_id"),
+        item.c.scene_id,
+        item.c.scene_name,
+        item.c.frame_index.label("scene_frame_index"),
         video_frame.label("video_frame_index"),
     ]
 
@@ -285,20 +283,18 @@ class DataManagerObjectService:
             distributions[str(dimension)][str(value)] = int(count)
 
         created_by = account_profiles.alias("created_by_account_profile")
-        item = aliased(DatasetItem)
-        scene = aliased(Scene)
+        item = spatial_item_references
         matches = base.subquery("dm_object_matches")
         q = (
             select(
-                *_object_projection(created_by, item, scene),
+                *_object_projection(created_by, item),
                 sort_expr.label("_sort_value"),
             )
             .select_from(annotation_row)
             .join(matches, matches.c.id == annotation_row.id)
             .join(task_row, task_row.id == annotation_row.task_id)
             .outerjoin(created_by, created_by.c.id == annotation_row.user_id)
-            .outerjoin(item, item.id == task_dataset_item_id_expr())
-            .outerjoin(scene, scene.id == item.scene_id)
+            .outerjoin(item, item.c.item_id == task_dataset_item_id_expr())
         )
         if payload.cursor:
             value, tie = decode_cursor(payload.cursor, field=field, direction=direction)
@@ -359,21 +355,19 @@ class DataManagerObjectService:
         project_role: str | None = None,
     ) -> DataManagerObjectDetailResponse:
         created_by = account_profiles.alias("created_by_account_profile")
-        item = aliased(DatasetItem)
-        scene = aliased(Scene)
+        item = spatial_item_references
         base = self._base(project_id, user, project, project_role=project_role).where(
             annotation_row.id == annotation_id
         )
         match = base.subquery("dm_object_detail")
         row = (
             await self.db.execute(
-                select(*_object_projection(created_by, item, scene))
+                select(*_object_projection(created_by, item))
                 .select_from(annotation_row)
                 .join(match, match.c.id == annotation_row.id)
                 .join(task_row, task_row.id == annotation_row.task_id)
                 .outerjoin(created_by, created_by.c.id == annotation_row.user_id)
-                .outerjoin(item, item.id == task_dataset_item_id_expr())
-                .outerjoin(scene, scene.id == item.scene_id)
+                .outerjoin(item, item.c.item_id == task_dataset_item_id_expr())
             )
         ).one_or_none()
         if row is None:

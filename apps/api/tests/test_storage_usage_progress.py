@@ -1,12 +1,12 @@
 """Only successful fenced capacity pages count as committed work."""
 
 from copy import deepcopy
-from datetime import timedelta
 import uuid
 
 import pytest
 
 from app.db.models.async_job import AsyncJob
+from app.db.models.storage_usage import StorageUsageSnapshot
 from app.services import async_job as jobs, storage_usage as usage
 from app.workers import storage_usage as worker
 from tests.test_storage_usage import ready as ready  # noqa: F401
@@ -18,8 +18,7 @@ async def running(ready):
     db, actor = ready
     job, _ = await usage.start(db, actor)
     inventory = await usage.locked(db)
-    inventory.status = "running"
-    inventory.lease_until = usage.now() + timedelta(seconds=usage.LEASE_SECONDS)
+    await usage.claim(db, inventory)
     await jobs.mark_running(db, job.id)
     await db.commit()
     return db, job, inventory
@@ -90,7 +89,9 @@ async def test_real_minio_capacity_page_and_progress_commit_together(
         await db.refresh(job)
         assert job.progress_observation["unit"] == "pages"
         assert job.progress_observation["completed"] == 1
-        snapshot = await db.get(worker.Snapshot, target["key"], populate_existing=True)
+        snapshot = await db.get(
+            StorageUsageSnapshot, target["key"], populate_existing=True
+        )
         assert snapshot.object_count >= 1 and snapshot.total_size_bytes >= len(
             b"capacity-progress"
         )

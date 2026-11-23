@@ -52,17 +52,16 @@ from sqlalchemy import (
     Select,
     case,
     func,
-    or_,
     select,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.db.models.project import Project
-from app.db.models.project_task_view import ProjectTaskView
 from app.db.models.user import User
 from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.insights_saved_views import ProjectSavedViews, SavedTaskView
 from app.services.labeling_discussion_relations import annotation_feedback_facts
 from app.services.labeling_core_read_relations import (
     annotation_row,
@@ -563,41 +562,23 @@ def _sort_expr(field: str) -> ColumnElement[Any]:
 class TaskViewService:
     def __init__(self, db: AsyncSession):
         self.db = db
+        self.saved = ProjectSavedViews(db)
 
     async def list_views(
         self,
         project_id: uuid.UUID,
         user_id: uuid.UUID,
         entity_scope: str = "tasks",
-    ) -> list[ProjectTaskView]:
-        rows = await self.db.execute(
-            select(ProjectTaskView)
-            .where(
-                ProjectTaskView.project_id == project_id,
-                ProjectTaskView.entity_scope == entity_scope,
-                or_(
-                    ProjectTaskView.visibility == "project",
-                    ProjectTaskView.owner_id == user_id,
-                ),
-            )
-            .order_by(ProjectTaskView.visibility.desc(), ProjectTaskView.name.asc())
-        )
-        return list(rows.scalars().all())
+    ) -> list[SavedTaskView]:
+        return await self.saved.list(project_id, user_id, entity_scope)
 
     async def get_view(
         self,
         project_id: uuid.UUID,
         view_id: uuid.UUID,
         user_id: uuid.UUID,
-    ) -> ProjectTaskView:
-        view = await self.db.get(ProjectTaskView, view_id)
-        if (
-            view is None
-            or view.project_id != project_id
-            or (view.visibility == "private" and view.owner_id != user_id)
-        ):
-            raise HTTPException(status_code=404, detail="Task view not found")
-        return view
+    ) -> SavedTaskView:
+        return await self.saved.read(project_id, view_id, user_id)
 
     async def create_view(
         self,
@@ -611,7 +592,7 @@ class TaskViewService:
         columns_json: list[str],
         entity_scope: str = "tasks",
         project: Project | None = None,
-    ) -> ProjectTaskView:
+    ) -> SavedTaskView:
         _validate_payload(
             filter_json,
             sort_json,
@@ -619,9 +600,9 @@ class TaskViewService:
             entity_scope=entity_scope,
             project=project,
         )
-        view = ProjectTaskView(
+        return await self.saved.create(
             project_id=project_id,
-            owner_id=owner_id,
+            actor_id=owner_id,
             name=name,
             visibility=visibility,
             entity_scope=entity_scope,
@@ -629,22 +610,19 @@ class TaskViewService:
             sort_json=sort_json,
             columns_json=columns_json,
         )
-        self.db.add(view)
-        await self.db.flush()
-        await self.db.refresh(view)
-        return view
 
     async def update_view(
         self,
-        view: ProjectTaskView,
+        view: SavedTaskView,
         *,
+        actor_id: uuid.UUID,
         name: str | None = None,
         visibility: str | None = None,
         filter_json: dict[str, Any] | None = None,
         sort_json: list[dict[str, Any]] | None = None,
         columns_json: list[str] | None = None,
         project: Project | None = None,
-    ) -> ProjectTaskView:
+    ) -> SavedTaskView:
         next_filter = view.filter_json if filter_json is None else filter_json
         next_sort = view.sort_json if sort_json is None else sort_json
         next_columns = view.columns_json if columns_json is None else columns_json
@@ -655,23 +633,18 @@ class TaskViewService:
             entity_scope=view.entity_scope,
             project=project,
         )
-        if name is not None:
-            view.name = name
-        if visibility is not None:
-            view.visibility = visibility
-        if filter_json is not None:
-            view.filter_json = filter_json
-        if sort_json is not None:
-            view.sort_json = sort_json
-        if columns_json is not None:
-            view.columns_json = columns_json
-        await self.db.flush()
-        await self.db.refresh(view)
-        return view
+        return await self.saved.update(
+            view,
+            actor_id=actor_id,
+            name=name,
+            visibility=visibility,
+            filter_json=filter_json,
+            sort_json=sort_json,
+            columns_json=columns_json,
+        )
 
-    async def delete_view(self, view: ProjectTaskView) -> None:
-        await self.db.delete(view)
-        await self.db.flush()
+    async def delete_view(self, view: SavedTaskView, actor_id: uuid.UUID) -> None:
+        await self.saved.delete(view, actor_id)
 
     def _apply_visibility(
         self,

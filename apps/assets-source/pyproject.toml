@@ -53,6 +53,7 @@ yoao-assets-media = { path = "../assets-media", editable = true }
 yoao_assets_source = [
     "0453_import_original_verification.sql",
     "0453_import_original_completion.schema.json",
+    "0495_original_capabilities.sql",
     "import_verification_contract.schema.json",
     "operator_contract.schema.json",
     "connections_contract.schema.json",

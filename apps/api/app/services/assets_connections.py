@@ -119,8 +119,6 @@ class AssetsConnectionsGatewayError(HTTPException):
 
 def _peer_url(token: str) -> str | None:
     value = settings.assets_source_url
-    if not value and not token:
-        return None
     if not token:
         return None
     try:
@@ -238,13 +236,6 @@ class AssetsConnectionsGateway:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        try:
-            self._token = source_token("connections") or settings.assets_source_token
-        except SavedIOError:
-            raise AssetsConnectionsGatewayError(
-                "service_unavailable", "Assets source service is unavailable", 503
-            ) from None
-        self._peer = _peer_url(self._token)
 
     def _workflow(self):
         from yoao_assets_source.connections_workflow import (
@@ -258,9 +249,13 @@ class AssetsConnectionsGateway:
         )
 
     async def _remote(
-        self, operation: str, request: BaseModel, result_type: type[_RESULT]
+        self,
+        peer: str,
+        token: str,
+        operation: str,
+        request: BaseModel,
+        result_type: type[_RESULT],
     ) -> _RESULT:
-        assert self._peer is not None
         body = _encode_request(request)
         try:
             async with httpx.AsyncClient(
@@ -270,9 +265,9 @@ class AssetsConnectionsGateway:
             ) as client:
                 async with client.stream(
                     "POST",
-                    f"{self._peer}/v1/connections/{operation}",
+                    f"{peer}/v1/connections/{operation}",
                     headers={
-                        "Authorization": f"Bearer {self._token}",
+                        "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
@@ -327,16 +322,28 @@ class AssetsConnectionsGateway:
         if CONNECTION_OPERATIONS.get(operation) != (type(request), result_type):
             raise TypeError(f"Invalid connection request/result pair for {operation}")
         _encode_request(request)
-        local = self._peer is None
+        peer = None
+        token = ""
+        if operation in _MUTATING_OPERATIONS:
+            try:
+                token = source_token("connections") or settings.assets_source_token
+            except SavedIOError:
+                raise AssetsConnectionsGatewayError(
+                    "service_unavailable", "Assets source service is unavailable", 503
+                ) from None
+            peer = _peer_url(token)
+        local = peer is None
         if local and operation in {"create", "update", "test"}:
             raise AssetsConnectionsGatewayError(
                 "service_unavailable", "Assets source service is unavailable", 503
             )
         try:
-            if local:
+            if peer is None:
                 result = await self._workflow().invoke(operation, request)
             else:
-                result = await self._remote(operation, request, result_type)
+                result = await self._remote(
+                    peer, token, operation, request, result_type
+                )
             if not isinstance(result, result_type):
                 raise _invalid_response()
             try:

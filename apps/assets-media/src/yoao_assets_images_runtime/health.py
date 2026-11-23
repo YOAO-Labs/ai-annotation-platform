@@ -69,27 +69,34 @@ def _expected_signatures(role: str) -> tuple[str, ...]:
 
 async def check_capabilities(pool, role: str = "worker") -> bool:
     """Compare the effective EXECUTE set by OID and reject direct data grants."""
+    try:
+        async with pool.acquire(timeout=2) as connection:
+            return await check_connection(connection, role)
+    except Exception:
+        return False
+
+
+async def check_connection(connection, role: str = "worker") -> bool:
     signatures = _expected_signatures(role)
     if not signatures:
         return False
     try:
-        async with pool.acquire(timeout=2) as connection:
-            async with connection.transaction(readonly=True):
-                await connection.execute("SET LOCAL statement_timeout='5s'")
-                if not await connection.fetchval(_ROLE_SQL):
+        async with connection.transaction(readonly=True):
+            await connection.execute("SET LOCAL statement_timeout='5s'")
+            if not await connection.fetchval(_ROLE_SQL):
+                return False
+            expected: set[int] = set()
+            for signature in signatures:
+                oid = await connection.fetchval(
+                    "SELECT to_regprocedure($1)::oid", signature
+                )
+                if type(oid) is not int:
                     return False
-                expected: set[int] = set()
-                for signature in signatures:
-                    oid = await connection.fetchval(
-                        "SELECT to_regprocedure($1)::oid", signature
-                    )
-                    if type(oid) is not int:
-                        return False
-                    expected.add(oid)
-                if len(expected) != len(signatures):
-                    return False
-                rows = await connection.fetch(_FUNCTION_SQL)
-                actual = {row["oid"] for row in rows}
-                return actual == expected and all(row["prosecdef"] for row in rows)
+                expected.add(oid)
+            if len(expected) != len(signatures):
+                return False
+            rows = await connection.fetch(_FUNCTION_SQL)
+            actual = {row["oid"] for row in rows}
+            return actual == expected and all(row["prosecdef"] for row in rows)
     except Exception:
         return False

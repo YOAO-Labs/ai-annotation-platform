@@ -51,6 +51,9 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.deps import get_db
 from app.services import original_cache as cache, trained_models
+from app.services.raster_mask_references import (
+    is_referenced as is_raster_mask_key_referenced,
+)
 from app.services.raster_mask_storage import (
     build_rle_reference,
     lock_raster_mask_references,
@@ -60,7 +63,6 @@ from app.services.training_dataset_bridge import content_digest
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers import tasks as worker_tasks
 from app.workers.celery_app import celery_app
-from app.workers.cleanup import _is_raster_mask_key_referenced
 from tests.test_reference_background_native import response_for
 from tests.test_reference_original_cache import (
     _REAL_STORAGE,
@@ -397,7 +399,7 @@ async def _cleanup_mask(world, mask, preexisting):
             .where(RasterMaskUpload.object_key == key)
             .limit(1)
         )
-        if upload is None and not await _is_raster_mask_key_referenced(db, key):
+        if upload is None and not await is_raster_mask_key_referenced(db, key):
             await asyncio.to_thread(storage_service.delete_object, key)
         await db.commit()
 

@@ -92,6 +92,37 @@ x-private-env: &private-env
   ASSETS_IMAGES_NATIVE_STORAGE_URL: ""
   ASSETS_IMAGES_NATIVE_STORAGE_TOKEN: ""
   ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE: ""
+  CONNECTOR_ENCRYPTION_KEY: ""
+  CONNECTOR_ENCRYPTION_KEY_FILE: ""
+  ASSETS_SOURCE_URL: ""
+  ASSETS_SOURCE_DATABASE_URL: ""
+  ASSETS_SOURCE_DATABASE_URL_FILE: ""
+  ASSETS_SOURCE_TOKEN: ""
+  ASSETS_SOURCE_TOKEN_FILE: ""
+  ASSETS_SOURCE_IMPORT_VERIFY_TOKEN: ""
+  ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE: ""
+  ASSETS_SOURCE_S3_ACCESS_KEY: ""
+  ASSETS_SOURCE_S3_ACCESS_KEY_FILE: ""
+  ASSETS_SOURCE_S3_SECRET_KEY: ""
+  ASSETS_SOURCE_S3_SECRET_KEY_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_DATABASE_URL: ""
+  ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE: ""
+  ASSETS_SOURCE_CONNECTIONS_TOKEN: ""
+  ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_SPOOL_DIR: ""
+  ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE: ""
   ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY: ""
   ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE: ""
   ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN: ""
@@ -132,6 +163,16 @@ x-assets-celery-image-env: &assets-celery-image-env
 x-assets-celery-env: &assets-celery-env
   <<: [*assets-celery-video-env, *assets-celery-image-env]
 
+x-assets-source-read-env: &assets-source-read-env
+  ASSETS_SOURCE_URL: ${ASSETS_SOURCE_URL:-}
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE:+/run/secrets/assets_source_saved_io_read_token}
+
+x-assets-source-write-env: &assets-source-write-env
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE:+/run/secrets/assets_source_saved_io_write_token}
+
+x-assets-source-cleanup-env: &assets-source-cleanup-env
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cleanup_token}
+
 x-prod-infra-env: &prod-infra-env
   <<: *private-env
   DATABASE_URL: ${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}
@@ -170,7 +211,16 @@ services:
       - .env.production
     environment:
       <<:
-        [*jobs-publication-env, *notification-producer-env, *native-image-reader-env, *private-env]
+        [
+          *jobs-publication-env,
+          *notification-producer-env,
+          *native-image-reader-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *private-env,
+        ]
+      ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE:+/run/secrets/assets_source_connections_token}
       REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
       ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
@@ -186,13 +236,29 @@ services:
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
       ML_MANAGED_AUTH_DIR: /run/aap-inference-auth
       ML_BACKEND_OPERATIONS_DIR: /run/aap-backend-manager
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
     volumes:
       - *notification-publication-secret
       - type: bind
-        source: ${SMTP_PASSWORD_FILE:-/dev/null}
-        target: /run/secrets/api_smtp_password
+        source: ${ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_read_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_write_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_cleanup_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_connections_token
         read_only: true
         bind:
           create_host_path: false
@@ -281,7 +347,7 @@ services:
     env_file:
       - .env.production
     environment:
-      <<: *prod-infra-env
+      <<: [*assets-source-read-env, *assets-source-write-env, *prod-infra-env]
       DATABASE_URL: ${MIGRATION_DATABASE_URL:-${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}}
     depends_on:
       api:
@@ -297,6 +363,9 @@ services:
           *notification-producer-env,
           *native-image-reader-env,
           *assets-celery-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
           *prod-infra-env,
         ]
       NOTIFICATION_PUBLISH_DATABASE_URL: ${NOTIFICATION_PUBLISH_DATABASE_URL:-}
@@ -309,7 +378,13 @@ services:
     env_file:
       - .env.production
     environment:
-      <<: [*assets-celery-image-env, *prod-infra-env]
+      <<:
+        [
+          *assets-celery-image-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *prod-infra-env,
+        ]
 
   celery-worker-gpu-control:
     env_file:
@@ -321,7 +396,15 @@ services:
     env_file:
       - .env.production
     environment:
-      <<: [*jobs-publication-env, *assets-celery-env, *prod-infra-env]
+      <<:
+        [
+          *jobs-publication-env,
+          *assets-celery-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *prod-infra-env,
+        ]
       ASSETS_MASK_CLEANUP_URL: ""
       ASSETS_MASK_CLEANUP_TOKEN: ""
       ASSETS_MASK_CLEANUP_TOKEN_FILE: ""
@@ -331,14 +414,30 @@ services:
     env_file:
       - .env.production
     environment:
-      <<: [*jobs-publication-env, *assets-celery-env, *prod-infra-env]
+      <<:
+        [
+          *jobs-publication-env,
+          *assets-celery-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *prod-infra-env,
+        ]
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
 
   celery-worker-export:
     env_file:
       - .env.production
     environment:
-      <<: [*jobs-publication-env, *notification-producer-env, *prod-infra-env]
+      <<:
+        [
+          *jobs-publication-env,
+          *notification-producer-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *prod-infra-env,
+        ]
       EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
 

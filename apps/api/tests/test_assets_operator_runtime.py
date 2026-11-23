@@ -99,7 +99,6 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
     test_engine, app_module, tmp_path, monkeypatch
 ):
     from scripts.import_nuscenes_scene import import_nuscenes
-    from app.config import settings
     from app.services.dataset import DatasetService
     from app.services.project_workspace import find_import_project
 
@@ -115,7 +114,6 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
     _write_fake_nuscenes(source, scenes=1, samples_per=2)
     suffix = uuid4().hex[:10]
     name = "operator-nuscenes-" + suffix
-    monkeypatch.setattr(settings, "assets_catalog_url", "")
     try:
         async with maker() as caller:
             result = await import_nuscenes(

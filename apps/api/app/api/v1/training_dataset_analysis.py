@@ -5,18 +5,11 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, literal, select
-from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import defer
 from starlette.background import BackgroundTask
 
 from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_dataset_analysis import (
-    TrainingDatasetAnalyzedSample as Sample,
-)
 from app.deps import get_current_user, get_db, require_project_owner, require_scopes
 from app.schemas.training_dataset_analysis import (
     TrainingDatasetInsightOverview,
@@ -27,6 +20,7 @@ from app.schemas.training_dataset_analysis import (
     TrainingDatasetFrozenMask,
 )
 from app.services import training_dataset_analysis as service
+from app.services import training_dataset_data as data
 from app.services import training_dataset_storage, training_storage_io
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.identity_contracts import IdentityActorFacts
@@ -166,35 +160,20 @@ async def samples(
     elif baseline_id:
         _, baseline, _ = await authorized_analysis(db, project, user, baseline_id)
         comparison_result(baseline, target)
-    query = (
-        select(Sample)
-        .where(Sample.version_id == source_id)
-        .options(defer(Sample.labels))
+    if class_index is not None and class_index >= len(source.summary["classes"]):
+        raise HTTPException(status_code=422, detail="类别索引不属于当前样本版本")
+    total, items = await service.sample_page(
+        db,
+        source_id,
+        source.input_digest,
+        limit=limit,
+        offset=offset,
+        split=split,
+        class_index=class_index,
+        content_sha256=content_sha256,
+        kind=kind,
+        selected_contents=selected_contents,
     )
-    query = query.where(Sample.included.is_(kind != "excluded"))
-    if split:
-        query = query.where(Sample.split == split)
-    if content_sha256:
-        query = query.where(Sample.sha256 == content_sha256)
-    if class_index is not None:
-        if class_index >= len(source.summary["classes"]):
-            raise HTTPException(status_code=422, detail="类别索引不属于当前样本版本")
-        query = query.where(Sample.class_ids.contains([class_index]))
-    if kind in {"positive", "negative"}:
-        query = query.where(Sample.is_negative.is_(kind == "negative"))
-    if kind == "unavailable":
-        query = query.where(Sample.issue.is_not(None))
-    if selected_contents is not None:
-        query = query.where(Sample.sha256.in_(sorted(selected_contents)))
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    items = (
-        await db.scalars(
-            query.order_by(Sample.task_id)
-            .limit(limit)
-            .offset(offset)
-            .execution_options(populate_existing=True)
-        )
-    ).all()
     return {
         "source_version_id": source_id,
         "items": items,
@@ -205,11 +184,7 @@ async def samples(
 
 
 async def sample_row(db, version_id, task_id):
-    row = await db.scalar(
-        select(Sample)
-        .where(Sample.version_id == version_id, Sample.task_id == task_id)
-        .execution_options(populate_existing=True)
-    )
+    row = await service.read_sample(db, version_id, task_id)
     if not row:
         raise HTTPException(status_code=404, detail="样本不属于该冻结版本")
     return row
@@ -227,61 +202,27 @@ async def sample_detail(
 ):
     version, _, _ = await authorized_analysis(db, project, user, version_id)
     row = await sample_row(db, version_id, task_id)
-    manifest = await db.scalar(
-        select(TrainingDatasetVersion.manifest).where(
-            TrainingDatasetVersion.id == version_id,
-            TrainingDatasetVersion.project_id == project.id,
-        )
-    )
-    if manifest is None:
+    evidence = await data.read_sample_evidence(db, project.id, version_id, task_id)
+    if evidence is None:
         raise HTTPException(status_code=404, detail="数据版本已删除")
     from app.services.training_dataset_sources import frozen_source_evidence
 
-    member = next(
-        (
-            member
-            for member in manifest.get("samples", [])
-            if member["task_id"] == str(task_id)
-        ),
-        None,
-    )
+    member = evidence["manifest_member"]
     if member is None and row.included:
         raise HTTPException(status_code=409, detail="冻结清单缺少该成员")
-    frozen, source = {}, None
-    if member is not None and member.get("asset_reference") is None:
-        matched = func.jsonb_path_query_first(
-            TrainingDatasetVersion.snapshot,
-            literal("$.samples[*] ? (@.task_id == $task_id)").cast(JSONPATH),
-            func.jsonb_build_object("task_id", str(task_id)),
-        ).cast(JSONB)
-        projection = await db.scalar(
-            select(
-                func.jsonb_build_object(
-                    "contract_present",
-                    TrainingDatasetVersion.snapshot.has_key(
-                        "managed_original_contract"
-                    ),
-                    "contract",
-                    TrainingDatasetVersion.snapshot["managed_original_contract"],
-                    "member",
-                    func.jsonb_build_object(
-                        "task_id", matched["task_id"], "original", matched["original"]
-                    ),
-                )
-            ).where(
-                TrainingDatasetVersion.id == version_id,
-                TrainingDatasetVersion.project_id == project.id,
-            )
-        )
-        if projection is None:
-            raise HTTPException(status_code=404, detail="数据版本已删除")
-        if projection["contract_present"]:
-            frozen["managed_original_contract"] = projection["contract"]
-        source = projection["member"]
+    frozen = (
+        {"managed_original_contract": evidence["contract"]}
+        if evidence["contract_present"]
+        else {}
+    )
     try:
         lineage = (
             frozen_source_evidence(
-                frozen, manifest, member, source, version.snapshot_digest
+                frozen,
+                evidence["manifest"],
+                member,
+                evidence["original_member"],
+                version.snapshot_digest,
             )
             if member is not None
             else {
@@ -316,15 +257,7 @@ async def sample_mask(
     db: AsyncSession = Depends(get_db),
 ):
     version, _, _ = await authorized_analysis(db, project, user, version_id)
-    retained = await db.scalar(
-        select(TrainingDatasetVersion.id)
-        .where(
-            TrainingDatasetVersion.id == version.id,
-            TrainingDatasetVersion.project_id == project.id,
-        )
-        .with_for_update(read=True)
-    )
-    if retained is None:
+    if not await data.hold_version(db, version_id, project.id):
         raise HTTPException(status_code=404, detail="数据版本已删除")
     row = await sample_row(db, version_id, task_id)
     try:
@@ -368,15 +301,7 @@ async def sample_media(
     preview: bool = False,
 ):
     version, _, _ = await authorized_analysis(db, project, user, version_id)
-    retained = await db.scalar(
-        select(TrainingDatasetVersion.id)
-        .where(
-            TrainingDatasetVersion.id == version_id,
-            TrainingDatasetVersion.project_id == project.id,
-        )
-        .with_for_update(read=True)
-    )
-    if retained is None:
+    if not await data.hold_version(db, version_id, project.id):
         raise HTTPException(status_code=404, detail="数据版本已删除")
     row = await sample_row(db, version_id, task_id)
     if not row.included:

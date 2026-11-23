@@ -36,7 +36,7 @@ async def ready(world, monkeypatch):
     db, ds, actor, items, blobs = world
     run = await quality.start(db, ds.id, actor, DatasetQualityConfig())
     await db.commit()
-    await run_all(db, run)
+    run = await run_all(db, run)
 
     async def dispatch(db, batch):
         await db.commit()
@@ -52,7 +52,7 @@ async def make_batch(ready, **kwargs):
     )
     batch = await svc.preview(db, ds.id, run.id, actor, payload)
     await db.commit()
-    return batch
+    return await db.get(Batch, batch.id, populate_existing=True)
 
 
 async def confirm(ready, batch):
@@ -66,6 +66,7 @@ async def confirm(ready, batch):
         QualityReviewExecute(scope_digest=batch.scope_digest, range_policy="snapshot"),
     )
     await db.commit()
+    await db.refresh(batch)
     return value, started
 
 
@@ -86,7 +87,7 @@ async def audits(db):
 async def test_filtered_snapshot_matches_all_pages_and_never_expands(ready):
     db, ds, actor, run = ready
     page = await quality.result_page(
-        db, run, limit=1, offset=1, finding="exact_duplicate"
+        db, run, actor, limit=1, offset=1, finding="exact_duplicate"
     )
     batch = await make_batch(ready, query={"finding": "exact_duplicate"})
     assert batch.total == page["total"] == 2 and not batch.async_job_id
@@ -193,12 +194,15 @@ async def test_cancel_resume_checkpoints_and_stale_callbacks(ready):
     job = await db.get(AsyncJob, batch.async_job_id)
     old_id, old_task, old_generation = job.id, job.celery_task_id, batch.generation
     assert await worker.process_one(db, batch.id, job.id, old_task, old_generation)
+    await db.refresh(batch)
     assert batch.processed == 1 and await audits(db) == 1
     await svc.cancel_job(db, job, actor)
     await db.commit()
+    await db.refresh(batch)
     assert batch.status == "cancelled"
     await svc.resume(db, ds.id, run.id, batch.id, actor)
     await db.commit()
+    await db.refresh(batch)
     new_job = batch.async_job_id
     assert new_job != old_id
     assert not await worker.process_one(db, batch.id, old_id, old_task, old_generation)
@@ -228,6 +232,7 @@ async def test_recovery_rotates_task_and_old_signal_is_fenced(ready):
     assert job.celery_task_id != old_task and batch.generation > generation
     await svc.signal_interrupted(db, job.id, old_task, cancelled=False)
     await db.commit()
+    await db.refresh(batch)
     assert batch.status == "pending"
     await execute_all(db, batch)
     assert batch.status == "completed"
@@ -414,12 +419,9 @@ async def test_job_and_parent_access_and_preview_visibility(
     )
     db.add(other)
     await db.commit()
-    assert (
-        await db.scalar(
-            select(Batch.id).where(Batch.id == batch.id, svc.visible_clause(other))
-        )
-        is None
-    )
+    with pytest.raises(HTTPException) as hidden:
+        await svc.require_batch(db, ds.id, run.id, batch.id, other)
+    assert hidden.value.status_code == 404
     await confirm(ready, batch)
     with pytest.raises(HTTPException) as exc:
         await svc.execute_preview(
@@ -490,6 +492,7 @@ async def test_api_key_scope_and_rotation_prevent_review(
         key.id,
     )
     await db.commit()
+    await db.refresh(batch)
     job_url = f"/api/v1/async-jobs/{batch.async_job_id}"
     assert (await client.get(job_url, headers=token(keys[0]))).status_code == 403
     listed = await client.get(

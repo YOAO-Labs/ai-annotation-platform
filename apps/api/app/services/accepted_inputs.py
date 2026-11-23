@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 from uuid import UUID
 
@@ -15,6 +15,7 @@ from yoao_assets_inputs import contract as c
 from yoao_assets_inputs.client import InputClient
 from yoao_assets_inputs_runtime.database import validate_native_result
 from app.config import settings
+from app.services.assets_executor_db import executor_sessions
 
 
 class SqlAlchemyInputDatabase:
@@ -148,13 +149,7 @@ class InputGateway:
 
 @asynccontextmanager
 async def input_gateway(*, session_factory=None):
-    if settings.assets_media_url:
-        async with InputClient(
-            settings.assets_media_url, settings.assets_media_token
-        ) as client:
-            yield InputGateway(client)
-        return
-
+    local_execution = settings.assets_image_executor == "celery"
     from yoao_assets_images_runtime.control import ImageControl
     from yoao_assets_inputs_runtime.control import InputControl
     from yoao_assets_inputs_runtime.storage import S3InputStorage
@@ -165,40 +160,58 @@ async def input_gateway(*, session_factory=None):
         image_storage,
     )
 
-    source_storage = image_storage()
-    scheme = "https" if settings.minio_use_ssl else "http"
-    public = (
-        f"{scheme}://{settings.ml_backend_storage_host}"
-        if settings.ml_backend_storage_host
-        else source_storage.config.public_endpoint
-    )
-    config = replace(
-        source_storage.config,
-        inputs_bucket=settings.minio_inputs_bucket,
-        public_endpoint=public,
-    )
-    storage = S3InputStorage(config, source_storage=source_storage)
-    database = _IndependentInputDatabase(session_factory)
     policy = image_policy()
-    images = ImageControl(
-        _IndependentImageDatabase(session_factory), source_storage, policy, wakeup=None
-    )
-    control = InputControl(
-        database,
-        images,
-        storage,
-        url_expiry_seconds=min(policy.url_expiry_seconds, 3600),
-    )
-    executor = InputExecutor(database, storage, policy=policy)
-    try:
-        yield InputGateway(
-            control, executor=executor, storage=storage, database=database
+    async with AsyncExitStack() as resources:
+        remote = None
+        if settings.assets_media_url:
+            remote = await resources.enter_async_context(
+                InputClient(settings.assets_media_url, settings.assets_media_token)
+            )
+            if not local_execution:
+                yield InputGateway(remote)
+                return
+        source_storage = image_storage(control=not local_execution)
+        scheme = "https" if settings.minio_use_ssl else "http"
+        config = replace(
+            source_storage.config,
+            inputs_bucket=settings.minio_inputs_bucket,
+            public_endpoint=(
+                f"{scheme}://{settings.ml_backend_storage_host}"
+                if settings.ml_backend_storage_host
+                else source_storage.config.public_endpoint
+            ),
         )
-    finally:
-        try:
-            await storage.close()
-        finally:
-            await images.close()
+        if remote is not None:
+            resources.push_async_callback(source_storage.close)
+        else:
+            images = ImageControl(
+                _IndependentImageDatabase(session_factory),
+                source_storage,
+                policy,
+                wakeup=None,
+            )
+            resources.push_async_callback(images.close)
+        storage = S3InputStorage(config, source_storage=source_storage)
+        resources.push_async_callback(storage.close)
+        executor = None
+        if local_execution:
+            factory = await resources.enter_async_context(executor_sessions("image"))
+            executor = InputExecutor(
+                _IndependentInputDatabase(factory), storage, policy=policy
+            )
+        if remote is not None:
+            yield InputGateway(remote, executor=executor)
+        else:
+            database = _IndependentInputDatabase(session_factory)
+            control = InputControl(
+                database,
+                images,
+                storage,
+                url_expiry_seconds=min(policy.url_expiry_seconds, 3600),
+            )
+            yield InputGateway(
+                control, executor=executor, storage=storage, database=database
+            )
 
 
 class InputAdmission:

@@ -1,102 +1,30 @@
 """Publish exact-content grants and qualify their physical read candidates."""
 
-from datetime import datetime, timezone
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import exists, func, select
-from sqlalchemy.orm import aliased
+from sqlalchemy import Boolean, Uuid, cast, func, text
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import DatasetAsset, StorageLocation
-from app.db.models.dataset_reference_replica import DatasetReferenceReplica as Replica
-from app.db.models.dataset_source import (
-    DatasetReference,
-    DatasetSource,
-    DatasetSourceRevision,
-)
-from app.db.models.site_agent import AgentCredential, AgentRegistration, Site
-from app.services import agent_availability, dataset_source_access as access
-from app.services import dataset_references as references
 from app.services import content_snapshot as snapshots
-from app.services.site_agents import SiteAgentError, state, validate_current
-
-ORIGINAL_PRIORITY = 100
+from app.services import dataset_references as references
+from app.services import site_agents
+from app.services.storage_registry_data import get_location
 
 
 def active_replica_exists(primary_asset_id, *, actor=None):
     """SQL attempt eligibility only; never a physical read or authority receipt."""
-    original, target = aliased(DatasetAsset), aliased(DatasetAsset)
-    original_item, target_item = aliased(DatasetItem), aliased(DatasetItem)
-    reference, source, location = (
-        aliased(DatasetReference),
-        aliased(DatasetSource),
-        aliased(StorageLocation),
+    return func.yoao_assets_v1.directory_reference_replica_available(
+        cast(primary_asset_id, Uuid),
+        cast(actor.id if actor is not None else None, Uuid),
+        type_=Boolean,
     )
-    query = (
-        select(1)
-        .select_from(Replica)
-        .join(original, original.id == Replica.primary_asset_id)
-        .join(original_item, original_item.id == original.dataset_item_id)
-        .join(target, target.id == Replica.replica_asset_id)
-        .join(target_item, target_item.id == target.dataset_item_id)
-        .join(reference, reference.dataset_item_id == target_item.id)
-        .join(source, source.id == reference.source_id)
-        .join(location, location.id == source.location_id)
-        .where(
-            Replica.primary_asset_id == primary_asset_id,
-            Replica.revoked_at.is_(None),
-            original_item.dataset_id == target_item.dataset_id,
-            original.verification_state == "verified",
-            target.verification_state == "verified",
-            original.checksum_algorithm == "sha256",
-            target.checksum_algorithm == "sha256",
-            original.checksum_value == target.checksum_value,
-            original.size_bytes == target.size_bytes,
-            source.enabled.is_(True),
-            source.unregistered_at.is_(None),
-            location.enabled.is_(True),
-        )
-    )
-    if actor is not None:
-        query = query.where(
-            source.id.in_(
-                select(DatasetSource.id).where(access.source_scope_clause(actor))
-            )
-        )
-    return query.exists()
-
-
-def _candidates_query():
-    query = (
-        select(
-            DatasetItem.id.label("item_id"),
-            DatasetAsset.id.label("asset_id"),
-            DatasetSource.id.label("source_id"),
-            DatasetSource.name.label("source_name"),
-            StorageLocation.id.label("location_id"),
-            StorageLocation.name.label("location_name"),
-            StorageLocation.kind.label("location_kind"),
-            Site.id.label("site_id"),
-            Site.name.label("site_name"),
-            AgentRegistration.id.label("agent_id"),
-            *agent_availability.projection(),
-        )
-        .select_from(DatasetItem)
-        .join(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .join(DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id)
-        .join(DatasetSource, DatasetSource.id == DatasetReference.source_id)
-        .join(StorageLocation, StorageLocation.id == DatasetSource.location_id)
-    )
-    return agent_availability.join_status(query)
 
 
 async def _primary(db, item_id, actor):
-    context = await references.reference_context(db, item_id, actor)
-    if context["accepted_revision_id"] is None:
+    state = await references._reference_state(db, item_id, actor)
+    if state.facts.accepted_revision_id is None:
         raise snapshots.ContentError("reference_replica_requires_accepted_revision")
-    item = await db.get(DatasetItem, item_id, populate_existing=True)
-    return context, item
+    return state.facts
 
 
 def _candidate_out(row):
@@ -118,50 +46,41 @@ def _candidate_out(row):
     }
 
 
-async def candidates(db, item_id, actor, *, limit=50, offset=0):
-    context, item = await _primary(db, item_id, actor)
-    query = _candidates_query().where(
-        DatasetItem.dataset_id == item.dataset_id,
-        DatasetItem.id != item_id,
-        DatasetAsset.media_type == "image",
-        DatasetAsset.verification_state == "verified",
-        DatasetAsset.checksum_algorithm == "sha256",
-        DatasetAsset.checksum_value == context["sha256"],
-        DatasetAsset.size_bytes == context["size"],
-        DatasetSource.enabled.is_(True),
-        DatasetSource.unregistered_at.is_(None),
-        StorageLocation.enabled.is_(True),
-        access.source_scope_clause(actor),
-        ~exists().where(
-            Replica.primary_asset_id == context["asset_id"],
-            Replica.replica_asset_id == DatasetAsset.id,
-            Replica.revoked_at.is_(None),
-        ),
-        exists().where(
-            DatasetSourceRevision.source_id == DatasetSource.id,
-            DatasetSourceRevision.dataset_item_id == DatasetItem.id,
-            DatasetSourceRevision.asset_id == DatasetAsset.id,
-            DatasetSourceRevision.ownership_mode == "reference",
-            DatasetSourceRevision.content_sha256 == DatasetAsset.checksum_value,
-        ),
-    )
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    result = await db.execute(
-        query.order_by(DatasetSource.name, DatasetItem.id).limit(limit).offset(offset)
-    )
-    return {"items": [_candidate_out(row) for row in result.mappings()], "total": total}
-
-
-def _links_query(primary_asset_id, actor=None):
-    query = (
-        _candidates_query()
-        .join(Replica, Replica.replica_asset_id == DatasetAsset.id)
-        .add_columns(Replica.id, Replica.priority, Replica.created_at)
-        .where(
-            Replica.primary_asset_id == primary_asset_id, Replica.revoked_at.is_(None)
+async def _page(
+    db, item_id, actor, *, limit, offset=0, candidates=False, replica_id=None
+):
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.directory_reference_replica_page("
+                    "CAST(:actor AS uuid), CAST(:item AS uuid), :limit, :offset, "
+                    ":candidates, CAST(:replica AS uuid))"
+                ),
+                {
+                    "actor": actor.id,
+                    "item": item_id,
+                    "limit": limit,
+                    "offset": offset,
+                    "candidates": candidates,
+                    "replica": replica_id,
+                },
+            )
         )
+        .mappings()
+        .all()
     )
-    return query.where(access.source_scope_clause(actor)) if actor else query
+    out = [
+        _candidate_out(row) if candidates else _link_out(row, item_id)
+        for row in rows
+        if row["item_id"] is not None
+    ]
+    return {"items": out, "total": rows[0]["total"]}
+
+
+async def candidates(db, item_id, actor, *, limit=50, offset=0):
+    await _primary(db, item_id, actor)
+    return await _page(db, item_id, actor, limit=limit, offset=offset, candidates=True)
 
 
 def _link_out(row, item_id):
@@ -178,159 +97,118 @@ def _link_out(row, item_id):
 
 
 async def list_replicas(db, item_id, actor, *, limit=50, offset=0):
-    context, _ = await _primary(db, item_id, actor)
-    query = _links_query(context["asset_id"], actor)
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    result = await db.execute(
-        query.order_by(Replica.priority, Replica.id).limit(limit).offset(offset)
-    )
-    items = [_link_out(row, item_id) for row in result.mappings()]
-    return {"items": items, "total": total}
+    await _primary(db, item_id, actor)
+    return await _page(db, item_id, actor, limit=limit, offset=offset)
 
 
 async def _write_primary(db, item_id, actor, api_key_id):
     from app.services.dataset_lifecycle import lock_actor, require_writable
 
     actor, _ = await lock_actor(db, actor, api_key_id)
-    context, item = await _primary(db, item_id, actor)
-    await require_writable(db, item.dataset_id)
-    await db.scalar(
-        select(DatasetAsset.id)
-        .where(DatasetAsset.id == context["asset_id"])
-        .with_for_update()
+    primary = await _primary(db, item_id, actor)
+    await require_writable(db, primary.dataset_id)
+    await db.execute(
+        text(
+            "SELECT yoao_assets_v1.lock_directory_reference_replica_primary("
+            "CAST(:item AS uuid), CAST(:asset AS uuid))"
+        ),
+        {"item": item_id, "asset": primary.asset_id},
     )
-    return context, item, actor
+    return primary, actor
 
 
 async def create(db, item_id, payload, actor, *, api_key_id=None):
-    context, item, actor = await _write_primary(db, item_id, actor, api_key_id)
-    candidate, other = await _primary(db, payload.replica_item_id, actor)
+    primary, actor = await _write_primary(db, item_id, actor, api_key_id)
+    candidate = await _primary(db, payload.replica_item_id, actor)
     if (
-        other.id == item.id
-        or other.dataset_id != item.dataset_id
-        or candidate["sha256"] != context["sha256"]
-        or candidate["size"] != context["size"]
+        payload.replica_item_id == item_id
+        or candidate.dataset_id != primary.dataset_id
+        or candidate.sha256 != primary.sha256
+        or candidate.size_bytes != primary.size_bytes
     ):
         raise snapshots.ContentError("reference_replica_content_mismatch")
-    if await db.scalar(
-        select(Replica.id).where(
-            Replica.primary_asset_id == context["asset_id"],
-            Replica.replica_asset_id == candidate["asset_id"],
-            Replica.revoked_at.is_(None),
+    receipt = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.create_directory_reference_replica("
+                "CAST(:actor AS uuid), CAST(:primary AS uuid), CAST(:candidate AS uuid), :priority)"
+            ),
+            {
+                "actor": actor.id,
+                "primary": primary.asset_id,
+                "candidate": candidate.asset_id,
+                "priority": payload.priority,
+            },
         )
-    ):
-        raise snapshots.ContentError("reference_replica_exists")
-    link = Replica(
-        primary_asset_id=context["asset_id"],
-        replica_asset_id=candidate["asset_id"],
-        priority=payload.priority,
-        created_by=actor.id,
-    )
-    db.add(link)
-    await db.flush()
-    return await _out(db, context, link.id, actor)
+    ).one()
+    if receipt.error_code:
+        raise snapshots.ContentError(receipt.error_code)
+    return await _out(db, item_id, receipt.id, actor)
 
 
-async def _managed_link(db, item_id, replica_id, actor, api_key_id):
-    context, _, actor = await _write_primary(db, item_id, actor, api_key_id)
-    link = await db.scalar(
-        select(Replica)
-        .where(
-            Replica.id == replica_id,
-            Replica.primary_asset_id == context["asset_id"],
-            Replica.revoked_at.is_(None),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
+async def _change(db, item_id, replica_id, actor, api_key_id, priority):
+    primary, actor = await _write_primary(db, item_id, actor, api_key_id)
+    error = await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.change_directory_reference_replica("
+            "CAST(:actor AS uuid), CAST(:primary AS uuid), CAST(:replica AS uuid), "
+            "CAST(:priority AS integer))"
+        ),
+        {
+            "actor": actor.id,
+            "primary": primary.asset_id,
+            "replica": replica_id,
+            "priority": priority,
+        },
     )
-    if link is None:
+    if error == "reference_replica_not_found":
         raise HTTPException(404, "Reference replica not found")
-    candidate = await db.get(DatasetAsset, link.replica_asset_id)
-    reference = await db.get(DatasetReference, candidate.dataset_item_id)
-    await access.require_source(db, reference.source_id, actor)
-    return context, link
+    if error == "reference_replica_source_not_found":
+        raise HTTPException(404, "Dataset source not found")
+    return actor
 
 
 async def update(db, item_id, replica_id, payload, actor, *, api_key_id=None):
-    context, link = await _managed_link(db, item_id, replica_id, actor, api_key_id)
-    link.priority = payload.priority
-    await db.flush()
-    return await _out(db, context, link.id, actor)
+    actor = await _change(db, item_id, replica_id, actor, api_key_id, payload.priority)
+    return await _out(db, item_id, replica_id, actor)
 
 
 async def revoke(db, item_id, replica_id, actor, *, api_key_id=None):
-    _, link = await _managed_link(db, item_id, replica_id, actor, api_key_id)
-    link.revoked_at, link.revoked_by = datetime.now(timezone.utc), actor.id
-    await db.flush()
+    await _change(db, item_id, replica_id, actor, api_key_id, None)
 
 
-async def _out(db, context, replica_id, actor):
-    row = (
-        (
-            await db.execute(
-                _links_query(context["asset_id"], actor).where(Replica.id == replica_id)
-            )
-        )
-        .mappings()
-        .one()
-    )
-    return _link_out(row, context["item_id"])
+async def _out(db, item_id, replica_id, actor):
+    items = (await _page(db, item_id, actor, limit=1, replica_id=replica_id))["items"]
+    if not items:
+        raise HTTPException(404, "Reference replica not found")
+    return items[0]
 
 
 async def route_order(db, context):
     """Only explicit edges, with persisted priority and observed health as hints."""
-    result = await db.execute(_links_query(context["asset_id"]))
-    rows = list(result.mappings())
-    if not rows:
-        return [None]
-    statuses = await agent_availability.for_locations(db, [context["location_id"]])
-    original = statuses.get(context["location_id"])
-    choices = [
-        (
-            ORIGINAL_PRIORITY,
-            int(bool(original and original["state"] != "online")),
-            "",
-            None,
-        )
-    ]
-    choices.extend(
-        (
-            row["priority"],
-            int(row["agent_state"] not in {None, "online"}),
-            str(row["id"]),
-            row["id"],
-        )
-        for row in rows
+    rows = await db.scalars(
+        text(
+            "SELECT * FROM yoao_assets_v1.directory_reference_route_order("
+            "CAST(:asset AS uuid), CAST(:location AS uuid))"
+        ),
+        {"asset": context["asset_id"], "location": context["location_id"]},
     )
-    return [choice[3] for choice in sorted(choices)]
+    return rows.all() or [None]
 
 
 async def assert_agent_readable(db, context):
     """A routing hint never substitutes for current credential/root qualification."""
     if context["location_kind"] != "agent":
         return
-    location = await db.get(
-        StorageLocation, context["location_id"], populate_existing=True
-    )
-    agent = await db.get(
-        AgentRegistration,
-        uuid.UUID(location.config["agent_id"]),
-        populate_existing=True,
-    )
-    credential = (
-        await db.get(
-            AgentCredential,
-            (agent.id, agent.credential_revision),
-            populate_existing=True,
-        )
-        if agent
-        else None
+    location = await get_location(db, context["location_id"])
+    agent, credential = await site_agents.get_identity(
+        db, uuid.UUID(location.config["agent_id"])
     )
     try:
-        validate_current(agent, credential)
-    except SiteAgentError as exc:
+        site_agents.validate_current(agent, credential)
+    except site_agents.SiteAgentError as exc:
         raise snapshots.ContentError(exc.code, exc.status) from None
-    if state(agent) == "offline":
+    if site_agents.state(agent) == "offline":
         raise snapshots.ContentError("agent_offline", 503)
     if agent.draining:
         raise snapshots.ContentError("agent_draining")
@@ -351,36 +229,37 @@ async def assert_agent_readable(db, context):
 
 async def source_context(db, context, replica_id, actor, *, task_id=None, node_id=None):
     """Delegate only the already authorized primary's exact bytes to one edge."""
-    link = await db.get(Replica, replica_id, populate_existing=True)
-    if (
-        link is None
-        or link.revoked_at is not None
-        or link.primary_asset_id != context["asset_id"]
-    ):
-        raise snapshots.ContentError("reference_replica_changed")
-    target = await db.get(DatasetAsset, link.replica_asset_id, populate_existing=True)
-    if target is None:
+    if db.autoflush:
+        await db.flush()
+    link = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.directory_reference_replica_edge("
+                "CAST(:asset AS uuid), CAST(:replica AS uuid))"
+            ),
+            {"asset": context["asset_id"], "replica": replica_id},
+        )
+    ).one_or_none()
+    if link is None:
         raise snapshots.ContentError("reference_replica_changed")
     if task_id is None:
-        state = await references._reference_state(db, target.dataset_item_id, actor)
+        state = await references._reference_state(db, link.replica_item_id, actor)
     else:
-        state = await references._reference_binding_state(db, target.dataset_item_id)
-    candidate = references._logical_context(state)
-    original = await db.get(DatasetItem, context["item_id"], populate_existing=True)
+        state = await references._reference_binding_state(db, link.replica_item_id)
+    candidate = state.facts
     if (
-        original is None
-        or state[6].dataset_id != original.dataset_id
-        or candidate["asset_id"] != link.replica_asset_id
-        or candidate["sha256"] != context["sha256"]
-        or candidate["size"] != context["size"]
-        or candidate["accepted_revision_id"] is None
+        candidate.dataset_id != link.primary_dataset_id
+        or candidate.asset_id != link.replica_asset_id
+        or candidate.sha256 != context["sha256"]
+        or candidate.size_bytes != context["size"]
+        or candidate.accepted_revision_id is None
     ):
         raise snapshots.ContentError("reference_replica_content_mismatch")
     physical = await references._physical_reference_context(db, state, node_id=node_id)
     authority = await assert_agent_readable(db, physical)
     return {
         "id": link.id,
-        "primary_asset_id": link.primary_asset_id,
+        "primary_asset_id": context["asset_id"],
         "replica_asset_id": link.replica_asset_id,
         "priority": link.priority,
         "agent_authority": authority,

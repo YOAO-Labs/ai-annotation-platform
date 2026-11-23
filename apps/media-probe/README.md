@@ -2,6 +2,10 @@
 
 `yoao-media-probe` owns the ffprobe kernel used to read video metadata, frame timestamps, and packet samples. Its Python kernel only uses the standard library. The standalone HTTP adapter has its own process, bearer token, upload limit, and Docker image; it does not import `apps/api`, open a database, or access platform storage.
 
+Callers may use the same probe kernel in-process or explicitly configure the
+private `MEDIA_PROBE_URL`; use the standalone host for FFmpeg memory and
+temporary-disk isolation. This choice is independent of the Assets video executor.
+
 ## HTTP contract
 
 Every probe request uses `Authorization: Bearer $MEDIA_PROBE_TOKEN` and sends the media bytes directly as `application/octet-stream`. The service never accepts a filesystem path or a URL. Native probing allows only file/pipe protocols, so embedded network references cannot fetch additional input.

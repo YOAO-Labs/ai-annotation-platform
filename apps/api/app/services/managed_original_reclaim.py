@@ -11,23 +11,11 @@ import uuid
 
 from fastapi import HTTPException
 from jose import jwt, JWTError
-from sqlalchemy import func, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.async_job import AsyncJob
-from app.db.models.managed_original_reclaim import (
-    ManagedOriginalReclaimAttempt as Attempt,
-    ManagedOriginalReclaimClaim as Claim,
-    ReferenceReconciliationState as Reconciliation,
-)
-from app.db.models.storage_maintenance import (
-    StorageMaintenanceGate as Gate,
-    StorageOperation,
-)
-from app.db.models.user import User
 from app.schemas.managed_original_reclaim import (
     ManagedOriginalReclaimHistory,
     ManagedOriginalReclaimItem,
@@ -37,7 +25,17 @@ from app.schemas.managed_original_reclaim import (
 )
 from app.services import async_job as jobs, storage_access, storage_maintenance
 from app.services.audit import AuditService
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.managed_original_lifecycle_data import (
+    advance_reconciliation,
+    committed_job,
+    original_json,
+    reclaim_attempt,
+    reclaim_attempt_for_job,
+    reclaim_claim,
+    reclaim_reconciliation,
+)
 
 KIND = "managed_original_reclaim"
 REFERENCE_KIND = "managed_reference_reconciliation"
@@ -67,7 +65,7 @@ async def authority(db, actor, api_key_id=None, *, lock=False):
 
 
 async def attempt_authority(db, row, *, lock=False):
-    actor = await db.get(User, row.requested_by, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(row.requested_by)
     if actor is None:
         reject("reclaim_authority_changed", 403)
     actor, proof = await authority(
@@ -169,8 +167,8 @@ async def _target(db, context):
         blockers.append("reclaim_creation_changed")
     if str(creation.get("location_id")) != str(anchor.get("location_id")):
         blockers.append("reclaim_creation_changed")
-    if creation.get("operation_id") and await db.get(
-        StorageOperation, uuid.UUID(str(creation["operation_id"]))
+    if creation.get("operation_id") and await storage_access.operation_receipt(
+        db, uuid.UUID(str(creation["operation_id"]))
     ):
         blockers.append("physical_operation_unsettled")
     try:
@@ -210,26 +208,13 @@ async def _target(db, context):
         blockers.append("reclaim_creation_unproven")
     if fixture_scope == "blocked":
         blockers.append("fixture_original_store_unqualified")
-    elif fixture_scope == "qualified":
-        from app.db.models.fixture_run import FixtureOriginalTarget
-
-        try:
-            evidence = creation["configuration"]["fixture_original_target"]
-            binding = await db.get(
-                FixtureOriginalTarget, uuid.UUID(evidence["id"]), populate_existing=True
-            )
-            if (
-                binding is None
-                or binding.location_id != saved.location_id
-                or binding.bucket != saved.bucket
-                or binding.generation != saved.binding_generation
-                or binding.generation != evidence["generation"]
-                or binding.storage_identity != saved.storage_identity
-                or binding.store_receipt_sha256 != evidence["store_receipt_sha256"]
-            ):
-                raise ValueError()
-        except (ValueError, KeyError, TypeError):
-            blockers.append("fixture_original_storage_changed")
+    elif fixture_scope == "qualified" and not await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.fixture_original_target_matches(:creation_id, false)"
+        ),
+        {"creation_id": uuid.UUID(creation["id"])},
+    ):
+        blockers.append("fixture_original_storage_changed")
     return {
         "location_id": str(saved.location_id),
         "creation_id": str(creation["id"]),
@@ -246,12 +231,11 @@ async def _target(db, context):
 
 
 async def _gate(db, location_id, *, lock=False):
-    statement = select(Gate).where(Gate.location_id == uuid.UUID(str(location_id)))
-    if lock:
-        statement = statement.with_for_update(read=True, nowait=True)
     try:
         async with db.begin_nested():
-            return await db.scalar(statement.execution_options(populate_existing=True))
+            return await storage_access.gate_facts(
+                db, uuid.UUID(str(location_id)), lock="share_nowait" if lock else None
+            )
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("reclaim_busy")
@@ -270,18 +254,11 @@ async def context(
     gate = None
     if target:
         gate = await _gate(db, target["location_id"], lock=lock)
-        if gate is None or gate.state != "stopped":
+        if gate is None or gate["state"] != "stopped":
             blockers.append("reclaim_location_not_stopped")
         if gate:
-            target["maintenance_revision"] = gate.revision
-        claim = await db.scalar(
-            select(Claim)
-            .where(
-                Claim.bucket == target["bucket"],
-                Claim.object_key == target["object_key"],
-            )
-            .execution_options(populate_existing=True)
-        )
+            target["maintenance_revision"] = gate["revision"]
+        claim = await reclaim_claim(db, target["bucket"], target["object_key"])
         if claim and (
             claim.creation_id != uuid.UUID(target["creation_id"])
             or claim.version_id != target["version_id"]
@@ -295,7 +272,7 @@ async def context(
             elif allowed_attempt != claim.current_attempt_id:
                 blockers.append("reclaim_claimed")
         if retry_of_id is not None:
-            previous = await db.get(Attempt, retry_of_id, populate_existing=True)
+            previous = await reclaim_attempt(db, retry_of_id)
             if (
                 previous is None
                 or previous.retirement_id != retirement_id
@@ -315,8 +292,8 @@ async def context(
                 )
             ):
                 blockers.append("reclaim_retry_unavailable")
-            elif previous.operation_id and await db.get(
-                StorageOperation, previous.operation_id
+            elif previous.operation_id and await storage_access.operation_receipt(
+                db, previous.operation_id
             ):
                 blockers.append("physical_operation_unsettled")
     else:
@@ -410,23 +387,22 @@ async def history(db, retirement_id, actor, *, api_key_id=None, limit=20, offset
     await authority(db, actor, api_key_id)
     value = await context(db, retirement_id)
     total = await db.scalar(
-        select(func.count())
-        .select_from(Attempt)
-        .where(Attempt.retirement_id == retirement_id)
+        text("SELECT yoao_assets_v1.reclaim_history_count(:id)"),
+        {"id": retirement_id},
     )
-    rows = list(
-        await db.scalars(
-            select(Attempt)
-            .where(Attempt.retirement_id == retirement_id)
-            .order_by(Attempt.requested_at.desc(), Attempt.id.desc())
-            .limit(limit)
-            .offset(offset)
+    rows = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.reclaim_history_page(:id, :limit, :offset)"
+            ),
+            {"id": retirement_id, "limit": limit, "offset": offset},
         )
-    )
+    ).all()
     result = []
     for row in rows:
         unsettled = not row.physical_settled or bool(
-            row.operation_id and await db.get(StorageOperation, row.operation_id)
+            row.operation_id
+            and await storage_access.operation_receipt(db, row.operation_id)
         )
         fields = {
             field: getattr(row, field)
@@ -502,10 +478,8 @@ async def _start(db, retirement_id, payload, actor, *, api_key_id=None, request=
     target = value["target"]
     existing = value["claim"]
     active = await db.scalar(
-        select(Attempt).where(
-            Attempt.creation_id == uuid.UUID(target["creation_id"]),
-            Attempt.status.in_(ACTIVE),
-        )
+        text("SELECT yoao_assets_v1.reclaim_creation_active(:id)"),
+        {"id": uuid.UUID(target["creation_id"])},
     )
     if active:
         reject("reclaim_claimed")
@@ -517,7 +491,7 @@ async def _start(db, retirement_id, payload, actor, *, api_key_id=None, request=
         celery_task_id=task_id,
         payload={"retirement_id": str(retirement_id), "reclaim_id": str(identity)},
     )
-    row = Attempt(
+    facts = dict(
         id=identity,
         retirement_id=retirement_id,
         creation_id=uuid.UUID(target["creation_id"]),
@@ -536,31 +510,19 @@ async def _start(db, retirement_id, payload, actor, *, api_key_id=None, request=
         expected_size_bytes=target["size_bytes"],
         maintenance_revision=target["maintenance_revision"],
         reason=payload.reason,
-        status="pending",
-        phase="claimed",
-        physical_settled=True,
-        observation={},
     )
-    db.add(row)
-    await db.flush()
-    if existing:
-        existing.current_attempt_id = identity
-        if existing.state != "tombstone":
-            existing.state = "claimed"
-        existing.revision += 1
-    else:
-        db.add(
-            Claim(
-                bucket=target["bucket"],
-                object_key=target["object_key"],
-                storage_identity=target["storage_identity"],
-                creation_id=row.creation_id,
-                version_id=row.version_id,
-                current_attempt_id=identity,
-                state="claimed",
-            )
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.admit_original_reclaim(CAST(:facts AS jsonb), :claim, :revision)"
+            ),
+            {
+                "facts": original_json(facts),
+                "claim": existing.id if existing else None,
+                "revision": existing.revision if existing else None,
+            },
         )
-    await db.flush()
+    ).one()
     await AuditService.log(
         db,
         actor=actor,
@@ -596,29 +558,14 @@ def start_response(row, job, existing=False):
 
 
 async def by_job(db, job_id):
-    return await db.scalar(
-        select(Attempt)
-        .where(Attempt.async_job_id == job_id)
-        .execution_options(populate_existing=True)
-    )
+    return await reclaim_attempt_for_job(db, job_id)
 
 
 async def locked(db, row):
     await _exclusive(db, row.target["bucket"], row.target["object_key"])
-    row = await db.scalar(
-        select(Attempt)
-        .where(Attempt.id == row.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    claim = await db.scalar(
-        select(Claim)
-        .where(
-            Claim.bucket == row.target["bucket"],
-            Claim.object_key == row.target["object_key"],
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    row = await reclaim_attempt(db, row.id, lock=True)
+    claim = await reclaim_claim(
+        db, row.target["bucket"], row.target["object_key"], lock=True
     )
     job = (
         await db.scalar(
@@ -632,34 +579,43 @@ async def locked(db, row):
     return row, claim, job
 
 
-async def _finish(db, row, claim, job, *, status, outcome, error_code=None):
-    row.status, row.outcome, row.error_code, row.completed_at = (
-        status,
-        outcome,
-        error_code,
-        now(),
-    )
-    row.phase = "settled" if row.physical_settled else row.phase
-    if row.absence_verified_at is not None and row.physical_settled:
-        claim.state = "deleted"
-    elif row.delete_intent_at is not None:
-        claim.state = "tombstone"
-    elif row.physical_settled and claim.state != "tombstone":
-        claim.state = "released"
-    claim.revision += 1
-    if job and job.kind == KIND and job.celery_task_id == row.task_id:
-        job.status = "failed" if status == "unknown" else status
-        job.completed_at, job.error_message = row.completed_at, error_code
-        job.progress_pct = 100 if status == "completed" else job.progress_pct
-        job.result = {
-            "reclaim_id": str(row.id),
+async def _finish(db, row, _claim, job, *, status, outcome, error_code=None):
+    completed_at = now()
+    if not await db.scalar(
+        text("""SELECT yoao_assets_v1.finish_original_reclaim_attempt(
+            :id, :task, :previous, :status, :outcome, :error, :at,
+            :cancel, :settled, CAST(:ack AS jsonb), CAST(:observation AS jsonb))"""),
+        {
+            "id": row.id,
+            "task": row.task_id,
+            "previous": row.status,
+            "status": status,
             "outcome": outcome,
-            "error_code": error_code,
-            "delete_started": row.delete_intent_at is not None,
-            "absence_proven": row.absence_verified_at is not None,
-            "physical_settled": row.physical_settled,
-        }
-    await db.flush()
+            "error": error_code,
+            "at": completed_at,
+            "cancel": row.cancel_requested_at,
+            "settled": row.physical_settled,
+            "ack": original_json(row.delete_ack),
+            "observation": original_json(row.observation),
+        },
+    ):
+        return False
+    if job and job.kind == KIND and job.celery_task_id == row.task_id:
+        committed_job(
+            job,
+            status="failed" if status == "unknown" else status,
+            completed_at=completed_at,
+            error_message=error_code,
+            progress_pct=100 if status == "completed" else job.progress_pct,
+            result={
+                "reclaim_id": str(row.id),
+                "outcome": outcome,
+                "error_code": error_code,
+                "delete_started": row.delete_intent_at is not None,
+                "absence_proven": row.absence_verified_at is not None,
+                "physical_settled": row.physical_settled,
+            },
+        )
     return True
 
 
@@ -682,13 +638,21 @@ async def cancel(db, job_id):
         return "cancelled"
     await jobs.request_cancel(db, job.id)
     job.result = {**job.result, "cancel_requested": True}
+    await _persist_cancel(db, row)
     await db.flush()
     return "cancel_requested"
 
 
+async def _persist_cancel(db, row):
+    await db.execute(
+        text("SELECT yoao_assets_v1.request_original_reclaim_cancel(:id, :task, :at)"),
+        {"id": row.id, "task": row.task_id, "at": row.cancel_requested_at},
+    )
+
+
 async def redispatch(db, attempt_id, actor, *, api_key_id=None):
     await authority(db, actor, api_key_id, lock=True)
-    row = await db.get(Attempt, attempt_id)
+    row = await reclaim_attempt(db, attempt_id)
     if row is None:
         reject("reclaim_not_found", 404)
     row, _claim, job = await locked(db, row)
@@ -728,9 +692,14 @@ async def claim(db, job_id, task_id):
             error_code=failure,
         )
         return None
-    row.status, row.started_at, row.phase = "running", now(), "reading"
-    job.status, job.started_at = "running", row.started_at
-    await db.flush()
+    started_at = now()
+    if not await db.scalar(
+        text("SELECT yoao_assets_v1.claim_original_reclaim_attempt(:id, :task, :at)"),
+        {"id": row.id, "task": task_id, "at": started_at},
+    ):
+        return None
+    row.status, row.started_at, row.phase = "running", started_at, "reading"
+    committed_job(job, status="running", started_at=started_at)
     return row
 
 
@@ -739,7 +708,7 @@ async def acquire(db, attempt_id, task_id):
     async with AsyncSession(
         bind=storage_access.engine(db), expire_on_commit=False
     ) as owned:
-        row = await owned.get(Attempt, attempt_id)
+        row = await reclaim_attempt(owned, attempt_id)
         if row is None:
             reject("reclaim_not_found", 404)
         await attempt_authority(owned, row, lock=True)
@@ -755,15 +724,21 @@ async def acquire(db, attempt_id, task_id):
         value = await context(owned, row.retirement_id, lock=True, current_attempt=row)
         if value["blockers"] or value["fingerprint"] != row.input_fingerprint:
             reject("reclaim_context_changed")
-        operation = StorageOperation(
-            id=uuid.uuid4(),
-            location_id=uuid.UUID(row.target["location_id"]),
-            revision=row.maintenance_revision,
-            purpose=KIND,
-            node_id=f"{socket.gethostname()}:{os.getpid()}",
-        )
-        owned.add(operation)
-        row.operation_id, row.physical_settled = operation.id, False
+        operation = (
+            await owned.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.acquire_original_reclaim_operation(:id, :task, :operation, :node)"
+                ),
+                {
+                    "id": attempt_id,
+                    "task": task_id,
+                    "operation": uuid.uuid4(),
+                    "node": f"{socket.gethostname()}:{os.getpid()}",
+                },
+            )
+        ).one_or_none()
+        if operation is None:
+            reject("reclaim_operation_invalid")
         await owned.commit()
         return storage_access.Permit(
             storage_access.engine(db),
@@ -786,16 +761,11 @@ async def io_options(db, row):
 
 
 async def recover_may_delete(db, row):
-    return bool(
-        await db.scalar(
-            select(Attempt.id)
-            .where(
-                Attempt.creation_id == row.creation_id,
-                Attempt.version_id == row.version_id,
-                Attempt.delete_intent_at.is_not(None),
-            )
-            .limit(1)
-        )
+    return await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.reclaim_version_may_be_deleted(:creation, :version)"
+        ),
+        {"creation": row.creation_id, "version": row.version_id},
     )
 
 
@@ -804,12 +774,12 @@ async def checkpoint(db, attempt_id, task_id, phase, payload):
     async with AsyncSession(
         bind=storage_access.engine(db), expire_on_commit=False
     ) as owned:
-        row = await owned.get(Attempt, attempt_id)
+        row = await reclaim_attempt(owned, attempt_id)
         if row is None or row.task_id != task_id or row.status != "running":
             reject("reclaim_operation_invalid")
         if phase == "delete_started":
             await attempt_authority(owned, row, lock=True)
-        row, physical, job = await locked(owned, row)
+        row, _physical, job = await locked(owned, row)
         if payload.get("version_id") != row.version_id:
             reject("reclaim_version_changed")
         if phase in {"read_verified", "delete_started"} and (
@@ -817,14 +787,7 @@ async def checkpoint(db, attempt_id, task_id, phase, payload):
             or payload.get("size_bytes") != row.expected_size_bytes
         ):
             reject("reclaim_content_changed")
-        if phase == "read_verified":
-            if row.read_verified is None:
-                row.read_verified = {
-                    key: payload[key]
-                    for key in ("sha256", "size_bytes", "etag", "version_id")
-                    if key in payload
-                }
-        elif phase == "delete_started":
+        if phase == "delete_started":
             if row.cancel_requested_at or not job_matches(row, job):
                 reject("reclaim_cancelled")
             value = await context(
@@ -832,40 +795,27 @@ async def checkpoint(db, attempt_id, task_id, phase, payload):
             )
             if value["blockers"] or value["fingerprint"] != row.input_fingerprint:
                 reject("reclaim_context_changed")
-            if (
-                row.operation_id is None
-                or not await owned.get(StorageOperation, row.operation_id)
-                or row.physical_settled
-            ):
-                reject("reclaim_operation_invalid")
-            row.delete_intent_at = row.delete_intent_at or now()
-            row.phase = "delete_intent"
-            if physical.state != "tombstone":
-                physical.state = "tombstone"
-                physical.revision += 1
-        elif phase == "delete_ack":
-            if row.delete_intent_at is None:
-                reject("reclaim_intent_missing")
-            receipt = {
-                key: payload[key]
-                for key in ("version_id", "request_id", "http_status", "delete_marker")
-                if key in payload
-            }
-            if row.delete_ack is None:
-                row.delete_ack = receipt
-            elif row.delete_ack != receipt:
-                reject("reclaim_receipt_changed")
-            if row.absence_verified_at is None:
-                row.phase = "delete_ack"
-        elif phase == "version_absent":
-            if row.delete_intent_at is None and not await recover_may_delete(
-                owned, row
-            ):
-                reject("reclaim_intent_missing")
-            row.absence_verified_at = row.absence_verified_at or now()
-            row.phase = "absence_verified"
-        else:
-            reject("reclaim_checkpoint_invalid")
+        fields = (
+            ("version_id", "request_id", "http_status", "delete_marker")
+            if phase == "delete_ack"
+            else ("sha256", "size_bytes", "etag", "version_id")
+        )
+        error = await owned.scalar(
+            text(
+                "SELECT yoao_assets_v1.checkpoint_original_reclaim(:id, :task, :phase, CAST(:facts AS jsonb), :at)"
+            ),
+            {
+                "id": row.id,
+                "task": task_id,
+                "phase": phase,
+                "at": now(),
+                "facts": original_json(
+                    {key: payload[key] for key in fields if key in payload}
+                ),
+            },
+        )
+        if error is not None:
+            reject(error)
         await owned.commit()
 
 
@@ -878,7 +828,9 @@ async def publish(
     row, physical, job = await locked(db, row)
     if row.status != "running" or row.task_id != task_id:
         return False
-    remaining = row.operation_id and await db.get(StorageOperation, row.operation_id)
+    remaining = row.operation_id and await storage_access.operation_receipt(
+        db, row.operation_id
+    )
     row.physical_settled = bool(settled and not remaining)
     if result is not None:
         if result.delete_ack and row.delete_ack is None and row.delete_intent_at:
@@ -927,12 +879,7 @@ async def publish(
 async def signal_interrupted(db, job_id, task_id, *, cancelled):
     row = await by_job(db, job_id)
     if row is None:
-        state = await db.scalar(
-            select(Reconciliation)
-            .where(Reconciliation.id == 1)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        state = await reclaim_reconciliation(db, lock=True)
         if (
             state is None
             or state.async_job_id != job_id
@@ -943,17 +890,19 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
         job = await db.scalar(
             job_lock_statement(job_id, mode="update", populate_existing=True)
         )
-        state.status, state.error_code = (
-            "failed",
-            "reference_reconciliation_interrupted",
-        )
-        if job:
-            job.status, job.completed_at, job.error_message = (
-                "failed",
-                now(),
-                state.error_code,
+        error_code = "reference_reconciliation_interrupted"
+        completed_at = now()
+        if not await advance_reconciliation(
+            db, state, "failed", at=completed_at, error=error_code
+        ):
+            return False
+        if job and job.kind == REFERENCE_KIND and job.celery_task_id == task_id:
+            committed_job(
+                job,
+                status="failed",
+                completed_at=completed_at,
+                error_message=error_code,
             )
-        await db.flush()
         return True
     if row.task_id != task_id or row.status not in ACTIVE:
         return False
@@ -975,11 +924,13 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
             error_code=None if cancelled else "reclaim_interrupted",
         )
     row.cancel_requested_at = row.cancel_requested_at or (now() if cancelled else None)
+    if cancelled:
+        await _persist_cancel(db, row)
     return False
 
 
 async def reconciliation_out(db):
-    row = await db.get(Reconciliation, 1, populate_existing=True)
+    row = await reclaim_reconciliation(db)
     return (
         ReferenceReconciliationOut(
             **{
@@ -997,15 +948,9 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
         actor, proof = await authority(db, actor, api_key_id, lock=True)
     else:
         proof = None
-    await db.execute(insert(Reconciliation).values(id=1).on_conflict_do_nothing())
-    row = await db.scalar(
-        select(Reconciliation)
-        .where(Reconciliation.id == 1)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    row = await reclaim_reconciliation(db, lock=True, initialize=True)
     if row.status in ACTIVE:
-        job = await db.get(AsyncJob, row.async_job_id) if row.async_job_id else None
+        job = await jobs.get_job(db, row.async_job_id) if row.async_job_id else None
         if (
             job is not None
             and job.celery_task_id == row.task_id
@@ -1013,7 +958,6 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
             and job.status in ACTIVE
         ):
             return job
-        row.status, row.error_code = "failed", "reference_reconciliation_interrupted"
     task_id = str(uuid.uuid4())
     job = await jobs.create_job(
         db,
@@ -1030,23 +974,28 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
             else None,
         },
     )
-    row.status, row.async_job_id, row.task_id, row.error_code = (
-        "pending",
-        job.id,
-        task_id,
-        None,
-    )
-    await db.flush()
+    if not await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.queue_original_reconciliation(:job, :task, :expected, :previous)"
+        ),
+        {
+            "job": job.id,
+            "task": task_id,
+            "expected": row.async_job_id,
+            "previous": row.status,
+        },
+    ):
+        reject("reference_reconciliation_changed")
     return job
 
 
 async def reconcile(db, job_id, task_id):
-    initial = await db.get(AsyncJob, job_id, populate_existing=True)
+    initial = await jobs.get_job(db, job_id, populate_existing=True)
     authority_failure = False
     initial_payload = dict(initial.payload) if initial else {}
     if initial and initial.user_id is not None:
         try:
-            actor = await db.get(User, initial.user_id, populate_existing=True)
+            actor = await IdentityAccountLockData(db).read_actor_status(initial.user_id)
             proof = initial_payload.get("authority") or {}
             if actor is None:
                 reject("reclaim_authority_changed", 403)
@@ -1055,12 +1004,7 @@ async def reconcile(db, job_id, task_id):
                 reject("reclaim_authority_changed", 403)
         except HTTPException:
             authority_failure = True
-    row = await db.scalar(
-        select(Reconciliation)
-        .where(Reconciliation.id == 1)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    row = await reclaim_reconciliation(db, lock=True)
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
@@ -1076,15 +1020,21 @@ async def reconcile(db, job_id, task_id):
     ):
         return False
     if authority_failure or job.payload != initial_payload:
-        row.status, row.error_code = "failed", "reclaim_authority_changed"
-        job.status, job.error_message, job.completed_at = (
-            "failed",
-            row.error_code,
-            now(),
+        error_code = "reclaim_authority_changed"
+        completed_at = now()
+        if not await advance_reconciliation(
+            db, row, "failed", at=completed_at, error=error_code
+        ):
+            return False
+        committed_job(
+            job, status="failed", completed_at=completed_at, error_message=error_code
         )
         await db.commit()
         return True
-    row.status, job.status, job.started_at = "running", "running", now()
+    started_at = now()
+    if not await advance_reconciliation(db, row, "running", at=started_at):
+        return False
+    committed_job(job, status="running", started_at=started_at)
     await db.commit()
     from app.services.managed_original_reclamation import reconciliation_observe
 
@@ -1094,12 +1044,7 @@ async def reconcile(db, job_id, task_id):
     except Exception:
         await db.rollback()
         value = None
-    row = await db.scalar(
-        select(Reconciliation)
-        .where(Reconciliation.id == 1)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    row = await reclaim_reconciliation(db, lock=True)
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
@@ -1113,6 +1058,7 @@ async def reconcile(db, job_id, task_id):
         or job.celery_task_id != task_id
     ):
         return False
+    result = None
     if value is not None:
         counts = {
             key: int(value["counts"][key])
@@ -1140,21 +1086,39 @@ async def reconcile(db, job_id, task_id):
             value["measured_at"],
             value["measured_at"],
         )
-        row.status, row.error_code = "completed", None
-    else:
-        row.status, row.error_code = "failed", "reference_reconciliation_failed"
-    if job:
-        job.status, job.completed_at, job.error_message = (
-            row.status,
-            now(),
-            row.error_code,
-        )
-        job.progress_pct = 100 if row.status == "completed" else job.progress_pct
-        job.result = {
+        status, error_code = "completed", None
+        result = {
             "counts": row.counts,
             "unknown": row.unknown,
-            "measured_at": row.measured_at.isoformat() if row.measured_at else None,
-            "observation_only": True,
+            "deltas": row.deltas,
+            "measured_at": row.measured_at,
         }
+    else:
+        status, error_code = "failed", "reference_reconciliation_failed"
+    completed_at = now()
+    job_result = {
+        "counts": row.counts,
+        "unknown": row.unknown,
+        "measured_at": row.measured_at.isoformat() if row.measured_at else None,
+        "observation_only": True,
+    }
+    if not await advance_reconciliation(
+        db,
+        row,
+        status,
+        at=completed_at,
+        error=error_code,
+        result=result,
+        job_result=job_result,
+    ):
+        return False
+    committed_job(
+        job,
+        status=status,
+        completed_at=completed_at,
+        error_message=error_code,
+        progress_pct=100 if status == "completed" else job.progress_pct,
+        result=job_result,
+    )
     await db.commit()
     return True

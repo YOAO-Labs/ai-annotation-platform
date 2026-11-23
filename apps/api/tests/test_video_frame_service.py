@@ -1226,7 +1226,7 @@ async def test_rebuild_timetable_cli_publishes_new_metadata_generation(
         invoked.extend(identifiers)
 
     monkeypatch.setattr("app.workers.media_derivatives.run_outputs", finish_outputs)
-    count = await rebuild_item_timetable(db_session, item, storage=NoLegacyStorage())
+    count = await rebuild_item_timetable(db_session, item.id, storage=NoLegacyStorage())
     rows = (
         await db_session.scalars(
             select(VideoFrameIndex)
@@ -1243,7 +1243,7 @@ async def test_rebuild_timetable_cli_publishes_new_metadata_generation(
     assert old.state == "ready"
     assert (
         await rebuild_item_timetable(
-            db_session, item, storage=NoLegacyStorage(), dry_run=True
+            db_session, item.id, storage=NoLegacyStorage(), dry_run=True
         )
         == 2
     )

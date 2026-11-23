@@ -10,12 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, false, or_, select
+from sqlalchemy import and_, false, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user, get_db
 from app.db.enums import PlatformRole, ProjectRole
-from app.db.models.dataset import Dataset
 from app.services.workspace_project_query import execute_project_query
 from app.services.workspace_project_query_data import (
     project_search_member_ids,
@@ -106,13 +105,15 @@ async def global_search(
         for t, pname in task_rows
     ]
 
-    ds_q = (
-        select(Dataset)
-        .where(Dataset.name.ilike(pattern))
-        .order_by(Dataset.updated_at.desc())
-        .limit(limit)
-    )
-    datasets = (await db.execute(ds_q)).scalars().all()
+    datasets = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.search_dataset_names("
+                "CAST(:actor AS uuid), :search, :limit)"
+            ),
+            {"actor": user.id, "search": q, "limit": limit},
+        )
+    ).all()
     dataset_items = [
         {
             "id": str(d.id),

@@ -166,6 +166,7 @@ class BucketUpgradeTests(unittest.TestCase):
         self.backend.grant_runtime = granted
         self.backend.grant_jobs_recovery = granted
         self.backend.verify_runtime_login = granted
+        self.backend.prepare_assets_worker_roles = granted
         self.backend.start_redis = lambda: None
         with patch(
             "worktree_resources.migration_graph",
@@ -488,19 +489,6 @@ class BucketUpgradeTests(unittest.TestCase):
         atomic_json(self.path, changed)
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
-
-    def test_private_acl_rejects_missing_or_duplicated_source(self):
-        backend = object.__new__(LocalResources)
-        backend.code_root = self.root
-        target = self.root / "infra/docker/lan-production-grants.sql"
-        target.parent.mkdir(parents=True)
-        for domain in ("labeling", "workspace"):
-            block = f"DO ${domain}_private_acl$ BEGIN END; ${domain}_private_acl$;"
-            for content in ("", block + block):
-                target.write_text(content)
-                with self.subTest(domain=domain, content=content):
-                    with self.assertRaises(WorktreeError):
-                        backend.private_runtime_acl(domain)
 
 
 class FixtureInferenceIdentityTests(unittest.TestCase):

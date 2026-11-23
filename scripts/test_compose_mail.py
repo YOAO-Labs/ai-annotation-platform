@@ -20,9 +20,52 @@ PRODUCTION = {
 JOBS_RECOVERY = "celery-worker-jobs-recovery"
 JOBS_DISPATCH_FILE = "/run/secrets/jobs_dispatch_database_url"
 JOBS_PUBLICATION_FILE = "/run/secrets/jobs_publication_database_url"
-APP_PASSWORD = "/run/secrets/api_smtp_password"
 ALERT_CONFIG = "/etc/alertmanager/alertmanager.yml"
 ALERT_PASSWORD = "/run/secrets/alertmanager_smtp_password"
+SOURCE_SPOOL = "/var/lib/yoao/assets-source/spool"
+SOURCE_URL = "http://assets-source:8767"
+SOURCE_CONFIG = {
+    "ASSETS_SOURCE_S3_ENDPOINT": "http://minio:9000",
+    "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": "https://storage.example.test",
+    "ASSETS_SOURCE_DATASETS_BUCKET": "fixture-datasets",
+    "ASSETS_SOURCE_IMPORT_BUCKET": "fixture-import",
+    "ASSETS_SOURCE_MEDIA_CACHE_BUCKET": "fixture-media-cache",
+}
+SOURCE_CLIENT_FILES = {
+    "READ": "ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE",
+    "WRITE": "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE",
+    "CLEANUP": "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE",
+    "CONNECTIONS": "ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE",
+}
+SOURCE_ONLY_SECRETS = (
+    "ASSETS_SOURCE_DATABASE_URL",
+    "ASSETS_SOURCE_TOKEN",
+    "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN",
+    "ASSETS_SOURCE_SAVED_IO_DATABASE_URL",
+    "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN",
+    "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY",
+    "ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN",
+    "ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN",
+    "ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN",
+    "ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY",
+    "ASSETS_SOURCE_NATIVE_S3_SECRET_KEY",
+    "ASSETS_SOURCE_S3_ACCESS_KEY",
+    "ASSETS_SOURCE_S3_SECRET_KEY",
+    "CONNECTOR_ENCRYPTION_KEY",
+)
+SOURCE_WORKER_SCOPES = {
+    "api": {"READ", "WRITE", "CLEANUP", "CONNECTIONS"},
+    "celery-worker": {"READ", "WRITE", "CLEANUP"},
+    "celery-worker-cpu": {"READ", "WRITE", "CLEANUP"},
+    "celery-worker-gpu": {"READ", "WRITE", "CLEANUP"},
+    "celery-worker-export": {"READ", "WRITE", "CLEANUP"},
+    "celery-worker-maintenance": {"READ", "WRITE"},
+    "celery-worker-image-pyramid": {"READ", "WRITE"},
+}
+
+
+def source_secret_target(name):
+    return f"/run/secrets/{name.removesuffix('_FILE').lower()}"
 
 
 @unittest.skipUnless(shutil.which("docker"), "Docker Compose CLI is required")
@@ -35,12 +78,22 @@ class ComposeMailTests(unittest.TestCase):
             "docker-compose.yml",
             "docker-compose.prod.yml",
             "docker-compose.lan-prod.yml",
+            "docker-compose.assets-source.yml",
         ):
             shutil.copy(ROOT / name, self.root / name)
         alert_config_dir = Path("infra/alertmanager")
         shutil.copytree(ROOT / alert_config_dir, self.root / alert_config_dir)
 
-    def config(self, *, production=None, lan=False, profile=None, variables=None):
+    def config(
+        self,
+        *,
+        production=None,
+        lan=False,
+        profile=None,
+        variables=None,
+        source=False,
+        compose_file=None,
+    ):
         values = {**(production or {}), **(variables or {})}
         if lan:
             values = {
@@ -67,10 +120,13 @@ class ComposeMailTests(unittest.TestCase):
             "--env-file",
             str(env_file),
             "-f",
-            "docker-compose.lan-prod.yml" if lan else "docker-compose.yml",
+            compose_file
+            or ("docker-compose.lan-prod.yml" if lan else "docker-compose.yml"),
         ]
         if production is not None and not lan:
             command.extend(["-f", "docker-compose.prod.yml"])
+        if source:
+            command.extend(["-f", "docker-compose.assets-source.yml"])
         if profile is not None:
             command.extend(["--profile", profile])
         result = subprocess.run(
@@ -96,6 +152,177 @@ class ComposeMailTests(unittest.TestCase):
         self.assertEqual(mounts[0]["source"], str(source))
         self.assertIs(mounts[0]["read_only"], True)
         self.assertIs(mounts[0].get("bind", {}).get("create_host_path", False), False)
+
+    def assert_source_server(self, source, files, spool, roots, network):
+        env = source["environment"]
+        for key, path in files.items():
+            target = source_secret_target(key)
+            self.assertEqual(env[key], target)
+            self.assert_read_only_bind(source, target, path)
+        self.assertEqual(
+            env["ASSETS_SOURCE_TOKEN_FILE"],
+            "/run/secrets/assets_source_token",
+        )
+        for key, value in {
+            "STORAGE_SFTP_ROOTS": roots,
+            "ASSETS_SOURCE_ANNOTATIONS_BUCKET": "fixture-annotations",
+            "ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES": "68719476736",
+            "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR": SOURCE_SPOOL,
+        }.items():
+            self.assertEqual(env[key], value)
+        mounts = [v for v in source["volumes"] if v["target"] == SOURCE_SPOOL]
+        self.assertEqual(len(mounts), 1)
+        self.assertEqual(mounts[0]["type"], "bind")
+        self.assertEqual(mounts[0]["source"], str(spool))
+        self.assertFalse(mounts[0].get("read_only"))
+        self.assertIs(mounts[0].get("bind", {}).get("create_host_path", False), False)
+        self.assertTrue(source["read_only"])
+        self.assertFalse(source.get("ports"))
+        self.assertEqual(set(source["networks"]), {network})
+
+    def test_source_files_are_opt_in_and_scoped_to_actual_consumers(self):
+        server_options = (
+            "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE",
+            "ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE",
+            "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE",
+        )
+        server_files = {
+            key: self.root / key.lower()
+            for key in (*server_options, *SOURCE_CLIENT_FILES.values())
+        }
+        client_files = {
+            scope: self.root / f"client-{scope.lower()}"
+            for scope in SOURCE_CLIENT_FILES
+        }
+        for key, path in server_files.items():
+            path.write_text(f"fixture-file-contents-{key}\n", encoding="utf-8")
+            path.chmod(0o400)
+        for scope, path in client_files.items():
+            path.write_bytes(server_files[SOURCE_CLIENT_FILES[scope]].read_bytes())
+            path.chmod(0o400)
+        spool = self.root / "source-spool"
+        spool.mkdir(mode=0o700)
+        direct = {
+            *SOURCE_ONLY_SECRETS,
+            *(name.removesuffix("_FILE") for name in SOURCE_CLIENT_FILES.values()),
+        }
+        inherited = {
+            **dict.fromkeys(direct, "fixture-inline-secret"),
+            **{
+                f"{key}_FILE": str(self.root / "owner-only")
+                for key in SOURCE_ONLY_SECRETS
+            },
+            **{key: str(path) for key, path in server_files.items()},
+            "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR": str(spool),
+        }
+        private_env = {
+            *direct,
+            *(f"{key}_FILE" for key in SOURCE_ONLY_SECRETS),
+            *(f"ASSETS_SOURCE_CLIENT_{scope}_TOKEN_FILE" for scope in client_files),
+            "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR",
+        }
+        roots = '{"fixture":{"host":"sftp.example.test","port":22}}'
+
+        for production, lan in ((None, False), (PRODUCTION, False), (PRODUCTION, True)):
+            for selected in (False, True):
+                with self.subTest(
+                    production=production is not None, lan=lan, selected=selected
+                ):
+                    variables = inherited
+                    if selected:
+                        variables = {
+                            **variables,
+                            **SOURCE_CONFIG,
+                            **{
+                                f"ASSETS_SOURCE_CLIENT_{scope}_TOKEN_FILE": str(path)
+                                for scope, path in client_files.items()
+                            },
+                            "ASSETS_SOURCE_URL": SOURCE_URL,
+                            "ASSETS_SOURCE_NETWORK": "shared" if lan else "default",
+                            "ASSETS_SOURCE_ANNOTATIONS_BUCKET": "fixture-annotations",
+                            "STORAGE_SFTP_ROOTS": roots,
+                            "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": "",
+                        }
+                    services = self.config(
+                        production=production,
+                        lan=lan,
+                        profile="maintenance" if lan else None,
+                        variables=variables,
+                        source=selected,
+                    )
+                    source = services.pop("assets-source", None)
+                    if selected:
+                        self.assertIsNotNone(source)
+                        self.assert_source_server(
+                            source,
+                            server_files,
+                            spool,
+                            roots,
+                            "shared" if lan else "default",
+                        )
+                    else:
+                        self.assertIsNone(source)
+
+                    expected_workers = SOURCE_WORKER_SCOPES.keys() - {"api"}
+                    self.assertLessEqual(expected_workers, services.keys())
+                    self.assertEqual("api" in services, production is not None or lan)
+
+                    for name, service in services.items():
+                        env = service.get("environment", {})
+                        scopes = SOURCE_WORKER_SCOPES.get(name, set())
+                        self.assertEqual(
+                            env.get("ASSETS_SOURCE_URL") or "",
+                            SOURCE_URL if selected and scopes else "",
+                            name,
+                        )
+                        volumes = service.get("volumes", [])
+                        targets = {v["target"] for v in volumes}
+                        sources = {v.get("source") for v in volumes}
+                        self.assertTrue(
+                            sources.isdisjoint(map(str, server_files.values())), name
+                        )
+                        self.assertNotIn(SOURCE_SPOOL, targets, name)
+                        self.assertTrue(
+                            targets.isdisjoint(
+                                map(source_secret_target, SOURCE_ONLY_SECRETS)
+                            ),
+                            name,
+                        )
+                        self.assertFalse(any(env.get(key) for key in private_env), name)
+                        for scope, key in SOURCE_CLIENT_FILES.items():
+                            target = source_secret_target(key)
+                            if scope in scopes:
+                                self.assertEqual(
+                                    env.get(key) or "",
+                                    target if selected else "",
+                                    (name, key),
+                                )
+                                self.assert_read_only_bind(
+                                    service,
+                                    target,
+                                    client_files[scope] if selected else "/dev/null",
+                                )
+                            else:
+                                self.assertFalse(env.get(key), (name, key))
+                                self.assertNotIn(target, targets, name)
+                    self.assertNotIn("fixture-inline-secret", json.dumps(services))
+                    self.assertNotIn("fixture-file-contents", json.dumps(services))
+
+    def test_legacy_source_overlay_needs_no_saved_io_credentials_or_scratch(self):
+        services = self.config(
+            compose_file="docker-compose.assets-source.yml", variables=SOURCE_CONFIG
+        )
+        self.assertEqual(set(services), {"assets-source"})
+        source = services["assets-source"]
+        env = source["environment"]
+        for key in (
+            *SOURCE_CLIENT_FILES.values(),
+            "ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE",
+            "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE",
+        ):
+            self.assertFalse(env.get(key), key)
+            self.assert_read_only_bind(source, source_secret_target(key), "/dev/null")
+        self.assertFalse(env.get("ASSETS_SOURCE_SAVED_IO_SPOOL_DIR"))
 
     def test_development_mailpit_and_monitoring_route(self):
         self.assertIn("mailpit", self.config())
@@ -160,19 +387,19 @@ class ComposeMailTests(unittest.TestCase):
             profile="monitoring",
         )
         api = services["api"]
-        self.assert_read_only_bind(api, APP_PASSWORD, app_password)
         self.assertEqual(api["environment"]["SMTP_HOST"], "smtp.example.test")
-        self.assertEqual(api["environment"]["SMTP_PASSWORD_FILE"], APP_PASSWORD)
-        self.assertFalse(api["environment"]["SMTP_PASSWORD"])
         for name, service in services.items():
-            if name.startswith("celery-"):
+            if name == "api" or name.startswith("celery-"):
                 with self.subTest(service=name):
                     self.assertFalse(
                         service.get("environment", {}).get("SMTP_PASSWORD_FILE")
                     )
+                    self.assertFalse(
+                        service.get("environment", {}).get("SMTP_PASSWORD")
+                    )
                     self.assertNotIn(
-                        APP_PASSWORD,
-                        [v.get("target") for v in service.get("volumes", [])],
+                        str(app_password),
+                        [v.get("source") for v in service.get("volumes", [])],
                     )
         self.assert_read_only_bind(services["alertmanager"], ALERT_CONFIG, alert_config)
         self.assert_read_only_bind(

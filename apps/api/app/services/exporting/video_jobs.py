@@ -165,17 +165,15 @@ async def capture_job(db, job, project, *, batch_id, targets, opts, task_ids=Non
         opts=opts,
         task_ids=task_ids,
     )
-    from app.db.models.export_media_bundle import ExportMediaBundle
+    from app.services import export_delivery_data
     from app.services import export_media_bundles, export_media_storage
 
     if "video_media" in job.payload:
         proof = job.payload["video_media"]
         if type(proof) is not dict or "bundle_id" not in proof:
             reject()
-        row = await db.get(
-            ExportMediaBundle,
-            uuid.UUID(_uuid(proof["bundle_id"])),
-            populate_existing=True,
+        row = await export_delivery_data.media_delivery(
+            db, uuid.UUID(_uuid(proof["bundle_id"]))
         )
         if row is None:
             reject("video_export_contract_missing")

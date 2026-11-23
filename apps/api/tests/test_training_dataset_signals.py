@@ -3,14 +3,17 @@
 import asyncio
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
 import pytest
 
+from app.application import job_terminal
 from app.db.models.async_job import AsyncJob
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import training_dataset_data
+from yoao_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
 from app.workers import signals
 
 
@@ -25,25 +28,20 @@ class Session:
         self.commits = 0
 
     async def scalar(self, statement):
-        entity = statement.column_descriptions[0]["entity"]
-        name, row = (
-            ("version", self.version)
-            if entity is TrainingDatasetVersion
-            else ("job", self.job)
-        )
-        assert entity in {TrainingDatasetVersion, AsyncJob}
-        assert statement._for_update_arg is not None
-        assert not statement._for_update_arg.read
+        assert JOBS_ROW_LOCK_FUNCTIONS["update"] in str(statement)
         assert statement.get_execution_options()["populate_existing"] is True
-        expected_id = statement.whereclause.right.value
+        return await self.lock("job", statement.compile().params["job_id"])
+
+    async def lock(self, name, expected_id):
+        row = getattr(self, name)
         self.events.append(("waiting", name))
         await self.locks[name].acquire()
         self.owned.append(name)
         self.events.append(("locked", name))
         return row if row is not None and row.id == expected_id else None
 
-    async def get(self, entity, identifier):
-        assert entity is AsyncJob and identifier == self.job.id
+    async def get_job(self, identifier, *, populate_existing=False):
+        assert identifier == self.job.id
         return self.job
 
     async def commit(self):
@@ -74,7 +72,7 @@ def world(monkeypatch):
         error_code=None,
         error_message=None,
     )
-    job = SimpleNamespace(
+    job = AsyncJob(
         id=job_id,
         kind="training_dataset",
         celery_task_id=task_id,
@@ -97,6 +95,26 @@ def world(monkeypatch):
 
     monkeypatch.setattr(signals, "create_async_engine", lambda *a, **k: engine)
     monkeypatch.setattr(signals, "async_sessionmaker", lambda *a, **k: session)
+
+    async def version_facts(session, identifier, *, lock):
+        assert session is db and lock
+        return await session.lock("version", identifier)
+
+    async def finish_version(session, row, identifier, *, cancelled, code, message):
+        assert (session, row, identifier) == (db, version, job.id)
+        assert session.owned == ["version", "job"]
+        row.status = "cancelled" if cancelled else "failed"
+        row.error_code = code
+        row.error_message = message
+        row.completed_at = datetime.now(timezone.utc)
+        return True
+
+    async def get_job(session, identifier, *, populate_existing=False):
+        return await session.get_job(identifier, populate_existing=populate_existing)
+
+    monkeypatch.setattr(training_dataset_data, "read_version_facts", version_facts)
+    monkeypatch.setattr(training_dataset_data, "fail_version", finish_version)
+    monkeypatch.setattr(signals.async_job_svc, "get_job", get_job)
     monkeypatch.setattr(
         signals.async_job_svc,
         "find_by_celery_task_id",
@@ -105,7 +123,8 @@ def world(monkeypatch):
     notify = AsyncMock()
     generic = AsyncMock()
     monkeypatch.setattr(signals, "notify_job_terminal", notify)
-    monkeypatch.setattr(signals, "reconcile_domain_terminal", generic)
+    monkeypatch.setattr(job_terminal, "reconcile_domain_terminal", generic)
+    monkeypatch.setattr(job_terminal, "notify_job_terminal", notify)
     value = SimpleNamespace(
         version=version,
         job=job,
@@ -127,6 +146,19 @@ async def apply(world, *, cancelled=False, task_args=..., task_kwargs=None):
         error="decoder crashed",
         task_args=world.args if task_args is ... else task_args,
         task_kwargs=task_kwargs,
+    )
+
+
+def state(world):
+    return deepcopy(
+        (
+            vars(world.version),
+            {
+                key: value
+                for key, value in vars(world.job).items()
+                if key != "_sa_instance_state"
+            },
+        )
     )
 
 
@@ -170,9 +202,9 @@ async def test_late_signal_preserves_both_terminal_ledgers(
     world, target, status, cancelled
 ):
     getattr(world, target).status = status
-    before = deepcopy((vars(world.version), vars(world.job)))
+    before = state(world)
     await apply(world, cancelled=cancelled)
-    assert (vars(world.version), vars(world.job)) == before
+    assert state(world) == before
     world.notify.assert_not_awaited()
     assert world.db.commits == 0
 
@@ -223,9 +255,9 @@ async def test_replaced_attempt_or_owner_signal_cannot_modify_current_attempt(
         world.db.job = None
     else:
         world.args[1] = str(uuid.uuid4())
-    before = deepcopy((vars(world.version), vars(world.job)))
+    before = state(world)
     await apply(world)
-    assert (vars(world.version), vars(world.job)) == before
+    assert state(world) == before
     assert world.db.commits == 0
     world.notify.assert_not_awaited()
     world.generic.assert_not_awaited()
@@ -291,7 +323,7 @@ async def test_other_domain_keeps_existing_generic_signal_path(world):
     world.job.kind = "batch_predict"
     await apply(world, task_args=None)
     assert world.job.status == "failed" and world.version.status == "running"
-    assert world.db.events == [("waiting", "job"), ("locked", "job"), ("commit",)]
+    assert world.db.events == [("commit",)]
     world.generic.assert_awaited_once_with(
         world.db, world.job, cancelled=False, error="decoder crashed"
     )

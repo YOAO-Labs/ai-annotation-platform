@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from training_contract.models import model_spec
 
-from app.db.models.trained_model import ModelDeployment
+from app.services.learning_models_data import get_deployment
 from app.schemas.sample_evaluation import EvaluationProfile
 from app.services import sample_evaluation_engine as engine, trained_models
 from yoao_inference.backend_transport import PredictionResult
@@ -41,8 +41,8 @@ def reject(code, message, status=409):
 
 
 async def qualification(db, project, model_id, deployment_id):
-    deployment = await db.get(ModelDeployment, deployment_id)
-    if not deployment or deployment.model_version_id != model_id:
+    deployment = await get_deployment(db, project.id, model_id, deployment_id)
+    if not deployment:
         raise reject("deployment_unavailable", "受控部署不存在", 404)
     try:
         ref = await trained_models.bind_frozen_model_reference(db).freeze(

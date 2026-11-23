@@ -13,6 +13,11 @@ Requests use a bearer service token. S3 bucket and credentials are supplied
 separately to each process; no provider details or credentials are returned in
 errors or logged by this package.
 
+The opt-in `docker-compose.assets-mask-content.yml` keeps content and cleanup
+separate. Embedded media control does not route these content-addressed bytes
+through the ordinary UUID storage owner, and the content role never gains
+delete or cleanup-journal authority.
+
 Durable deletion uses the separate `aap-assets-mask-gc/v1` schema and the
 cleanup-only `POST /v1/mask-gc/scan`, `/execute`, and `/status` routes. The
 cleanup process shares one admission limit across both protocols. Scan cursors

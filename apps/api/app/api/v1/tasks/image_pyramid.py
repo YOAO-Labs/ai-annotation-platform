@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_assets_images.contract import (
     ImageFailure,
@@ -20,10 +19,8 @@ from app.api.v1.tasks._shared import (
 )
 from app.config import settings
 from app.core.ratelimit import limiter
-from app.db.models.image_pyramid import (
-    ImagePyramidAsset,
-    ImagePyramidGeneration,
-)
+from app.services import image_pyramid_data as pyramid_data
+from app.services.image_pyramid_data import AssetFacts, GenerationFacts
 from app.services.identity_contracts import IdentityActorFacts
 from app.services import task_access
 from app.deps import get_current_user, get_db, require_scopes
@@ -88,65 +85,29 @@ def _errors(call):
 
 
 async def _latest_generation(
-    db: AsyncSession, asset: ImagePyramidAsset
-) -> ImagePyramidGeneration | None:
-    return (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(ImagePyramidGeneration.asset_id == asset.id)
-            .order_by(ImagePyramidGeneration.generation.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
+    db: AsyncSession, asset: AssetFacts
+) -> GenerationFacts | None:
+    return await pyramid_data.read_generation(db, asset.id)
 
 
 async def _building_generation(
-    db: AsyncSession, asset: ImagePyramidAsset
-) -> ImagePyramidGeneration | None:
+    db: AsyncSession, asset: AssetFacts
+) -> GenerationFacts | None:
     if asset.building_generation is None:
         return None
-    return await db.get(ImagePyramidGeneration, (asset.id, asset.building_generation))
+    return await pyramid_data.read_generation(db, asset.id, asset.building_generation)
 
 
 async def _invalidate_ready(
     db: AsyncSession,
-    asset: ImagePyramidAsset,
-    generation: ImagePyramidGeneration,
+    asset: AssetFacts,
+    generation: GenerationFacts,
     error_code: str,
 ) -> None:
-    expected_output_id = generation.output_id
-    locked_asset = (
-        await db.execute(
-            select(ImagePyramidAsset)
-            .where(ImagePyramidAsset.id == asset.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if locked_asset is None:
-        return
-    locked_generation = (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(
-                ImagePyramidGeneration.asset_id == generation.asset_id,
-                ImagePyramidGeneration.generation == generation.generation,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if (
-        locked_generation is None
-        or locked_generation.output_id != expected_output_id
-        or locked_generation.status != "ready"
+    if await pyramid_data.invalidate(
+        db, asset.id, generation.generation, generation.output_id, error_code
     ):
-        return
-    if locked_asset.active_generation == locked_generation.generation:
-        locked_asset.active_generation = None
-    locked_generation.status = "failed"
-    locked_generation.error_code = error_code
-    await db.commit()
+        await db.commit()
 
 
 def _status_response(
@@ -154,7 +115,7 @@ def _status_response(
     task_id: uuid.UUID,
     status_value: str,
     required: bool,
-    generation: ImagePyramidGeneration | None = None,
+    generation: GenerationFacts | None = None,
     retryable: bool = False,
     retry_after_ms: int | None = None,
     error_code: str | None = None,
@@ -802,7 +763,9 @@ async def get_image_pyramid(
         generation.last_accessed_at is None
         or generation.last_accessed_at < utcnow() - timedelta(minutes=10)
     ):
-        generation.last_accessed_at = utcnow()
+        await pyramid_data.touch(
+            db, asset.id, generation.generation, generation.output_id
+        )
         await db.commit()
     await objects.check(
         db,

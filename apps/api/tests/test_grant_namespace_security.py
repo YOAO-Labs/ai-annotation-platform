@@ -25,6 +25,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
+from tests.grant_sql_helpers import read_grant_script
 
 ROOT = Path(__file__).resolve().parents[3]
 GRANTS = ROOT / "infra/docker"
@@ -147,7 +148,7 @@ async def _apply(migration_url: URL, script: str, variables: dict[str, str]):
     }
     return await _psql(
         migration_url,
-        sql=(GRANTS / script).read_text(),
+        sql=read_grant_script(GRANTS / script),
         variables=variables,
         username=migration_url.username,
         password=migration_url.password,
@@ -171,17 +172,10 @@ async def _scalar(engine, sql: str, **params):
 
 
 @asynccontextmanager
-async def _login(engine, prefix: str, *, installs_lan_profile: bool = False):
+async def _login(engine, prefix: str):
     role = f"n5s_{prefix}_{uuid.uuid4().hex[:10]}"
     password = uuid.uuid4().hex
     assert re.fullmatch(ROLE_PATTERN, role)
-    view_owner_sql = text(
-        "SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class "
-        "WHERE oid='public.mv_user_perf_daily'::regclass"
-    )
-    if installs_lan_profile:
-        async with engine.connect() as db:
-            previous_owner = await db.scalar(view_owner_sql)
     await _execute(
         engine,
         [
@@ -193,18 +187,6 @@ async def _login(engine, prefix: str, *, installs_lan_profile: bool = False):
         yield role, password
     finally:
         async with engine.begin() as db:
-            if installs_lan_profile:
-                actual_owner = await db.scalar(view_owner_sql)
-                if actual_owner == role:
-                    quote = db.dialect.identifier_preparer.quote_identifier
-                    await db.execute(
-                        text(
-                            "ALTER MATERIALIZED VIEW public.mv_user_perf_daily "
-                            f"OWNER TO {quote(previous_owner)}"
-                        )
-                    )
-                else:
-                    assert actual_owner == previous_owner
             await db.execute(text(f"DROP OWNED BY {role}"))
             await db.execute(text(f"DROP ROLE {role}"))
 
@@ -216,6 +198,193 @@ async def _schema(engine, name: str):
         yield name
     finally:
         await _execute(engine, [f"DROP SCHEMA {name} CASCADE"])
+
+
+async def test_insights_upgrade_recovers_legacy_mv_without_rebuilding(
+    owner_engine, migration_url
+):
+    from datetime import date, datetime, timedelta, timezone
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.db.models.task_event import TaskEvent
+    from tests.factory import create_project, create_task, create_user
+    from tests.test_identity_recovery import _alembic
+    from tests.test_inference_backend_dependency_reads_restore import (
+        _create_owned_clone,
+        _drop_owned_clone,
+    )
+
+    catalog = text("""
+        SELECT relation.oid, relation.relfilenode, relation.relispopulated,
+               pg_catalog.pg_get_viewdef(relation.oid, true),
+               ARRAY(SELECT pg_catalog.pg_get_indexdef(indexes.indexrelid)
+                     FROM pg_catalog.pg_index AS indexes
+                     WHERE indexes.indrelid = relation.oid ORDER BY indexes.indexrelid)
+        FROM pg_catalog.pg_class AS relation
+        WHERE relation.oid='public.mv_user_perf_daily'::regclass
+    """)
+    rows = text("""
+        SELECT day, event_count, throughput, median_duration_ms, p95_duration_ms,
+               rejected_n, active_minutes
+        FROM public.mv_user_perf_daily WHERE user_id=:user_id
+    """)
+    expected = [(date(2026, 9, 10), 1, 3, 60_000, 60_000, 1, 1)]
+    async with _login(owner_engine, "insights_old") as (role, password):
+        database = role + "_test"
+        marker = "bo0487-legacy-ownership:" + _suffix()
+        clone_url = migration_url.set(database=database)
+        clone = create_async_engine(clone_url, hide_parameters=True)
+        admin = create_async_engine(
+            migration_url.set(database="postgres"),
+            isolation_level="AUTOCOMMIT",
+            hide_parameters=True,
+        )
+        created = set()
+        try:
+            await _create_owned_clone(
+                admin, owner_engine, database, marker, [], created
+            )
+            prior = await asyncio.to_thread(_alembic, clone_url, "upgrade", "bo0486")
+            assert prior.returncode == 0, "Owned Insights legacy migration failed"
+            async with async_sessionmaker(clone, expire_on_commit=False).begin() as db:
+                actor = await create_user(
+                    db, "project_admin", f"{role}@example.test", "Owner"
+                )
+                project = await create_project(db, owner_id=actor.id)
+                task = await create_task(db, project_id=project.id)
+                start = datetime(2026, 9, 10, 23, tzinfo=timezone.utc)
+                db.add(
+                    TaskEvent(
+                        task_id=task.id,
+                        user_id=actor.id,
+                        project_id=project.id,
+                        kind="annotate",
+                        started_at=start,
+                        ended_at=start + timedelta(seconds=60),
+                        duration_ms=60_000,
+                        annotation_count=3,
+                        was_rejected=True,
+                    )
+                )
+                await db.flush()
+                await db.execute(
+                    text("REFRESH MATERIALIZED VIEW public.mv_user_perf_daily")
+                )
+                user = {"user_id": actor.id}
+                before = (await db.execute(catalog)).one()
+                assert before[2] is True and len(before[4]) == 3
+                assert (await db.execute(rows, user)).all() == expected
+                for statement in (
+                    f"GRANT CONNECT ON DATABASE {database} TO {role}",
+                    f"GRANT CREATE ON SCHEMA public TO {role}",
+                    f"ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO {role}",
+                    "GRANT SELECT (day) ON public.mv_user_perf_daily TO PUBLIC",
+                    f"GRANT SELECT (name) ON public.project_task_views TO {role}",
+                    f"GRANT SELECT ON public.dataset_saved_views TO {role}",
+                ):
+                    await db.execute(text(statement))
+            legacy = await _psql(
+                clone_url,
+                sql="SELECT event_count FROM public.mv_user_perf_daily",
+                username=role,
+                password=password,
+            )
+            assert legacy.returncode == 0 and legacy.stdout.strip() == "1"
+            cutover = await asyncio.to_thread(_alembic, clone_url, "upgrade", "bo0487")
+            assert cutover.returncode == 0, "Owned Insights cutover failed"
+            async with clone.begin() as db:
+                assert (await db.execute(catalog)).one() == before
+                assert (await db.execute(rows, user)).all() == expected
+                assert await db.scalar(
+                    text(
+                        "SELECT relowner=current_user::regrole FROM pg_class "
+                        "WHERE oid='public.mv_user_perf_daily'::regclass"
+                    )
+                )
+                await db.execute(
+                    text("SELECT yoao_insights_v1.refresh_user_perf_daily()")
+                )
+            for sql in (
+                "SELECT day FROM public.mv_user_perf_daily",
+                "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+                "SELECT name FROM public.project_task_views",
+                "SELECT name FROM public.dataset_saved_views",
+                "SELECT yoao_insights_v1.refresh_user_perf_daily()",
+            ):
+                denied = await _psql(
+                    clone_url, sql=sql, username=role, password=password
+                )
+                _assert_insufficient_privilege(denied)
+        finally:
+            await clone.dispose()
+            try:
+                if database in created:
+                    await _drop_owned_clone(admin, owner_engine, database, marker)
+            finally:
+                await admin.dispose()
+
+
+async def test_insights_lan_replay_removes_direct_access_without_owner_transfer(
+    owner_engine, migration_url
+):
+    async with _login(owner_engine, "insights_lane") as (role, password):
+        async with _login(owner_engine, "cleanup") as (cleanup, _):
+            await _execute(
+                owner_engine,
+                [
+                    f"GRANT SELECT ON public.mv_user_perf_daily TO {role}",
+                    f"GRANT SELECT(name) ON public.project_task_views TO {role}",
+                    f"GRANT UPDATE(name) ON public.dataset_saved_views TO {role}",
+                    f"GRANT CREATE ON SCHEMA yoao_insights_v1 TO {role}",
+                ],
+            )
+            ownership = (
+                "SELECT relname, pg_catalog.pg_get_userbyid(relowner) FROM pg_class "
+                "WHERE oid IN ('public.mv_user_perf_daily'::regclass,"
+                "'public.project_task_views'::regclass,'public.dataset_saved_views'::regclass)"
+            )
+            async with owner_engine.connect() as db:
+                before = dict((await db.execute(text(ownership))).all())
+            assert set(before.values()) == {"insights_code"}
+            for _ in range(2):
+                profile = await _apply(
+                    migration_url,
+                    "lan-production-grants.sql",
+                    {"application_role": role, "asset_cleanup_role": cleanup},
+                )
+                assert profile.returncode == 0, profile.stderr
+            async with owner_engine.connect() as db:
+                assert dict((await db.execute(text(ownership))).all()) == before
+            for sql in (
+                "SELECT day FROM public.mv_user_perf_daily",
+                "SELECT name FROM public.project_task_views",
+                "UPDATE public.dataset_saved_views SET name=name WHERE false",
+                "CREATE TABLE yoao_insights_v1.denied(id integer)",
+                "SET ROLE insights_code",
+                "SELECT yoao_insights_v1.clear_project_task_views(gen_random_uuid())",
+                "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+                "SELECT yoao_insights_v1.refresh_user_perf_daily()",
+            ):
+                denied = await _psql(
+                    migration_url, sql=sql, username=role, password=password
+                )
+                _assert_insufficient_privilege(denied)
+            allowed = await _psql(
+                migration_url,
+                sql="SELECT yoao_insights_v1.refresh_user_perf_daily()",
+                username=migration_url.username,
+                password=migration_url.password,
+            )
+            assert allowed.returncode == 0, allowed.stderr
+            arguments = await _psql(
+                migration_url,
+                sql="SELECT yoao_insights_v1.refresh_user_perf_daily('public.audit_logs')",
+                username=role,
+                password=password,
+            )
+            assert arguments.returncode != 0
+            assert "42883" in arguments.stderr
 
 
 async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
@@ -718,10 +887,7 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
     profile_probe = f"yoao_workspace_n5s_profile_{_suffix()}_v1"
     other_probe = f"yoao_n5s_other_{_suffix()}_v1"
     function = f"{profile_probe}.probe_read()"
-    async with _login(owner_engine, "runtime", installs_lan_profile=True) as (
-        role,
-        password,
-    ):
+    async with _login(owner_engine, "runtime") as (role, password):
         async with _login(owner_engine, "cleanup") as (cleanup, _cleanup):
             async with _schema(owner_engine, lan_probe):
                 await _execute(

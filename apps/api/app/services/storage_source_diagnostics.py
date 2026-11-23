@@ -1,42 +1,23 @@
 """Page-scoped saved evidence; never probe a source or regenerate a derivative."""
 
-from sqlalchemy import String, and_, case, cast, func, or_, select, tuple_
+from sqlalchemy import Text, Uuid, cast, func, select
+from sqlalchemy.dialects.postgresql import ARRAY
 
-from app.db.models.dataset_asset import DatasetAsset, StorageLocation
-from app.db.models.dataset_source import (
-    DatasetRegistrationRun,
-    DatasetScanRun,
-    DatasetSource,
-    DatasetSourceItem,
-    DatasetSourcePreview,
-)
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.dataset_workbench import STATES, available_cache_ids, observations
-from app.services.directory_previews import SPEC
+from app.services.dataset_workbench import STATES, available_cache_ids
 from app.services.storage import storage_service
-from app.services.directory_policy import preview_policy_clause
+from app.services.storage_registry_data import get_location
 
 PREVIEW_STATES = ("ready", "failed", "unrecorded", "not_requested", "blocked")
 
 
 async def available_preview_keys(db, source_ids):
     """Validate saved preview owners and current target metadata, never bytes."""
-    from app.services import media_cache_storage, storage_access, thumbnail_outputs
+    from app.services import storage_access, thumbnail_outputs
     from app.services.content_snapshot import ContentError
+    from app.services.managed_s3_target import target_origin_for
 
-    rows = await db.execute(
-        select(DatasetSourcePreview, ThumbnailOutput, DatasetSource.location_id)
-        .join(DatasetSource, DatasetSource.id == DatasetSourcePreview.source_id)
-        .outerjoin(
-            ThumbnailOutput,
-            ThumbnailOutput.id == DatasetSourcePreview.thumbnail_output_id,
-        )
-        .where(
-            DatasetSourcePreview.source_id.in_(source_ids),
-            DatasetSourcePreview.state == "ready",
-        )
-    )
+    rows = await thumbnail_outputs.directory_evidence(db, source_ids)
     targets, sources, available = {}, {}, []
     for preview, output, source_location_id in rows:
         try:
@@ -49,10 +30,8 @@ async def available_preview_keys(db, source_ids):
                 target_key = None
                 if target_key not in targets:
                     targets[target_key] = False
-                    location = await db.get(
-                        StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
-                    )
-                    await media_cache_storage.target_for(db, location)
+                    location = await get_location(db, LEGACY_LOCATION_ID)
+                    await target_origin_for(db, location, purpose="media-cache")
                     await storage_access.check(db, LEGACY_LOCATION_ID)
                     targets[target_key] = True
             else:
@@ -105,95 +84,25 @@ async def reference_evidence(db, source_ids, actor):
     cache_ids = await available_cache_ids(
         db, None, actor, reference_source_ids=source_ids
     )
-    obs = observations(
-        None, actor, reference_source_ids=source_ids, cache_entry_ids=cache_ids
-    )
-    record = (
-        select(DatasetSourcePreview.measured_at)
-        .join(
-            DatasetSourceItem,
-            and_(
-                DatasetSourceItem.source_id == DatasetSourcePreview.source_id,
-                DatasetSourceItem.path_digest == DatasetSourcePreview.path_digest,
-            ),
-        )
-        .where(
-            DatasetSourceItem.source_id == obs.c.source_id,
-            DatasetSourceItem.dataset_item_id == obs.c.item_id,
-            DatasetSourceItem.asset_id == DatasetAsset.id,
-            DatasetSourceItem.content_sha256 == DatasetAsset.checksum_value,
-            DatasetSourcePreview.asset_id == DatasetAsset.id,
-            DatasetSourcePreview.source_sha256 == DatasetAsset.checksum_value,
-            DatasetAsset.verification_state == "verified",
-            DatasetAsset.checksum_value.is_not(None),
-            DatasetSourcePreview.spec == SPEC,
-        )
-        .correlate(obs, DatasetAsset)
-    )
     preview_keys = await available_preview_keys(db, source_ids)
-    ready = record.where(
-        DatasetSourcePreview.state == "ready",
-        tuple_(DatasetSourcePreview.source_id, DatasetSourcePreview.path_digest).in_(
-            preview_keys
-        ),
+    evidence = func.yoao_assets_v1.dataset_workbench_source_reference_evidence(
+        cast(actor.id, Uuid),
+        cast(source_ids, ARRAY(Uuid)),
+        cast(cache_ids, ARRAY(Uuid)),
+        cast([source_id for source_id, _ in preview_keys], ARRAY(Uuid)),
+        cast([digest for _, digest in preview_keys], ARRAY(Text)),
+    ).table_valued(
+        "source_id",
+        "original",
+        "preview",
+        "count",
+        "observed_from",
+        "observed_through",
+        "preview_recorded_at",
+        "original_cache_recorded_count",
+        "original_cache_recorded_at",
     )
-    failed = record.where(DatasetSourcePreview.state == "failed")
-    state = case(
-        (
-            or_(
-                DatasetSource.enabled.is_(False),
-                DatasetSource.unregistered_at.is_not(None),
-                StorageLocation.enabled.is_(False),
-            ),
-            "blocked",
-        ),
-        (
-            ~preview_policy_clause(),
-            "not_requested",
-        ),
-        (ready.exists(), "ready"),
-        (failed.exists(), "failed"),
-        else_="unrecorded",
-    )
-    ready_time = ready.order_by(DatasetSourcePreview.measured_at.desc()).limit(1)
-    failed_time = failed.order_by(DatasetSourcePreview.measured_at.desc()).limit(1)
-    evidence = (
-        select(
-            obs.c.source_id,
-            obs.c.state.label("original"),
-            obs.c.observed_at,
-            obs.c.original_cache_recorded,
-            obs.c.original_cache_recorded_at,
-            state.label("preview"),
-            case(
-                (state == "ready", ready_time.scalar_subquery()),
-                (state == "failed", failed_time.scalar_subquery()),
-                else_=None,
-            ).label("preview_recorded_at"),
-        )
-        .select_from(obs)
-        .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == obs.c.item_id)
-        .join(DatasetSource, DatasetSource.id == obs.c.source_id)
-        .join(StorageLocation, StorageLocation.id == DatasetSource.location_id)
-        .subquery()
-    )
-    rows = await db.execute(
-        select(
-            evidence.c.source_id,
-            evidence.c.original,
-            evidence.c.preview,
-            func.count().label("count"),
-            func.min(evidence.c.observed_at).label("observed_from"),
-            func.max(evidence.c.observed_at).label("observed_through"),
-            func.max(evidence.c.preview_recorded_at).label("preview_recorded_at"),
-            func.count()
-            .filter(evidence.c.original_cache_recorded)
-            .label("original_cache_recorded_count"),
-            func.max(evidence.c.original_cache_recorded_at).label(
-                "original_cache_recorded_at"
-            ),
-        ).group_by(evidence.c.source_id, evidence.c.original, evidence.c.preview)
-    )
+    rows = await db.execute(select(evidence))
     result = {
         source_id: {
             "scope": "stored_reference_items",
@@ -225,76 +134,37 @@ async def reference_evidence(db, source_ids, actor):
     return result
 
 
-async def run_evidence(db, source_ids, model):
-    is_scan = model is DatasetScanRun
-    complete = model.complete if is_scan else model.comparison_complete
-    matching = and_(
-        model.snapshot["source_revision"].astext
-        == cast(DatasetSource.config_revision, String),
-        model.snapshot["location_revision"].astext
-        == cast(StorageLocation.config_revision, String),
-    )
-    if not is_scan:
-        matching = and_(
-            matching,
-            model.snapshot["policy_revision"].astext
-            == cast(DatasetSource.policy_revision, String),
-        )
-    columns = (
-        model.source_id,
-        model.id.label("run_id"),
-        (model.id if is_scan else model.scan_run_id).label("scan_run_id"),
-        model.async_job_id.label("job_id"),
-        model.status,
-        case(
-            (
-                model.phase.in_(
-                    (
-                        "enumerating",
-                        "validating",
-                        "resume_validation",
-                        "preflight",
-                        "registering",
-                    )
-                ),
-                model.phase,
-            ),
-            else_="unknown",
-        ).label("phase"),
-        complete.label("complete"),
-        func.coalesce(matching, False).label("matches_current_config"),
-        model.created_at,
-        model.completed_at,
-    )
-    base = (
-        select(*columns)
-        .join(DatasetSource, DatasetSource.id == model.source_id)
-        .join(StorageLocation, StorageLocation.id == DatasetSource.location_id)
-        .where(model.source_id.in_(source_ids))
+async def _run_evidence(db, source_ids, actor):
+    runs = func.yoao_assets_v1.dataset_workbench_source_runs(
+        cast(actor.id, Uuid), cast(source_ids, ARRAY(Uuid))
+    ).table_valued(
+        "source_id",
+        "kind",
+        "evidence",
+        "run_id",
+        "scan_run_id",
+        "job_id",
+        "status",
+        "phase",
+        "complete",
+        "matches_current_config",
+        "created_at",
+        "completed_at",
     )
     result = {
-        source_id: {"recent": None, "last_complete": None} for source_id in source_ids
+        source_id: {
+            kind: {"recent": None, "last_complete": None}
+            for kind in ("scan", "preflight")
+        }
+        for source_id in source_ids
     }
-    for name in ("recent", "last_complete"):
-        order = [model.created_at.desc(), model.id.desc()]
-        query = base
-        if name == "recent":
-            order.insert(
-                0, case((model.status.in_(("pending", "running")), 0), else_=1)
-            )
-        else:
-            query = query.where(model.status == "completed", complete.is_(True))
-            order = [model.completed_at.desc().nulls_last(), *order]
-        ranked = query.add_columns(
-            func.row_number()
-            .over(partition_by=model.source_id, order_by=order)
-            .label("rank")
-        ).subquery()
-        rows = await db.execute(select(ranked).where(ranked.c.rank == 1))
-        for row in rows.mappings():
-            result[row["source_id"]][name] = {
-                key: row[key] for key in row if key not in ("source_id", "rank")
-            }
+    rows = await db.execute(select(runs))
+    for row in rows.mappings():
+        result[row["source_id"]][row["kind"]][row["evidence"]] = {
+            key: value
+            for key, value in row.items()
+            if key not in ("source_id", "kind", "evidence")
+        }
     return result
 
 
@@ -302,13 +172,11 @@ async def diagnostics(db, source_ids, actor):
     if not source_ids:
         return {}
     references = await reference_evidence(db, source_ids, actor)
-    scans = await run_evidence(db, source_ids, DatasetScanRun)
-    preflights = await run_evidence(db, source_ids, DatasetRegistrationRun)
+    runs = await _run_evidence(db, source_ids, actor)
     return {
         source_id: {
             "references": references[source_id],
-            "scan": scans[source_id],
-            "preflight": preflights[source_id],
+            **runs[source_id],
         }
         for source_id in source_ids
     }
