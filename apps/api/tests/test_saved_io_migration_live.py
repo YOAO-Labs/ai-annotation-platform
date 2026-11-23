@@ -7,6 +7,7 @@ import hashlib
 import multiprocessing
 import os
 from pathlib import Path
+import re
 import signal
 from urllib.parse import parse_qs, urlsplit
 import uuid
@@ -17,6 +18,7 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import select, text, update
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yoao_assets_source.saved_io import SavedIOClient, SavedIOError
@@ -151,21 +153,71 @@ def _configure_inventory_bucket(bucket, assign=setattr):
         assign(storage_service, attr, bucket)
 
 
+def _safe_child_code(value):
+    return (
+        value
+        if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value)
+        else None
+    )
+
+
+def _child_failure(stage, exc):
+    failure = {"stage": stage, "type": type(exc).__name__}
+    if isinstance(exc, SavedIOError):
+        failure.update(
+            status=exc.status_code,
+            code=_safe_child_code(exc.code),
+            storage_code=exc.storage_code,
+            unsettled=exc.unsettled,
+        )
+    elif isinstance(exc, HTTPException):
+        failure["status"] = exc.status_code
+        if isinstance(exc.detail, dict):
+            failure["code"] = _safe_child_code(exc.detail.get("code"))
+    elif isinstance(exc, DBAPIError):
+        state = getattr(exc.orig, "sqlstate", None)
+        if isinstance(state, str) and re.fullmatch(r"[0-9A-Z]{5}", state):
+            failure["sqlstate"] = state
+    return failure
+
+
 def _hold_verified_body(
     db_url, endpoint, bucket, origin, tokens, job_id, task_id, row, ready
 ):
     """A separate worker PID starts the real Source read, then stops consuming it."""
-    settings.connector_host_allowlist = [urlsplit(endpoint).hostname]
-    _configure_inventory_bucket(bucket)
+    stage = "configure"
 
     async def start():
+        nonlocal stage
+        stage = "connect"
         engine = create_async_engine(db_url)
         maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
         try:
             async with maker() as db, ExitStack() as response:
+                stage = "claim"
                 attempt = await copies.claim(db, job_id, task_id)
-                assert attempt is not None and attempt.operation == "verify"
+                if attempt is None:
+                    outcome = await copies.by_job(db, job_id)
+                    await db.commit()
+                    ready.send(
+                        (
+                            {
+                                "stage": stage,
+                                "type": "NoClaim",
+                                "job_status": _safe_child_code(
+                                    outcome and outcome.status
+                                ),
+                                "code": _safe_child_code(
+                                    outcome and outcome.error_code
+                                ),
+                            },
+                            None,
+                        )
+                    )
+                    return
+                assert attempt.operation == "verify"
                 await db.commit()
+                stage = "acquire_permits"
                 target = uuid.UUID(attempt.scope["target_location_id"])
                 ids = {}
                 for location in sorted((LEGACY_LOCATION_ID, target)):
@@ -176,6 +228,7 @@ def _hold_verified_body(
                         expected_revision=attempt.scope["maintenance"][str(location)],
                         node_id=f"migration:{os.getpid()}",
                     )
+                stage = "attach_permits"
                 await copies.acquired(db, job_id, task_id, tuple(ids.values()))
                 source_id, target_id = ids[LEGACY_LOCATION_ID].id, ids[target].id
                 subject = {
@@ -193,23 +246,33 @@ def _hold_verified_body(
                     "version": row["receipt"]["version_id"],
                 }
                 for scope in ("read", "cleanup"):
+                    stage = f"deny_{scope}"
                     client = SavedIOClient(origin, tokens[scope])
                     with pytest.raises(SavedIOError) as denied:
                         with client.download("migration", "copy_get", subject):
                             pytest.fail("non-copy bearer admitted a valid copy proof")
                     assert denied.value.status_code in {401, 403, 404}
+                stage = "open_copy_body"
                 client = SavedIOClient(origin, tokens["write"])
                 transfer = response.enter_context(
                     client.download("migration", "copy_get", subject)
                 )
                 assert transfer.length == len(_BYTES)
-                ready.send((attempt.id, source_id, target_id))
+                ready.send((None, (attempt.id, source_id, target_id)))
                 ready.recv()
         finally:
             await engine.dispose()
-            ready.close()
 
-    asyncio.run(start())
+    with ready:
+        try:
+            settings.connector_host_allowlist = [urlsplit(endpoint).hostname]
+            _configure_inventory_bucket(bucket)
+            asyncio.run(start())
+        except BaseException as exc:
+            try:
+                ready.send((_child_failure(stage, exc), None))
+            except (OSError, EOFError):
+                pass
 
 
 async def _restart_during_worker_recovery(
@@ -247,7 +310,15 @@ async def _restart_during_worker_recovery(
         assert await asyncio.to_thread(receipt.poll, 30), (
             "no real Source response headers"
         )
-        attempt_id, source_id, target_id = receipt.recv()
+        try:
+            failure, permits = receipt.recv()
+        except EOFError:
+            await asyncio.to_thread(process.join, 5)
+            pytest.fail(
+                f"migration fixture child exited before reporting (exit={process.exitcode})"
+            )
+        assert failure is None, failure
+        attempt_id, source_id, target_id = permits
         provider.process.send_signal(signal.SIGSTOP)
         paused = True
         async with owner() as db:
