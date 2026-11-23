@@ -5,6 +5,7 @@ SELECT set_config('yoao.migration_role', :'migration_role', true);
 SELECT set_config('yoao.identity_owner', :'identity_owner', true);
 SELECT set_config('yoao.identity_consumer_role', :'consumer_role', true);
 SET LOCAL search_path = pg_catalog, pg_temp;
+SELECT set_config('yoao.identity_avatar_runtime', 'off', true);
 \if :{?identity_avatar_runtime}
 \if :identity_avatar_runtime
 SELECT set_config('yoao.identity_avatar_runtime', 'on', true),

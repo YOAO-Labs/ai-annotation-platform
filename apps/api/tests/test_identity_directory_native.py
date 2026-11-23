@@ -42,7 +42,7 @@ _SCHEMA = _SQL_DIR / "0243_identity_directory.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0243_identity_directory.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-directory-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
 
 
 def _directory_dsn() -> str:

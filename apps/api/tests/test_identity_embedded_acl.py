@@ -24,6 +24,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _verified_resource_manifest,
     _verify_postgres,
 )
+from tests.test_grant_namespace_security import _login
 from tests.test_workspace_consumer_profile_native import _grants
 
 pytestmark = [
@@ -113,8 +114,8 @@ async def test_private_table_and_column_grants_stay_closed_on_reapplication(
         await db.execute(
             text("SELECT * FROM yoao_identity_v1.account_profiles LIMIT 0")
         )
-        await db.execute(
-            text("SELECT * FROM yoao_identity_fixture_v1.account_profiles LIMIT 0")
+        assert not await db.scalar(
+            text("SELECT has_schema_privilege('yoao_identity_fixture_v1','USAGE')")
         )
     for sql in (
         "SELECT password_hash FROM users LIMIT 0",
@@ -129,7 +130,7 @@ async def test_private_table_and_column_grants_stay_closed_on_reapplication(
             assert getattr(denied.value.orig, "sqlstate", None) == "42501"
 
 
-@pytest.mark.parametrize("bypass", ["public", "membership"])
+@pytest.mark.parametrize("bypass", ["foreign-default", "membership"])
 async def test_unremovable_privilege_bypass_rolls_back_the_grant_transaction(
     test_engine, embedded, bypass
 ):
@@ -138,11 +139,15 @@ async def test_unremovable_privilege_bypass_rolls_back_the_grant_transaction(
     table, role = f"embedded_acl_{suffix}", f"embedded_acl_{suffix}_role"
     async with test_engine.begin() as db:
         await db.execute(text(f"CREATE TABLE public.{table}(value integer)"))
-        await db.execute(text(f"REVOKE ALL ON public.{table} FROM legacy_runtime"))
-        if bypass == "public":
-            await db.execute(text("GRANT SELECT(password_hash) ON users TO PUBLIC"))
+        await db.exec_driver_sql(f"GRANT SELECT ON public.{table} TO legacy_runtime")
+        await db.execute(text(f"CREATE ROLE {role} NOLOGIN"))
+        if bypass == "foreign-default":
+            await db.execute(
+                text(
+                    f"ALTER DEFAULT PRIVILEGES FOR ROLE {role} GRANT SELECT ON TABLES TO PUBLIC"
+                )
+            )
         else:
-            await db.execute(text(f"CREATE ROLE {role} NOLOGIN"))
             await db.execute(text(f"GRANT SELECT(password_hash) ON users TO {role}"))
             await db.execute(text(f"GRANT {role} TO legacy_runtime"))
     try:
@@ -151,26 +156,27 @@ async def test_unremovable_privilege_bypass_rolls_back_the_grant_transaction(
         assert any(
             message in str(failed.value)
             for message in (
-                "Embedded runtime retains private Identity access",
-                "Invalid embedded Identity runtime ownership",
-                "The Assets cleanup role has direct table access",
+                "Unsafe ordinary default privileges",
+                "Ordinary runtime must be a distinct non-admin LOGIN without inherited roles",
             )
         )
         async with test_engine.connect() as db:
-            assert not await db.scalar(
+            assert await db.scalar(
                 text("SELECT has_table_privilege('legacy_runtime',:table,'SELECT')"),
                 {"table": f"public.{table}"},
             )
     finally:
         async with test_engine.begin() as db:
-            if bypass == "public":
+            if bypass == "foreign-default":
                 await db.execute(
-                    text("REVOKE SELECT(password_hash) ON users FROM PUBLIC")
+                    text(
+                        f"ALTER DEFAULT PRIVILEGES FOR ROLE {role} REVOKE SELECT ON TABLES FROM PUBLIC"
+                    )
                 )
             else:
                 await db.execute(text(f"REVOKE {role} FROM legacy_runtime"))
-                await db.execute(text(f"DROP OWNED BY {role}"))
-                await db.execute(text(f"DROP ROLE {role}"))
+            await db.execute(text(f"DROP OWNED BY {role}"))
+            await db.execute(text(f"DROP ROLE {role}"))
             await db.execute(text(f"DROP TABLE public.{table}"))
     await apply()
 
@@ -179,23 +185,43 @@ async def test_fixture_capability_still_borrows_and_rolls_back_the_caller_transa
     test_engine, embedded
 ):
     engine, _apply = embedded
-    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-        account = await IdentityE2EFixtures(db).create_user(
-            "employee", f"embedded-rollback-{uuid.uuid4().hex}@e2e.test", "Rollback"
+    async with _login(test_engine, "identity_fixture") as (role, password):
+        profile = await _grants(
+            test_engine, ROOT / "infra/docker/identity-e2e-fixture-grants.sql", role
         )
-        assert account.name == "Rollback"
-        async with test_engine.connect() as observer:
-            assert not await observer.scalar(
-                text("SELECT EXISTS(SELECT 1 FROM users WHERE id=:id)"),
-                {"id": account.id},
-            )
-        account_id = account.id
-        await db.rollback()
-    async with test_engine.connect() as observer:
-        assert not await observer.scalar(
-            text("SELECT EXISTS(SELECT 1 FROM users WHERE id=:id)"),
-            {"id": account_id},
+        assert profile.returncode == 0, profile.stderr
+        database = test_engine.dialect.identifier_preparer.quote_identifier(
+            engine.url.database
         )
+        async with test_engine.begin() as db:
+            await db.exec_driver_sql(f"GRANT CONNECT ON DATABASE {database} TO {role}")
+        fixture_engine = create_async_engine(
+            engine.url.set(username=role, password=password), hide_parameters=True
+        )
+        try:
+            async with async_sessionmaker(
+                fixture_engine, expire_on_commit=False
+            )() as db:
+                account = await IdentityE2EFixtures(db).create_user(
+                    "employee",
+                    f"embedded-rollback-{uuid.uuid4().hex}@e2e.test",
+                    "Rollback",
+                )
+                assert account.name == "Rollback"
+                account_id = account.id
+                async with test_engine.connect() as observer:
+                    assert not await observer.scalar(
+                        text("SELECT EXISTS(SELECT 1 FROM users WHERE id=:id)"),
+                        {"id": account_id},
+                    )
+                await db.rollback()
+            async with test_engine.connect() as observer:
+                assert not await observer.scalar(
+                    text("SELECT EXISTS(SELECT 1 FROM users WHERE id=:id)"),
+                    {"id": account_id},
+                )
+        finally:
+            await fixture_engine.dispose()
 
 
 @asynccontextmanager

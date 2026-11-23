@@ -28,7 +28,7 @@ _MIGRATION = (
     Path(__file__).parents[1] / "alembic/versions/0241_identity_deactivation.py"
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_LEGACY_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+_LEGACY_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-deactivation-grants.sql"
 
 

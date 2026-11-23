@@ -50,7 +50,7 @@ _MIGRATION = (
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-admin-passwords-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
 _SECRET = "admin-password-native-test-secret"
 
 

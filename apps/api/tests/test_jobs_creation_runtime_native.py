@@ -65,7 +65,7 @@ async def _assert_jobs_creation_privileges(engine) -> None:
             await connection.execute(
                 text(
                     "SELECT "
-                    "pg_catalog.has_table_privilege(current_user,'public.async_jobs','SELECT'),"
+                    "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','SELECT'),"
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','INSERT'),"
                     "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','INSERT'),"
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE'),"
@@ -78,7 +78,7 @@ async def _assert_jobs_creation_privileges(engine) -> None:
             )
         ).one()
         assert tuple(privileges) == (
-            True,
+            False,
             False,
             False,
             False,
@@ -250,8 +250,10 @@ async def test_lan_jobs_creation_facade_view_and_video_summary_preserve_transact
         await runtime.dispose()
 
 
-@pytest.mark.parametrize("privilege", ["INSERT", "DELETE", "UPDATE"])
-async def test_lan_jobs_grants_reject_inherited_private_insert_and_restore_cleanly(
+@pytest.mark.parametrize(
+    "privilege", ["SELECT", "INSERT", "DELETE", "UPDATE", "TRUNCATE"]
+)
+async def test_lan_jobs_grants_reject_inherited_private_access_and_restore_cleanly(
     test_engine,
     privilege,
 ):
@@ -311,7 +313,7 @@ async def test_lan_jobs_grants_reject_inherited_private_insert_and_restore_clean
         rejected = await _grants(test_engine, _LAN_GRANTS, _CONSUMER_ROLE)
         assert rejected.returncode != 0
         assert (
-            f"The runtime role still has effective private Jobs {privilege} privileges"
+            "Ordinary runtime must be a distinct non-admin LOGIN without inherited roles"
             in rejected.stderr
         ), rejected.stderr
     finally:
