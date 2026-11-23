@@ -7,27 +7,22 @@ import re
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.managed_original_retirement import (
-    ManagedOriginalRetirement as Retirement,
-)
-from app.db.models.managed_original_verification import (
-    ManagedOriginalVerification as Verification,
-)
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.user import User
 from app.schemas.managed_original_verification import (
     ManagedOriginalVerificationHistory,
     ManagedOriginalVerificationItem,
     ManagedOriginalVerificationStart,
 )
-from app.services import async_job as jobs, storage_access, storage_maintenance
+from app.services import (
+    async_job as jobs,
+    storage_access,
+    storage_maintenance,
+    storage_registry_data,
+)
 from app.services.audit import AuditService
 from app.services.dataset_assets import (
     LEGACY_LOCATION_ID,
@@ -35,7 +30,16 @@ from app.services.dataset_assets import (
     PURPOSE_BUCKET_ATTRIBUTES,
     validate_legacy_bindings,
 )
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.managed_original_lifecycle_data import (
+    active_verification,
+    committed_job,
+    original_json,
+    retirement_anchor,
+    verification_facts,
+    verification_for_job,
+)
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
 
@@ -44,15 +48,9 @@ ACTIVE = {"pending", "running"}
 MAX_BYTES = MAX_DIRECT_UPLOAD_BYTES
 TIMEOUT_SECONDS = 60
 _SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
-_INPUT = text("""
-SELECT statement_timestamp() AS measured_at,
-    to_jsonb(r) - 'policy_revision' - 'retain_until' AS anchor,
-    jsonb_build_object(
-      'location', (SELECT to_jsonb(l) FROM storage_locations l WHERE l.id=r.location_id),
-      'bindings', (SELECT COALESCE(jsonb_agg(to_jsonb(b) ORDER BY b.purpose),'[]'::jsonb) FROM storage_bindings b)
-    ) AS configuration
-FROM managed_original_retirements r WHERE r.id=CAST(:retirement_id AS uuid)
-""")
+_INPUT = text(
+    "SELECT * FROM yoao_assets_v1.observe_original_verification(:retirement_id)"
+)
 
 
 def now():
@@ -86,7 +84,7 @@ async def _registered_ref(db, anchor):
     from app.services import dataset_storage, dataset_storage_target
 
     location_id = uuid.UUID(anchor["location_id"])
-    location = await db.get(StorageLocation, location_id, populate_existing=True)
+    location = await storage_registry_data.get_location(db, location_id)
     target = await dataset_storage_target.target_for(db, location)
     ref = dataset_storage.make_ref(
         target, anchor["binding_generation"], anchor["object_key"]
@@ -124,10 +122,7 @@ async def observe(db, retirement_id):
         (
             await db.execute(
                 _INPUT,
-                {
-                    "platform_id": str(LEGACY_LOCATION_ID),
-                    "retirement_id": str(retirement_id),
-                },
+                {"retirement_id": retirement_id},
             )
         )
         .mappings()
@@ -166,7 +161,7 @@ async def authority(db, actor, api_key_id=None, *, lock=False):
 
 
 async def attempt_authority(db, row, *, lock=False):
-    actor = await db.get(User, row.requested_by, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(row.requested_by)
     if actor is None:
         reject("verification_authority_changed", 403)
     actor, proof = await authority(
@@ -229,12 +224,7 @@ async def eligibility(db, context):
 async def lock_anchor(db, retirement_id):
     try:
         async with db.begin_nested():
-            row = await db.scalar(
-                select(Retirement)
-                .where(Retirement.id == retirement_id)
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
-            )
+            row = await retirement_anchor(db, retirement_id, lock=True)
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("verification_busy")
@@ -260,12 +250,7 @@ def job_matches(row, job):
 async def locked(db, row):
     """The shared suffix is Retirement -> Verification -> AsyncJob on every path."""
     await lock_anchor(db, row.retirement_id)
-    current = await db.scalar(
-        select(Verification)
-        .where(Verification.id == row.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    current = await verification_facts(db, row.id, lock=True)
     job = None
     if current is not None and current.async_job_id is not None:
         job = await db.scalar(
@@ -277,19 +262,16 @@ async def locked(db, row):
 
 
 async def by_job(db, job_id):
-    return await db.scalar(
-        select(Verification)
-        .where(Verification.async_job_id == job_id)
-        .execution_options(populate_existing=True)
-    )
+    return await verification_for_job(db, job_id)
 
 
 async def unsettled_ids(db, retirement_id):
     return set(
         await db.scalars(
-            select(Verification.operation_id)
-            .join(StorageOperation, StorageOperation.id == Verification.operation_id)
-            .where(Verification.retirement_id == retirement_id)
+            text(
+                "SELECT * FROM yoao_assets_v1.original_verification_unsettled(:retirement)"
+            ),
+            {"retirement": retirement_id},
         )
     )
 
@@ -300,18 +282,11 @@ async def history(db, retirement_id, actor, *, api_key_id=None, limit=20, offset
         context = await observe(db, retirement_id)
         blockers, _ = await eligibility(db, context)
         operations = await unsettled_ids(db, retirement_id)
-        active = await db.scalar(
-            select(Verification)
-            .where(
-                Verification.retirement_id == retirement_id,
-                Verification.status.in_(ACTIVE),
-            )
-            .execution_options(populate_existing=True)
-        )
+        active = await active_verification(db, retirement_id)
         if active is not None:
             blockers.append("verification_active")
             job = (
-                await db.get(AsyncJob, active.async_job_id, populate_existing=True)
+                await jobs.get_job(db, active.async_job_id, populate_existing=True)
                 if active.async_job_id
                 else None
             )
@@ -320,20 +295,17 @@ async def history(db, retirement_id, actor, *, api_key_id=None, limit=20, offset
         if operations:
             blockers.append("physical_operation_unsettled")
         total = await db.scalar(
-            select(func.count())
-            .select_from(Verification)
-            .where(Verification.retirement_id == retirement_id)
+            text("SELECT yoao_assets_v1.original_verification_count(:retirement)"),
+            {"retirement": retirement_id},
         )
-        rows = list(
-            await db.scalars(
-                select(Verification)
-                .where(Verification.retirement_id == retirement_id)
-                .order_by(Verification.requested_at.desc(), Verification.id.desc())
-                .limit(limit)
-                .offset(offset)
-                .execution_options(populate_existing=True)
+        rows = (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.original_verification_history(:retirement, :limit, :offset)"
+                ),
+                {"retirement": retirement_id, "limit": limit, "offset": offset},
             )
-        )
+        ).all()
         _, current_proof = await authority(db, actor, api_key_id)
         if proof != current_proof:
             reject("verification_authority_changed", 403)
@@ -382,14 +354,7 @@ async def start(db, retirement_id, actor, *, api_key_id=None, request=None):
     actor, proof = await authority(db, actor, api_key_id, lock=True)
     await lock_anchor(db, retirement_id)
     context = await observe(db, retirement_id)
-    active = await db.scalar(
-        select(Verification)
-        .where(
-            Verification.retirement_id == retirement_id, Verification.status.in_(ACTIVE)
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    active = await active_verification(db, retirement_id, lock=True)
     if active is not None:
         job = (
             await db.scalar(
@@ -420,7 +385,7 @@ async def start(db, retirement_id, actor, *, api_key_id=None, request=None):
                 "verification_id": str(verification_id),
             },
         )
-        row = Verification(
+        facts = dict(
             id=verification_id,
             retirement_id=retirement_id,
             async_job_id=job.id,
@@ -437,12 +402,16 @@ async def start(db, retirement_id, actor, *, api_key_id=None, request=None):
             expected_sha256=context["anchor"]["sha256"],
             expected_size_bytes=context["anchor"]["size_bytes"],
             maintenance_revision=revision,
-            status="pending",
-            observation={},
             requested_at=context["measured_at"],
         )
-        db.add(row)
-        await db.flush()
+        row = (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.admit_original_verification(CAST(:facts AS jsonb))"
+                ),
+                {"facts": original_json(facts)},
+            )
+        ).one()
         await AuditService.log(
             db,
             actor=actor,
@@ -473,30 +442,51 @@ async def finish(db, row, job, status, *, outcome=None, error_code=None, result=
     """Only a current short locked transaction may publish a terminal observation."""
     if row.status not in ACTIVE:
         return False
-    row.status, row.outcome, row.error_code, row.completed_at = (
-        status,
-        outcome or status,
-        error_code,
-        now(),
+    completed_at = now()
+    cancel_at = row.cancel_requested_at or (
+        completed_at if status == "cancelled" else None
     )
-    if status == "cancelled" and row.cancel_requested_at is None:
-        row.cancel_requested_at = row.completed_at
-    if result is not None:
-        row.observed_sha256 = result.observed_sha256
-        row.observed_size_bytes = result.observed_size
-        row.observation = dict(result.observation)
-    if job is not None:
-        job.status, job.completed_at = status, row.completed_at
-        job.progress_pct = 100 if status == "completed" else job.progress_pct
-        job.error_message = error_code
-        job.result = {
-            "verification_id": str(row.id),
-            "outcome": row.outcome,
-            "error_code": error_code,
-            "execution_permission": False,
-            "cancel_requested": row.cancel_requested_at is not None,
+    evidence = (
+        None
+        if result is None
+        else {
+            "sha256": result.observed_sha256,
+            "size_bytes": result.observed_size,
+            "observation": dict(result.observation),
         }
-    await db.flush()
+    )
+    if not await db.scalar(
+        text("""SELECT yoao_assets_v1.finish_original_verification(
+            :id, :task, :previous, :status, :outcome, :error, :at, :cancel, CAST(:evidence AS jsonb)
+        )"""),
+        {
+            "id": row.id,
+            "task": row.task_id,
+            "previous": row.status,
+            "status": status,
+            "outcome": outcome or status,
+            "error": error_code,
+            "at": completed_at,
+            "cancel": cancel_at,
+            "evidence": original_json(evidence),
+        },
+    ):
+        return False
+    if job is not None:
+        committed_job(
+            job,
+            status=status,
+            completed_at=completed_at,
+            error_message=error_code,
+            progress_pct=100 if status == "completed" else job.progress_pct,
+            result={
+                "verification_id": str(row.id),
+                "outcome": outcome or status,
+                "error_code": error_code,
+                "execution_permission": False,
+                "cancel_requested": cancel_at is not None,
+            },
+        )
     return True
 
 
@@ -516,6 +506,12 @@ async def cancel(db, job_id):
     if row.status == "pending":
         await finish(db, row, job, "cancelled")
         return "cancelled"
+    await db.execute(
+        text(
+            "SELECT yoao_assets_v1.request_original_verification_cancel(:id, :task, :at)"
+        ),
+        {"id": row.id, "task": row.task_id, "at": row.cancel_requested_at},
+    )
     if job is not None:
         job.result = {
             **(job.result or {}),
@@ -587,15 +583,24 @@ async def claim(db, job_id, task_id):
     if failure:
         await finish(db, row, job, "failed", error_code=failure)
         return None
-    row.status, row.started_at = "running", now()
-    job.status, job.started_at = "running", row.started_at
-    job.result = {"stage": "reading", "execution_permission": False}
-    await db.flush()
+    started_at = now()
+    if not await db.scalar(
+        text("SELECT yoao_assets_v1.claim_original_verification(:id, :task, :at)"),
+        {"id": row.id, "task": task_id, "at": started_at},
+    ):
+        return None
+    row.status, row.started_at = "running", started_at
+    committed_job(
+        job,
+        status="running",
+        started_at=started_at,
+        result={"stage": "reading", "execution_permission": False},
+    )
     return row
 
 
 async def acquired(db, verification_id, permit):
-    row = await db.get(Verification, verification_id, populate_existing=True)
+    row = await verification_facts(db, verification_id)
     if row is None:
         reject("verification_context_changed")
     await attempt_authority(db, row, lock=True)
@@ -611,20 +616,26 @@ async def acquired(db, verification_id, permit):
         reject("verification_cancelled")
     if not context_matches(row, await observe(db, row.retirement_id)):
         reject("verification_context_changed")
-    operation = await db.get(StorageOperation, permit.id, populate_existing=True)
+    operation = await storage_access.operation_receipt(db, permit.id)
     if (
         permit.location_id != uuid.UUID(row.anchor["location_id"])
         or permit.revision != row.maintenance_revision
         or operation is None
-        or operation.location_id != permit.location_id
-        or operation.revision != permit.revision
-        or operation.purpose != KIND
+        or operation["location_id"] != permit.location_id
+        or operation["revision"] != permit.revision
+        or operation["purpose"] != KIND
     ):
         reject("verification_operation_mismatch")
     from app.services.managed_original_reclaim_fence import shared
 
     await shared(db, row.anchor["bucket"], row.anchor["object_key"])
-    row.operation_id = permit.id
+    if not await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.bind_original_verification_permit(:id, :task, :operation)"
+        ),
+        {"id": row.id, "task": row.task_id, "operation": permit.id},
+    ):
+        reject("verification_operation_mismatch")
     await db.commit()
 
 
@@ -649,8 +660,8 @@ async def publish(
         or job.status != "running"
     ):
         return False
-    if row.operation_id and await db.get(
-        StorageOperation, row.operation_id, populate_existing=True
+    if row.operation_id and await storage_access.operation_receipt(
+        db, row.operation_id
     ):
         return await finish(
             db, row, job, "failed", error_code="storage_operation_unsettled"

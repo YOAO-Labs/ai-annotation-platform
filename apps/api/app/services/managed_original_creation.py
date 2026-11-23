@@ -1,7 +1,7 @@
 """Durable allocation, conditional creation and publication without final deletion."""
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -12,22 +12,18 @@ import uuid
 
 import boto3
 from botocore.config import Config
-from sqlalchemy import insert, select, text, update
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageBinding,
     StorageLocation,
 )
-from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
-from app.db.models.storage_maintenance import StorageOperation
 from app.services import (
     annotations_storage,
     dataset_storage,
     storage_access,
+    storage_registry_data,
     storage_usage_accounting as accounting,
 )
 from app.services.content_snapshot import ContentError
@@ -118,31 +114,20 @@ def create_client(*, timeout_seconds=60):
 
 
 async def _configuration(db, *, lock=False):
-    if lock:
-        await db.execute(
-            select(StorageLocation.id)
-            .where(StorageLocation.id == LEGACY_LOCATION_ID)
-            .with_for_update(read=True)
-        )
-        await db.execute(
-            select(StorageBinding.purpose)
-            .where(StorageBinding.purpose.in_(ORIGINAL_STORAGE_PURPOSES))
-            .order_by(StorageBinding.purpose)
-            .with_for_update(read=True)
-        )
+    mode = "share" if lock else None
+    location = await storage_registry_data.get_location(
+        db, LEGACY_LOCATION_ID, lock=mode
+    )
+    bindings = [
+        await storage_registry_data.get_binding(db, purpose, lock=mode)
+        for purpose in sorted(ORIGINAL_STORAGE_PURPOSES)
+    ]
     if await validate_legacy_bindings(db):
         reject("managed_original_configuration_changed")
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
     if location is None or not location.enabled:
         reject("managed_original_configuration_changed")
-    bindings = list(
-        await db.scalars(
-            select(StorageBinding)
-            .where(StorageBinding.purpose.in_(ORIGINAL_STORAGE_PURPOSES))
-            .order_by(StorageBinding.purpose)
-            .execution_options(populate_existing=True)
-        )
-    )
+    if any(binding is None for binding in bindings):
+        reject("managed_original_configuration_changed")
     return _json(
         {
             "endpoint": f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}",
@@ -151,17 +136,8 @@ async def _configuration(db, *, lock=False):
                 for purpose, attr in PURPOSE_BUCKET_ATTRIBUTES.items()
                 if purpose in ORIGINAL_STORAGE_PURPOSES
             },
-            "location": {
-                column.key: getattr(location, column.key)
-                for column in StorageLocation.__table__.columns
-            },
-            "bindings": [
-                {
-                    column.key: getattr(row, column.key)
-                    for column in StorageBinding.__table__.columns
-                }
-                for row in bindings
-            ],
+            "location": asdict(location),
+            "bindings": [asdict(binding) for binding in bindings],
         }
     )
 
@@ -171,7 +147,8 @@ async def _read(db, creation_id):
         row = (
             (
                 await connection.execute(
-                    select(Creation.__table__).where(Creation.id == creation_id)
+                    text("SELECT * FROM yoao_assets_v1.local_original_receipt(:id)"),
+                    {"id": creation_id},
                 )
             )
             .mappings()
@@ -180,21 +157,21 @@ async def _read(db, creation_id):
         return dict(row) if row else None
 
 
-async def _change(db, creation_id, expected, *, record_mutation=False, **values):
+async def _change(db, creation_id, expected, *, step, record_mutation=False, **values):
     """No independent ledger transaction spans executor or network I/O."""
     async with storage_access.engine(db).begin() as connection:
         row = (
             (
                 await connection.execute(
-                    update(Creation)
-                    .where(
-                        Creation.id == creation_id,
-                        Creation.status.in_(
-                            [expected] if isinstance(expected, str) else expected
-                        ),
-                    )
-                    .values(**values)
-                    .returning(*Creation.__table__.columns)
+                    text(
+                        "SELECT * FROM yoao_assets_v1.record_local_original_step(:id, :step, :expected, CAST(:facts AS jsonb))"
+                    ),
+                    {
+                        "id": creation_id,
+                        "step": step,
+                        "expected": expected,
+                        "facts": json.dumps(values, default=str),
+                    },
                 )
             )
             .mappings()
@@ -220,78 +197,35 @@ async def _change(db, creation_id, expected, *, record_mutation=False, **values)
         return dict(row)
 
 
-async def abandon_unstarted_fixture(db, *, run_id, admission_id, creation_id):
-    """CAS an exact fixture allocation to failed only before any write can start."""
-    from app.db.models.fixture_run import FixtureRunResource
-
-    owner = (
-        select(FixtureRunResource.resource_id)
-        .where(
-            FixtureRunResource.run_id == run_id,
-            FixtureRunResource.admission_id == admission_id,
-            FixtureRunResource.kind == "creation",
-            FixtureRunResource.creation_id == creation_id,
-        )
-        .exists()
-    )
+async def _abandon_unstarted_fixture(
+    db, run_id, admission_id, creation_id, *, auxiliary
+):
     async with storage_access.engine(db).begin() as connection:
-        result = await connection.execute(
-            update(Creation)
-            .where(
-                Creation.id == creation_id,
-                Creation.status == "allocated",
-                Creation.operation_id.is_(None),
-                Creation.prepared.is_(None),
-                Creation.write_started_at.is_(None),
-                Creation.receipt.is_(None),
-                owner,
-            )
-            .values(
-                status="failed",
-                error_code="fixture_item_not_prepared",
-                completed_at=now(),
-            )
-            .returning(Creation.id)
+        abandoned = await connection.scalar(
+            text(
+                "SELECT yoao_assets_v1.abandon_unstarted_fixture_original(:run, :admission, :id, :auxiliary)"
+            ),
+            {
+                "run": run_id,
+                "admission": admission_id,
+                "id": creation_id,
+                "auxiliary": auxiliary,
+            },
         )
-        if result.scalar_one_or_none() is None:
+        if not abandoned:
             reject("fixture_creation_not_unstarted")
+
+
+async def abandon_unstarted_fixture(db, *, run_id, admission_id, creation_id):
+    return await _abandon_unstarted_fixture(
+        db, run_id, admission_id, creation_id, auxiliary=False
+    )
 
 
 async def abandon_unstarted_fixture_auxiliary(db, *, run_id, admission_id, creation_id):
-    """Abandon one exact auxiliary intent only while no physical write can exist."""
-    from app.db.models.fixture_run import FixtureAuxiliaryIntent
-
-    owner = (
-        select(FixtureAuxiliaryIntent.creation_id)
-        .where(
-            FixtureAuxiliaryIntent.run_id == run_id,
-            FixtureAuxiliaryIntent.admission_id == admission_id,
-            FixtureAuxiliaryIntent.creation_id == creation_id,
-        )
-        .exists()
+    return await _abandon_unstarted_fixture(
+        db, run_id, admission_id, creation_id, auxiliary=True
     )
-    async with storage_access.engine(db).begin() as connection:
-        result = await connection.execute(
-            update(Creation)
-            .where(
-                Creation.id == creation_id,
-                Creation.owner_kind == "dataset_auxiliary",
-                Creation.status == "allocated",
-                Creation.operation_id.is_(None),
-                Creation.prepared.is_(None),
-                Creation.write_started_at.is_(None),
-                Creation.receipt.is_(None),
-                owner,
-            )
-            .values(
-                status="failed",
-                error_code="fixture_auxiliary_not_started",
-                completed_at=now(),
-            )
-            .returning(Creation.id)
-        )
-        if result.scalar_one_or_none() is None:
-            reject("fixture_creation_not_unstarted")
 
 
 def _original_configuration(configuration):
@@ -349,71 +283,27 @@ async def _validate(db, row, *, lock=False):
             for name in ("location_id", "bucket", "object_key", "storage_identity")
         ):
             reject("managed_original_configuration_changed")
-        private_target = saved.get("fixture_original_target")
-        if private_target is not None:
-            from app.db.models.fixture_run import (
-                FixtureOriginalTarget,
-                FixtureRun,
-                FixtureRunResource,
-            )
-
-            try:
-                target_id = uuid.UUID(private_target["id"])
-                generation = private_target["generation"]
-                receipt = private_target["store_receipt_sha256"]
-            except (KeyError, TypeError, ValueError):
-                reject("fixture_original_storage_changed")
-            target = await db.get(FixtureOriginalTarget, target_id)
-            owner_resource = await db.scalar(
-                select(FixtureRunResource).where(
-                    FixtureRunResource.resource_id == row["id"],
-                    FixtureRunResource.kind.in_(("creation", "auxiliary")),
-                )
-            )
-            run = (
-                await db.get(FixtureRun, owner_resource.run_id)
-                if owner_resource
-                else None
-            )
-            root = (
-                await db.get(FixtureRun, run.parent_run_id or run.id) if run else None
-            )
-            if (
-                target is None
-                or root is None
-                or root.original_target_id != target.id
-                or target.id != target_id
-                or target.generation != generation
-                or target.store_receipt_sha256 != receipt
-                or root.original_store_receipt_sha256 != receipt
-                or target.location_id != owner.location_id
-                or target.bucket != owner.bucket
-                or target.storage_identity != owner.storage_identity
-                or root.original_storage_identity != target.storage_identity
-                or owner.binding_generation != generation
-            ):
-                reject("fixture_original_storage_changed")
+        if saved.get("fixture_original_target") is not None and not await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.fixture_original_target_matches(:creation_id, true)"
+            ),
+            {"creation_id": row["id"]},
+        ):
+            reject("fixture_original_storage_changed")
         try:
             from app.services.original_sources import _reads
 
             async with _reads(db, lock):
                 if lock:
-                    from app.db.models.storage_connection import StorageConnection
-
-                    location = await db.get(
-                        StorageLocation, owner.location_id, populate_existing=True
+                    location = await storage_registry_data.get_location(
+                        db, owner.location_id
                     )
-                    connection_id = location.connection_id if location else None
-                    if connection_id is not None:
-                        await db.execute(
-                            select(StorageConnection.id)
-                            .where(StorageConnection.id == connection_id)
-                            .with_for_update(read=True, nowait=True)
+                    if location is not None and location.connection_id is not None:
+                        await storage_registry_data.get_connection(
+                            db, location.connection_id, lock="share_nowait"
                         )
-                    await db.execute(
-                        select(StorageLocation.id)
-                        .where(StorageLocation.id == owner.location_id)
-                        .with_for_update(read=True, nowait=True)
+                    await storage_registry_data.get_location(
+                        db, owner.location_id, lock="share_nowait"
                     )
                 await _original_storage(row).target_for_ref(db, reference)
         except (
@@ -425,14 +315,8 @@ async def _validate(db, row, *, lock=False):
         if saved.get("schema") == 2:
             reject("managed_original_configuration_changed")
         purpose = "annotations" if row["owner_kind"] == "task" else "datasets"
-        if lock:
-            await db.execute(
-                select(StorageLocation.id)
-                .where(StorageLocation.id == LEGACY_LOCATION_ID)
-                .with_for_update(read=True)
-            )
-        location = await db.get(
-            StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
+        location = await storage_registry_data.get_location(
+            db, LEGACY_LOCATION_ID, lock="share" if lock else None
         )
         selected = [
             binding
@@ -443,13 +327,7 @@ async def _validate(db, row, *, lock=False):
             location is None
             or not location.enabled
             or row["location_id"] != LEGACY_LOCATION_ID
-            or saved.get("location")
-            != _json(
-                {
-                    column.key: getattr(location, column.key)
-                    for column in StorageLocation.__table__.columns
-                }
-            )
+            or saved.get("location") != _json(asdict(location))
             or saved.get("endpoint") != dataset_storage._runtime_endpoint()
             or saved.get("buckets", {}).get(purpose) != row["bucket"]
             or len(selected) != 1
@@ -471,8 +349,10 @@ async def bootstrap(db):
     """Initialize committed registry facts before callers acquire business locks."""
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as current, current.begin():
-        location = await current.get(StorageLocation, LEGACY_LOCATION_ID)
-        purposes = set(await current.scalars(select(StorageBinding.purpose)))
+        location = await storage_registry_data.get_location(current, LEGACY_LOCATION_ID)
+        purposes = {
+            binding.purpose for binding in await storage_registry_data.bindings(current)
+        }
         if location is None or not set(PURPOSE_BUCKET_ATTRIBUTES).issubset(purposes):
             await ensure_legacy_bindings(current)
 
@@ -863,35 +743,25 @@ async def _allocate(
             binding, location = await ownership.original_target(current, root)
         else:
             purpose = "annotations" if owner_kind == "task" else "datasets"
-            initial = await current.get(StorageBinding, purpose, populate_existing=True)
+            initial = await storage_registry_data.get_binding(current, purpose)
             if initial is None:
                 reject("managed_original_configuration_changed")
             facts = initial.location_id, initial.bucket, initial.generation
-            initial_location = await current.get(
-                StorageLocation, facts[0], populate_existing=True
+            initial_location = await storage_registry_data.get_location(
+                current, facts[0]
             )
             if initial_location is None:
                 reject("managed_original_configuration_changed")
-            from app.db.models.storage_connection import StorageConnection
-
             connection_id = initial_location.connection_id
             if connection_id is not None:
-                await current.execute(
-                    select(StorageConnection.id)
-                    .where(StorageConnection.id == connection_id)
-                    .with_for_update(read=True)
+                await storage_registry_data.get_connection(
+                    current, connection_id, lock="share"
                 )
-            location = await current.scalar(
-                select(StorageLocation)
-                .where(StorageLocation.id == facts[0])
-                .with_for_update(read=True)
-                .execution_options(populate_existing=True)
+            location = await storage_registry_data.get_location(
+                current, facts[0], lock="share"
             )
-            binding = await current.scalar(
-                select(StorageBinding)
-                .where(StorageBinding.purpose == purpose)
-                .with_for_update(read=True)
-                .execution_options(populate_existing=True)
+            binding = await storage_registry_data.get_binding(
+                current, purpose, lock="share"
             )
             if (
                 location is None
@@ -1014,14 +884,14 @@ async def _allocate(
             "staging_ref": staging_ref,
             "staging_bucket": staging_owner_value.bucket if staging else None,
             "staging_key": staging_owner_value.key("payload") if staging else None,
-            "status": "allocated",
         }
         row = (
             (
                 await current.execute(
-                    insert(Creation)
-                    .values(**values)
-                    .returning(*Creation.__table__.columns)
+                    text(
+                        "SELECT * FROM yoao_assets_v1.allocate_local_original(CAST(:request AS jsonb))"
+                    ),
+                    {"request": json.dumps(values, default=str)},
                 )
             )
             .mappings()
@@ -1070,10 +940,7 @@ async def _allocate(
             await current.flush()
         if fixture_auxiliary is not None:
             material = await current.scalar(
-                text(
-                    "SELECT yoao_assets_v1._managed_original_facts(creation) "
-                    "FROM public.managed_original_creations AS creation WHERE creation.id=:id"
-                ),
+                text("SELECT yoao_assets_v1.fixture_auxiliary_original_material(:id)"),
                 {"id": creation_id},
             )
             if not isinstance(material, dict) or material.get("creation_id") != str(
@@ -1084,61 +951,33 @@ async def _allocate(
         return dict(row)
 
 
-async def for_key(db, *, dataset_id, object_key):
+async def _for_owner_key(db, owner_kind, owner_id, object_key):
     async with storage_access.engine(db).connect() as connection:
         row = (
             (
                 await connection.execute(
-                    select(Creation.__table__)
-                    .where(
-                        Creation.owner_kind == "dataset",
-                        Creation.dataset_id == dataset_id,
-                        Creation.object_key == object_key,
-                    )
-                    .order_by(
-                        (Creation.status == "verified").desc(),
-                        Creation.allocated_at.desc(),
-                        Creation.id.desc(),
-                    )
-                    .limit(1)
+                    text(
+                        "SELECT * FROM yoao_assets_v1.local_original_for_owner_key(:kind, :owner, :key)"
+                    ),
+                    {"kind": owner_kind, "owner": owner_id, "key": object_key},
                 )
             )
             .mappings()
             .one_or_none()
         )
-        row = dict(row) if row else None
-    if row:
-        await _validate(db, row)
+    if row is None:
+        return None
+    row = dict(row)
+    await _validate(db, row)
     return row
+
+
+async def for_key(db, *, dataset_id, object_key):
+    return await _for_owner_key(db, "dataset", dataset_id, object_key)
 
 
 async def for_task(db, *, task_id, object_key):
-    """Find a Task-scoped allocation without borrowing a Dataset identity."""
-    async with storage_access.engine(db).connect() as connection:
-        row = (
-            (
-                await connection.execute(
-                    select(Creation.__table__)
-                    .where(
-                        Creation.owner_kind == "task",
-                        Creation.task_id == task_id,
-                        Creation.object_key == object_key,
-                    )
-                    .order_by(
-                        (Creation.status == "verified").desc(),
-                        Creation.allocated_at.desc(),
-                        Creation.id.desc(),
-                    )
-                    .limit(1)
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        row = dict(row) if row else None
-    if row:
-        await _validate(db, row)
-    return row
+    return await _for_owner_key(db, "task", task_id, object_key)
 
 
 def _result(row, head_bytes=b""):
@@ -1267,6 +1106,7 @@ async def _physical(db, row, stream, *, source_target=None):
                 db,
                 row["id"],
                 "preparing",
+                step="observe_staging",
                 source={
                     **_proof(source),
                     "etag": source.etag,
@@ -1304,6 +1144,7 @@ async def _physical(db, row, stream, *, source_target=None):
             db,
             row["id"],
             "preparing",
+            step="prepare",
             status="prepared",
             frozen_at=now(),
             **_proof(prepared),
@@ -1320,7 +1161,7 @@ async def _physical(db, row, stream, *, source_target=None):
             row["id"],
             "prepared",
             record_mutation=True,
-            status="writing",
+            step="write_intent",
             write_started_at=now(),
         )
         completion_started = True
@@ -1348,6 +1189,7 @@ async def _physical(db, row, stream, *, source_target=None):
                 db,
                 row["id"],
                 "writing",
+                step="acknowledge",
                 status="written",
                 acknowledged_at=now(),
                 receipt=observed_receipt,
@@ -1389,6 +1231,7 @@ async def _physical(db, row, stream, *, source_target=None):
                 db,
                 row["id"],
                 "written",
+                step="readback",
                 verification={
                     **_proof(verified),
                     "observation": _json(verified.observation),
@@ -1511,9 +1354,7 @@ async def _execute(db, allocation, stream):
             if row["status"] not in TERMINAL
             else "managed_original_creation_terminal"
         )
-    row = await _change(
-        db, row["id"], "allocated", status="preparing", claimed_at=now()
-    )
+    row = await _change(db, row["id"], "allocated", step="claim", claimed_at=now())
     try:
         async with await storage_access.acquire(
             db,
@@ -1525,7 +1366,9 @@ async def _execute(db, allocation, stream):
             ),
             expected_revision=row["maintenance_revision"],
         ) as permit:
-            await _change(db, row["id"], "preparing", operation_id=permit.id)
+            await _change(
+                db, row["id"], "preparing", step="bind_permit", operation_id=permit.id
+            )
             if row["origin"] == "direct":
                 from app.services import import_storage
 
@@ -1550,6 +1393,7 @@ async def _execute(db, allocation, stream):
             db,
             row["id"],
             "written",
+            step="settle_verified",
             status="verified",
             settled_at=now(),
             completed_at=now(),
@@ -1561,10 +1405,8 @@ async def _execute(db, allocation, stream):
             operation = None
             if current and current["operation_id"]:
                 async with storage_access.engine(db).connect() as connection:
-                    operation = await connection.scalar(
-                        select(StorageOperation.id).where(
-                            StorageOperation.id == current["operation_id"]
-                        )
+                    operation = await storage_access.operation_receipt(
+                        connection, current["operation_id"]
                     )
             if current and current["status"] not in TERMINAL:
                 outcome = (
@@ -1598,6 +1440,7 @@ async def _execute(db, allocation, stream):
                     db,
                     row["id"],
                     current["status"],
+                    step="settle_failure",
                     status=outcome,
                     error_code=_error(exc),
                     failure_evidence=evidence,
@@ -1715,38 +1558,15 @@ async def attach(db, item, creation_id):
     if row is None or row["owner_kind"] != "dataset" or row["status"] != "verified":
         reject("managed_original_creation_unverified")
     await _validate(db, row, lock=True)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == item.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    replica = (
-        await db.get(
-            DatasetAssetLocation,
-            (asset.id, row["location_id"], row["bucket"]),
-            populate_existing=True,
-        )
-        if asset
-        else None
-    )
-    if (
-        item.dataset_id != row["dataset_id"]
-        or item.file_path != row["object_key"]
-        or asset is None
-        or asset.verification_state != "verified"
-        or asset.checksum_algorithm != "sha256"
-        or asset.checksum_value != row["sha256"]
-        or asset.size_bytes != row["size_bytes"]
-        or replica is None
-        or replica.object_key != row["object_key"]
-        or replica.role != "managed_original"
-        or replica.creation_id not in (None, creation_id)
-        or replica.storage_ref != original_ref(row)
-    ):
+    if item.dataset_id != row["dataset_id"] or item.file_path != row["object_key"]:
         reject("managed_original_creation_attachment_mismatch")
-    from app.services.managed_original_reclaim_fence import shared
+    result = await db.scalar(
+        text("SELECT yoao_assets_v1.attach_verified_original(:item_id, :creation_id)"),
+        {"item_id": item.id, "creation_id": creation_id},
+    )
+    if result != "ok":
+        from app.services.managed_original_reclaim_fence import check_shared_result
 
-    await shared(db, row["bucket"], row["object_key"])
-    replica.creation_id = creation_id
-    await db.flush()
+        if result == "mismatch":
+            reject("managed_original_creation_attachment_mismatch")
+        check_shared_result(result)

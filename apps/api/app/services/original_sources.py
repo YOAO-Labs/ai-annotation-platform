@@ -12,20 +12,17 @@ import re
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import Text, case, cast, func, select, text
+from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageLocation,
+from app.services import (
+    original_source_data,
+    storage_access,
+    storage_registry_data,
+    task_originals,
 )
-from app.db.models.storage_maintenance import StorageMaintenanceGate
-from app.db.models.task_original import TaskOriginal
-from app.services import storage_access, task_originals
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.labeling_core_read_relations import (
@@ -39,8 +36,6 @@ from app.services.reference_keys import is_reference, reference_key
 from app.services.original_read_plan import PhysicalReadPlan, ReadRoute
 
 _SHA = re.compile(r"[0-9a-f]{64}")
-_MAX_ETAG_BYTES = 1024
-_MAX_STORAGE_REF_BYTES = 8192
 
 
 @dataclass(frozen=True)
@@ -278,7 +273,7 @@ async def resolve_task_relation(
         )
 
 
-def _platform_location(location, *, bounded=False):
+def _platform_location(location):
     config = {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
     if (
         location is None
@@ -287,12 +282,8 @@ def _platform_location(location, *, bounded=False):
         or location.kind != "s3"
         or type(location.config_revision) is not int
         or location.config_revision != 1
-        or (
-            location.config_matches is not True
-            if bounded
-            else location.config != config
-            or type(location.config.get("use_ssl")) is not bool
-        )
+        or location.config != config
+        or type(location.config.get("use_ssl")) is not bool
     ):
         raise ContentError("location_unavailable")
     endpoint = f"{'https' if config['use_ssl'] else 'http'}://{config['endpoint']}"
@@ -340,7 +331,7 @@ async def saved_location(
         locations = await _locations(db, [location_id], lock, bounded=bounded)
         location = locations[0] if len(locations) == 1 else None
     if storage_ref is None:
-        return _platform_location(location, bounded=bounded)
+        return _platform_location(location)
     from app.services import annotations_storage, dataset_storage
 
     storage = annotations_storage if purpose == "annotations" else dataset_storage
@@ -374,7 +365,6 @@ async def saved_location(
 
 async def read_target(db, source):
     """Prepare a separate current-credential target outside business transactions."""
-    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
     from app.services import annotations_storage, dataset_storage
 
     storage = (
@@ -384,19 +374,20 @@ async def read_target(db, source):
         bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
     ) as owned:
         if source.owner_kind == "task_original":
-            row = (
-                await owned.execute(
-                    select(TaskOriginal.storage_ref).where(
-                        TaskOriginal.id == source.content_id,
-                        TaskOriginal.location_id == source.location_id,
-                        TaskOriginal.bucket == source.bucket,
-                        TaskOriginal.object_key == source.object_key,
-                        TaskOriginal.sha256 == source.sha256,
-                        TaskOriginal.size_bytes == source.size_bytes,
-                    )
-                )
-            ).one_or_none()
-            if row is None:
+            row = await original_source_data.task_source(owned, source.content_id)
+            if row is None or (
+                row.location_id,
+                row.bucket,
+                row.object_key,
+                row.sha256,
+                row.size_bytes,
+            ) != (
+                source.location_id,
+                source.bucket,
+                source.object_key,
+                source.sha256,
+                source.size_bytes,
+            ):
                 raise ContentError("location_unavailable")
             ref = row.storage_ref
             if ref is None:
@@ -405,24 +396,26 @@ async def read_target(db, source):
             ref = storage.legacy_ref(source.bucket, source.object_key)
         else:
             if source.owner_kind == "dataset_asset":
-                query = select(DatasetAssetLocation.storage_ref).where(
-                    DatasetAssetLocation.asset_id == source.content_id,
-                    DatasetAssetLocation.location_id == source.location_id,
-                    DatasetAssetLocation.bucket == source.bucket,
-                    DatasetAssetLocation.object_key == source.object_key,
-                    DatasetAssetLocation.role == "managed_original",
-                    DatasetAssetLocation.reference_state == "present",
+                ref = await original_source_data.managed_location_ref(
+                    owned,
+                    source.content_id,
+                    source.location_id,
+                    source.bucket,
+                    source.object_key,
                 )
             elif source.owner_kind == "dataset_auxiliary":
-                query = select(DatasetAuxiliaryOriginal.storage_ref).where(
-                    DatasetAuxiliaryOriginal.id == source.content_id,
-                    DatasetAuxiliaryOriginal.location_id == source.location_id,
-                    DatasetAuxiliaryOriginal.bucket == source.bucket,
-                    DatasetAuxiliaryOriginal.object_key == source.object_key,
+                row = await original_source_data.auxiliary_source(
+                    owned, source.content_id
+                )
+                ref = (
+                    row["storage_ref"]
+                    if row is not None
+                    and (row["location_id"], row["bucket"], row["object_key"])
+                    == (source.location_id, source.bucket, source.object_key)
+                    else None
                 )
             else:
                 raise ContentError("location_unavailable")
-            ref = await owned.scalar(query)
             if ref is None:
                 raise ContentError("location_unavailable")
         try:
@@ -503,21 +496,9 @@ async def recheck_read_route(db, source):
 
 
 async def _gate_state(db, location_id, lock, *, bounded=False):
-    statement = (
-        select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision)
-        if bounded
-        else select(StorageMaintenanceGate)
-    ).where(StorageMaintenanceGate.location_id == location_id)
-    gate = (
-        (await db.execute(_statement(statement, lock))).one_or_none()
-        if bounded
-        else await db.scalar(_statement(statement, lock))
-    )
-    return (
-        {"state": gate.state, "revision": gate.revision}
-        if gate is not None
-        else {"state": "active", "revision": 1}
-    )
+    return await storage_access.gate_facts(
+        db, location_id, lock="share_nowait" if lock else None
+    ) or {"state": "active", "revision": 1}
 
 
 async def _gate(db, location_id, lock, *, bounded=False):
@@ -546,64 +527,20 @@ async def _read_route(db, source, lock, *, bounded=False):
 
 
 async def _locations(db, location_ids, lock, *, bounded=False):
-    if bounded:
-        statement = select(
-            StorageLocation.id,
-            StorageLocation.kind,
-            StorageLocation.enabled,
-            StorageLocation.config_revision,
-            StorageLocation.connection_id,
-            (
-                StorageLocation.config
-                == {
-                    "endpoint": settings.minio_endpoint,
-                    "use_ssl": settings.minio_use_ssl,
-                }
-            ).label("config_matches"),
-        ).limit(2)
-    else:
-        statement = select(StorageLocation)
-    statement = statement.where(StorageLocation.id.in_(location_ids)).order_by(
-        StorageLocation.id
-    )
-    if bounded:
-        return list((await db.execute(_statement(statement, lock))).all())
-    return list(await db.scalars(_statement(statement, lock)))
+    locations = []
+    for location_id in sorted(location_ids):
+        location = await storage_registry_data.get_location(
+            db, location_id, lock="share_nowait" if lock else None
+        )
+        if location is not None:
+            locations.append(location)
+    return locations
 
 
 async def _replicas(db, asset_id, lock, *, bounded=False):
-    if bounded:
-        etag_bytes = func.octet_length(DatasetAssetLocation.etag)
-        ref_bytes = func.octet_length(cast(DatasetAssetLocation.storage_ref, Text))
-        statement = select(
-            DatasetAssetLocation.asset_id,
-            DatasetAssetLocation.location_id,
-            DatasetAssetLocation.bucket,
-            DatasetAssetLocation.object_key,
-            DatasetAssetLocation.role,
-            DatasetAssetLocation.reference_state,
-            DatasetAssetLocation.creation_id,
-            case(
-                (ref_bytes <= _MAX_STORAGE_REF_BYTES, DatasetAssetLocation.storage_ref),
-                else_=None,
-            ).label("storage_ref"),
-            (ref_bytes > _MAX_STORAGE_REF_BYTES).label("storage_ref_oversized"),
-            DatasetAssetLocation.verified_at,
-            case(
-                (etag_bytes <= _MAX_ETAG_BYTES, DatasetAssetLocation.etag), else_=None
-            ).label("etag"),
-            (etag_bytes > _MAX_ETAG_BYTES).label("etag_oversized"),
-        ).limit(2)
-    else:
-        statement = select(DatasetAssetLocation)
-    statement = statement.where(
-        DatasetAssetLocation.asset_id == asset_id,
-        DatasetAssetLocation.role == "managed_original",
-        DatasetAssetLocation.reference_state == "present",
-    ).order_by(DatasetAssetLocation.location_id, DatasetAssetLocation.bucket)
-    if bounded:
-        return list((await db.execute(_statement(statement, lock))).all())
-    return list(await db.scalars(_statement(statement, lock)))
+    return await original_source_data.managed_locations(
+        db, asset_id, lock=lock, bounded=bounded
+    )
 
 
 def _safe_locator(bucket, key):
@@ -620,59 +557,13 @@ def _safe_locator(bucket, key):
         raise ContentError("no_readable_original")
 
 
-async def _bounded_item_read(db, statement):
-    """Bound just the Item lock, without extending a shorter caller timeout."""
-    previous = await db.scalar(
-        text("SELECT setting FROM pg_catalog.pg_settings WHERE name = 'lock_timeout'")
-    )
-    if 0 < int(previous) <= 1000:
-        return await db.execute(statement)
-    await db.execute(text("SET LOCAL lock_timeout = '1s'"))
-    result = await db.execute(statement)
-    await db.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": previous + "ms"},
-    )
-    return result
-
-
 async def _item(db, item_id, lock, *, bounded=False, wait_for_item=False):
-    wait = lock and wait_for_item
-    statement = _statement(
-        select(
-            DatasetItem.id,
-            DatasetItem.dataset_id,
-            DatasetItem.file_path,
-            DatasetItem.file_type,
-            DatasetItem.width,
-            DatasetItem.height,
-        ).where(DatasetItem.id == item_id),
-        lock,
-        nowait=not wait,
+    item = await original_source_data.item_source_facts(
+        db, item_id, lock=lock, wait=wait_for_item
     )
-    result = (
-        await _bounded_item_read(db, statement) if wait else await db.execute(statement)
-    )
-    item = result.one_or_none()
     if item is None:
         raise ContentError("item_removed")
-    statement = (
-        select(
-            DatasetAsset.id,
-            DatasetAsset.media_type,
-            DatasetAsset.checksum_algorithm,
-            DatasetAsset.checksum_value,
-            DatasetAsset.size_bytes,
-            DatasetAsset.verification_state,
-        )
-        if bounded
-        else select(DatasetAsset)
-    ).where(DatasetAsset.dataset_item_id == item.id)
-    asset = (
-        (await db.execute(_statement(statement, lock))).one_or_none()
-        if bounded
-        else await db.scalar(_statement(statement, lock))
-    )
+    asset = await original_source_data.asset_for_item(db, item.id, lock=lock)
     if (
         asset is None
         or asset.verification_state != "verified"
@@ -810,12 +701,7 @@ async def _task_source(
         ):
             raise ContentError("content_binding_changed")
         return replace(source, relation=relation)
-    owner = await db.scalar(
-        _statement(
-            select(TaskOriginal).where(TaskOriginal.id == relation.original_id),
-            lock,
-        )
-    )
+    owner = await original_source_data.task_source(db, relation.original_id, lock=lock)
     receipt = task_originals.snapshot(owner)
     if (
         receipt.task_id != relation.task_id
@@ -823,18 +709,8 @@ async def _task_source(
         or receipt.object_key != relation.file_path
     ):
         raise ContentError("content_binding_changed")
-    if bounded:
-        locations = await _locations(db, [receipt.location_id], lock, bounded=True)
-        location = locations[0] if locations else None
-    else:
-        location = await db.scalar(
-            _statement(
-                select(StorageLocation).where(
-                    StorageLocation.id == receipt.location_id
-                ),
-                lock,
-            )
-        )
+    locations = await _locations(db, [receipt.location_id], lock, bounded=bounded)
+    location = locations[0] if locations else None
     endpoint, location_facts = await saved_location(
         db,
         receipt.location_id,
