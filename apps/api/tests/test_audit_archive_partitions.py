@@ -8,6 +8,8 @@ from datetime import date, datetime, timezone
 import gzip
 import hashlib
 from itertools import count
+import os
+from pathlib import Path
 from tempfile import TemporaryFile
 import threading
 from types import SimpleNamespace
@@ -15,7 +17,10 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.audit_archive_output import AuditArchiveOutput
@@ -35,6 +40,7 @@ from app.services.audit_archive_partitions import (
 )
 from app.services.audit_partition_service import AuditPartitionService
 from app.services.jobs_lifecycle_data import job_lock_statement
+from tests.test_workspace_project_authority_locking import _api_url
 
 
 @pytest.mark.parametrize("value", [True, False, 0, -1, 1.0, "12", None])
@@ -110,7 +116,6 @@ async def source_case(test_engine, monkeypatch):
     """
     index = next(_months)
     start = date(2000 + index // 12, index % 12 + 1, 1)
-    end = date(start.year + (start.month == 12), start.month % 12 + 1, 1)
     name = partition_name(start)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     job_id = uuid4()
@@ -121,12 +126,7 @@ async def source_case(test_engine, monkeypatch):
             )
             is None
         )
-        await db.execute(
-            text(
-                f'CREATE TABLE public."{name}" PARTITION OF public.audit_logs '
-                f"FOR VALUES FROM ('{start} 00:00:00+00') TO ('{end} 00:00:00+00')"
-            )
-        )
+        assert await AuditMaintenancePostgresData(db).ensure_partition(start)
         await db.execute(
             text(
                 f'INSERT INTO public."{name}" (action, created_at) VALUES '
@@ -243,6 +243,132 @@ async def test_archive_publication_commits_drop_owner_audit_and_job(source_case)
             )
             == 1
         )
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the real application LOGIN in the disposable module-data verifier",
+)
+async def test_restricted_login_publishes_archive_without_private_audit_access(
+    source_case, test_engine
+):
+    case = source_case
+    url = _api_url(test_engine)
+    runtime = create_async_engine(url, hide_parameters=True)
+    try:
+        async with async_sessionmaker(runtime)() as db:
+            assert await db.scalar(text("SELECT current_user")) == url.username
+            for statement in (
+                "SELECT id FROM public.audit_logs LIMIT 0",
+                f"SELECT id FROM {case.source.qualified} LIMIT 0",
+                "SELECT day FROM public.mv_audit_bi_daily LIMIT 0",
+                "SELECT id FROM public.audit_archive_outputs LIMIT 0",
+                "SELECT nextval(pg_get_serial_sequence('public.audit_logs','id'))",
+                "SELECT yoao_audit_v1.maintenance_command(NULL::jsonb)",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with db.begin_nested():
+                        await db.execute(text(statement))
+                assert denied.value.orig.sqlstate == "42501"
+            await db.rollback()
+            result = await AuditPartitionService.archive_old_partitions(
+                db, job_id=case.job_id
+            )
+            assert result["archived_partitions"] == [case.source.name]
+            assert result["total_rows"] == 1
+            archive = await db.scalar(
+                text(
+                    "SELECT id FROM yoao_audit_v1.archive_output_ready_month(:year,:month)"
+                ),
+                {"year": case.source.year, "month": case.source.month},
+            )
+            assert str(archive) == result["output_ids"][0]
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM yoao_audit_v1.audit_events "
+                        "WHERE action='audit.archive' AND detail_json->>'archive_output_id' = :id"
+                    ),
+                    {"id": str(archive)},
+                )
+                == 1
+            )
+        output, job, exists = await _facts(case)
+        assert exists is None and job.result == result
+        assert len(output) == len(case.writes) == 1 and output[0].state == "ready"
+    finally:
+        await runtime.dispose()
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the real application LOGIN in the disposable module-data verifier",
+)
+async def test_audit_acl_reclaims_column_grants_and_rejects_future_default_grants(
+    test_engine,
+):
+    url = _api_url(test_engine)
+    role = test_engine.dialect.identifier_preparer.quote_identifier(url.username)
+    profile = (
+        Path(__file__).resolve().parents[3] / "infra/docker/lan-production-grants.sql"
+    ).read_text()
+    begin, end = "DO $audit_private_acl$", "$audit_private_acl$;"
+    block = begin + profile.split(begin, 1)[1].split(end, 1)[0] + end
+    async with test_engine.connect() as owner:
+        await owner.execute(
+            text(
+                "SELECT set_config('yoao.application_role', :role, true), "
+                "set_config('yoao.expected_database', current_database(), true)"
+            ),
+            {"role": url.username},
+        )
+        audit_owner = await owner.scalar(
+            text(
+                "SELECT quote_ident(pg_get_userbyid(relowner)) FROM pg_class "
+                "WHERE oid='public.audit_logs'::regclass"
+            )
+        )
+        leaf = await owner.scalar(
+            text(
+                "SELECT relid::text FROM pg_catalog.pg_partition_tree('public.audit_logs') "
+                "WHERE isleaf ORDER BY relid LIMIT 1"
+            )
+        )
+        assert leaf
+        for statement in (
+            f"GRANT SELECT (id) ON public.audit_logs TO {role}",
+            f"GRANT SELECT (id) ON {leaf} TO {role}",
+            "GRANT SELECT (day) ON public.mv_audit_bi_daily TO PUBLIC",
+            f"GRANT UPDATE (state) ON public.audit_archive_outputs TO {role}",
+        ):
+            await owner.exec_driver_sql(statement)
+        access = text(
+            "SELECT has_any_column_privilege(:role,'public.audit_logs','SELECT'), "
+            "has_any_column_privilege(:role,CAST(CAST(:leaf AS text) AS regclass),'SELECT'), "
+            "has_any_column_privilege(:role,'public.mv_audit_bi_daily','SELECT'), "
+            "has_any_column_privilege(:role,'public.audit_archive_outputs','UPDATE')"
+        )
+        params = {"role": url.username, "leaf": leaf}
+        assert (await owner.execute(access, params)).one() == (True, True, True, True)
+        await owner.exec_driver_sql(block)
+        assert (await owner.execute(access, params)).one() == (
+            False,
+            False,
+            False,
+            False,
+        )
+        for privilege in (
+            f"SELECT ON TABLES TO {role}",
+            "USAGE ON SEQUENCES TO PUBLIC",
+        ):
+            with pytest.raises(DBAPIError, match="future private storage"):
+                async with owner.begin_nested():
+                    await owner.exec_driver_sql(
+                        f"ALTER DEFAULT PRIVILEGES FOR ROLE {audit_owner} IN SCHEMA public "
+                        f"GRANT {privilege}"
+                    )
+                    await owner.exec_driver_sql(block)
+        await owner.rollback()
 
 
 async def test_pending_is_committed_and_parent_is_unlocked_during_io(
@@ -696,12 +822,14 @@ async def test_stream_limits_close_cursor_without_loading_partition(monkeypatch,
         seen = 0
         name = None
 
+        async def scalar(self, statement, params):
+            assert "yoao_audit_v1.platform_maintenance" in str(statement)
+            assert params["operation"] == "open_source"
+            self.name = params["cursor"]
+
         async def execute(self, statement):
             sql = str(statement)
-            if sql.startswith("DECLARE "):
-                assert "ORDER BY id, created_at" in sql
-                self.name = sql.split('"')[1]
-            elif sql.startswith("FETCH "):
+            if sql.startswith("FETCH "):
                 assert sql == f'FETCH FORWARD 1 FROM "{self.name}"'
                 self.seen += 1
                 return SimpleNamespace(
@@ -724,7 +852,7 @@ async def test_stream_deadline_covers_database_wait(monkeypatch):
     )
 
     class DB:
-        async def execute(self, statement):
+        async def scalar(self, statement, params):
             await asyncio.sleep(10)
             pytest.fail("database wait should have been cancelled")
 
@@ -785,15 +913,9 @@ async def test_later_month_failure_preserves_committed_partial_job_result(
     case = source_case
     index = next(_months)
     start = date(2000 + index // 12, index % 12 + 1, 1)
-    end = date(start.year + (start.month == 12), start.month % 12 + 1, 1)
     name = partition_name(start)
     async with case.maker() as db:
-        await db.execute(
-            text(
-                f'CREATE TABLE public."{name}" PARTITION OF public.audit_logs '
-                f"FOR VALUES FROM ('{start} 00:00:00+00') TO ('{end} 00:00:00+00')"
-            )
-        )
+        assert await AuditMaintenancePostgresData(db).ensure_partition(start)
         await db.execute(
             text(
                 f'INSERT INTO public."{name}" (action,created_at) '
@@ -880,11 +1002,13 @@ async def test_stream_repeated_cancellation_drains_its_explicit_cursor_close():
         name = None
         closed = False
 
+        async def scalar(self, statement, params):
+            assert params["operation"] == "open_source"
+            self.name = params["cursor"]
+
         async def execute(self, statement):
             sql = str(statement)
-            if sql.startswith("DECLARE "):
-                self.name = sql.split('"')[1]
-            elif sql.startswith("FETCH "):
+            if sql.startswith("FETCH "):
                 fetching.set()
                 await asyncio.Event().wait()
             else:

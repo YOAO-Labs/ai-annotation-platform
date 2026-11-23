@@ -7,18 +7,17 @@ import json
 import logging
 import uuid
 
-from sqlalchemy import func, insert, select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from app.db.models.audit_log import AuditLog
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.dataset_source import DatasetSource, DatasetSourceItem
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_fault import StorageFaultState as State
 from app.db.models.storage_maintenance import StorageMaintenanceGate
-from app.db.models.user import User
 from app.services import storage_access, storage_location
+from app.services.storage_fault_events import append_observation
 
 log = logging.getLogger(__name__)
 SEQUENCE = "storage_fault_observation_seq"
@@ -223,17 +222,12 @@ async def _audit(connection, token, fault_id, category, code, transition):
     }
     if token.actor_id:
         detail["actor_id"] = token.actor_id
-    await connection.execute(
-        insert(AuditLog).values(
-            actor_id=select(User.id).where(User.id == token.actor_id).scalar_subquery()
-            if token.actor_id
-            else None,
-            action=RECOVERED_ACTION if transition == "recovered" else ACTION,
-            target_type="storage_location",
-            target_id=str(token.location_id),
-            request_id=token.request_id,
-            detail_json=detail,
-        )
+    await append_observation(
+        connection,
+        action=RECOVERED_ACTION if transition == "recovered" else ACTION,
+        detail=detail,
+        actor_id=token.actor_id,
+        request_id=token.request_id,
     )
 
 

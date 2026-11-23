@@ -60,19 +60,23 @@ filters, pagination, sorting, and transaction snapshots.
 The API maps full relation rows onto the existing ORM identity map so repeated,
 dirty, and expired `AuditLog` instances retain their normal SELECT behavior.
 Core projections explicitly preserve autoflush when enabled. Neither adapter
-commits or opens a second transaction. The migrated non-training readers are
-the project-admin list, annotation/task histories, batch audit logs, admin
-registration/person activity, and review-round contributor snapshot. The
-super-admin global list/export remains on `query_events(jsonb)`.
+commits or opens a second transaction. Readers include the project-admin list,
+annotation/task histories, batch audit logs, admin registration/person
+activity, review-round contributors, and active-learning rejection evidence.
+The super-admin global list/export remains on `query_events(jsonb)`.
 
 The monthly summary's raw tail, DuckDB sync, and project-performance event
 reads use `audit_events`. The summary's completed-day aggregates use
 `audit_daily_facts`; only the owner capability refreshes the underlying
-`mv_audit_bi_daily`. Learning/active-learning evidence remains an explicitly held private-table reader.
-Partition retention/archive maintenance now uses the fixed Audit maintenance
-capability, and append hydration does not read the base table. The ordinary API
-retains parent-table SELECT for the held consumer, not private writes or DDL.
-The same owner command offers `cleanup_fixture_events(run_id)` for hidden E2E
+`mv_audit_bi_daily`. Active-learning feedback reads the public event relation
+and does not require parent-table SELECT. Storage fault observations use
+`append_events` on the existing bounded independent transaction. Identity's
+public account profile resolves the committed actor; if absent, the event's
+actor FK stays NULL while the supplied ID remains in the observation evidence.
+A state transition and its Audit event still commit together; neither commits
+the caller's business session.
+
+The standalone maintenance command also offers `cleanup_fixture_events(run_id)` for hidden E2E
 seed cleanup. Only a session with USAGE membership in the actual fixture-run
 table owner may invoke it, in an `_test` or `_e2e` database and the caller's
 transaction-local immutability scope. It locks an owned leaf run in `sealing`
@@ -108,24 +112,27 @@ deletion `0319`; `0322` adds the daily projection after `0321`; `0333` adds the
 fixed maintenance command after the preceding owner migrations.
 `infra/docker/module-data-grants.sql` keeps direct append writes with
 the non-login Audit owner and transfers the read view to that owner. The
-focused `audit-append-grants.sql` profile grants the existing
-API LOGIN the append function, retains its current table `SELECT`, revokes
-direct table `INSERT` and sequence write access, and removes those privileges
-from existing partitions. The selected owner grant path transfers the parent and partition tree to the
-restricted Audit owner. LAN and worktree runtime grants revoke direct writes
-and sequence access while retaining the parent SELECT needed by the held
-Learning reader. Future monthly partitions are created by the Audit owner;
-its defaults must not restore API/PUBLIC writes. Apply the matching profile
-only after old maintenance and direct writers are drained.
+focused `audit-append-grants.sql` profile grants the append function and revokes
+table and column privileges on the Audit parent, existing partitions, private
+daily materialization and archive output ledger, plus all sequence privileges.
+The matching LAN/worktree profile grants fixed capabilities and two read-only
+Audit projections, not direct private access. It rejects Audit owner defaults
+that could expose a new monthly partition or sequence instead of editing
+schema-wide defaults. Drain old API and worker binaries before revoking access.
 
 The `audit-query-grants.sql` profile gives one LOGIN only `query_events(jsonb)`;
 the separate `audit-read-grants.sql` profile gives another LOGIN `SELECT` on
 `audit_events` and `audit_daily_facts`. Neither read profile grants direct
 base-table or materialized-view reads, sequences, or write functions. The API
-LOGIN gains SELECT on both views while retaining parent-table SELECT for
-the held Learning consumer. The dedicated maintenance owner
-performs refresh through the fixed command capability; read and query clients
-have no refresh or database `TEMPORARY` privilege.
+LOGIN gains SELECT on both views without parent-table SELECT. The standalone
+maintenance LOGIN has only the legacy one-shot command. Revision `bo0485`
+adds a separate platform command and publication-ledger calls to the embedded
+role: exact partition locks, a non-materializing owner cursor, and atomic
+publication with retirement. The default worker still verifies the source
+and object, publishes the permanent receipt, appends the event and advances the
+Jobs receipt in the original transaction. It does not use the legacy CLI
+snapshot/drop operations. Read and query clients have no refresh or database
+`TEMPORARY` privilege.
 Focused checks cover the row contract,
 native INET parity, identity-map/autoflush behavior, API scope, and the Node
 read-only peer. The independent maintenance runtime is implemented, while

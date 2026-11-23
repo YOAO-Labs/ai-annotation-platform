@@ -160,7 +160,14 @@ NOTIFICATION_RUNTIME_CAPABILITIES = (
 AUDIT_RUNTIME_CAPABILITIES = (
     "yoao_audit_v1.append_events(jsonb)",
     "yoao_audit_v1.query_events(pg_catalog.jsonb)",
-    "yoao_audit_v1.maintenance_command(jsonb)",
+    "yoao_audit_v1.platform_maintenance(text,date,bigint,bigint,text,uuid,timestamptz)",
+    "yoao_audit_v1.archive_output_has_ready(integer,integer)",
+    "yoao_audit_v1.archive_output_ready_month(integer,integer)",
+    "yoao_audit_v1.archive_output_ready_list()",
+    "yoao_audit_v1.archive_output_pending(uuid)",
+    "yoao_audit_v1.archive_output_history()",
+    "yoao_audit_v1.archive_output_save_candidate("
+    "uuid,uuid,date,bigint,bigint,bigint,bigint,text,bigint,text,jsonb,timestamptz)",
 )
 JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
     "yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
@@ -414,83 +421,6 @@ BEGIN
     END LOOP;
 END;
 $identity_private_acl$;
-"""
-_AUDIT_PRIVATE_RUNTIME_ACL = """
-DO $audit_private_acl$
-DECLARE
-    v_runtime name := current_setting('yoao.application_role');
-    v_partition record;
-    v_columns text;
-    v_sequence text := pg_catalog.pg_get_serial_sequence('public.audit_logs', 'id');
-BEGIN
-    IF current_database() <> current_setting('yoao.expected_database') THEN
-        RAISE EXCEPTION 'Unexpected database while fencing Audit storage';
-    END IF;
-    IF EXISTS (
-        SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
-        JOIN pg_catalog.pg_class AS relation ON relation.oid=partition.relid
-        WHERE pg_catalog.pg_has_role(v_runtime,relation.relowner,'MEMBER')
-    ) THEN
-        RAISE EXCEPTION 'The runtime role must not own or inherit Audit storage';
-    END IF;
-    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.audit_logs FROM %I, PUBLIC',
-        v_runtime);
-    SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
-    INTO v_columns FROM pg_catalog.pg_attribute AS attribute
-    WHERE attribute.attrelid='public.audit_logs'::pg_catalog.regclass
-      AND attribute.attnum>0 AND NOT attribute.attisdropped;
-    EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE public.audit_logs FROM %I, PUBLIC',
-        v_columns,v_runtime);
-    EXECUTE pg_catalog.format('GRANT SELECT ON TABLE public.audit_logs TO %I',v_runtime);
-    FOR v_partition IN
-        SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
-        WHERE relid<>'public.audit_logs'::pg_catalog.regclass
-    LOOP
-        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC',
-            v_partition.relid::pg_catalog.regclass,v_runtime);
-        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
-        INTO v_columns FROM pg_catalog.pg_attribute AS attribute
-        WHERE attribute.attrelid=v_partition.relid
-          AND attribute.attnum>0 AND NOT attribute.attisdropped;
-        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC',
-            v_columns,v_partition.relid::pg_catalog.regclass,v_runtime);
-    END LOOP;
-    IF v_sequence IS NULL THEN
-        RAISE EXCEPTION 'Audit log sequence is missing';
-    END IF;
-    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE %s FROM %I, PUBLIC',
-        v_sequence,v_runtime);
-    EXECUTE pg_catalog.format(
-        'REVOKE ALL ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) FROM %I, PUBLIC',
-        v_runtime);
-    EXECUTE pg_catalog.format(
-        'GRANT EXECUTE ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) TO %I',
-        v_runtime);
-    EXECUTE pg_catalog.format(
-        'REVOKE ALL ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() FROM %I, PUBLIC',
-        v_runtime);
-    IF NOT pg_catalog.has_table_privilege(v_runtime,'public.audit_logs','SELECT')
-       OR pg_catalog.has_table_privilege(v_runtime,'public.audit_logs',
-            'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-       OR pg_catalog.has_any_column_privilege(v_runtime,'public.audit_logs',
-            'INSERT,UPDATE,REFERENCES')
-       OR pg_catalog.has_sequence_privilege(v_runtime,v_sequence,'SELECT,UPDATE,USAGE')
-       OR NOT pg_catalog.has_function_privilege(v_runtime,
-            'yoao_audit_v1.maintenance_command(jsonb)','EXECUTE')
-       OR pg_catalog.has_function_privilege(v_runtime,
-            'yoao_audit_v1.refresh_audit_bi_mv()','EXECUTE')
-       OR EXISTS (
-            SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition
-            WHERE partition.relid<>'public.audit_logs'::pg_catalog.regclass
-              AND (pg_catalog.has_table_privilege(v_runtime,partition.relid,
-                       'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                   OR pg_catalog.has_any_column_privilege(v_runtime,partition.relid,
-                       'SELECT,INSERT,UPDATE,REFERENCES'))
-       ) THEN
-        RAISE EXCEPTION 'The runtime role retains direct Audit storage or refresh access';
-    END IF;
-END
-$audit_private_acl$;
 """
 VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
@@ -1795,9 +1725,6 @@ class LocalResources:
                     "REVOKE ALL ON FUNCTION public.fixture_export_owner_session(), "
                     "public.retire_fixture_native_export_output(uuid), "
                     f"public.confirm_fixture_export_zip_absent(uuid) FROM {role}, PUBLIC",
-                    f"REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
-                    "REVOKE ALL (day, action, target_type, actor_role, status_family, event_count) "
-                    f"ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
                     f"REVOKE ALL ON TABLE public.notifications FROM {role}, PUBLIC",
                     "REVOKE ALL (id, user_id, type, target_type, target_id, payload, read_at, created_at) "
                     f"ON TABLE public.notifications FROM {role}, PUBLIC",
@@ -1857,7 +1784,9 @@ class LocalResources:
                     "yoao_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]), "
                     "yoao_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]) "
                     f"TO {role}",
-                    "REVOKE EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() "
+                    "REVOKE EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv(), "
+                    "yoao_audit_v1.maintenance_command(jsonb), "
+                    "yoao_audit_v1._assert_platform_partition(date,bigint,bigint) "
                     f"FROM {role}, PUBLIC",
                     f"GRANT SELECT ON yoao_workspace_v1.project_member_facts TO {role}",
                     "GRANT SELECT ON yoao_workspace_v1.project_facts, "
@@ -2234,7 +2163,7 @@ class LocalResources:
                 await connection.exec_driver_sql(_JOBS_DISPATCH_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IMAGE_EXPORT_SCOPE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
-                await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
+                await connection.exec_driver_sql(self.private_runtime_acl("audit"))
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
                 await connection.exec_driver_sql(self.private_runtime_acl("inference"))
@@ -2299,17 +2228,8 @@ class LocalResources:
                         ":role, pg_catalog.to_regprocedure("
                         "'yoao_audit_v1.query_events(pg_catalog.jsonb)'), 'EXECUTE') "
                         "AS audit_query, pg_catalog.has_function_privilege("
-                        ":role, pg_catalog.to_regprocedure("
-                        "'yoao_audit_v1.maintenance_command(jsonb)'), 'EXECUTE') "
-                        "AS audit_maintenance, pg_catalog.has_table_privilege("
-                        ":role, 'public.audit_logs', 'SELECT') AS audit_parent_read, ("
-                        "pg_catalog.has_table_privilege(:role, 'public.audit_logs', "
-                        "'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_any_column_privilege(:role, 'public.audit_logs', "
-                        "'INSERT,UPDATE,REFERENCES')) AS audit_log_write, "
-                        "pg_catalog.has_sequence_privilege(:role, "
-                        "pg_catalog.pg_get_serial_sequence('public.audit_logs','id'), "
-                        "'SELECT,UPDATE,USAGE') AS audit_sequence_private, "
+                        ":role, 'yoao_audit_v1.platform_maintenance(text,date,bigint,bigint,text,uuid,timestamptz)', "
+                        "'EXECUTE') AS audit_maintenance, "
                         "pg_catalog.has_table_privilege("
                         ":role, 'yoao_audit_v1.audit_events', 'SELECT') AS audit_read, "
                         "pg_catalog.has_table_privilege("
@@ -2326,15 +2246,13 @@ class LocalResources:
                         "pg_catalog.has_any_column_privilege("
                         ":role, 'yoao_audit_v1.audit_daily_facts', "
                         "'INSERT,UPDATE,REFERENCES')) AS audit_daily_write, "
-                        "(pg_catalog.has_table_privilege("
-                        ":role, 'public.mv_audit_bi_daily', "
-                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
-                        "pg_catalog.has_any_column_privilege("
-                        ":role, 'public.mv_audit_bi_daily', "
-                        "'SELECT,INSERT,UPDATE,REFERENCES')) AS audit_daily_private, "
+                        "(pg_catalog.has_function_privilege("
+                        ":role, 'yoao_audit_v1.refresh_audit_bi_mv()', 'EXECUTE') OR "
                         "pg_catalog.has_function_privilege("
-                        ":role, 'yoao_audit_v1.refresh_audit_bi_mv()', 'EXECUTE') "
-                        "AS audit_daily_refresh, pg_catalog.has_table_privilege("
+                        ":role, 'yoao_audit_v1.maintenance_command(jsonb)', 'EXECUTE') OR "
+                        "pg_catalog.has_function_privilege("
+                        ":role, 'yoao_audit_v1._assert_platform_partition(date,bigint,bigint)', "
+                        "'EXECUTE')) AS audit_private_functions, pg_catalog.has_table_privilege("
                         ":role, 'yoao_jobs_v1.notification_scope_facts', 'SELECT') "
                         "AS jobs_notification_scope, (pg_catalog.has_table_privilege("
                         ":role, 'yoao_jobs_v1.notification_scope_facts', "
@@ -2377,16 +2295,12 @@ class LocalResources:
                     or notification_grants["audit_append"] is not True
                     or notification_grants["audit_query"] is not True
                     or notification_grants["audit_maintenance"] is not True
-                    or notification_grants["audit_parent_read"] is not True
-                    or notification_grants["audit_log_write"] is not False
-                    or notification_grants["audit_sequence_private"] is not False
                     or notification_grants["audit_read"] is not True
                     or notification_grants["audit_read_write"] is not False
                     or notification_grants["audit_read_column_write"] is not False
                     or notification_grants["audit_daily_read"] is not True
                     or notification_grants["audit_daily_write"] is not False
-                    or notification_grants["audit_daily_private"] is not False
-                    or notification_grants["audit_daily_refresh"] is not False
+                    or notification_grants["audit_private_functions"] is not False
                     or notification_grants["jobs_notification_scope"] is not True
                     or notification_grants["jobs_notification_scope_write"] is not False
                     or notification_grants["jobs_list_page"] is not True
