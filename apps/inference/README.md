@@ -8,7 +8,7 @@
 uv run --project apps/inference --locked --extra runtime python -m yoao_inference
 ```
 
-The process binds to `127.0.0.1:8768` by default. `INFERENCE_HOST`, `INFERENCE_PORT` and `INFERENCE_MAX_CONCURRENCY` select binding and active-request capacity. Each enabled capability has its own bearer; configured capabilities cannot share a bearer. `INFERENCE_REQUIRED_CAPABILITIES` makes `/health` require every listed capability, rather than any available capability. The combined Compose deployment requires all eight capabilities.
+To deploy the Inference owner, start the `inference` service in [`docker-compose.inference.yml`](../../docker-compose.inference.yml). One credential-owning process serves all eight capabilities, including Registry ingress, health observation, and Workspace setup probing. The Compose runtime requires healthy providers for all eight before `/health` returns ready. It publishes port 8768 on host loopback only. The module entrypoint above still permits capability-by-capability conformance tests; it is not a separate deployment for each route.
 
 | Capability                      | Private endpoint                          | Owner configuration                                                               |
 | ------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------- |
@@ -22,6 +22,8 @@ The process binds to `127.0.0.1:8768` by default. `INFERENCE_HOST`, `INFERENCE_P
 | GPU dispatch and administration | `/internal/inference/gpu/v1/*`            | `INFERENCE_GPU_TOKEN`, separate authority/collector/endpoint profiles and Redis   |
 
 Database URLs and tokens accept a mutually exclusive `_FILE` alternative. The full selector list is in `.env.example` and `docker-compose.inference.yml`. Secret files are mounted only into their owner. API and ordinary Celery consumers use HTTP clients; they do not receive backend credentials, GPU private authority credentials, or lifecycle signing keys. Public Registry facts expose credential presence, not stored tokens.
+
+Set each enabled API or worker URL selector to the same private owner origin, with the bearer for that route. The owner retains separate SQL LOGINs and tokens; deployment consolidation does not add privileges to the API or merge the wire contracts. This control-plane image does not need a GPU device. A new CPU-only deployment uses GPU mode `off` with no resources, while retaining the authority and collector credentials required by the full listener. GPU policy, signing and plugin deployment remain independent of the listener layout. See the [retained overlay and cold verification recipe](../../docs-site/api/guides/inference-runtime.md#inference-compose).
 
 `ModelExecutionPort.execute(FrozenModelOperation)` is the model-call boundary. The API gateway selects the actual instance, captures its endpoint in the caller transaction and attaches the exact route capability and immutable selected-instance metadata. Only the owner opens the endpoint. The owner issues a fresh short routing subject before real backend I/O and settles the actual outcome. Read-only health/setup/catalog/statistics operations do not create prediction attempts. Mutating model and lifecycle operations preserve the original scope/control lifetime and one-shot GPU grant outcome channel.
 

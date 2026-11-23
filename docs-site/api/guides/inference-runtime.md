@@ -7,7 +7,7 @@ last_reviewed: 2026-11-23
 
 # Inference 私有运行配置
 
-Inference 独立进程承接模型 HTTP、不可变推理结果、流水线／ROI／上下文算法、后端控制、健康观察、Registry 环境同步、持久路由与 GPU 权威。公开 `/api/v1` 路由、认证、项目权限与最终 Labeling 写入仍由原调用方持有；独立进程不接管 Celery broker 或业务终态。
+单个 Inference 凭据进程承接模型 HTTP、不可变推理结果、流水线／ROI／上下文算法、后端控制、健康观察、Registry 环境同步、Workspace 探测、持久路由与 GPU 权威。公开 `/api/v1` 路由、认证、项目权限与最终 Labeling 写入仍由原调用方持有；Inference 不接管 Celery broker 或业务终态。
 
 ## 选择一个数据 owner
 
@@ -26,7 +26,7 @@ API／普通 worker 的模型执行、后端控制、健康观察、Workspace �
 | 后端控制       | `INFERENCE_BACKEND_CONTROL_URL`、`INFERENCE_BACKEND_CONTROL_TOKEN(_FILE)`       | `/v1/backends/control`                     |
 | GPU            | `INFERENCE_GPU_URL`、`INFERENCE_GPU_TOKEN(_FILE)`                               | `/internal/inference/gpu/v1/*`             |
 
-同一 secret 的直接值和 `_FILE` 互斥。各能力 bearer 必须不同，不能用 routing token 调用执行、控制或 GPU 端点。API 只获得所需 HTTP bearer，不能挂载 owner DSN、后端存量 token 或 GPU 签名私钥。
+部署时让所有启用的 URL selector 指向同一个 Inference origin，但每个端点继续使用自己的 bearer；直接值和 `_FILE` 互斥。不能用 routing token 调用执行、控制或 GPU 端点，也不能在三个合并的端点间互换 bearer。API 只获得所需 HTTP bearer，不能挂载 owner DSN、后端存量 token 或 GPU 签名私钥。
 
 ### 使用专用 DSN
 
@@ -42,19 +42,51 @@ API／普通 worker 的模型执行、后端控制、健康观察、Workspace �
 
 授权脚本要求显式数据库名、迁移角色、Inference owner、client role 和 profile；拒绝超级权限、继承／成员旁路、表／序列访问、对象所有权和无关函数执行。不可把一组专用 LOGIN 合并成宽权限账号来通过 readiness。
 
-### 使用私有 HTTP runtime
+### 启动保留的私有 HTTP runtime {#inference-compose}
 
 ```sh
-uv run --project apps/inference --locked --extra runtime python -m yoao_inference
+docker compose --env-file /path/to/inference.env -f docker-compose.inference.yml \
+  up -d --build --wait inference
 ```
 
-默认监听 `127.0.0.1:8768`。完整部署复用 `docker-compose.inference.yml`，将 `.env.example` 中 `INFERENCE_RUNTIME_*_FILE` 指向宿主 secret 文件；Compose 只读挂载到 owner 容器。`INFERENCE_GPU_REDIS_URL(_FILE)` 指向权威账本使用的 Redis。GPU 签名文件仅挂载给 Inference，不能挂载给 API／普通 worker／模型 backend。
+只启动 `inference` 一个服务。让该容器通过私网访问已迁移、已授权的 PostgreSQL 和 Redis，消费者也须能访问同一 owner。已与此服务共享网络的容器使用 `http://inference:8768`，在宿主运行的消费者使用 `http://127.0.0.1:8768`。不通过公网网关转发私有 Inference 路由。已有本机开发使用的 `docker-compose.inference-development.yml` 仅指定完整 owner 的镜像和外部网络，不会再启动一组凭据进程。
 
-完整服务配置八项 `INFERENCE_REQUIRED_CAPABILITIES`：`pipelines,backend_probe,health_observation,registry_ingress,routing,execution,backend_control,gpu`。`GET /health` 必须验证全部必需能力；某一健康能力不能掩盖其他必需能力未就绪。直接启动子能力进程时可明确选择其 required 列表。
+在仅给 owner 使用的 env 文件里，把 `.env.example` 中 28 个 `INFERENCE_RUNTIME_*_FILE` 指向实际 secret 文件：十八个专用 PostgreSQL LOGIN 的 DSN、八个不同的 HTTP bearer、一个 GPU 账本 Redis 身份、一个 Ed25519 私钥环。Compose 以只读方式挂载这些文件，针对 UID/GID 10008 设置最小读取权限；不要把它们放进源码、镜像或 API 的 env 文件。`GPU_LIFECYCLE_ACTIVE_SIGNING_KID` 对应私钥环中的 key ID；collector DSN 使用完整 `postgresql+asyncpg://` URL。文件与授权映射见 [`docker-compose.inference.yml`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docker-compose.inference.yml) 和[专用 DSN](#使用专用-dsn)。
 
-容器以 UID/GID 10008、只读根文件系统、32 MiB `/tmp`、丢弃 capabilities、`no-new-privileges` 运行。宿主发布仅限 loopback。`INFERENCE_MAX_CONCURRENCY` 默认8，满载立即拒绝，不建立无界等待队列。Compose 的 CPU／内存值是运行配置，不代表容量或 SLO 证明。
+`GET /health` 要求 `pipelines,backend_probe,health_observation,registry_ingress,routing,execution,backend_control,gpu` 八项全部就绪。容器使用只读根文件系统、32 MiB 不允许设备节点的 `/tmp`、丢弃 capabilities 和 `no-new-privileges`，宿主发布仅限 loopback。`INFERENCE_MAX_CONCURRENCY` 默认 8，满载立即拒绝，不建立无界等待队列。
+
+这个镜像是凭据控制面，不挂载 GPU 设备或权重。新建、未管理 GPU 的 CPU-only 环境设 `GPU_ARBITER_MODE=off`、`GPU_ARBITER_ROLLOUT_ENABLED=false`、`GPU_ARBITER_RESOURCES_JSON={}`；保留完整 listener 的专用 authority／collector DSN、Redis 与签名配置。不是用空文件或 API 账号代替它们，也不要将已经在用的 GPU 策略切到 `off` 迁就部署。实际插件／模型容器继续独立运行、授权和绑定设备。
+
+从旧 `inference-registry`、`inference-health`、`inference-probe` 安装切换时，先核对私网地址、端口、数据库 grants 与各调用方 bearer；删除三份退役的按操作 Compose 文件引用，保留对应的 secret 配对。维护窗口内按现有准入／排空约束结束旧服务，启动 `inference` 并验证 `/health` 后，再刷新 API／worker 使用统一的私网 origin。没有新 schema、HTTP 路径、环境变量名、bearer 匹配规则或数据库回填；未确认的 Registry 写入继续用原请求身份查回执，不能重新提交。
+
+`uv run --project apps/inference --locked --extra runtime python -m yoao_inference` 保留给契约和独立包验收；单独选择部分能力并不等于当前 Compose 部署。
 
 保存流水线的 metadata 请求／响应上限为16 MiB；probe、观察、Registry、routing、control 和 GPU 分别使用自身合同边界。模型执行不套用保存流水线的 metadata 上限；读取可能较大的执行 body 前先认证，实际 backend 的响应上限与期限仍按调用方配置执行。模型请求只发送一次，不在不确定响应后自动重试。
+
+### 冷启动验收 {#inference-owner-cold}
+
+在已提交的隔离 checkout 上运行（使用可达 Docker 桥接网关的 Linux 测试宿主、支持 `!override` 的 Compose 和支持 `network connect --gw-priority` 的 Docker；模块验证器前置依赖见 `DEV.md`）：
+
+```sh
+(
+  set -eu
+  identity=$(openssl rand -hex 12)
+  revision=$(git rev-parse HEAD)
+  image="aap-inference-acceptance:$identity"
+  docker build -f apps/inference/Dockerfile \
+    --label org.aap.acceptance=module-data-boundary \
+    --label "org.aap.acceptance-id=$identity" \
+    --label "org.aap.source-revision=$revision" -t "$image" .
+  trap 'docker image rm "$image"' EXIT
+  AAP_INFERENCE_OWNER_IMAGE="$image" apps/api/.venv/bin/python \
+    scripts/verify_module_data_boundary.py --output .worktree/inference-owner.json \
+    --test-file tests/test_inference_backend_probe_containers.py \
+    --test-file tests/test_inference_health_observation_containers.py \
+    --test-file tests/test_inference_registry_ingress_containers.py
+)
+```
+
+三项消费者都启动同一保留的 Compose 服务形态；验收只覆盖镜像身份、私网和临时 loopback 映射，不减少挂载的能力。使用真实受限 LOGIN 与 Redis 检查 readiness，并验证错误的 bearer／SQL 身份不能借用同一进程的其他能力。验收还覆盖真实应用的认证探测及 503 后无新项目／回执、健康观察的调用方提交及停机失败，以及 Registry 提交确认丢失后仅查回执、重启后重读同一回执。实际镜像 ID、Compose 摘要和运行限制保存在 `.worktree/aap-inference-*-runtime.json`，另有脱敏日志和验证器的 JUnit 输出。这不验证物理 GPU、模型容量或 Docker Desktop 转发，也不触碰日常服务。
 
 ## 权限、事务与恢复
 

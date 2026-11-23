@@ -6,6 +6,7 @@ import asyncio
 import os
 from pathlib import Path
 import re
+import secrets
 import sys
 import tempfile
 
@@ -32,10 +33,15 @@ with patch('pydantic_settings.sources.DotEnvSettingsSource._read_env_files', ret
 uvicorn.run(app, host='127.0.0.1', port=int(sys.argv[1]), access_log=False,
             timeout_graceful_shutdown=3)
 """
+_INFERENCE_PROVIDERS = {
+    "backend_probe": ("yoao_inference_backend_probe_client", "CONTROL_TOKEN"),
+    "health_observation": ("yoao_inference_health_observation_client", "TOKEN"),
+    "registry_ingress": ("yoao_inference_registry_ingress_client", "TOKEN"),
+}
 
 
 class WorkspaceModuleStack:
-    """Run the normal API and the independent credential-owning probe."""
+    """Run the normal API and one credential owner for the three Inference channels."""
 
     def __init__(
         self,
@@ -54,7 +60,11 @@ class WorkspaceModuleStack:
         self._database = test_engine.url.database
         assert self._database and self._database.endswith("_test")
         self._directory = directory
-        self._inference_token = inference_token
+        self._inference_tokens = {
+            "backend_probe": inference_token,
+            "health_observation": secrets.token_urlsafe(32),
+            "registry_ingress": secrets.token_urlsafe(32),
+        }
         self._urls = {
             variable: make_url(_role_url(f"AAP_MODULE_DATA_{name}_URL", role))
             for variable, name, role in (
@@ -69,10 +79,13 @@ class WorkspaceModuleStack:
                     "IDENTITY_BRIEFS",
                     "yoao_identity_briefs_client",
                 ),
-                (
-                    "INFERENCE_BACKEND_PROBE_DATABASE_URL",
-                    "INFERENCE_BACKEND_PROBE",
-                    "yoao_inference_backend_probe_client",
+                *(
+                    (
+                        f"INFERENCE_{capability.upper()}_DATABASE_URL",
+                        f"INFERENCE_{capability.upper()}",
+                        role,
+                    )
+                    for capability, (role, _) in _INFERENCE_PROVIDERS.items()
                 ),
             )
         }
@@ -111,7 +124,7 @@ class WorkspaceModuleStack:
             value
             for value in {
                 api_secret,
-                inference_token,
+                *self._inference_tokens.values(),
                 access_key,
                 secret_key,
                 make_url(redis_url).password,
@@ -120,8 +133,8 @@ class WorkspaceModuleStack:
             if value
         )
         self._api: Process | None = None
-        self._probe: Process | None = None
-        self._probe_port = 0
+        self._inference: Process | None = None
+        self._inference_port = 0
         self._runtime: tempfile.TemporaryDirectory | None = None
 
     def _dsn(self, variable: str) -> str:
@@ -137,7 +150,7 @@ class WorkspaceModuleStack:
 
     @property
     def inspection_evidence(self) -> dict:
-        assert self._api is not None and self._probe is not None
+        assert self._api is not None and self._inference is not None
         return {
             "database": self._database,
             "api": {
@@ -148,11 +161,12 @@ class WorkspaceModuleStack:
                     "IDENTITY_BRIEFS_DATABASE_URL"
                 ].username,
             },
-            "inference-probe": {
-                "pid": self._probe.process.pid,
-                "database_role": self._urls[
-                    "INFERENCE_BACKEND_PROBE_DATABASE_URL"
-                ].username,
+            "inference": {
+                "pid": self._inference.process.pid,
+                "database_roles": {
+                    capability: role
+                    for capability, (role, _) in _INFERENCE_PROVIDERS.items()
+                },
             },
         }
 
@@ -162,11 +176,12 @@ class WorkspaceModuleStack:
         _verify_redis()
         self._runtime = tempfile.TemporaryDirectory(dir=self._directory)
         runtime = Path(self._runtime.name)
-        token_file = runtime / "probe-token"
-        token_file.touch(mode=0o600)
-        token_file.write_text(self._inference_token, encoding="utf-8")
-        self._probe_port = _port()
-        await self.start_probe()
+        for capability, token in self._inference_tokens.items():
+            token_file = runtime / f"inference-{capability}-token"
+            token_file.touch(mode=0o600)
+            token_file.write_text(token, encoding="utf-8")
+        self._inference_port = _port()
+        await self.start_inference()
         api_port = _port()
         environment = {
             **self._api_env,
@@ -179,8 +194,10 @@ class WorkspaceModuleStack:
                 )
             },
             "DUCKDB_PATH": str(runtime / "analytics.duckdb"),
-            "INFERENCE_BACKEND_PROBE_URL": f"http://127.0.0.1:{self._probe_port}",
-            "INFERENCE_BACKEND_PROBE_TOKEN_FILE": str(token_file),
+            "INFERENCE_BACKEND_PROBE_URL": f"http://127.0.0.1:{self._inference_port}",
+            "INFERENCE_BACKEND_PROBE_TOKEN_FILE": str(
+                runtime / "inference-backend_probe-token"
+            ),
         }
         self._api = await asyncio.to_thread(
             _start,
@@ -198,33 +215,40 @@ class WorkspaceModuleStack:
                 response = await client.get(f"/health/{component}")
                 assert response.status_code == 200, response.text
 
-    async def start_probe(self) -> None:
-        assert self._runtime is not None and self._probe is None
+    async def start_inference(self) -> None:
+        assert self._runtime is not None and self._inference is None
         runtime = Path(self._runtime.name)
-        self._probe = await asyncio.to_thread(
+        self._inference = await asyncio.to_thread(
             _start,
             [sys.executable, "-m", "yoao_inference"],
             {
                 **self._common_env,
                 "INFERENCE_HOST": "127.0.0.1",
-                "INFERENCE_PORT": str(self._probe_port),
-                "INFERENCE_BACKEND_PROBE_DATABASE_URL": self._dsn(
-                    "INFERENCE_BACKEND_PROBE_DATABASE_URL"
-                ),
-                "INFERENCE_BACKEND_PROBE_CONTROL_TOKEN_FILE": str(
-                    runtime / "probe-token"
-                ),
+                "INFERENCE_PORT": str(self._inference_port),
+                "INFERENCE_REQUIRED_CAPABILITIES": ",".join(_INFERENCE_PROVIDERS),
+                **{
+                    f"INFERENCE_{capability.upper()}_DATABASE_URL": self._dsn(
+                        f"INFERENCE_{capability.upper()}_DATABASE_URL"
+                    )
+                    for capability in _INFERENCE_PROVIDERS
+                },
+                **{
+                    f"INFERENCE_{capability.upper()}_{token_key}_FILE": str(
+                        runtime / f"inference-{capability}-token"
+                    )
+                    for capability, (_, token_key) in _INFERENCE_PROVIDERS.items()
+                },
             },
             runtime,
-            runtime / "inference-probe.log",
-            self._probe_port,
+            runtime / "inference.log",
+            self._inference_port,
             "/health",
         )
 
-    async def stop_probe(self) -> None:
-        if self._probe is not None:
-            await asyncio.to_thread(self._probe.stop)
-            self._probe = None
+    async def stop_inference(self) -> None:
+        if self._inference is not None:
+            await asyncio.to_thread(self._inference.stop)
+            self._inference = None
 
     async def stop(self) -> None:
         try:
@@ -232,7 +256,7 @@ class WorkspaceModuleStack:
                 await asyncio.to_thread(self._api.stop)
                 self._api = None
         finally:
-            await self.stop_probe()
+            await self.stop_inference()
             if self._runtime is not None:
                 self._runtime.cleanup()
                 self._runtime = None

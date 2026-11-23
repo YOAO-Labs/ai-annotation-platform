@@ -106,6 +106,7 @@ async def select_binding(stack, monkeypatch, test_engine):
 @contextmanager
 def backend_server(
     *,
+    host="127.0.0.1",
     setup_failed=False,
     plain=False,
     nonfinite=False,
@@ -144,11 +145,11 @@ def backend_server(
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer((host, 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}", calls
+        yield f"http://{host}:{server.server_port}", calls
     finally:
         server.shutdown()
         server.server_close()
