@@ -14,7 +14,7 @@ BEGIN
     RETURN QUERY
     INSERT INTO public.active_learning_rounds AS r (
         id, project_id, creator_id, model_version_id, deployment_id, request_id,
-        request_digest, name, status, spec, spec_digest, storage_ref, authorization,
+        request_digest, name, status, spec, spec_digest, storage_ref, "authorization",
         generation, inference_dispatches, accepted_tasks
     ) VALUES (
         p_id, p_project, p_creator, p_model, p_deployment, p_request,
@@ -568,7 +568,7 @@ BEGIN
     IF p_revision = 0 THEN
         RETURN QUERY INSERT INTO public.learning_policies AS p (
             id, project_id, task, revision, creator_id, enabled, initialization_model_id,
-            config, authorization, baseline, last_checked_at, next_check_at, state, message
+            config, "authorization", baseline, last_checked_at, next_check_at, state, message
         ) VALUES (gen_random_uuid(), p_project, p_task, 1, p_actor, p_enabled, p_initialization,
             p_config, p_authorization, '{}'::jsonb, p_checked, p_next,
             CASE WHEN p_enabled THEN 'waiting' ELSE 'disabled' END, p_message
@@ -576,7 +576,7 @@ BEGIN
     ELSE
         RETURN QUERY UPDATE public.learning_policies AS p SET
             revision = p.revision + 1, creator_id = p_actor, enabled = p_enabled,
-            initialization_model_id = p_initialization, config = p_config, authorization = p_authorization,
+            initialization_model_id = p_initialization, config = p_config, "authorization" = p_authorization,
             blocked_train_digest = NULL, last_snapshot_digest = NULL,
             last_checked_at = p_checked, next_check_at = p_next,
             state = CASE WHEN p_enabled THEN 'waiting' ELSE 'disabled' END, message = p_message
@@ -840,7 +840,7 @@ BEGIN
     END IF;
     RETURN QUERY INSERT INTO public.training_studies AS s (
         id, project_id, creator_id, dataset_id, initialization_model_id, request_id, request_digest,
-        name, plan, plan_digest, origin, authorization, status, scheduling
+        name, plan, plan_digest, origin, "authorization", status, scheduling
     ) VALUES (
         p_study, p_project, p_actor, p_dataset, p_initialization, p_request, p_request_digest,
         p_name, p_plan, p_plan_digest, p_origin, p_authorization, 'active', true

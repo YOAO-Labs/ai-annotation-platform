@@ -520,7 +520,7 @@ $$;
 -- aap-statement-break
 CREATE VIEW yoao_learning_v1._evaluation_run_rows AS
 SELECT id, project_id, creator_id, dataset_id, model_version_id, deployment_id, request_id,
-       request_digest, name, status, spec, spec_digest, storage_ref, authorization,
+       request_digest, name, status, spec, spec_digest, storage_ref, "authorization",
        generation, current_attempt_id, async_job_id, error_code, error_message,
        created_at, completed_at, deletion_requested_at
 FROM public.sample_evaluation_runs;
@@ -710,7 +710,7 @@ BEGIN
     THEN RETURN; END IF;
     INSERT INTO public.sample_evaluation_runs
         (id, project_id, creator_id, dataset_id, model_version_id, deployment_id, request_id,
-         request_digest, name, status, spec, spec_digest, storage_ref, authorization, generation)
+         request_digest, name, status, spec, spec_digest, storage_ref, "authorization", generation)
     VALUES (p_run, p_project, p_creator, p_dataset, p_model, p_deployment, p_request,
             p_digest, p_name, 'queued', p_spec, p_spec_digest, p_ref,
             jsonb_build_object('api_key_id', p_key), 0);
