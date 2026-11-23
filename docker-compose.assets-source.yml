@@ -12,6 +12,8 @@ services:
       ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE:+/run/secrets/assets_source_saved_io_write_token}
       ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cleanup_token}
       ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cutover_token}
+      ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN_FILE:+/run/secrets/assets_source_saved_io_import_read_token}
+      ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN_FILE: ${ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN_FILE:+/run/secrets/assets_source_saved_io_import_write_token}
       ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE: ${ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE:+/run/secrets/assets_source_connections_token}
       ASSETS_SOURCE_S3_ACCESS_KEY_FILE: /run/secrets/assets_source_s3_access_key
       ASSETS_SOURCE_S3_SECRET_KEY_FILE: /run/secrets/assets_source_s3_secret_key
@@ -74,6 +76,18 @@ services:
       - type: bind
         source: ${ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE:-/dev/null}
         target: /run/secrets/assets_source_saved_io_cutover_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_import_read_token
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_saved_io_import_write_token
         read_only: true
         bind:
           create_host_path: false

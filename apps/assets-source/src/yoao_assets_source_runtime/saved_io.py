@@ -77,7 +77,20 @@ _BASE = (
     "yoao_assets_v1.saved_io_target(uuid,integer,integer,jsonb)",
     "yoao_assets_v1.saved_io_allowlist(jsonb)",
 )
-_FAMILIES = ("binding", "reference", "outputs", "media", "training", "migration")
+_FAMILIES = (
+    "binding",
+    "reference",
+    "outputs",
+    "media",
+    "training",
+    "migration",
+    "import",
+)
+_IMPORT_ACCESS = {
+    ("import", "list"): ("download", "import_read"),
+    ("import", "read"): ("download", "import_read"),
+    ("import", "copy"): ("command", "import_write"),
+}
 
 
 @dataclass(frozen=True)
@@ -100,7 +113,7 @@ class Registry:
     def add(self, family, action, mode, handler, *, access):
         pair = family, action
         valid_modes = {
-            "download": {"read"},
+            "download": {"read", "import_read"},
             "upload": {"write"},
             "command": TOKEN_SETTINGS.keys(),
         }
@@ -112,6 +125,10 @@ class Registry:
             or mode not in valid_modes
             or access not in valid_modes[mode]
             or (access == "cutover" and pair != ("migration", "probe_cutover_target"))
+            or (
+                (family == "import" or access in {"import_read", "import_write"})
+                and _IMPORT_ACCESS.get(pair) != (mode, access)
+            )
             or not asyncio.iscoroutinefunction(handler)
             or pair in self.actions
         ):
@@ -696,7 +713,7 @@ class SavedIOService:
                     status_code=503,
                     unsettled=bool(getattr(exc, "storage_operation_unsettled", False))
                     or dispatched
-                    and action.access != "read",
+                    and action.access not in {"read", "import_read"},
                 )
             )
         finally:
