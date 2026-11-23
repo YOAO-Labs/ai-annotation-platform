@@ -207,21 +207,20 @@ total statements. It borrows the caller's transaction and does not own Identity
 authentication, endpoint credential checks, commit, rollback, or the broader
 Jobs read/write surface.
 
-## Private Celery queue owner
+## Celery publication and cooperative revocation
 
-The optional `yoao-jobs-queue` runtime accepts the existing JSON Celery dispatch
-and cooperative revoke requests over `aap-jobs-queue/v2`. It holds only the
-Celery broker URL and a private service bearer; it has no API, database, or
-Identity dependency. The API keeps its embedded Celery transport when
-`JOBS_QUEUE_URL` is blank. An explicit remote URL never falls back to the local
-broker.
+The API and Jobs-producing workers publish directly through the platform's
+Celery sender. They do not select a queue HTTP endpoint, bearer or alternate
+broker. The portable `aap-jobs-queue/v2` schema, route resource and standalone
+queue package remain available for wire conformance and explicit external
+experiments, not as a platform deployment option.
 
 Consumers include ordinary batch prediction with its original dynamic CPU/GPU
 queue and soft time limit, existing failed-prediction retry dispatch, frame
 fan-out, cross-frame propagation, all three annotation-export endpoints, and
 the existing quality and video-tracker ports. Audit metadata and task events
-use the selected transport but retain their existing synchronous fallback;
-they are domain delivery, not durable user Jobs.
+also use Celery and retain their synchronous fallback; they are domain
+delivery, not durable user Jobs.
 
 The queue accepts only native JSON, the explicit `queue` and `soft_time_limit`
 options, cooperative revoke, and a single flat canvas with frozen child,
@@ -234,27 +233,16 @@ Qualification and applicable deployment status are recorded in the
 
 The quality port sends one positional UUID to each existing `media` task: mask
 QC, point-cloud quality, video-track quality, mask repair, repair rollback, and
-mask-format import. Its synchronous adapter uses the same bounded HTTP contract
-without entering another event loop. All execution IDs are selected and
-persisted before publication; the original domain binding and failure policies
-remain after publication. Credentials are loaded only at dispatch, so explicit
-remote configuration failures never fall back to the embedded broker.
+mask-format import. The existing task adapters preserve execution IDs chosen
+and persisted before publication, domain binding and failure policies.
 
-Video tracking uses the same synchronous client and its existing `gpu` route.
-The API and mask-repair worker select the same dispatcher factory. Creation
-and correction persist the complete summary and dispatch intent in their
+The API and mask-repair worker both use the existing Celery video tracker
+adapter and `gpu` route. Creation and correction persist the complete summary
+and dispatch intent in their
 acceptance transaction, then bind the accepted ID as before. Cancellation
 commits its state, one audit, and the scoped retirement intent before redriving
 the same canonical tracker. Unconfirmed redrive keeps the existing retryable 503. Tracking and correction both require a matching cancelled canonical
 tracker before terminal redrive is allowed.
-
-The standalone `apps/jobs/Dockerfile.queue` image runs as UID 10005, exposes no
-host port, and reads `JOBS_QUEUE_BROKER_URL_FILE` and `JOBS_QUEUE_TOKEN_FILE`.
-`docker-compose.jobs-queue.yml` is an optional local assembly; the API must be
-on the same private Compose network to use `http://jobs-queue:8190`. Host-run
-development APIs keep the embedded transport unless a separately reachable
-private endpoint is provided. This runtime does not change the default worker
-or deployment path.
 
 ## Durable dispatch handoff
 
@@ -271,12 +259,11 @@ intents are not backfilled with invented no-publication proof. Publication
 happens only after acceptance commits, under a separate function-only,
 session-held publication fence. Each generation records physical entry before
 the broker call and settles only on the publisher's positive acknowledgement.
-A proved socket connection refusal or DNS `EAI_NONAME` / `EAI_AGAIN` failure
-before the HTTP request is recorded separately as `not_sent`, never as acceptance.
-Classification follows typed causes, including the original socket error retained
-as an HTTP transport exception argument; error text alone is not evidence.
-Later exact replay is still required for an accepted dispatch. Other connection
-failures, HTTP errors, lost responses and cancellations remain unknown.
+Inside the platform, a broker exception or interrupted send does not prove
+that nothing reached Redis; the physical attempt remains `entered`, even if
+a later replay succeeds. The portable HTTP conformance transport still
+distinguishes a positively proved pre-request `not_sent` from connection or
+response uncertainty. Errors are never classified by their message text.
 The relay claims one item immediately before publishing. A later valid generation
 may replay the exact frozen envelope and IDs while an earlier attempt remains
 unknown; replay or lease expiry does not settle that earlier physical obligation.
@@ -290,21 +277,38 @@ existing retry delivery keeps its own ledger. Terminal ordinary Jobs retire
 unsubmitted intents, while tracker retirement has the narrow canonical proof
 above. A lease timeout never proves physical execution stopped.
 
-The relay uses the same immutable image with the `yoao-jobs-dispatch-relay`
-entrypoint. Install the Jobs owner grants for distinct function-only dispatch
-and publication LOGINs, then combine `docker-compose.jobs-dispatch-relay.yml`
-with the queue assembly. The queue holds broker plus bearer; the relay holds
-both narrow database credentials plus bearer, never broker or migration
-credentials. Neither database LOGIN has direct ledger access.
+The normal Celery Beat schedules `app.workers.jobs_dispatch.recover_job_dispatches`
+on `jobs.recovery`. `celery-worker-jobs-recovery` runs one bounded pass at a
+time. Its only data credentials are a claim LOGIN (`JOBS_DISPATCH_DATABASE_URL`
+or `_FILE`) and the separate publication LOGIN (`JOBS_PUBLICATION_DATABASE_URL`
+or `_FILE`). Worker startup authenticates both and checks exact function-only
+profiles on the same database. Beat has neither credential. Existing
+producers still use the narrow publication LOGIN to fence their first send;
+they do not get the claim LOGIN. The broad DDL/maintenance worker does not
+consume `jobs.recovery`.
 
-Outside Compose, set `JOBS_DISPATCH_RELAY_ENABLED=true`,
-`JOBS_DISPATCH_RELAY_DATABASE_URL[_FILE]`, `JOBS_PUBLICATION_DATABASE_URL[_FILE]`,
-`JOBS_QUEUE_URL` and `JOBS_QUEUE_TOKEN[_FILE]`. Direct and file selectors conflict.
-Optional bounded settings are `JOBS_DISPATCH_RELAY_BATCH_SIZE`, `JOBS_DISPATCH_RELAY_LEASE_SECONDS`
-and `JOBS_DISPATCH_RELAY_POLL_SECONDS`. Frame recovery reuses the frozen logical
-segment IDs and completes only from the full canonical receipt set, not from
-duplicate chord header results. This is at-least-once publication, not
-exactly-once execution or a general historical-writer retirement system.
+On a new installation, create distinct `yoao_jobs_dispatch_relay_client` and
+`yoao_jobs_publication_client` LOGINs with no memberships, `NOINHERIT` and no
+administrative privileges. Use `psql`'s `\password` command to set their
+passwords. After Alembic and ordinary runtime grants, install the same two
+profiles into the intended database:
+
+- Default migration-owned database: `infra/docker/jobs-recovery-grants.sql`
+  (`expected_database`, `migration_role`, `application_role`, `dispatch_role`,
+  `publication_role`). An inherited `PUBLIC TEMP` grant must first be removed
+  from the intended database, preserving explicit TEMP for its maintenance
+  role when needed.
+- If owner objects were transferred to separate NOLOGIN identities, keep the
+  existing `jobs-dispatch-grants.sql` and `module-execution-grants.sql` order
+  after the modular owner and ordinary runtime profiles.
+
+Use private `postgresql://` DSN files; expose the claim file only to recovery.
+Stop the retired queue/relay topology before starting the embedded topology
+against the same broker and database. Preserve the ledger, its original
+broker/result DB and execution IDs; do not backfill or delete unresolved
+attempts. Frame recovery reuses the frozen logical segment IDs and completes
+only from the full canonical receipt set, not from duplicate chord header
+results. This is at-least-once publication, not exactly-once execution.
 
 Retirement is separate from replay: the owner must fence the exact Job and all
 delivery identities, then obtain a Jobs publication tombstone. Every entered
@@ -368,7 +372,7 @@ uv run --project apps/jobs --locked --extra test --extra queue-runtime \
 ```
 
 Database-backed API cases must use the verifier-owned disposable database, not
-an everyday development database. The opt-in partial-canvas runtime case also
-requires independently installed `yoao-jobs-queue` and
-`yoao-jobs-dispatch-relay` entrypoints; it kills the publisher and first queue
-process, replays the saved IDs, and checks actual frame writes.
+an everyday development database. The partial-canvas runtime test kills
+the actual API publisher while a test relay holds its second child before
+Redis, then runs the real recovery worker and Beat. It checks that the
+uncertain generation stays unsettled and that the complete frame set is saved.

@@ -11,6 +11,18 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 
+PUBLICATION_FUNCTIONS = {
+    ("begin_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+    ("finish_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+    ("refuse_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+    ("retry_publication_intent", "uuid, text, text, jsonb, jsonb"),
+    ("begin_retry_publication", "uuid, uuid, text, text, jsonb, jsonb, integer, uuid"),
+    ("finish_retry_publication", "uuid, uuid, text, integer, uuid"),
+    ("begin_fixture_media_publication", "uuid, uuid"),
+    ("finish_fixture_media_publication", "uuid, uuid, text"),
+}
+
+
 class PublicationUnavailable(RuntimeError):
     """The native owner cannot admit a publisher without losing evidence."""
 

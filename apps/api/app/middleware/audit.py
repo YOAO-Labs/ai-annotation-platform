@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -85,21 +84,11 @@ def _build_payload(request: Request, status_code: int) -> dict:
 
 
 def _enqueue_audit(payload: dict) -> bool:
-    """Send HTTP metadata to the selected queue; return False for sync fallback."""
+    """Send HTTP metadata to Celery; return False for sync fallback."""
     try:
-        if settings.jobs_queue_url:
-            from app.services.jobs_queue import dispatch_job_sync
+        from app.workers.audit import persist_audit_entry
 
-            dispatch_job_sync(
-                task_name="app.workers.audit.persist_audit_entry",
-                execution_id=str(uuid.uuid4()),
-                args=[payload],
-                options={"queue": "audit"},
-            )
-        else:
-            from app.workers.audit import persist_audit_entry
-
-            persist_audit_entry.delay(payload)
+        persist_audit_entry.delay(payload)
         return True
     except Exception as exc:
         logger.warning("audit task enqueue failed, falling back to sync: %s", exc)

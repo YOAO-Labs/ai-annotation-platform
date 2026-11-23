@@ -1,4 +1,4 @@
-"""Cold acceptance helpers for quality dispatch through the private Jobs queue."""
+"""Cold acceptance helpers for quality dispatch through the application broker."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ import secrets
 import sys
 from types import SimpleNamespace
 import uuid
+
+from tests.jobs_recovery_helpers import denied_first_publication
 
 
 _QUALITY_TASKS = (
@@ -61,10 +63,7 @@ import uuid
 
 sys.path.insert(0, "/app")
 
-from app.config import settings
 spec = json.loads(sys.argv[1])
-if not settings.jobs_queue_url:
-    raise RuntimeError("remote Jobs queue is not selected")
 
 def loaded_worker_modules():
     return sorted(
@@ -79,10 +78,8 @@ if loaded_worker_modules() != before_deps:
     raise RuntimeError("importing API dependencies loaded worker modules")
 
 dispatcher = get_quality_job_dispatcher()
-if type(dispatcher).__name__ != "JobsQueueQualityDispatcher":
-    raise RuntimeError("the remote quality dispatcher was not selected")
-if loaded_worker_modules() != before_deps:
-    raise RuntimeError("quality dispatcher construction loaded worker modules")
+if type(dispatcher).__name__ != "CeleryQualityJobDispatcher":
+    raise RuntimeError("the embedded quality dispatcher was not selected")
 
 records = []
 for item in spec:
@@ -104,8 +101,6 @@ for item in spec:
         raise RuntimeError("unknown quality dispatch variant")
     if str(uuid.UUID(execution_id)) != execution_id:
         raise RuntimeError("generated execution ID is not a canonical UUID")
-    if loaded_worker_modules() != before_deps:
-        raise RuntimeError("quality dispatch loaded worker modules")
     records.append(
         {
             "task": item["task"],
@@ -471,7 +466,6 @@ async def exercise_quality_dispatch(
     storage_scope = None
     destroy_storage_scope = None
     worker = None
-    queue_stopped = False
     owner_id = project_id = scene_id = run_id = job_id = None
     execution_id = None
     findings: list[str] = []
@@ -499,10 +493,9 @@ async def exercise_quality_dispatch(
                 timeout=60,
             )
             probe_evidence = json.loads(stack.redact(output))
-            assert probe_evidence["dispatcher_type"] == "JobsQueueQualityDispatcher"
-            assert (
-                probe_evidence["worker_modules_before"]
-                == probe_evidence["worker_modules_after"]
+            assert probe_evidence["dispatcher_type"] == "CeleryQualityJobDispatcher"
+            assert {item["task"].rsplit(".", 1)[0] for item in _QUALITY_TASKS} <= set(
+                probe_evidence["worker_modules_after"]
             )
             api_records = {row["task"]: row for row in probe_evidence["records"]}
             assert set(api_records) == {item["task"] for item in probe_specs}
@@ -604,9 +597,7 @@ async def exercise_quality_dispatch(
             }
             endpoint = f"/api/v1/projects/{project_id}/point-cloud-quality/runs"
             if check_outage:
-                await stack.stop_service("jobs-queue")
-                queue_stopped = True
-                try:
+                async with denied_first_publication(test_engine):
                     failed = await client.post(
                         endpoint, headers=headers, json=request_body
                     )
@@ -627,10 +618,7 @@ async def exercise_quality_dispatch(
                     assert _broker_state(sender, "media") == {
                         "queue_size": 0,
                         "unacknowledged": 0,
-                    }, (
-                        "quality API fell back to the embedded broker "
-                        "during owner outage"
-                    )
+                    }, "failed publication admission sent a quality task"
                     outage = {
                         "checked": True,
                         "http_status": failed.status_code,
@@ -641,9 +629,6 @@ async def exercise_quality_dispatch(
                         "execution_id": failed_execution_id,
                         "broker_empty": True,
                     }
-                finally:
-                    await stack.start_service("jobs-queue")
-                    queue_stopped = False
 
             accepted = await client.post(endpoint, headers=headers, json=request_body)
             assert accepted.status_code == 202, stack.redact(accepted.text)
@@ -789,12 +774,8 @@ async def exercise_quality_dispatch(
         }, headers
     finally:
         try:
-            if queue_stopped:
-                await stack.start_service("jobs-queue")
+            if worker is not None:
+                worker.stop()
         finally:
-            try:
-                if worker is not None:
-                    worker.stop()
-            finally:
-                if storage_scope is not None and destroy_storage_scope is not None:
-                    destroy_storage_scope(storage_scope)
+            if storage_scope is not None and destroy_storage_scope is not None:
+                destroy_storage_scope(storage_scope)

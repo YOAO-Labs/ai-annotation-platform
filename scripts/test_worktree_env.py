@@ -103,7 +103,7 @@ class IdentityTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
-    def test_application_process_cannot_inherit_private_inference_dsns(self):
+    def test_application_process_cannot_inherit_private_worker_dsns(self):
         from worktree_env import application_environment
 
         private = {
@@ -114,6 +114,8 @@ class EnvironmentTests(unittest.TestCase):
             "aap_module_data_inference_gpu_url": "verifier-secret",
             "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL_FILE": "/verifier-secret",
             "inference_health_data_database_url": "health-secret",
+            "jobs_dispatch_database_url": "private-jobs-claim",
+            "JOBS_DISPATCH_DATABASE_URL_FILE": "/jobs-claim",
         }
         environment = application_environment(
             {**private, "INFERENCE_BACKEND_CONTROL_URL": "http://fixture-owner"}
@@ -164,6 +166,57 @@ class EnvironmentTests(unittest.TestCase):
                 self.assertEqual(env.get(name), "", name)
                 self.assertNotIn(name.lower(), env)
             self.assertNotIn("shared-owner-secret", env.values())
+
+    def test_worktree_disables_shared_module_selectors_including_dotenv_only_keys(self):
+        from worktree_env import isolated_environment, load_identity, topology
+
+        selectors = {
+            "WORKSPACE_TEMPLATE_QUERY_DATABASE_URL_FILE",
+            "WORKSPACE_PROJECT_QUERY_URL",
+            "LABELING_CLASS_QUERY_DATABASE_URL",
+            "LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE",
+            "JOBS_QUEUE_TOKEN_FILE",
+            "JOBS_DISPATCH_RELAY_DATABASE_URL_FILE",
+            "JOBS_DISPATCH_DATABASE_URL",
+            "JOBS_PUBLICATION_DATABASE_URL_FILE",
+            "IDENTITY_URL",
+            "IDENTITY_RUNTIME_SIGNING_SECRET_FILE",
+            "IDENTITY_EMBEDDED_SIGNING_SECRET_FILE",
+            "IDENTITY_MAIL_V2_DATABASE_URL_FILE",
+            "NOTIFICATION_SOCKET_URL",
+            "NOTIFICATION_PUBLICATION_TOKEN_FILE",
+            "NOTIFICATION_PUBLISH_DATABASE_URL",
+            "NOTIFICATION_PUBLISH_REDIS_URL",
+            "NOTIFICATION_PUBLISH_REDIS_URL_FILE",
+            "NOTIFICATION_SUBSCRIBE_REDIS_URL",
+            "NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE",
+            "ASSETS_CATALOG_URL",
+            "ASSETS_SOURCE_TOKEN_FILE",
+            "ASSETS_CELERY_VIDEO_DATABASE_URL",
+            "ASSETS_CELERY_IMAGE_DATABASE_URL_FILE",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "test")
+            env = isolated_environment(
+                resources,
+                code_root=root,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited={
+                    "ASSETS_VIDEO_EXECUTOR": "split",
+                    **dict.fromkeys(
+                        (name.lower() for name in selectors), "shared-secret"
+                    ),
+                },
+            )
+        for name in selectors:
+            self.assertEqual(env.get(name), "", name)
+        self.assertNotIn("shared-secret", env.values())
+        self.assertEqual(env["ASSETS_VIDEO_EXECUTOR"], "celery")
+        self.assertEqual(env["ASSETS_IMAGE_EXECUTOR"], "celery")
 
     def test_overrides_all_mutable_targets_without_changing_shared_settings(self):
         import worktree_env

@@ -398,7 +398,7 @@ async def execute(w):
 
 async def forward(w, *, node="worker:content@test"):
     from app.application.mask_repair_execution import run_mask_repair
-    from app.services.jobs_queue import build_video_tracker_job_dispatcher
+    from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 
     async with w.factory() as db:
         celery_task_id = (await db.get(AsyncJob, w.job_id)).celery_task_id
@@ -406,7 +406,7 @@ async def forward(w, *, node="worker:content@test"):
         str(w.batch_id),
         celery_task_id,
         session_factory=w.factory,
-        tracker_dispatcher=build_video_tracker_job_dispatcher(),
+        tracker_dispatcher=CeleryVideoTrackerJobDispatcher(),
         worker_node_id=node,
     )
 

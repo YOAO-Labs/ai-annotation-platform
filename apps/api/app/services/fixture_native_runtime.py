@@ -864,7 +864,7 @@ class FixtureNativeRuntime:
         from app.config import settings
 
         _require(
-            not settings.jobs_queue_url and settings.effective_celery_broker == broker,
+            settings.effective_celery_broker == broker,
             "fixture_video_publisher_broker_changed",
         )
         stopped = asyncio.Event()

@@ -54,7 +54,7 @@ from app.services.raster_mask_storage import (
 )
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.application import mask_repair_execution as worker
-from app.services.jobs_queue import build_video_tracker_job_dispatcher
+from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 from tests._owned_s3 import patch_owned_client
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
@@ -355,7 +355,7 @@ async def forward(w, *, job_id=None):
         str(w.batch_id),
         celery_task_id,
         session_factory=w.factory,
-        tracker_dispatcher=build_video_tracker_job_dispatcher(),
+        tracker_dispatcher=CeleryVideoTrackerJobDispatcher(),
         worker_node_id="worker:managed-repair@test",
     )
 

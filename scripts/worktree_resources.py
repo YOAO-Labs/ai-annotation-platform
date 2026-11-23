@@ -49,6 +49,12 @@ from worktree_runtime import (
 
 OWNER_LABEL = "org.yoao.worktree-owner"
 OWNER_TAG = "yoao-worktree-owner"
+_OWNED_ROLE_SUFFIXES = {
+    "runtime": "app",
+    "jobs-dispatch": "jobs_claim",
+    "jobs-publication": "jobs_pub",
+}
+_JOBS_ROLE_PURPOSES = ("jobs-dispatch", "jobs-publication")
 IDENTITY_RUNTIME_CAPABILITIES = (
     "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
     "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
@@ -922,8 +928,15 @@ class LocalResources:
         if getattr(self, "_retire_finished_bootstrap", False):
             raise WorktreeError("退休模式不能准备或接管环境")
 
-    def _runtime_credentials(self, *, required: bool = False) -> dict | None:
-        path = state_path(self.root, self.resources["mode"], "runtime-credentials.json")
+    def _owned_role_path(self, purpose: str):
+        return state_path(
+            self.root, self.resources["mode"], f"{purpose}-credentials.json"
+        )
+
+    def _runtime_credentials(
+        self, *, required: bool = False, purpose: str = "runtime"
+    ) -> dict | None:
+        path = self._owned_role_path(purpose)
         if not path.exists():
             if required:
                 raise WorktreeError("独立运行账号尚未准备；请先运行 init")
@@ -947,7 +960,7 @@ class LocalResources:
                 ) from None
         if not isinstance(document, dict):
             raise WorktreeError("运行账号凭据格式无效；拒绝接管")
-        expected = self._runtime_credential_identity()
+        expected = self._runtime_credential_identity(purpose)
         if (
             set(document) != {*expected, "password"}
             or any(document.get(key) != value for key, value in expected.items())
@@ -957,11 +970,12 @@ class LocalResources:
             raise WorktreeError("运行账号凭据与本环境或原迁移账号不一致；拒绝接管")
         return document
 
-    def _runtime_credential_identity(self) -> dict:
+    def _runtime_credential_identity(self, purpose: str = "runtime") -> dict:
+        suffix = _OWNED_ROLE_SUFFIXES[purpose]
         return {
             "schema": 1,
             "owner": self.resources["owner"],
-            "role": self.resources["database"] + "_app",
+            "role": f"{self.resources['database']}_{suffix}",
             "postgres": {
                 "host": self.url.host,
                 "port": self.url.port or 5432,
@@ -1026,23 +1040,29 @@ class LocalResources:
         ):
             raise WorktreeError("自有运行账号权限、成员资格或外部依赖已变化；拒绝继续")
 
-    async def owned_runtime_role(self, action: str = "inspect") -> dict | None:
-        """Keep generated LOGIN creation and deletion bound to this exact mode."""
+    async def owned_runtime_role(
+        self, action: str = "inspect", *, purpose: str = "runtime"
+    ) -> dict | None:
+        """Keep generated LOGINs bound to this exact mode and purpose."""
         if action not in {"inspect", "check_create", "create", "check_drop", "drop"}:
             raise WorktreeError("无效的运行账号操作")
         if action in {"check_create", "create"}:
             self._require_preparation_allowed()
-        credentials = self._runtime_credentials()
+        credentials = self._runtime_credentials(purpose=purpose)
         shared_owner = (
             make_url(self.settings.database_url).username == self.url.username
         )
-        if credentials is None and not shared_owner:
+        if purpose == "runtime" and not shared_owner and credentials is None:
             return None
-        if action in {"check_create", "create"} and not shared_owner:
+        if (
+            purpose == "runtime"
+            and action in {"check_create", "create"}
+            and not shared_owner
+        ):
             raise WorktreeError(
                 "此环境已有自有运行账号；先用原配置销毁，再更换账号配置"
             )
-        identity = self._runtime_credential_identity()
+        identity = self._runtime_credential_identity(purpose)
         role = identity["role"]
         engine = create_async_engine(
             self.url.set(database="postgres"),
@@ -1070,11 +1090,17 @@ class LocalResources:
                     .one()
                 )
 
-                observed = await self._runtime_role_record(connection, operator["oid"])
+                observed = await self._runtime_role_record(
+                    connection, operator["oid"], role=role
+                )
                 if observed is not None:
                     self._validate_runtime_role(observed, credentials)
                 if action in {"check_create", "create"} and observed is None:
                     if not (operator["rolsuper"] or operator["rolcreaterole"]):
+                        if purpose != "runtime":
+                            raise WorktreeError(
+                                "迁移账号需要 CREATEROLE 创建隔离 Jobs 账号"
+                            )
                         raise WorktreeError(
                             "同账号配置需要迁移账号具备 CREATEROLE；请由管理员预配置普通运行账号，"
                             "并分开 DATABASE_URL 与 MIGRATION_DATABASE_URL；不会回退 owner"
@@ -1087,15 +1113,13 @@ class LocalResources:
                             "password": secrets.token_urlsafe(32),
                         }
                         atomic_json(
-                            state_path(
-                                self.root,
-                                self.resources["mode"],
-                                "runtime-credentials.json",
-                            ),
+                            self._owned_role_path(purpose),
                             credentials,
                             exclusive=True,
                         )
-                        credentials = self._runtime_credentials(required=True)
+                        credentials = self._runtime_credentials(
+                            required=True, purpose=purpose
+                        )
                     await connection.execute(
                         text(
                             "SELECT set_config('yoao.worktree_runtime_role',:role,true),"
@@ -1117,7 +1141,7 @@ class LocalResources:
                     END;
                     $create_runtime$;""")
                     observed = await self._runtime_role_record(
-                        connection, operator["oid"]
+                        connection, operator["oid"], role=role
                     )
                     if (
                         not observed
@@ -1144,7 +1168,7 @@ class LocalResources:
                         )
                         await connection.exec_driver_sql(f"DROP ROLE {quoted}")
                         observed = await self._runtime_role_record(
-                            connection, operator["oid"]
+                            connection, operator["oid"], role=role
                         )
                         if observed is not None:
                             raise WorktreeError("运行账号删除未能验证")
@@ -1174,6 +1198,107 @@ class LocalResources:
         finally:
             await engine.dispose()
 
+    def jobs_database_url(self, purpose: str) -> str:
+        if purpose not in _JOBS_ROLE_PURPOSES:
+            raise WorktreeError("无效的 Jobs 账号用途")
+        credentials = self._runtime_credentials(required=True, purpose=purpose)
+        return self.url.set(
+            drivername="postgresql",
+            username=credentials["role"],
+            password=credentials["password"],
+        ).render_as_string(hide_password=False)
+
+    async def grant_jobs_recovery(self) -> None:
+        from asyncpg import PostgresError, connect
+        from yoao_jobs.dispatch_postgres import RECOVERY_FUNCTIONS
+        from yoao_jobs.publication_postgres import PUBLICATION_FUNCTIONS
+        from yoao_owner_data.postgres import (
+            FunctionRoleUnavailable,
+            verify_function_only_role,
+        )
+
+        self._require_preparation_allowed()
+        profiles = (
+            ("jobs-dispatch", RECOVERY_FUNCTIONS),
+            ("jobs-publication", PUBLICATION_FUNCTIONS),
+        )
+        engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
+        try:
+            quote = engine.dialect.identifier_preparer.quote_identifier
+            database = quote(self.resources["database"])
+            runtime = self.runtime_url().username
+            async with engine.begin() as db:
+                observed = await db.scalar(
+                    text(
+                        "SELECT shobj_description(oid,'pg_database') "
+                        "FROM pg_database WHERE datname=current_database()"
+                    )
+                )
+                if observed != self.resources["owner"]:
+                    raise WorktreeError("Jobs 授权数据库归属变化")
+                if await db.scalar(
+                    text(
+                        "SELECT has_database_privilege(CAST(:role AS name), "
+                        "current_database(),'TEMP')"
+                    ),
+                    {"role": runtime},
+                ):
+                    await db.exec_driver_sql(
+                        f"GRANT TEMP ON DATABASE {database} TO {quote(runtime)}"
+                    )
+                await db.exec_driver_sql(
+                    f"REVOKE TEMP ON DATABASE {database} FROM PUBLIC"
+                )
+                operator_oid = await db.scalar(
+                    text("SELECT current_user::regrole::oid")
+                )
+                for purpose, functions in profiles:
+                    credentials = self._runtime_credentials(
+                        required=True, purpose=purpose
+                    )
+                    role = credentials["role"]
+                    record = await self._runtime_role_record(
+                        db, operator_oid, role=role
+                    )
+                    if record is None:
+                        raise WorktreeError("缺少隔离 Jobs 账号")
+                    self._validate_runtime_role(record, credentials)
+                    signatures = ", ".join(
+                        f"yoao_jobs_v1.{name}({arguments})"
+                        for name, arguments in sorted(functions)
+                    )
+                    await db.exec_driver_sql(
+                        f"GRANT CONNECT ON DATABASE {database} TO {quote(role)}"
+                    )
+                    await db.exec_driver_sql(
+                        f"GRANT USAGE ON SCHEMA yoao_jobs_v1 TO {quote(role)}"
+                    )
+                    await db.exec_driver_sql(
+                        f"GRANT EXECUTE ON FUNCTION {signatures} TO {quote(role)}"
+                    )
+        finally:
+            await engine.dispose()
+        for purpose, functions in profiles:
+            try:
+                connection = await connect(
+                    self.jobs_database_url(purpose), timeout=5, command_timeout=5
+                )
+                try:
+                    await verify_function_only_role(
+                        connection,
+                        schema="yoao_jobs_v1",
+                        functions=functions,
+                        role=self._runtime_credential_identity(purpose)["role"],
+                    )
+                finally:
+                    await connection.close(timeout=5)
+            except (PostgresError, OSError, FunctionRoleUnavailable):
+                raise WorktreeError(f"无法核对本环境的 {purpose} 函数账号") from None
+
+    def manage_jobs_roles(self, action: str) -> None:
+        for purpose in _JOBS_ROLE_PURPOSES:
+            asyncio.run(self.owned_runtime_role(action, purpose=purpose))
+
     def environment(self) -> dict:
         if getattr(self, "_retire_finished_bootstrap", False):
             raise WorktreeError("退休模式不能创建子进程环境")
@@ -1181,7 +1306,12 @@ class LocalResources:
         require_owner(self.resources["redis_name"], observed, self.resources["owner"])
         if not observed or not observed["running"] or not observed["port"]:
             raise WorktreeError("独立 Redis 未运行；请先 init")
-        return {**self._environment(observed["port"]), **self._fixture_overrides}
+        environment = {**self._environment(observed["port"]), **self._fixture_overrides}
+        if self._owned_role_path("jobs-publication").exists():
+            environment["JOBS_PUBLICATION_DATABASE_URL"] = self.jobs_database_url(
+                "jobs-publication"
+            )
+        return environment
 
     async def database(self, action: str = "inspect") -> dict | None:
         return await self._database(action)
@@ -2549,6 +2679,7 @@ class LocalResources:
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
         asyncio.run(self.owned_runtime_role("check_create"))
+        self.manage_jobs_roles("check_create")
         self.touched = True
         path = state_path(self.root, self.resources["mode"], "resources.json")
         if not path.exists():
@@ -2562,6 +2693,7 @@ class LocalResources:
             self.manifest,
         )
         asyncio.run(self.owned_runtime_role("create"))
+        self.manage_jobs_roles("create")
         asyncio.run(self.database("create"))
         raster_owner = getattr(self, "_raster_redis_birth_owner", None)
         if raster_owner is not None and "postgres" in raster_owner.data["raster"]:
@@ -2618,6 +2750,7 @@ class LocalResources:
         if os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
             asyncio.run(_verified_database(self.environment()))
         asyncio.run(self.grant_runtime())
+        asyncio.run(self.grant_jobs_recovery())
         asyncio.run(self.verify_runtime_login())
         if self.resources["mode"] in {"test", "e2e"}:
             from fixture_suite_coordinator import prepare_worktree_store
@@ -3132,6 +3265,7 @@ class LocalResources:
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         asyncio.run(self.owned_runtime_role("check_drop"))
+        self.manage_jobs_roles("check_drop")
         inference = None
         if self.resources["mode"] == "e2e":
             from fixture_inference_services import FixtureInferenceServices
@@ -3509,6 +3643,7 @@ class LocalResources:
         if inference is not None:
             inference.finish_destroy()
         asyncio.run(self.owned_runtime_role("drop"))
+        self.manage_jobs_roles("drop")
         if prepared.storage != "raster_provider_retired" and require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]
         ):
@@ -3565,9 +3700,8 @@ class LocalResources:
             directory = state_path(self.root, self.resources["mode"], part)
             if directory.exists():
                 shutil.rmtree(directory)
-        state_path(
-            self.root, self.resources["mode"], "runtime-credentials.json"
-        ).unlink(missing_ok=True)
+        for purpose in ("runtime", *_JOBS_ROLE_PURPOSES):
+            self._owned_role_path(purpose).unlink(missing_ok=True)
         state_path(self.root, self.resources["mode"], "resources.json").unlink(
             missing_ok=True
         )

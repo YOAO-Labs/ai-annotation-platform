@@ -77,7 +77,6 @@ async def test_frame_receipts_outlive_real_celery_results_and_retries(
     assert redis_url.host == "127.0.0.1"
     assert make_url(settings.redis_url) == redis_url
     assert make_url(settings.effective_celery_broker) == redis_url
-    monkeypatch.setattr(settings, "jobs_queue_url", None)
     monkeypatch.setitem(celery_app.conf, "result_expires", 5)
     inference_ready = threading.Event()
     allow_write = threading.Event()

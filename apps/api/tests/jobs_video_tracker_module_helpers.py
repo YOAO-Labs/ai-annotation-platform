@@ -1,4 +1,4 @@
-"""Cold API-to-Jobs queue acceptance for the existing video tracker worker."""
+"""Cold API-to-broker acceptance for the video tracker worker."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from tests.identity_module_assembly_helpers import (
     IdentityModuleStack,
     create_retained_realm,
 )
+from tests.jobs_recovery_helpers import denied_first_publication
 
 _VIDEO_TRACKER_TASK_NAME = "app.workers.video_tracker.run_video_tracker_job"
 
@@ -87,6 +88,8 @@ class _MediaBoundIdentityModuleStack(IdentityModuleStack):
             {
                 "ASSETS_MEDIA_URL": self._tracker_media_url,
                 "ASSETS_MEDIA_TOKEN": self._tracker_media_token,
+                "ASSETS_VIDEO_EXECUTOR": "split",
+                "ASSETS_IMAGE_EXECUTOR": "split",
             }
         )
         if os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER"):
@@ -652,10 +655,11 @@ async def _exercise_api_tracker_phase(
 
         await _pause_gpu_consumer(sender, worker)
         if queue_outage:
-            await stack.stop_service("jobs-queue")
-            assert stack.inspection_evidence["jobs-queue"]["running"] is False
             retention.arm(f"{phase}:enqueue-outage")
-            failed = await _submit_tracker(client, headers, world, redact=stack.redact)
+            async with denied_first_publication(test_engine):
+                failed = await _submit_tracker(
+                    client, headers, world, redact=stack.redact
+                )
             retention.bind(f"{phase}:enqueue-outage", str(failed["id"]), [])
             assert failed["status"] == VideoTrackerJobStatus.FAILED.value
             assert failed.get("celery_task_id") is None
@@ -678,8 +682,8 @@ async def _exercise_api_tracker_phase(
                         )
                     ).all()
                 )
-            assert attempt_states == ["not_sent"], (
-                "Queue outage must reach the fenced publisher and prove pre-send refusal"
+            assert attempt_states == [], (
+                "the owner rejected entry before any broker call"
             )
             assert _broker_state(sender, "gpu") == {
                 "queue_size": 0,
@@ -697,7 +701,6 @@ async def _exercise_api_tracker_phase(
             record_property(
                 f"video_tracker_outage_retirement_{phase}", outage_retirement
             )
-            await stack.start_service("jobs-queue")
             queue_failure = {
                 "http_status": 202,
                 "job_id": failed["id"],
@@ -800,10 +803,10 @@ async def _exercise_api_tracker_phase(
             "queue_size": 1,
             "unacknowledged": 0,
         }
-        await stack.stop_service("jobs-queue")
-        unavailable = await client.delete(
-            f"/api/v1/video-tracker-jobs/{cancel_job_id}", headers=headers
-        )
+        async with denied_first_publication(test_engine):
+            unavailable = await client.delete(
+                f"/api/v1/video-tracker-jobs/{cancel_job_id}", headers=headers
+            )
         assert unavailable.status_code == 503, stack.redact(unavailable.text)
         assert unavailable.json()["detail"] == {
             "reason": "tracker_retirement_redrive_unavailable",
@@ -815,12 +818,14 @@ async def _exercise_api_tracker_phase(
             cancelled_during_outage["status"] == VideoTrackerJobStatus.CANCELLED.value
         )
         async with test_engine.connect() as db:
-            failed_redrive_execution_id, failed_redrive_state = (
+            failed_redrive_execution_id, failed_redrive_state, physical_state = (
                 await db.execute(
                     text(
-                        "SELECT DISTINCT execution_id, state "
-                        "FROM yoao_jobs_v1.dispatch_publication_attempts "
-                        "WHERE job_id=:job AND execution_id<>:original"
+                        "SELECT i.execution_id, i.state, a.state "
+                        "FROM yoao_jobs_v1.dispatch_intents i "
+                        "LEFT JOIN yoao_jobs_v1.dispatch_publication_attempts a "
+                        "ON a.intent_id=i.intent_id AND a.generation=i.generation "
+                        "WHERE i.job_id=:job AND i.execution_id<>:original"
                     ),
                     {
                         "job": uuid.UUID(cancel_job_id),
@@ -828,7 +833,7 @@ async def _exercise_api_tracker_phase(
                     },
                 )
             ).one()
-        assert failed_redrive_state == "not_sent"
+        assert failed_redrive_state == "pending" and physical_state is None
         retention.bind(
             f"{phase}:cancel",
             cancel_job_id,
@@ -847,7 +852,6 @@ async def _exercise_api_tracker_phase(
             "unacknowledged": 0,
         }
 
-        await stack.start_service("jobs-queue")
         redrive = await client.delete(
             f"/api/v1/video-tracker-jobs/{cancel_job_id}", headers=headers
         )
@@ -1032,21 +1036,10 @@ def _media_runtime_stack(
     tmp_path: Path,
     media,
     login_url: str,
-    publisher_url: str,
     smtp_port: int,
 ):
-    secret, api_secret, control, queue_token = [
-        secrets.token_urlsafe(32) for _ in range(4)
-    ]
-    assert len({secret, api_secret, control, queue_token}) == 4
-    queue_image, queue_identity, queue_revision = (
-        os.environ[name]
-        for name in (
-            "AAP_JOBS_QUEUE_RUNTIME_IMAGE",
-            "AAP_JOBS_QUEUE_RUNTIME_IDENTITY",
-            "AAP_JOBS_QUEUE_RUNTIME_SOURCE_REVISION",
-        )
-    )
+    secret, api_secret, control = [secrets.token_urlsafe(32) for _ in range(3)]
+    assert len({secret, api_secret, control}) == 3
     return _MediaBoundIdentityModuleStack(
         test_engine,
         tmp_path,
@@ -1056,12 +1049,8 @@ def _media_runtime_stack(
         control=control,
         mail_key=Fernet.generate_key().decode(),
         login_redis_url=login_url,
-        publisher_redis_url=publisher_url,
         smtp_port=smtp_port,
-        jobs_queue_image=queue_image,
-        jobs_queue_identity=queue_identity,
-        jobs_queue_source_revision=queue_revision,
-        jobs_queue_token=queue_token,
+        jobs_publication=True,
     )
 
 
@@ -1137,7 +1126,6 @@ async def exercise_video_tracker_queue_and_restore(
     from tests.test_jobs_module_assembly_live import (
         _assert_owned_broker_target,
         _login,
-        _publisher_redis,
         _role_urls_for_database,
     )
     from tests.test_video_input_live import _video_bytes, _video_runtime
@@ -1235,29 +1223,22 @@ async def exercise_video_tracker_queue_and_restore(
         @asynccontextmanager
         async def redis_users_with_stack_cleanup():
             async with _login_redis(retain=keep) as (login_url, _login_owner):
-                async with _publisher_redis(retain=keep) as (
-                    publisher_url,
-                    _publisher_owner,
-                ):
-                    try:
-                        yield login_url, publisher_url
-                    finally:
-                        primary = sys.exception()
-                        if stack is not None and not keep():
-                            try:
-                                await stack.stop()
-                            except BaseException as cleanup_error:
-                                retention.arm("stack:teardown")
-                                if primary is None:
-                                    raise
-                                primary.add_note(
-                                    f"Tracker stack teardown failed: {type(cleanup_error).__name__}"
-                                )
+                try:
+                    yield login_url
+                finally:
+                    primary = sys.exception()
+                    if stack is not None and not keep():
+                        try:
+                            await stack.stop()
+                        except BaseException as cleanup_error:
+                            retention.arm("stack:teardown")
+                            if primary is None:
+                                raise
+                            primary.add_note(
+                                f"Tracker stack teardown failed: {type(cleanup_error).__name__}"
+                            )
 
-        async with redis_users_with_stack_cleanup() as (
-            login_url,
-            publisher_url,
-        ):
+        async with redis_users_with_stack_cleanup() as login_url:
             sender_url = os.environ.get("CELERY_BROKER_URL") or os.environ["REDIS_URL"]
             sender = Celery(
                 "jobs-video-tracker-queue-acceptance",
@@ -1317,19 +1298,21 @@ async def exercise_video_tracker_queue_and_restore(
                         tmp_path=Path(tmp_path) / "jobs-video-tracker-stack",
                         media=media,
                         login_url=login_url,
-                        publisher_url=publisher_url,
                         smtp_port=inbox.port,
                     )
                     stack.retain_while(retention)
                     await stack.start()
-                    queue_evidence = stack.inspection_evidence["jobs-queue"]
-                    assert queue_evidence["user"] == "10005:10005"
-                    assert queue_evidence["read_only"] is True
-                    assert queue_evidence["secret_mount_targets"] == [
-                        "/run/secrets/jobs_queue_broker_url",
-                        "/run/secrets/jobs_queue_token",
-                    ]
-                    record_property("video_tracker_jobs_queue_runtime", queue_evidence)
+                    api_evidence = stack.inspection_evidence["identity-api"]
+                    assert api_evidence["read_only"] is True
+                    assert (
+                        "/run/secrets/jobs_publication_database_url"
+                        in api_evidence["secret_mount_targets"]
+                    )
+                    assert (
+                        "/run/secrets/jobs_dispatch_database_url"
+                        not in api_evidence["secret_mount_targets"]
+                    )
+                    record_property("video_tracker_jobs_broker_runtime", api_evidence)
                     async with httpx.AsyncClient(
                         base_url=stack.api_origin,
                         trust_env=False,

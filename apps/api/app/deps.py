@@ -59,9 +59,9 @@ def get_prediction_input_session_factory():
 
 def get_quality_job_dispatcher() -> QualityJobDispatcher:
     """Bind the quality execution port without importing tasks into services."""
-    from app.services.jobs_queue import build_quality_job_dispatcher
+    from app.workers.quality_dispatch import CeleryQualityJobDispatcher
 
-    return build_quality_job_dispatcher()
+    return CeleryQualityJobDispatcher()
 
 
 def get_media_job_dispatcher() -> MediaJobDispatcher:
@@ -98,16 +98,16 @@ def get_training_authority(
 
 def get_job_execution_control() -> JobExecutionControl:
     """Bind cooperative execution cancellation without importing brokers into services."""
-    from app.services.jobs_queue import build_job_execution_control
+    from app.workers.job_execution_control import CeleryJobExecutionControl
 
-    return build_job_execution_control()
+    return CeleryJobExecutionControl()
 
 
 def get_prediction_retry_dispatcher() -> PredictionRetryDispatcher:
     """Bind retry execution without importing worker tasks into use cases."""
-    from app.services.jobs_queue import build_prediction_retry_dispatcher
+    from app.workers.prediction_retry_dispatch import CeleryPredictionRetryDispatcher
 
-    return build_prediction_retry_dispatcher()
+    return CeleryPredictionRetryDispatcher()
 
 
 def get_async_job_read_port(
@@ -141,16 +141,16 @@ def get_prediction_retry_port(
 
 def get_batch_prediction_dispatcher() -> BatchPredictionDispatcher:
     """Bind batch prediction dispatch at the HTTP composition boundary."""
-    from app.services.jobs_queue import build_batch_prediction_dispatcher
+    from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
-    return build_batch_prediction_dispatcher()
+    return CeleryBatchPredictionDispatcher()
 
 
 def get_video_tracker_job_dispatcher() -> VideoTrackerJobDispatcher:
     """Bind video tracker execution at the HTTP composition boundary."""
-    from app.services.jobs_queue import build_video_tracker_job_dispatcher
+    from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 
-    return build_video_tracker_job_dispatcher()
+    return CeleryVideoTrackerJobDispatcher()
 
 
 async def get_current_principal(

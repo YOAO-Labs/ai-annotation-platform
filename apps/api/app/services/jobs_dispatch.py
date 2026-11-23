@@ -30,7 +30,7 @@ from app.application.preannotation_contract import BatchPredictionRequest
 
 log = logging.getLogger(__name__)
 _JSON_FUNCTIONS = frozenset(
-    JOBS_DISPATCH_FUNCTIONS[name] for name in ("prepare", "claim", "finish")
+    JOBS_DISPATCH_FUNCTIONS[name] for name in ("prepare", "finish")
 ) | {JOBS_MEDIA_PREPARE_FUNCTION}
 
 
@@ -142,10 +142,9 @@ async def publish_prepared_dispatch(
 ) -> str:
     """Publish after commit without owning later caller binding/audit transactions.
 
-    ``publish`` retains the caller's selected transport port and failure policy.
     A void port confirms acceptance by returning normally; an ID-returning port
-    must confirm the already persisted execution ID. HTTP uncertainty remains an
-    exception, while acknowledgement uncertainty retains the original envelope.
+    must confirm the already persisted execution ID. Broker uncertainty remains
+    an exception, while acknowledgement uncertainty retains the original envelope.
     """
     if lease.state == "submitted":
         return lease.execution_id

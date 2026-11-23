@@ -744,7 +744,6 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
                 settings, "jobs_publication_database_url", publication_url
             )
             monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
-            monkeypatch.setattr(settings, "jobs_queue_url", "")
             monkeypatch.setattr(worker_app, "celery_app", sender)
             retry_response = await client.post(
                 f"/api/v1/tasks/{busy_world['source_task_id']}/cross-frame-jobs/"

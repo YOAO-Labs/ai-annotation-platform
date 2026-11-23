@@ -226,6 +226,175 @@ def _validate_environment_sources(
     return runtime, migration
 
 
+def isolated_module_environment() -> dict[str, str]:
+    """Beat, API and local workers must not rediscover shared .env credentials."""
+    empty_selectors = {
+        "ASSETS_MEDIA_URL",
+        "ASSETS_MEDIA_TOKEN",
+        "ASSETS_CATALOG_URL",
+        "ASSETS_CATALOG_TOKEN",
+        "ASSETS_CATALOG_TOKEN_FILE",
+        "ASSETS_CATALOG_TIMEOUT_SECONDS",
+        "ASSETS_SOURCE_URL",
+        "ASSETS_SOURCE_TOKEN",
+        "ASSETS_SOURCE_TOKEN_FILE",
+        "ASSETS_SOURCE_DATABASE_URL",
+        "ASSETS_SOURCE_DATABASE_URL_FILE",
+        "ASSETS_MASK_CONTENT_URL",
+        "ASSETS_MASK_CONTENT_TOKEN",
+        "ASSETS_MASK_CLEANUP_URL",
+        "ASSETS_MASK_CLEANUP_TOKEN",
+        "LABELING_MASK_GC_URL",
+        "LABELING_MASK_GC_TOKEN",
+        "IDENTITY_URL",
+        "IDENTITY_TOKEN",
+        "IDENTITY_ADMISSION_TOKEN",
+        "IDENTITY_ADMISSION_TOKEN_FILE",
+        "IDENTITY_RUNTIME_TOKEN_FILE",
+        "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE",
+        "IDENTITY_RUNTIME_SIGNING_SECRET_FILE",
+        "IDENTITY_EMBEDDED_SIGNING_SECRET",
+        "IDENTITY_EMBEDDED_SIGNING_SECRET_FILE",
+        "IDENTITY_RECOVERY_MAIL_KEY",
+        "IDENTITY_RECOVERY_MAIL_KEY_FILE",
+        "IDENTITY_MAIL_ENCRYPTION_KEY",
+        "IDENTITY_MAIL_V2_ENCRYPTION_KEY",
+        "IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE",
+        "IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE",
+        "NOTIFICATION_SOCKET_URL",
+        "NOTIFICATION_PUBLICATION_URL",
+        "NOTIFICATION_SOCKET_IDENTITY_URL",
+        "NOTIFICATION_SOCKET_IDENTITY_TOKEN",
+        "NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE",
+        "WORKSPACE_TOKEN",
+        "WORKSPACE_TOKEN_FILE",
+        "WORKSPACE_CONTROL_TOKEN",
+        "WORKSPACE_CONTROL_TOKEN_FILE",
+        "AAP_JOBS_QUEUE_RUNTIME_IMAGE",
+        "AAP_JOBS_DEVELOPMENT_NETWORK",
+    }
+    empty_selectors.update(
+        f"{capability}_{suffix}"
+        for capability, suffixes in (
+            (
+                "JOBS_QUEUE",
+                (
+                    "URL",
+                    "TOKEN",
+                    "TOKEN_FILE",
+                    "BROKER_URL",
+                    "BROKER_URL_FILE",
+                    "HOST",
+                    "PORT",
+                ),
+            ),
+            (
+                "JOBS_DISPATCH_RELAY",
+                (
+                    "ENABLED",
+                    "DATABASE_URL",
+                    "DATABASE_URL_FILE",
+                    "BATCH_SIZE",
+                    "LEASE_SECONDS",
+                    "POLL_SECONDS",
+                ),
+            ),
+            (
+                "LABELING_CLASS_QUERY",
+                (
+                    "URL",
+                    "DATABASE_URL",
+                    "DATABASE_URL_FILE",
+                    "CONTROL_TOKEN",
+                    "CONTROL_TOKEN_FILE",
+                    "TIMEOUT_SECONDS",
+                ),
+            ),
+            (
+                "LABELING_VIDEO_WRITER",
+                (
+                    "URL",
+                    "DATABASE_URL",
+                    "DATABASE_URL_FILE",
+                    "CONTROL_TOKEN",
+                    "CONTROL_TOKEN_FILE",
+                    "TIMEOUT_SECONDS",
+                ),
+            ),
+            (
+                "LABELING_RUNTIME_CLASS_QUERY",
+                ("DATABASE_URL_FILE", "CONTROL_TOKEN_FILE"),
+            ),
+            (
+                "LABELING_RUNTIME_VIDEO_WRITER",
+                ("DATABASE_URL_FILE", "CONTROL_TOKEN_FILE", "MASK_CONTENT_TOKEN_FILE"),
+            ),
+        )
+        for suffix in suffixes
+    )
+    empty_selectors.update(
+        f"{name}{suffix}"
+        for name in (
+            "ASSETS_CELERY_VIDEO_DATABASE_URL",
+            "ASSETS_CELERY_IMAGE_DATABASE_URL",
+            "JOBS_DISPATCH_DATABASE_URL",
+            "JOBS_PUBLICATION_DATABASE_URL",
+            "NOTIFICATION_PUBLISH_REDIS_URL",
+            "NOTIFICATION_SUBSCRIBE_REDIS_URL",
+            "NOTIFICATION_PUBLICATION_TOKEN",
+            "NOTIFICATION_PUBLISH_API_TOKEN",
+            "NOTIFICATION_SOCKET_DATABASE_URL",
+            "NOTIFICATION_SOCKET_REDIS_URL",
+            "IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL",
+        )
+        for suffix in ("", "_FILE")
+    )
+    empty_selectors.update(
+        f"WORKSPACE_{operation}_{suffix}"
+        for operation in (
+            "MEMBERSHIP",
+            "OWNER_TRANSFER",
+            "CONFIGURATION",
+            "TEMPLATE_QUERY",
+            "PROJECT_QUERY",
+            "DIRECTORY_QUERY",
+        )
+        for suffix in ("URL", "DATABASE_URL", "DATABASE_URL_FILE")
+    )
+    empty_selectors.update(
+        f"{capability}_DATABASE_URL{suffix}"
+        for capability in (
+            "IDENTITY_AUTH",
+            "IDENTITY_KEY",
+            "IDENTITY_SESSION",
+            "IDENTITY_ACCOUNT",
+            "IDENTITY_GROUP",
+            "IDENTITY_DIRECTORY",
+            "IDENTITY_ADMIN_PASSWORD",
+            "IDENTITY_PLATFORM_ROLE",
+            "IDENTITY_SUSPENSION",
+            "IDENTITY_DELETION",
+            "IDENTITY_OFFBOARDING",
+            "IDENTITY_BRIEFS",
+            "IDENTITY_INVITATION",
+            "IDENTITY_DEACTIVATION",
+            "IDENTITY_DEACTIVATION_OPERATOR",
+            "IDENTITY_PRESENCE",
+            "IDENTITY_RECOVERY",
+            "IDENTITY_MAIL",
+            "IDENTITY_MAIL_V2",
+            "IDENTITY_MAIL_SETTINGS",
+            "NOTIFICATION_PUBLISH",
+        )
+        for suffix in ("", "_FILE")
+    )
+    return {
+        **dict.fromkeys(empty_selectors, ""),
+        "ASSETS_VIDEO_EXECUTOR": "celery",
+        "ASSETS_IMAGE_EXECUTOR": "celery",
+    }
+
+
 def isolated_environment(
     resources: dict,
     *,
@@ -304,47 +473,7 @@ def isolated_environment(
         "GPU_ARBITER_ROLLOUT_ENABLED": "false",
         "GPU_ARBITER_RESOURCES_JSON": "{}",
         "GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE": "",
-        "ASSETS_MASK_CONTENT_URL": "",
-        "ASSETS_MASK_CONTENT_TOKEN": "",
-        "ASSETS_MASK_CLEANUP_URL": "",
-        "ASSETS_MASK_CLEANUP_TOKEN": "",
-        "LABELING_MASK_GC_URL": "",
-        "LABELING_MASK_GC_TOKEN": "",
-        "IDENTITY_URL": "",
-        "IDENTITY_TOKEN": "",
-        "NOTIFICATION_SOCKET_URL": "",
-        "NOTIFICATION_PUBLICATION_URL": "",
-        "NOTIFICATION_PUBLICATION_TOKEN": "",
-        "NOTIFICATION_PUBLICATION_TOKEN_FILE": "",
-        **{
-            f"{capability}_DATABASE_URL{suffix}": ""
-            for capability in (
-                "IDENTITY_AUTH",
-                "IDENTITY_KEY",
-                "IDENTITY_SESSION",
-                "IDENTITY_ACCOUNT",
-                "IDENTITY_GROUP",
-                "IDENTITY_DIRECTORY",
-                "IDENTITY_ADMIN_PASSWORD",
-                "IDENTITY_PLATFORM_ROLE",
-                "IDENTITY_SUSPENSION",
-                "IDENTITY_DELETION",
-                "IDENTITY_OFFBOARDING",
-                "IDENTITY_BRIEFS",
-                "IDENTITY_INVITATION",
-                "IDENTITY_DEACTIVATION",
-                "IDENTITY_DEACTIVATION_OPERATOR",
-                "IDENTITY_PRESENCE",
-                "IDENTITY_RECOVERY",
-                "IDENTITY_MAIL",
-                "IDENTITY_MAIL_V2",
-                "IDENTITY_MAIL_SETTINGS",
-                "NOTIFICATION_PUBLISH",
-            )
-            for suffix in ("", "_FILE")
-        },
-        "IDENTITY_RECOVERY_MAIL_KEY": "",
-        "IDENTITY_RECOVERY_MAIL_KEY_FILE": "",
+        **isolated_module_environment(),
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }
@@ -354,16 +483,12 @@ def isolated_environment(
     ):
         overrides.update(
             {
-                "ASSETS_MEDIA_URL": "",
-                "ASSETS_MEDIA_TOKEN": "",
                 "ASSETS_IMAGES_NATIVE_STORAGE_URL": "",
                 "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": "",
                 "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE": "",
                 "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL": "",
                 "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN": "",
                 "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE": "",
-                "JOBS_PUBLICATION_DATABASE_URL": "",
-                "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
                 "PREANNOTATION_RESULTS_DATABASE_URL": "",
                 "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "",
             }
@@ -453,7 +578,7 @@ def frontend_environment(environment: dict) -> dict:
 
 
 def application_environment(environment: dict) -> dict:
-    """Remove migration/test credentials before launching application processes."""
+    """Remove privileged connections before launching ordinary processes."""
 
     def is_private_inference_dsn(key):
         upper = key.upper()
@@ -470,6 +595,8 @@ def application_environment(environment: dict) -> dict:
             key: value
             for key, value in environment.items()
             if not is_private_inference_dsn(key)
+            and key.upper()
+            not in {"JOBS_DISPATCH_DATABASE_URL", "JOBS_DISPATCH_DATABASE_URL_FILE"}
         },
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",

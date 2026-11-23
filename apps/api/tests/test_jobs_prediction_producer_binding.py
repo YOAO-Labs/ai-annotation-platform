@@ -1,98 +1,122 @@
 from __future__ import annotations
 
-import builtins
+import asyncio
+import threading
 import uuid
+from types import SimpleNamespace
 
 import pytest
 
-from yoao_jobs.queue_contract import JobsQueueUnavailable
 from app import deps
 from app.application.preannotation_contract import BatchPredictionRequest
-from app.config import Settings
-from app.services import jobs_queue
+from app.services.jobs_queue import dispatch_job
+from app.workers import audit, predictions_retry, task_events, tasks
 
 
-def _configure_remote(monkeypatch):
-    config = Settings(
-        _env_file=None,
-        jobs_queue_url="http://jobs-queue:8190",
-        jobs_queue_token="service-token",
-    )
-    monkeypatch.setattr(jobs_queue, "settings", config)
-    return config
-
-
-def _install_sync_client(monkeypatch, *, error=None):
+def test_batch_prediction_preserves_stable_id_route_and_time_limit(monkeypatch):
     calls = []
 
-    class FakeQueueClient:
-        def __init__(self, origin, token):
-            calls.append(("client", origin, token))
+    def send(**message):
+        calls.append(message)
+        return SimpleNamespace(id=message["task_id"])
 
-        def dispatch_job_sync(
-            self, task_name, execution_id, args, kwargs=None, options=None
-        ):
-            calls.append(
-                {
-                    "task_name": task_name,
-                    "execution_id": execution_id,
-                    "args": args,
-                    "kwargs": kwargs,
-                    "options": options,
-                }
-            )
-            if error is not None:
-                raise error
-            return execution_id
+    monkeypatch.setattr(tasks.batch_predict, "apply_async", send)
+    job_id = str(uuid.uuid4())
+    accepted = deps.get_batch_prediction_dispatcher().dispatch(
+        BatchPredictionRequest(
+            project_id="project-id",
+            ml_backend_id="backend-id",
+            task_ids=["task-id"],
+            async_job_id=job_id,
+        ),
+        queue="ml.cpu",
+        soft_time_limit=90,
+    )
+    assert accepted == job_id
+    assert len(calls) == 1
+    message = calls[0]
+    assert message["args"] == ["project-id", "backend-id", ["task-id"]]
+    assert message["kwargs"]["async_job_id"] == message["task_id"] == job_id
+    assert message["queue"] == "ml.cpu"
+    assert message["soft_time_limit"] == 90
 
-    monkeypatch.setattr(jobs_queue, "JobsQueueClient", FakeQueueClient)
-    return calls
+
+def test_prediction_retry_keeps_single_and_batch_routes_and_ids(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        predictions_retry.retry_failed_prediction,
+        "apply_async",
+        lambda **message: calls.append(message),
+    )
+    failed_id, actor_id, single_job, batch_job = (uuid.uuid4() for _ in range(4))
+    dispatcher = deps.get_prediction_retry_dispatcher()
+    dispatcher.dispatch_prediction_retry(
+        failed_id, actor_id, execution_queue="ml.cpu", job_id=single_job
+    )
+    dispatcher.dispatch_job_item_retry(failed_id, actor_id, job_id=batch_job)
+    args = [str(failed_id), str(actor_id)]
+    assert calls == [
+        {
+            "args": args,
+            "kwargs": {"job_id": str(single_job)},
+            "task_id": str(single_job),
+            "queue": "ml.cpu",
+        },
+        {"args": args, "kwargs": {"job_id": str(batch_job)}, "task_id": str(batch_job)},
+    ]
 
 
-def test_remote_prediction_failure_never_imports_workers_or_falls_back(monkeypatch):
-    _configure_remote(monkeypatch)
-    calls = _install_sync_client(monkeypatch, error=RuntimeError("broker detail"))
-    original_import = builtins.__import__
-    worker_imports = []
+def test_prediction_broker_failure_does_not_try_another_route(monkeypatch):
+    queues = []
 
-    def reject_worker_import(name, *args, **kwargs):
-        if name == "app.workers" or name.startswith("app.workers."):
-            worker_imports.append(name)
-            raise AssertionError(f"remote dispatch imported worker module: {name}")
-        return original_import(name, *args, **kwargs)
+    def fail(**message):
+        queues.append(message["queue"])
+        raise OSError("broker unavailable")
 
-    monkeypatch.setattr(builtins, "__import__", reject_worker_import)
-    batch_dispatcher = deps.get_batch_prediction_dispatcher()
-    retry_dispatcher = deps.get_prediction_retry_dispatcher()
-    with pytest.raises(JobsQueueUnavailable):
-        batch_dispatcher.dispatch(
-            BatchPredictionRequest(
-                project_id="project-id",
-                ml_backend_id="backend-id",
-                async_job_id="durable-job-id",
-            ),
-            queue="ml",
+    monkeypatch.setattr(predictions_retry.retry_failed_prediction, "apply_async", fail)
+    with pytest.raises(OSError, match="broker unavailable"):
+        deps.get_prediction_retry_dispatcher().dispatch_prediction_retry(
+            uuid.uuid4(), uuid.uuid4(), execution_queue="ml.cpu", job_id=uuid.uuid4()
         )
-    with pytest.raises(JobsQueueUnavailable):
-        retry_dispatcher.dispatch_prediction_retry(
-            uuid.uuid4(),
-            uuid.uuid4(),
-            execution_queue="ml",
-            job_id=uuid.uuid4(),
-        )
-
-    assert len([call for call in calls if isinstance(call, dict)]) == 2
-    assert not worker_imports
+    assert queues == ["ml.cpu"]
 
 
-def test_http_queue_failure_signals_existing_sync_fallback(monkeypatch):
-    config = _configure_remote(monkeypatch)
-    _install_sync_client(monkeypatch, error=RuntimeError("broker detail"))
+def test_broker_error_signals_existing_audit_and_event_fallback(monkeypatch):
     from app.api.v1 import me
-    from app.middleware import audit
+    from app.middleware import audit as middleware
 
-    monkeypatch.setattr(me, "settings", config)
-    monkeypatch.setattr(audit, "settings", config)
+    def fail(*_args):
+        raise OSError("broker unavailable")
 
-    assert not audit._enqueue_audit({"action": "http.post"})
+    monkeypatch.setattr(audit.persist_audit_entry, "delay", fail)
+    monkeypatch.setattr(task_events.persist_task_events_batch, "delay", fail)
+    assert not middleware._enqueue_audit({"action": "http.post"})
     assert not me._enqueue_task_events([{"id": str(uuid.uuid4())}])
+
+
+@pytest.mark.asyncio
+async def test_cancelled_first_publish_drains_broker_thread_before_returning(
+    monkeypatch,
+):
+    from app.workers.celery_app import celery_app
+
+    sending, release = threading.Event(), threading.Event()
+
+    def send(*_args, **_kwargs):
+        sending.set()
+        if not release.wait(5):
+            raise TimeoutError("test did not release broker thread")
+
+    monkeypatch.setattr(celery_app, "send_task", send)
+    publication = asyncio.create_task(
+        dispatch_job(task_name="test.fenced", execution_id="job-id", args=[])
+    )
+    try:
+        assert await asyncio.to_thread(sending.wait, 5)
+        publication.cancel()
+        await asyncio.sleep(0)
+        assert not publication.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await publication

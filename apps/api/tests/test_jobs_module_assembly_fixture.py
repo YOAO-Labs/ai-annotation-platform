@@ -7,13 +7,13 @@ import json
 import os
 import uuid
 import pytest
+from sqlalchemy.engine import make_url
 
 from tests.identity_module_assembly_helpers import (
     IdentityModuleStack,
     _expected_secret_mount_names,
-    validate_jobs_queue_broker_url,
-    validate_jobs_queue_image_inputs,
 )
+from tests import test_jobs_module_assembly_live as assembly
 from tests.test_jobs_module_assembly_live import (
     _JOBS_API_ROW_ACCESS_PROBE,
     _assert_api_row_access_probe,
@@ -22,26 +22,37 @@ from tests.workspace_worker_assembly_helpers import _worker_queue_name
 
 
 @pytest.mark.parametrize(
-    "broker", ["redis://127.0.0.1:46379/0", "redis://worker:secret@127.0.0.1:46379/0"]
-)
-def test_jobs_broker_accepts_owned_authenticated_or_password_free_local_target(broker):
-    assert (
-        validate_jobs_queue_broker_url(broker, "redis://127.0.0.1:46379/0", "token")
-        == broker
-    )
-
-
-@pytest.mark.parametrize(
-    "broker,token",
+    ("broker", "owned"),
     [
-        ("redis://other:46379/0", "token"),
-        ("redis://127.0.0.1:46379/1", "token"),
-        ("redis://worker:token@127.0.0.1:46379/0", "token"),
+        ("redis://127.0.0.1:46379/0", True),
+        ("redis://worker:secret@127.0.0.1:46379/0", True),
+        ("redis://other:46379/0", False),
+        ("redis://127.0.0.1:46379/1", False),
     ],
 )
-def test_jobs_broker_rejects_foreign_target_or_reused_bearer(broker, token):
-    with pytest.raises(ValueError):
-        validate_jobs_queue_broker_url(broker, "redis://127.0.0.1:46379/0", token)
+def test_embedded_sender_guard_checks_owned_redis_before_examining_queue(
+    monkeypatch, broker, owned
+):
+    from types import SimpleNamespace
+
+    examined = []
+    monkeypatch.setenv("CELERY_BROKER_URL", broker)
+    monkeypatch.setattr(
+        assembly, "_verify_redis", lambda: make_url("redis://127.0.0.1:46379/0")
+    )
+
+    def state(_sender, queue):
+        examined.append(queue)
+        return {"queue_size": 0, "unacknowledged": 0}
+
+    monkeypatch.setattr(assembly, "_broker_state", state)
+    if owned:
+        assembly._assert_owned_broker_target(SimpleNamespace(), "export")
+        assert examined == ["export"]
+    else:
+        with pytest.raises(AssertionError, match="owned Redis"):
+            assembly._assert_owned_broker_target(SimpleNamespace(), "export")
+        assert examined == []
 
 
 @pytest.mark.parametrize(
@@ -81,45 +92,6 @@ def test_restored_role_context_keeps_the_existing_database_guard(
     assert os.environ[variable] == role
 
 
-@pytest.mark.parametrize(
-    "violation", [None, "stopped", "network", "endpoint", "address"]
-)
-def test_jobs_queue_origin_requires_the_verified_owned_attachment(violation):
-    container_id = "container-id"
-    endpoint = {
-        "NetworkID": "network-id",
-        "EndpointID": "endpoint-id",
-        "IPAddress": "172.20.0.7",
-    }
-    member = {"EndpointID": "endpoint-id", "IPv4Address": "172.20.0.7/16"}
-    network = {
-        "Name": "owned_default",
-        "Id": "network-id",
-        "Containers": {container_id: member},
-    }
-    queue = {
-        "Id": container_id,
-        "State": {"Running": True, "Health": {"Status": "healthy"}},
-        "NetworkSettings": {"Networks": {"owned_default": endpoint}},
-    }
-    if violation == "stopped":
-        queue["State"]["Running"] = False
-    elif violation == "network":
-        endpoint["NetworkID"] = "foreign-network"
-    elif violation == "endpoint":
-        member["EndpointID"] = "other-endpoint"
-    elif violation == "address":
-        member["IPv4Address"] = "172.20.0.8/16"
-    stack = object.__new__(IdentityModuleStack)
-    stack._dependency_network = lambda: network
-    stack._verify_project_ownership = lambda: {"jobs-queue": queue}
-    if violation is None:
-        assert stack.jobs_queue_origin == "http://172.20.0.7:8190"
-    else:
-        with pytest.raises(RuntimeError):
-            _ = stack.jobs_queue_origin
-
-
 def test_stack_destruction_waits_for_every_owner_guard():
     stack = object.__new__(IdentityModuleStack)
     stack._retention_guards = []
@@ -153,79 +125,15 @@ def test_stack_destruction_waits_for_every_owner_guard():
         asyncio.run(stack.stop())
 
 
-def test_jobs_queue_image_requires_complete_source_bound_inputs():
-    assert not validate_jobs_queue_image_inputs(None, None, None, None)
-    assert validate_jobs_queue_image_inputs(
-        "sha256:" + "a" * 64,
-        "b" * 24,
-        "c" * 40,
-        "jobs-queue-fixture-token",
+def test_jobs_publication_secret_mount_is_only_for_cold_api():
+    base = _expected_secret_mount_names("identity-api")
+    producer = _expected_secret_mount_names("identity-api", jobs_publication=True)
+    assert producer - base == {"jobs_publication_database_url"}
+    assert "jobs_dispatch_database_url" not in producer
+    assert _expected_secret_mount_names("identity-issuer", jobs_publication=True) == (
+        _expected_secret_mount_names("identity-issuer")
     )
-
-
-@pytest.mark.parametrize(
-    "values",
-    [
-        ("sha256:" + "a" * 64, "b" * 24, "c" * 40, None),
-        ("sha256:" + "a" * 64, "b" * 24, "c" * 39, "token"),
-        ("sha256:" + "a" * 63, "b" * 24, "c" * 40, "token"),
-        ("sha256:" + "a" * 64, "b" * 23, "c" * 40, "token"),
-        ("sha256:" + "a" * 64, "b" * 24, "c" * 40, "bad token"),
-        ("sha256:" + "a" * 64, "b" * 24, "c" * 40, "令牌"),
-    ],
-)
-def test_jobs_queue_image_rejects_incomplete_or_ambiguous_inputs(values):
-    with pytest.raises(ValueError):
-        validate_jobs_queue_image_inputs(*values)
-
-
-def test_jobs_queue_secret_mounts_are_opt_in_and_service_scoped():
-    assert (
-        _expected_secret_mount_names("jobs-queue", notifications_socket_enabled=False)
-        is None
-    )
-    assert _expected_secret_mount_names(
-        "jobs-queue",
-        notifications_socket_enabled=False,
-        jobs_queue_enabled=True,
-    ) == {"jobs_queue_broker_url", "jobs_queue_token"}
-    assert _expected_secret_mount_names(
-        "identity-api",
-        notifications_socket_enabled=False,
-        jobs_queue_enabled=True,
-    ) == {"jobs_queue_token"}
-
-
-def test_jobs_queue_compose_override_is_private_and_uses_only_service_secrets(
-    tmp_path,
-):
-    stack = object.__new__(IdentityModuleStack)
-    stack._api_env_file = tmp_path / "api.env"
-    stack._override_file = tmp_path / "override.yml"
-    stack._notification_publication_enabled = False
-    stack._notifications_socket_enabled = False
-    stack._jobs_queue_enabled = True
-
-    stack._write_override_file()
-    rendered = stack._override_file.read_text(encoding="utf-8")
-    queue_service = rendered.split("  jobs-queue:", 1)[1].split("\n  identity-api:", 1)[
-        0
-    ]
-    api_service = rendered.split("  identity-api:", 1)[1].split("\nsecrets:", 1)[0]
-
-    assert 'user: "10005:10005"' in queue_service
-    assert "read_only: true" in queue_service
-    assert "cap_drop: [ALL]" in queue_service
-    assert (
-        "JOBS_QUEUE_BROKER_URL_FILE: /run/secrets/jobs_queue_broker_url"
-        in queue_service
-    )
-    assert "JOBS_QUEUE_TOKEN_FILE: /run/secrets/jobs_queue_token" in queue_service
-    assert "ports:" not in queue_service
-    assert "jobs_queue_broker_url" in queue_service
-    assert "jobs_queue_token" in queue_service
-    assert "jobs_queue_token" in api_service
-    assert "jobs_queue_broker_url" not in api_service
+    assert _expected_secret_mount_names("jobs-queue", jobs_publication=True) is None
 
 
 def test_workspace_worker_only_allows_explicit_qualified_queue_opt_in():

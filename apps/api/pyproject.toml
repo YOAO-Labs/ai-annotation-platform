@@ -19,7 +19,7 @@ dependencies = [
     "yoao-assets-source",
     "yoao-audit-contract",
     "yoao-audit[postgres]",
-    "yoao-jobs[queue-client]",
+    "yoao-jobs",
     "yoao-notifications[postgres,publication-client]",
     "yoao-media-probe[client]",
     "yoao-filesystem-read",
