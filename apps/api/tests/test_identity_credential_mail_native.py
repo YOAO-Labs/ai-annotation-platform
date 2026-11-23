@@ -9,16 +9,19 @@ import secrets
 import time
 import uuid
 
+import asyncpg
 from cryptography.fernet import Fernet
 import pytest
 from sqlalchemy import text
 
 from yoao_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from yoao_identity.mail_v2_postgres import MailV2PostgresData
 from yoao_identity.recovery_contract import decode_recovery_request
 from yoao_identity.recovery_crypto import token_hash
 from yoao_identity.recovery_manager import RecoveryManager
 from yoao_identity.recovery_postgres import RecoveryPostgresData
 from yoao_identity_runtime.mail_worker import MailExecutor
+from tests.grant_sql_helpers import read_grant_script
 from tests.identity_recovery_live_helpers import SMTPInbox, cleanup, command, outbox
 from tests.test_identity_admission_live import _dsn, _world
 from tests.test_identity_admission_live import ROOT
@@ -240,13 +243,23 @@ async def test_uncertain_smtp_and_wrong_key_keep_the_same_valid_link_for_retry(
         await cleanup(maker, [actor], [operation_id])
 
 
-async def test_legacy_runtime_grants_keep_embedded_recovery_and_mail_working(
+async def test_embedded_recovery_hands_off_to_dedicated_mail_sender(
     test_engine,
 ):
     from sqlalchemy.engine import make_url
 
+    runtime = make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])
+    assert (runtime.host, runtime.port, runtime.database, runtime.username) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+        "legacy_runtime",
+    )
+    dsn = runtime.set(drivername="postgresql").render_as_string(hide_password=False)
+
     maker, actor = await _world(test_engine)
     operation_id, key = uuid.uuid4(), Fernet.generate_key().decode()
+    inbox = SMTPInbox()
     try:
         _postgres_tool(
             test_engine,
@@ -267,13 +280,27 @@ async def test_legacy_runtime_grants_keep_embedded_recovery_and_mail_working(
                 "-v",
                 "asset_cleanup_role=yoao_asset_cleanup_client",
             ],
-            body=(ROOT / "infra/docker/lan-production-grants.sql").read_bytes(),
+            body=read_grant_script(
+                ROOT / "infra/docker/lan-production-grants.sql"
+            ).encode(),
         )
-        dsn = (
-            make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])
-            .set(drivername="postgresql")
-            .render_as_string(hide_password=False)
-        )
+        connection = await asyncpg.connect(dsn, timeout=5, command_timeout=5)
+        try:
+            assert await connection.fetchval("SELECT current_user") == "legacy_runtime"
+            for call in (
+                "yoao_settings_v1.mail_delivery_policy('{}'::jsonb)",
+                "yoao_settings_v1.claim_smtp_test()",
+                "yoao_settings_v1.finish_smtp_test(NULL::uuid,NULL::uuid,"
+                "NULL::text,NULL::text,NULL::text,NULL::integer)",
+                "yoao_identity_recovery_v1.claim_mail('{}'::jsonb)",
+                "yoao_identity_recovery_v1.finish_mail('{}'::jsonb)",
+                "yoao_identity_mail_v2.claim_mail('{}'::jsonb)",
+                "yoao_identity_mail_v2.finish_mail('{}'::jsonb)",
+            ):
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await connection.fetchval(f"SELECT {call}")
+        finally:
+            await connection.close()
         await RecoveryManager(
             RecoveryPostgresData(dsn), "legacy-recovery-fixture", key
         ).execute(
@@ -288,21 +315,30 @@ async def test_legacy_runtime_grants_keep_embedded_recovery_and_mail_working(
                 )
             )
         )
-        policy = await MailSettingsPostgresData(dsn).mail_delivery_policy(
+        assert (await outbox(maker, operation_id)).status == "pending"
+        settings = MailSettingsPostgresData(_dsn("MAIL_SETTINGS", test_engine))
+        policy = await settings.mail_delivery_policy(
             {
-                "smtp_host": "",
-                "smtp_port": 0,
+                "smtp_host": "127.0.0.1",
+                "smtp_port": inbox.port,
                 "smtp_user": "",
                 "smtp_password": "",
-                "smtp_from": "",
-            }
+                "smtp_from": "noreply@example.test",
+            },
+            require_isolated_role=True,
         )
-        result = await MailExecutor(MailPostgresData(dsn), policy, key).run_once(
-            operation_id
-        )
-        assert result["outcome"] == "rejected" and result["reason"] == "not_configured"
-        assert (await outbox(maker, operation_id)).status == "rejected"
+        mail = MailV2PostgresData(_dsn("MAIL_V2", test_engine))
+        await mail.mail_policy()
+        result = await MailExecutor(mail, policy, key).run_once(operation_id)
+        assert result["outcome"] == "delivered" and result["accepted"] is True
+        await inbox.wait(1)
+        delivered = await outbox(maker, operation_id)
+        tokens = inbox.tokens()
+        assert len(tokens) == 1
+        assert delivered.status == "delivered"
+        assert delivered.token_hash == token_hash(tokens[0])
     finally:
+        inbox.close()
         await cleanup(maker, [actor], [operation_id])
 
 

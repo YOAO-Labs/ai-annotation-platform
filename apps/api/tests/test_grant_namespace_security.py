@@ -25,6 +25,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
+from tests.grant_sql_helpers import read_grant_script
 
 ROOT = Path(__file__).resolve().parents[3]
 GRANTS = ROOT / "infra/docker"
@@ -147,7 +148,7 @@ async def _apply(migration_url: URL, script: str, variables: dict[str, str]):
     }
     return await _psql(
         migration_url,
-        sql=(GRANTS / script).read_text(),
+        sql=read_grant_script(GRANTS / script),
         variables=variables,
         username=migration_url.username,
         password=migration_url.password,
@@ -363,6 +364,7 @@ async def test_insights_lan_replay_removes_direct_access_without_owner_transfer(
                 "SET ROLE insights_code",
                 "SELECT yoao_insights_v1.clear_project_task_views(gen_random_uuid())",
                 "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+                "SELECT yoao_insights_v1.refresh_user_perf_daily()",
             ):
                 denied = await _psql(
                     migration_url, sql=sql, username=role, password=password
@@ -371,8 +373,8 @@ async def test_insights_lan_replay_removes_direct_access_without_owner_transfer(
             allowed = await _psql(
                 migration_url,
                 sql="SELECT yoao_insights_v1.refresh_user_perf_daily()",
-                username=role,
-                password=password,
+                username=migration_url.username,
+                password=migration_url.password,
             )
             assert allowed.returncode == 0, allowed.stderr
             arguments = await _psql(

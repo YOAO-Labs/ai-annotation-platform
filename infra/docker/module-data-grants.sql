@@ -4939,4 +4939,6 @@ GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_storage_fault_job(uuid) TO :"assets_
 REVOKE ALL ON TABLE yoao_assets_v1.storage_fault_observation_key FROM PUBLIC;
 REVOKE ALL ON SEQUENCE public.storage_fault_observation_seq
     FROM PUBLIC, :"workflow_role", :"asset_cleanup_role", :"mask_gc_role";
+
+\ir m2b-owner-grants.sql
 COMMIT;
