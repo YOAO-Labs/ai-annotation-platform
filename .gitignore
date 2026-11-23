@@ -39,6 +39,8 @@ docs-site/roadmap/
 
 data/duckdb/
 apps/api/data/duckdb/
+/data/onnxtools-models/
+/data/rapidocr-models/
 
 .claude/worktrees/
 .claude/scheduled_tasks.lock
