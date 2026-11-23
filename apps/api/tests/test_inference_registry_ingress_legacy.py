@@ -9,7 +9,7 @@ import threading
 
 
 @contextmanager
-def _server(case, trace):
+def _server(case, trace, *, host="127.0.0.1"):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             path = self.path.split("?", 1)[0]
@@ -58,11 +58,11 @@ def _server(case, trace):
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer((host, 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}"
+        yield f"http://{host}:{server.server_port}"
     finally:
         server.shutdown()
         server.server_close()

@@ -1,6 +1,6 @@
 # Inference service contracts
 
-This package defines shared preannotation structure and private protocols between Workspace and credential-owning Inference services. Backend setup probes and health observations carry opaque encrypted Native subjects; neither wire carries backend URLs or authentication credentials as plaintext fields. The Inference owner opens each subject only while its originating PostgreSQL transaction is still in progress.
+This package defines shared preannotation structure and private protocols used by the credential-owning Inference runtime. Backend setup probes and health observations carry opaque encrypted Native subjects; neither wire carries backend URLs or authentication credentials as plaintext fields. The Inference owner opens each subject only while its originating PostgreSQL transaction is still in progress.
 
 The wire is versioned as `aap-inference-backend-probe/v1`. Requests are limited to 16 MiB and replies to 4096 bytes. The optional HTTP client sends exactly one authenticated `POST /v1/backends/probe`, disables redirects and environment proxy lookup, and never retries or selects another provider. HTTP/provider protocol failures raise a sanitized `BackendProbeUnavailable`; a valid legacy materialization failure raises `BackendProbeLegacyFailure` from `reply_modalities`.
 

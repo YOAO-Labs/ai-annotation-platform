@@ -82,7 +82,7 @@ services:
       - "127.0.0.1:8768:8768"
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=32m
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 64

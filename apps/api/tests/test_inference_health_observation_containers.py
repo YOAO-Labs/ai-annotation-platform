@@ -1,22 +1,13 @@
-"""Public API -> restricted prebuilt observer -> real controlled backend."""
+"""Public health check through the retained Inference Compose owner."""
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
-import json
-import os
-from pathlib import Path
-import secrets
-import subprocess
-import tempfile
 import time
 import uuid
 
-import httpx
 import pytest
 from sqlalchemy import delete
-from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -25,168 +16,14 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.user import User
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_user
-from tests.inference_health_observation_helpers import observation_dsn
-from tests.labeling_class_query_helpers import assert_owned_test_database
-from tests.test_asset_storage_cleanup_runtime import (
-    _docker,
-    _inspect_docker,
-    _stop_remove_container,
+from tests.inference_health_observation_helpers import backend_server
+from tests.inference_owner_container_helpers import (
+    inference_owner_container,
+    inference_owner_live,
 )
-from tests.test_inference_health_observation_bindings import backend_server
 from tests.test_workspace_configuration_live import _auth, _suppress_request_audit
 
-ROOT = Path(__file__).resolve().parents[3]
-pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.skipif(
-        os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
-        or os.environ.get("AAP_HEALTH_OBSERVATION_CONTAINER_LIVE") != "1",
-        reason="requires explicitly selected owned prebuilt observation container",
-    ),
-]
-
-
-async def _ready(origin, container_id):
-    deadline = time.monotonic() + 30
-    async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
-        while True:
-            try:
-                if (await client.get(origin + "/health")).status_code == 200:
-                    return
-            except httpx.HTTPError:
-                pass
-            assert _inspect_docker(container_id)["State"]["Running"]
-            assert time.monotonic() < deadline, "Owned observation container not ready"
-            await asyncio.sleep(0.1)
-
-
-def _origin(container_id):
-    published = _inspect_docker(container_id)["NetworkSettings"]["Ports"]["8768/tcp"]
-    assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
-    return "http://127.0.0.1:" + published[0]["HostPort"]
-
-
-@asynccontextmanager
-async def _observer_container(dsn, token):
-    prefix = os.environ.get(
-        "AAP_HEALTH_OBSERVATION_QUALIFICATION_PREFIX", "inference-health-observation"
-    )
-    assert prefix in {
-        "inference-health-observation",
-        "inference-health-data",
-        "inference-health-data-transaction",
-    }
-    artifact = json.loads(
-        (ROOT / f".worktree/{prefix}-inference-image-artifact.json").read_text()
-    )
-    image = _inspect_docker(artifact["image_id"])
-    assert image["Config"]["Labels"]["org.aap.acceptance-id"] == artifact["identity"]
-    assert (
-        image["Config"]["Labels"]["org.aap.source-revision"]
-        == artifact["source_commit"]
-    )
-    identity = secrets.token_hex(12)
-    connection = (
-        make_url(dsn)
-        .set(host="host.docker.internal")
-        .render_as_string(hide_password=False)
-    )
-    container_id = None
-    result = {
-        "identity": identity,
-        "source_commit": artifact["source_commit"],
-        "image_id": artifact["image_id"],
-    }
-    with tempfile.TemporaryDirectory(
-        prefix="health-observation-container-", dir=ROOT / ".worktree"
-    ) as temporary:
-        mounts = []
-        for name, value in (("database", connection), ("token", token)):
-            path = Path(temporary) / name
-            path.write_text(value)
-            path.chmod(0o444)
-            mounts += [
-                "--mount",
-                f"type=bind,src={path},dst=/run/secrets/{name},readonly",
-            ]
-        try:
-            container_id = _docker(
-                "run",
-                "--detach",
-                "--pull=never",
-                "--name",
-                "aap-health-observation-" + identity,
-                "--label",
-                "org.aap.acceptance=module-data-boundary",
-                "--label",
-                "org.aap.acceptance-id=" + identity,
-                "--user=10008:10008",
-                "--read-only",
-                "--cap-drop=ALL",
-                "--security-opt=no-new-privileges:true",
-                "--pids-limit=64",
-                "--memory=256m",
-                "--cpus=1",
-                "--no-healthcheck",
-                "--tmpfs",
-                "/tmp:rw,noexec,nosuid,nodev,size=32m",
-                "--publish",
-                "127.0.0.1::8768",
-                "--env",
-                "INFERENCE_HOST=0.0.0.0",
-                "--env",
-                "INFERENCE_PORT=8768",
-                "--env",
-                "INFERENCE_HEALTH_OBSERVATION_DATABASE_URL_FILE=/run/secrets/database",
-                "--env",
-                "INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE=/run/secrets/token",
-                *mounts,
-                artifact["image_id"],
-            ).strip()
-            state = _inspect_docker(container_id)
-            host = state["HostConfig"]
-            assert state["Config"]["User"] == "10008:10008"
-            assert host["ReadonlyRootfs"] and host["CapDrop"] == ["ALL"]
-            assert "no-new-privileges:true" in host["SecurityOpt"]
-            assert (host["Memory"], host["NanoCpus"], host["PidsLimit"]) == (
-                256 * 1024 * 1024,
-                1_000_000_000,
-                64,
-            )
-            assert len(state["Mounts"]) == 2 and all(
-                not mount["RW"] for mount in state["Mounts"]
-            )
-            published = state["NetworkSettings"]["Ports"]["8768/tcp"]
-            assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
-            origin = _origin(container_id)
-            await _ready(origin, container_id)
-            result.update(container_id=container_id, restrictions_verified=True)
-            yield origin, container_id, result
-            assert not _inspect_docker(container_id)["State"]["OOMKilled"]
-        finally:
-            if container_id is not None:
-                state = _inspect_docker(container_id)
-                result["oom_killed"] = state["State"]["OOMKilled"]
-                captured = subprocess.run(
-                    ["rtk", "proxy", "docker", "logs", "--tail", "120", container_id],
-                    capture_output=True,
-                    text=True,
-                    timeout=15,
-                    check=True,
-                )
-                log = captured.stdout + captured.stderr
-                for secret in (connection, token, make_url(connection).password):
-                    if secret:
-                        log = log.replace(secret, "<redacted>")
-                log_path = ROOT / f".worktree/{prefix}-runtime-{identity}.log"
-                log_path.touch(mode=0o600)
-                log_path.write_text(log)
-                result["log_file"] = log_path.name
-                _stop_remove_container(container_id, identity)
-                result["container_removed"] = True
-                (ROOT / f".worktree/{prefix}-runtime-{identity}.json").write_text(
-                    json.dumps(result, indent=2) + "\n"
-                )
+pytestmark = [pytest.mark.asyncio, inference_owner_live]
 
 
 async def test_public_health_uses_observer_image_survives_restart_and_fails_without_fallback(
@@ -194,7 +31,6 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
 ):
     from app.deps import get_db
 
-    await assert_owned_test_database(test_engine)
     _suppress_request_audit(monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
@@ -209,21 +45,16 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
     monkeypatch.setattr(settings, "inference_health_observation_token_file", "")
     actor_id = registry_id = pool_id = None
     try:
-        async with _observer_container(
-            observation_dsn(test_engine.url), "isolated-health-observation-control"
-        ) as (origin, container_id, record):
-            monkeypatch.setattr(settings, "inference_health_observation_url", origin)
+        async with inference_owner_container(test_engine, monkeypatch) as owner:
+            monkeypatch.setattr(
+                settings, "inference_health_observation_url", owner.origin
+            )
             monkeypatch.setattr(
                 settings,
                 "inference_health_observation_token",
-                "isolated-health-observation-control",
+                owner.tokens["health_observation"],
             )
-            with backend_server() as (url, calls):
-                backend_url = (
-                    make_url(url)
-                    .set(host="host.docker.internal")
-                    .render_as_string(hide_password=False)
-                )
+            with backend_server(host=owner.gateway) as (backend_url, calls):
                 async with maker.begin() as seed:
                     actor = await create_user(
                         seed,
@@ -263,22 +94,15 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
 
                 await health()
                 async with maker() as outside:
-                    first_checked = (
-                        await outside.get(MLBackendRegistry, registry_id)
-                    ).last_checked_at
-                    assert first_checked is not None
-                before = _inspect_docker(container_id)["State"]["StartedAt"]
-                record["origin_before_restart"] = origin
-                _docker("restart", "--time", "5", container_id)
-                origin = _origin(container_id)
-                record["origin_after_restart"] = origin
+                    first = await outside.get(MLBackendRegistry, registry_id)
+                    first_checked = first.last_checked_at
+                    assert first_checked is not None and first.state == "connected"
+                    assert first.health_meta["capabilities"]
+                await owner.restart()
                 monkeypatch.setattr(
-                    settings, "inference_health_observation_url", origin
+                    settings, "inference_health_observation_url", owner.origin
                 )
-                await _ready(origin, container_id)
-                assert _inspect_docker(container_id)["State"]["StartedAt"] != before
                 await health()
-                record["restart_verified"] = True
                 limiter = asyncio.Semaphore(4)
 
                 async def measured():
@@ -289,7 +113,7 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
 
                 outcomes = await asyncio.gather(*(measured() for _ in range(16)))
                 samples = sorted(seconds for seconds, _ in outcomes)
-                record["local_sample"] = {
+                owner.evidence["local_sample"] = {
                     "requests": 16,
                     "concurrency": 4,
                     "p50_seconds": samples[7],
@@ -304,7 +128,11 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
                     authorization == "Bearer image-health-token"
                     for _, authorization in calls
                 )
-                _docker("stop", "--time", "5", container_id)
+                async with maker() as outside:
+                    last = await outside.get(MLBackendRegistry, registry_id)
+                    checked_before_outage = last.last_checked_at
+                    assert checked_before_outage > first_checked
+                owner.stop()
                 count = len(calls)
                 response = await httpx_client.post(route, headers=authorization)
                 assert response.status_code == 503
@@ -313,7 +141,10 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
                     == "inference_health_observation_unavailable"
                 )
                 assert len(calls) == count
-                record["no_fallback_verified"] = True
+                async with maker() as outside:
+                    current = await outside.get(MLBackendRegistry, registry_id)
+                    assert current.last_checked_at == checked_before_outage
+                owner.evidence["health_finalize_and_fail_closed_verified"] = True
     finally:
         async with maker.begin() as cleanup:
             if registry_id is not None:

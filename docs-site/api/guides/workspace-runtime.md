@@ -22,7 +22,7 @@ API 在同一进程内调用六组 Workspace owner，每组都借用调用方的
 | `workspace_project_query.py`             | `ProjectQueryManager`   | 原权限读取阶段、缓存和响应投影         |
 | `workspace_directory_query.py`           | `DirectoryQueryManager` | 成员／提及可见性及原调用方快照         |
 
-跨 owner 的边界不变：配置需要后端能力时，通过 [Inference 的认证探测](/api/guides/inference-runtime#workspace-的后端能力探测)调用实际 owner。项目和目录仅在需要显示资料时调用 [Identity UserBrief](/api/guides/identity-runtime#identity-user-briefs)，沿用 API 自己的 Identity 装配，不为 Workspace 单独配置资料源。这两项依赖都不是 Workspace 自身的远程装配选项。
+跨 owner 的边界不变：配置需要后端能力时，通过 [Inference 的认证探测](/api/guides/inference-runtime#workspace-的后端能力探测)调用统一的 `inference` 凭据进程；不部署另一个探测容器。项目和目录仅在需要显示资料时调用 [Identity UserBrief](/api/guides/identity-runtime#identity-user-briefs)，沿用 API 自己的 Identity 装配，不为 Workspace 单独配置资料源。这两项依赖都不是 Workspace 自身的远程装配选项。
 
 如果现有安装仍将 Workspace 六组操作发往独立服务或专用数据连接，**不要带着旧选择器、Compose 文件链或 secret 挂载进行滚动升级**。暂停升级，按[升级指南](/ops/upgrade-guide#workspace-split-upgrade)另行安排维护窗口。不要把旧专用 DSN、owner DSN 或迁移连接抄到 API 运行连接中。本次默认装配变更不会迁移日常环境、撤销既有账号或修改数据库授权。
 

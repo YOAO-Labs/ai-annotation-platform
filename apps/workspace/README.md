@@ -82,8 +82,8 @@ evidence is not a deployment recommendation or a production capacity claim.
 Configuration managers no longer read backend URL, auth, token, or
 `extra_params`, or send HTTP `/setup` requests directly. The backend fact is
 exactly `{id, probe_subject}`; the injected
-Inference probe returns only modalities. The host calls the authenticated
-Inference owner using `INFERENCE_BACKEND_PROBE_URL`,
+Inference probe returns only modalities. The host calls the retained `inference`
+service using `INFERENCE_BACKEND_PROBE_URL`,
 `INFERENCE_BACKEND_PROBE_TOKEN(_FILE)`, and `INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS`.
 The `WORKSPACE_INFERENCE_PROBE_` settings are only for standalone conformance
 and are not read by the host API. There is no credential fallback.

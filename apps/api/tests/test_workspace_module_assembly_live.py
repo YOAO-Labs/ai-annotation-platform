@@ -985,7 +985,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     maker, actors["owner"].id
                 )
                 assert before_probe_loss[2:] == (0, 0)
-                await stack.stop_probe()
+                await stack.stop_inference()
                 failed_create = await client.post(
                     "/api/v1/projects",
                     headers=headers["owner"],
@@ -997,7 +997,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     await _project_create_state(maker, actors["owner"].id)
                     == before_probe_loss
                 )
-                await stack.start_probe()
+                await stack.start_inference()
                 recovered_create = await client.post(
                     "/api/v1/projects",
                     headers=headers["owner"],
