@@ -1640,7 +1640,7 @@ BEGIN
             yoao_assets_v1.complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer),
             yoao_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
             yoao_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
-            yoao_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
             yoao_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
             yoao_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
             yoao_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb),
