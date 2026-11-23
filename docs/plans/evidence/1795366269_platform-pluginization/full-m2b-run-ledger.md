@@ -16,9 +16,11 @@
 
 后续定向回执不覆盖上表的首次失败：
 
-- **Mask GC 保留档**：已观察到非 root 运行、恢复原 claim、三轮精确删除 3／3／1 项并保留 1001 项。当前 Linux 5.15 环境不能提供最终 cgroup `memory.peak`；整个用例仍失败，没有可报告的精确峰值或完整通过结论。
-- **Audit operator**：实际发布用 Compose 工件已比对 22 个打包源码输入与编译摘要（`audit-image-receipt.json`）。这是安装工件证据；`hosted-audit-restore.json` 首次尝试在工作树准备阶段停止，真实恢复仍需单列回执。
-- **默认业务**：`hosted-business.json` 的首次运行在自有工作树资源准备阶段出现 `ProgrammingError`，未运行通过业务链；`hosted-prepare-diagnostic.json` 保留准备阶段诊断。修通环境不等于业务回执。
+- **Mask GC 保留档**：`mask-gc-operator-cold.json` 与同名 JUnit 的两项用例均通过，零跳过。实际 Compose 中非 root GC 恢复原 claim，三轮删除 3／3／1 项，保留 1001 项；另验证一次性 operator 重启与权限拒绝。此内核不提供最终 cgroup `memory.peak`，故无实测峰值，不能据此通过独立容量基准。
+- **Audit operator**：`audit-cold-source-receipt.json` 与同名 JUnit：1 项通过，零跳过。实际 Compose CLI 在上传后失去进程，继任者接管，整库还原后保留归档及分区退役事实；镜像 `sha256:e582ed36f86c0af42f9bec7cbb21ad911aaecd2b06063e8794561c51f37de0c3` 绑定 22 个源码输入。该轮早于新 owner 授权，不以其代替新账号恢复。
+- **媒体探针**：`media-probe-cold.json` 记录发布用 Compose 的隔离项目及镜像，实际 `/health` 返回 `{"status":"ok"}`。这是探针进程冷启动，不是完整的视频／图片执行测试。
+- **新建数据库**：`schema-all-private-owner-502.json` 记录提交 `910804c179108cd99c75109debfafcb317d3d3c7`、PostgreSQL 16 镜像 ID 和实测 `bo0502`。空卷从头升级成功；这不证明后续 Source 修订、权限重放或业务通过。
+- **默认业务**：`hosted-business.json` 首次停在资源准备；`native-grant-hosted-business.json` 已进入独立插件及服务启动，因 Inference 就绪探针未通过而中止。两者都是失败回执，不是业务通过。
 
 ## 完整 M2b 仍需独立回执
 

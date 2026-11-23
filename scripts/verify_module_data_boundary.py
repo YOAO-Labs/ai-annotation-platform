@@ -116,14 +116,6 @@ IDENTITY_AVATAR_FUNCTIONS = (
 )
 SAVED_SOURCE_ROLE = "yoao_asset_source_saved_io_client"
 STORAGE_MIGRATION_CONTROL_ROLE = "yoao_storage_migration_control_client"
-SAVED_SOURCE_GRANTS = (
-    "source-channel-saved-io-grants.sql",
-    "reference-io-source-grants.sql",
-    "saved-outputs-source-grants.sql",
-    "media-io-source-grants.sql",
-    "training-saved-io-source-grants.sql",
-    "migration-io-source-grants.sql",
-)
 SAVED_SOURCE_FUNCTIONS = (
     "yoao_assets_v1.saved_io_connector(uuid,integer,jsonb)",
     "yoao_assets_v1.saved_io_target(uuid,integer,integer,jsonb)",
@@ -2551,7 +2543,11 @@ _SAVED_MIGRATION_NODE = (
     "::test_registered_copy_and_retained_route_use_exact_live_receipts"
 )
 _SAVED_SOURCE_FILES = frozenset(
-    {_REFERENCE_IO_TARGET, "tests/test_saved_outputs_source_live.py"}
+    {
+        _REFERENCE_IO_TARGET,
+        "tests/test_dataset_import_runtime.py",
+        "tests/test_saved_outputs_source_live.py",
+    }
 )
 _SAVED_SOURCE_NODES = frozenset(
     {
@@ -8120,14 +8116,14 @@ def main(
         m2b_profile = args.workspace_consumer_profile == "default" and all(
             _is_m2b_default_target(target) for target in test_files
         )
-        source_signatures = ()
-        if m2b_profile:
-            from yoao_assets_source_runtime.saved_io import _registry
-
-            source_signatures = tuple(_registry().signatures.values())
         saved_source_profile = bool(selected_test_paths & _SAVED_SOURCE_FILES) or any(
             target.partition("[")[0] in _SAVED_SOURCE_NODES for target in test_files
         )
+        source_signatures = ()
+        if m2b_profile or saved_source_profile:
+            from yoao_assets_source_runtime.saved_io import _registry
+
+            source_signatures = tuple(_registry().signatures.values())
         migration_control_profile = any(
             target.partition("[")[0] == _SAVED_MIGRATION_NODE for target in test_files
         )
@@ -12526,11 +12522,10 @@ SELECT id FROM removed;
         if saved_source_profile:
             phase = "install-saved-source-io-grants"
             saved_source_password = secrets.token_hex(24)
-            saved_source_scripts = {
-                filename: read_psql_grant_script(ROOT / "infra/docker" / filename)
-                for filename in SAVED_SOURCE_GRANTS
-            }
-            saved_source_sql = "\n".join(saved_source_scripts.values())
+            saved_source_installer = (
+                ROOT / "infra/docker/source-channel-saved-io-grants.sql"
+            )
+            saved_source_sql = read_psql_grant_script(saved_source_installer)
             _psql(
                 container_id,
                 container_name,
@@ -12599,8 +12594,9 @@ SELECT id FROM removed;
                 "role": SAVED_SOURCE_ROLE,
                 "function_only_login": True,
                 "installer_inputs_sha256": {
-                    f"infra/docker/{filename}": hashlib.sha256(sql.encode()).hexdigest()
-                    for filename, sql in saved_source_scripts.items()
+                    saved_source_installer.relative_to(ROOT).as_posix(): hashlib.sha256(
+                        saved_source_sql.encode()
+                    ).hexdigest()
                 },
                 "capabilities": sorted(source_signatures),
             }

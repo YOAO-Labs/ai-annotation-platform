@@ -27,4 +27,9 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.saved_io_connector(uuid,integer,jsonb),
     yoao_assets_v1.saved_io_allowlist(jsonb),
     yoao_assets_v1.capture_saved_binding_probe(uuid,uuid,boolean)
     TO :"assets_source_saved_io_login";
+\ir reference-io-source-grants.sql
+\ir saved-outputs-source-grants.sql
+\ir media-io-source-grants.sql
+\ir training-saved-io-source-grants.sql
+\ir migration-io-source-grants.sql
 COMMIT;

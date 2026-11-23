@@ -44,7 +44,13 @@ last_reviewed: 2026-10-26
 
 #### 自定义连接器的 Source 边界 {#source-registered-io}
 
-使用已登记的自定义 S3／SFTP 时，启用既有 `docker-compose.assets-source.yml` 的 `assets-source`；内建存储不因此多启服务。先迁移并安装模块 owner 和普通 profile，再给 Source 单独创建无成员、无私表权限的 LOGIN，按[Source 安装说明](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/apps/assets-source#registered-s3sftp-physical-operations)安装共享及各用途函数。普通 profile 不运行 Source 专属授权。
+使用已登记的自定义 S3／SFTP 时，启用既有 `docker-compose.assets-source.yml` 的 `assets-source`；内建存储不因此多启服务。先迁移并安装模块 owner 和普通 profile，再给 Source 单独创建无成员、无私表权限的 LOGIN。用迁移身份从仓库根执行以下授权，一次事务安装共享及各用途固定函数；不要对普通运行账号执行：
+
+```bash
+psql -X "$MIGRATION_PSQL_URL" -v expected_database="$DB_NAME" \
+  -v assets_source_saved_io_login="$SAVED_IO_LOGIN" \
+  -f infra/docker/source-channel-saved-io-grants.sql
+```
 
 - API／worker 只配私网 `ASSETS_SOURCE_URL` 及所执行操作所需的 `ASSETS_SOURCE_SAVED_IO_READ_TOKEN[_FILE]`、`ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN[_FILE]` 或 `ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN[_FILE]`。连接创建、更新和测试另用只交给 API 与 Source 的 `ASSETS_SOURCE_CONNECTIONS_TOKEN[_FILE]`；不复用字节操作、Native 签名或导入核验 token。
 - Source 才持 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]` 的仅函数连接，并使用其 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY[_FILE]`、主机白名单和 SFTP 所需的公钥配置。只给 Source 与获准操作的 CLI 配置 `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]`；不启用切换时留空。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。

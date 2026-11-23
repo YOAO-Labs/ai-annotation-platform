@@ -247,10 +247,11 @@ paths. Metadata capture does not open a connection or resolve DNS.
 Enable the Source channel with `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]`
 and the distinct `ASSETS_SOURCE_SAVED_IO_READ_TOKEN[_FILE]`,
 `ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN[_FILE]`, and
-`ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN[_FILE]`. Install the Source-only grant
-profile (shared and all five owner-family fragments) after the Assets migrations.
-The Saved I/O login cannot read relations or execute management or unrelated
-owner functions; an incomplete or broadened login prevents startup. Keep the
+`ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN[_FILE]`. After the Assets migrations,
+run `infra/docker/source-channel-saved-io-grants.sql` with psql variables
+`expected_database` and `assets_source_saved_io_login`. It installs all physical
+operation grants in one transaction. The Saved I/O login cannot read relations or
+execute management or unrelated owner functions; an incomplete or broadened login prevents startup. Keep the
 connector key (`ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY[_FILE]`), saved-I/O DSN,
 and SFTP host trust (`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` and, for jailed
 references, `STORAGE_SFTP_ROOTS`) only in Source. Configure the existing Source
