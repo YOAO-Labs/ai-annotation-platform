@@ -105,8 +105,8 @@ async def test_saved_source_registered_binding_probe_and_denial(
             "Authorization": "Bearer "
             + create_access_token(subject=str(actor_id), role="super_admin")
         }
-        async with registered_sink(test_engine) as sink:
-            async with real_source(
+        with registered_sink(test_engine) as sink:
+            with real_source(
                 test_engine, tmp_path, s3_credentials=sink.credentials
             ) as runtime:
                 monkeypatch.setattr(settings, "assets_source_url", runtime.origin)
