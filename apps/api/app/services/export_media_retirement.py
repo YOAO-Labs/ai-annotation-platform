@@ -276,8 +276,8 @@ async def _cleanup_one(db, identifier):
     if retired_at is None:
         await db.commit()
         return False
-    receipt = snapshot(row, retiring_at=retired_at)
     await db.commit()
+    receipt = snapshot(row, retiring_at=retired_at)
     await _physical_delete(db, receipt)
     current = await lock_owner(db, identifier, inventory=True)
     if current is None or current.state != "retiring" or snapshot(current) != receipt:

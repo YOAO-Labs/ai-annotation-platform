@@ -73,6 +73,8 @@ ALTER FUNCTION yoao_export_v1.export_media_inventory(uuid,integer) OWNER TO :"ex
 ALTER FUNCTION yoao_export_v1.export_media_inventory_objects(uuid,text,integer) OWNER TO :"export_owner";
 ALTER FUNCTION yoao_export_v1.export_zip_usage(uuid[]) OWNER TO :"export_owner";
 ALTER FUNCTION yoao_export_v1.export_media_usage(uuid[]) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.retained_zip_download(uuid) OWNER TO :"export_owner";
+GRANT EXECUTE ON FUNCTION yoao_export_v1.retained_zip_download(uuid) TO :"assets_owner";
 ALTER FUNCTION yoao_export_v1._export_io_gate_revision(uuid,uuid,text[],boolean) OWNER TO :"export_owner";
 ALTER FUNCTION yoao_export_v1.zip_io_subject(uuid,uuid,text) OWNER TO :"export_owner";
 ALTER FUNCTION yoao_export_v1.media_member_io_subject(uuid,uuid,uuid,text) OWNER TO :"export_owner";

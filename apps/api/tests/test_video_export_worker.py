@@ -344,19 +344,22 @@ async def test_delivery_capabilities_deny_cross_role_and_table_access(
                     "yoao_export_v1.publish_media(uuid,uuid,timestamptz,timestamptz)",
                     True,
                 ),
-                ("yoao_export_v1._zip_has_read(uuid)", False),
             ):
                 assert (
                     await business.scalar(privilege, {"signature": signature})
                     is allowed
                 )
-                if signature == "yoao_export_v1._zip_has_read(uuid)":
-                    assert not await control.scalar(privilege, {"signature": signature})
-                else:
-                    assert (
-                        await control.scalar(privilege, {"signature": signature})
-                        is not allowed
-                    )
+                assert (
+                    await control.scalar(privilege, {"signature": signature})
+                    is not allowed
+                )
+            for signature in (
+                "yoao_export_v1._zip_has_read(uuid)",
+                "yoao_export_v1.retained_zip_download(uuid)",
+                "yoao_export_v1.save_source_zip_proof(uuid,uuid,jsonb)",
+            ):
+                assert not await business.scalar(privilege, {"signature": signature})
+                assert not await control.scalar(privilege, {"signature": signature})
             access = text(
                 "SELECT has_table_privilege(SESSION_USER, :relation, "
                 "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
@@ -406,6 +409,11 @@ async def test_delivery_capabilities_deny_cross_role_and_table_access(
             )
             execution = _ExportExecution(business, await business.connection(), control)
             await execution.acquire(f"job:{job.id}")
+            assert await control.scalar(
+                text("SELECT pg_advisory_unlock(hashtextextended(:tag, 0))"),
+                {"tag": f"aap-export:control:{job.id}"},
+            )
+            assert await control.scalar(begin, params) == "blocked"
             await execution.begin(job.id, project.id, delivery_id)
             await execution.enter_io()
             await execution.settle_io()

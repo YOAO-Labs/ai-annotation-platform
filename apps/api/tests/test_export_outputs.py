@@ -316,7 +316,9 @@ async def test_legacy_null_index_is_zero_io_miss_and_only_db_expiry(
     await db_session.commit()
     result = await export_outputs.cleanup(db_session)
     assert result["removed"] == 1
-    assert await db_session.get(ExportArtifact, identifier) is None
+    assert (
+        await db_session.get(ExportArtifact, identifier, populate_existing=True) is None
+    )
     assert not export_objects.deleted and export_objects.objects
 
 
@@ -370,7 +372,9 @@ async def test_known_missing_or_corrupt_cache_drops_only_index(
     else:
         export_objects.objects[key] = b"x" * row.size_bytes
     assert await cache.lookup(db_session, artifact.cache_key) is None
-    assert await db_session.get(ExportArtifact, identifier) is None
+    assert (
+        await db_session.get(ExportArtifact, identifier, populate_existing=True) is None
+    )
     assert (await db_session.get(ExportOutput, row.id)).state == "ready"
     assert not export_objects.deleted
     assert (key in export_objects.objects) is (change != "missing")
@@ -530,7 +534,9 @@ async def test_read_receipt_blocks_retirement_and_retired_state_blocks_new_reads
     monkeypatch,
     migrated,
 ):
-    row = await seed_output(db_session, export_objects, project_id=export_project.id)
+    row = await seed_output(
+        db_session, export_objects, project_id=export_project.id, expired=True
+    )
     artifact = await seed_index(db_session, row)
     await db_session.commit()
     read_location = uuid.uuid4() if migrated else LEGACY_LOCATION_ID
@@ -538,16 +544,15 @@ async def test_read_receipt_blocks_retirement_and_retired_state_blocks_new_reads
         db_session, read_location, export_outputs.read_purpose(row.id)
     )
     try:
-        monkeypatch.setattr(
-            export_outputs, "now", lambda: row.expires_at + timedelta(seconds=1)
-        )
         assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 0
         assert (await db_session.get(ExportOutput, row.id)).state == "ready"
         assert await db_session.get(ExportArtifact, artifact.id) is not None
         assert not export_objects.deleted
         await permit.__aexit__(None, None, None)
         assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 1
-        assert await db_session.get(ExportOutput, row.id) is None
+        assert (
+            await db_session.get(ExportOutput, row.id, populate_existing=True) is None
+        )
         assert export_objects.deleted
     finally:
         await permit.__aexit__(None, None, None)
@@ -575,10 +580,15 @@ async def test_retirement_commit_precedes_delete_and_failed_delete_retains_respo
     assert result["failed"] == 1
     row = await db_session.get(ExportOutput, identifier, populate_existing=True)
     assert row.state == "retired" and row.retired_at is not None
-    assert await db_session.get(ExportArtifact, artifact_id) is None
+    assert (
+        await db_session.get(ExportArtifact, artifact_id, populate_existing=True)
+        is None
+    )
     export_objects.fail_delete = False
     assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 1
-    assert await db_session.get(ExportOutput, identifier) is None
+    assert (
+        await db_session.get(ExportOutput, identifier, populate_existing=True) is None
+    )
 
 
 async def test_cleanup_continues_past_bad_owner_and_uses_exact_saved_bucket(

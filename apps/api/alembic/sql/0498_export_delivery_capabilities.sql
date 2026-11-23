@@ -314,6 +314,7 @@ CREATE FUNCTION yoao_export_v1._media_attempt_ended(
             WHERE j.id = p_job AND j.kind = 'export' AND j.project_id = p_project
               AND next.id <> p_bundle AND next.project_id = p_project
               AND next.input_snapshot->>'schema' = p.schema::text
+              AND next.input_snapshot->'schema' = to_jsonb(p.schema)
               AND j.payload->p.key->>'schema' = p.schema::text
               AND NOT (j.payload ?| array_remove(ARRAY['lidar_media', 'image_media', 'video_media'], p.key))
               AND j.payload->p.key = jsonb_build_object(
@@ -441,7 +442,8 @@ DECLARE
     native boolean;
 BEGIN
     p_at := least(p_at, clock_timestamp());
-    UPDATE public.export_outputs owner SET last_attempted_at = p_at
+    SELECT owner.state, owner.media_bundle_id, owner.job_id, owner.project_id, owner.upload_proof INTO z
+    FROM public.export_outputs owner
     WHERE owner.id = p_id AND yoao_export_v1._zip_retirement_allowed(
         owner.id, owner.media_bundle_id, p_at, owner.expires_at <= p_at
     ) AND (owner.state IN ('pending', 'retired') OR owner.expires_at <= p_at)
@@ -450,8 +452,8 @@ BEGIN
           WHERE b.id = owner.media_bundle_id AND b.fixture_run_id IS NOT NULL
             AND (owner.upload_proof IS NULL OR NOT public.fixture_export_owner_session())
       )
-    RETURNING owner.state, owner.media_bundle_id, owner.job_id, owner.project_id, owner.upload_proof INTO z;
-    IF NOT FOUND OR yoao_export_v1._zip_has_read(p_id) THEN RETURN NULL; END IF;
+    FOR UPDATE;
+    IF NOT FOUND THEN RETURN NULL; END IF;
     native := z.media_bundle_id IS NULL AND EXISTS (
         SELECT 1 FROM public.fixture_native_export_lifetime(z.job_id, z.project_id)
     );
@@ -460,6 +462,8 @@ BEGIN
     IF z.state = 'pending' AND NOT native AND NOT EXISTS (
         SELECT 1 FROM public.export_media_bundles b WHERE b.id = z.media_bundle_id AND b.published_at IS NULL
     ) THEN RETURN NULL; END IF;
+    UPDATE public.export_outputs SET last_attempted_at = p_at WHERE id = p_id;
+    IF yoao_export_v1._zip_has_read(p_id) THEN RETURN NULL; END IF;
     IF z.state = 'ready' THEN
         DELETE FROM public.export_artifacts a WHERE a.output_id = p_id;
         GET DIAGNOSTICS dropped = ROW_COUNT;
@@ -565,20 +569,23 @@ RETURNS jsonb LANGUAGE sql IMMUTABLE SET search_path = pg_catalog, pg_temp AS $f
 $function$;
 -- aap-statement-break
 CREATE FUNCTION yoao_export_v1.export_zip_inventory(p_after uuid, p_limit integer)
-RETURNS TABLE(id uuid, state text, storage_ref jsonb, sha256 text, size_bytes bigint, ref_present boolean)
+RETURNS TABLE(id uuid, state text, storage_ref jsonb, sha256 text, size_bytes bigint, ref_present boolean,
+              version_id text)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$
     SELECT z.id, z.state::text, yoao_export_v1._inventory_ref(z.storage_ref),
-           z.sha256::text, z.size_bytes, z.storage_ref IS NOT NULL
+           z.sha256::text, z.size_bytes, z.storage_ref IS NOT NULL, z.upload_proof->>'version_id'
     FROM public.export_outputs z WHERE p_after IS NULL OR z.id > p_after
     ORDER BY z.id LIMIT greatest(1, least(p_limit, 1001));
 $function$;
 -- aap-statement-break
 CREATE FUNCTION yoao_export_v1.export_media_inventory(p_after uuid, p_limit integer)
 RETURNS TABLE(id uuid, state text, storage_ref jsonb, ref_present boolean,
-              inventory_present boolean, inventory_schema jsonb, inventory_objects_type text)
+              inventory_present boolean, inventory_schema jsonb, inventory_objects_type text,
+              input_snapshot_unexpanded boolean)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$
     SELECT b.id, b.state::text, yoao_export_v1._inventory_ref(b.storage_ref), b.storage_ref IS NOT NULL,
-           b.inventory IS NOT NULL, b.inventory->'schema', jsonb_typeof(b.inventory->'objects')
+           b.inventory IS NOT NULL, b.inventory->'schema', jsonb_typeof(b.inventory->'objects'),
+           b.input_snapshot IS NOT NULL
     FROM public.export_media_bundles b WHERE p_after IS NULL OR b.id > p_after
     ORDER BY b.id LIMIT greatest(1, least(p_limit, 1001));
 $function$;
@@ -588,12 +595,16 @@ RETURNS TABLE(id uuid, state text, storage_ref jsonb, inventory_key text, object
               object_size jsonb, object_version text, object_state text, ref_present boolean)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$
     SELECT b.id, b.state::text, yoao_export_v1._inventory_ref(b.storage_ref), o.key,
-           o.value->>'sha256', o.value->'size_bytes', o.value->>'version_id', o.value->>'state',
+           o.value->>'sha256', o.value->'size_bytes',
+           coalesce(v.version_id, o.value->>'version_id'), o.value->>'state',
            b.storage_ref IS NOT NULL
     FROM public.export_media_bundles b CROSS JOIN LATERAL jsonb_each(
         CASE WHEN b.inventory->'schema' = '1'::jsonb AND jsonb_typeof(b.inventory->'objects') = 'object'
              THEN b.inventory->'objects' ELSE '{}'::jsonb END
     ) o
+    LEFT JOIN public.export_media_member_versions v ON v.bundle_id = b.id
+        AND v.member_id = substring(o.key FROM '/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[.]bin$')::uuid
+        AND o.key = (b.storage_ref->>'key_prefix') || v.member_id::text || '.bin'
     WHERE p_after IS NULL OR (b.id >= p_after AND (b.id, o.key COLLATE "C") > (p_after, p_key COLLATE "C"))
     ORDER BY b.id, o.key COLLATE "C" LIMIT greatest(1, least(p_limit, 1001));
 $function$;
@@ -610,6 +621,16 @@ RETURNS TABLE(id uuid, storage_ref jsonb)
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$
     SELECT b.id, b.storage_ref FROM public.export_media_bundles b
     WHERE cardinality(p_ids) <= 1000 AND b.id = ANY(p_ids);
+$function$;
+-- aap-statement-break
+CREATE FUNCTION yoao_export_v1.retained_zip_download(p_id uuid)
+RETURNS TABLE (id uuid, storage_ref jsonb, sha256 text, size_bytes bigint,
+               expires_at timestamptz, version_id text)
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $function$
+    SELECT z.id, z.storage_ref, z.sha256::text, z.size_bytes, z.expires_at,
+           z.upload_proof->>'version_id'
+    FROM public.export_outputs z
+    WHERE z.id = p_id AND z.state = 'ready' AND z.expires_at > clock_timestamp();
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION
@@ -638,7 +659,8 @@ REVOKE ALL ON FUNCTION
     yoao_export_v1.saved_location_is_referenced(uuid), yoao_export_v1._inventory_ref(jsonb),
     yoao_export_v1.export_zip_inventory(uuid,integer), yoao_export_v1.export_media_inventory(uuid,integer),
     yoao_export_v1.export_media_inventory_objects(uuid,text,integer),
-    yoao_export_v1.export_zip_usage(uuid[]), yoao_export_v1.export_media_usage(uuid[]) FROM PUBLIC;
+    yoao_export_v1.export_zip_usage(uuid[]), yoao_export_v1.export_media_usage(uuid[]),
+    yoao_export_v1.retained_zip_download(uuid) FROM PUBLIC;
 -- aap-statement-break
 CREATE VIEW yoao_assets_v1.export_dataset_facts WITH (security_barrier=true) AS
     SELECT d.id, d.display_id, d.name, d.data_type, d.is_temporal, d.lifecycle_revision,
