@@ -2551,6 +2551,7 @@ _SAVED_SOURCE_NODES = frozenset(
         "tests/test_saved_media_io_live.py::test_registered_media_round_trip_and_denial",
         _SAVED_MIGRATION_NODE,
         "tests/test_training_saved_io_live.py::test_training_attached_archive_publication_and_retirement",
+        "tests/test_training_saved_io_live.py::test_training_attached_executor_put_and_finish",
     }
 )
 _EMBEDDED_LOGIN_FILES = frozenset(
