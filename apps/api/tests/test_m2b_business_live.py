@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from functools import partial
 from hashlib import sha256
 from io import BytesIO
+import json
 import os
 import secrets
 import time
@@ -33,7 +34,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.factory import create_user
-from tests.m2b_business_stack import API_LOGIN, QUEUES, business_stack
+from tests.m2b_business_stack import API_LOGIN, business_stack
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -89,8 +90,12 @@ async def _assert_default_login(default_engine):
         login = (
             await db.execute(
                 text("""
-                    SELECT current_user, session_user, oid::bigint
-                    FROM pg_catalog.pg_database WHERE datname=current_database()
+                    SELECT current_user, session_user, db.oid::bigint, EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_stat_activity AS peer
+                        WHERE peer.datid=db.oid AND peer.usename=session_user
+                          AND peer.pid<>pg_catalog.pg_backend_pid()
+                    )
+                    FROM pg_catalog.pg_database AS db WHERE datname=current_database()
                 """)
             )
         ).one()
@@ -98,6 +103,7 @@ async def _assert_default_login(default_engine):
             API_LOGIN,
             API_LOGIN,
             int(os.environ["AAP_MODULE_DATA_PG_DATABASE_OID"]),
+            True,
         )
         for operation in (
             "SELECT id FROM public.users LIMIT 0",
@@ -125,7 +131,7 @@ async def _wait_for_prediction(owner, project_id, job_id, stack):
         job = await owner("GET", f"/async-jobs/{job_id}")
         if job["status"] in {"completed", "failed", "cancelled"}:
             assert job["status"] == "completed", (
-                f"Preannotation {job_id}: {job['status']}; see {stack.worker.log.name}"
+                f"Preannotation {job_id}: {job['status']}"
             )
             assert job["kind"] == "batch_predict"
             assert job["project_id"] == project_id and job["celery_task_id"] == job_id
@@ -134,7 +140,7 @@ async def _wait_for_prediction(owner, project_id, job_id, stack):
             assert job["result"]["failed_count"] == 0
             return
         await asyncio.sleep(0.25)
-    pytest.fail(f"Preannotation did not finish; see {stack.worker.log.name}")
+    raise AssertionError("Preannotation did not finish")
 
 
 async def _login(client, accounts, password):
@@ -324,6 +330,7 @@ async def _predict(stack, owner, registry, nonce, project_id, task_id):
         )
     assert stack.model_calls() == [
         {
+            "pid": stack.author.process.pid,
             "task_id": task_id,
             "object_store": True,
             "signed_and_versioned": True,
@@ -454,7 +461,9 @@ async def test_default_host_runs_one_public_business_flow(
             stack.assert_alive()
             for key, value in (
                 ("api_login", API_LOGIN),
-                ("worker_queues", ",".join(sorted(QUEUES))),
+                ("database_oid", int(os.environ["AAP_MODULE_DATA_PG_DATABASE_OID"])),
+                ("process_ids", json.dumps(stack.process_ids(), sort_keys=True)),
+                ("worker_queues", ",".join(stack.worker_queues)),
                 ("reviewed_task_id", task_id),
                 ("input_sha256", digest),
                 ("prediction_job_id", job_id),
