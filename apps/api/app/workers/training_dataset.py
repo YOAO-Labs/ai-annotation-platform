@@ -169,8 +169,28 @@ def verify_output(
 
 
 def _upload_output(
-    destination, bucket, key, digest, size, upload, *, snapshot_digest=None
+    destination,
+    bucket,
+    key,
+    digest,
+    size,
+    upload,
+    *,
+    snapshot_digest=None,
+    path=None,
+    content_type="application/octet-stream",
 ):
+    if isinstance(destination, training_storage_io.TrainingSavedIO):
+        with storage_access.closing_registered(path.open("rb")) as body:
+            destination.upload(
+                key,
+                body,
+                sha256=digest,
+                size_bytes=size,
+                content_type=content_type,
+                multipart=size >= 8 * 1024**2,
+            )
+        return
     accounting = getattr(destination, "_write_accounting", None)
     observation = (
         training_write_accounting.Observation(
@@ -218,13 +238,17 @@ def materialize_image(
     key = f"{prefix}/media/{sample['task_id']}"
     preserved = False
     try:
-        head = destination.client.head_object(Bucket=bucket, Key=key)
+        head = training_storage_io.head_object(destination, bucket, key)
         if head.get("Metadata", {}).get("snapshot-digest") != snapshot_digest:
             raise TrainingDatasetError(
                 "preserved_media_conflict", "冻结图片的身份不匹配"
             )
-        response = destination.client.get_object(
-            Bucket=bucket, Key=key, IfMatch=head["ETag"]
+        response = training_storage_io.get_object(
+            destination,
+            bucket,
+            key,
+            if_match=head["ETag"],
+            version=head.get("VersionId"),
         )
         preserved = True
     except ClientError as exc:
@@ -325,6 +349,7 @@ def materialize_image(
                 },
             ),
             snapshot_digest=snapshot_digest,
+            path=path,
         )
     if sample.get("raster_contract"):
         payload = instance_rle_payload(sample, sample["classes"], width, height)
@@ -344,6 +369,8 @@ def materialize_image(
                 bucket=bucket,
                 content_type="application/json",
             ),
+            path=mask_path,
+            content_type="application/json",
         )
     return {
         **({"mask_path": str(mask_path)} if sample.get("raster_contract") else {}),
@@ -357,7 +384,7 @@ def materialize_image(
     }
 
 
-def _materialize_image(target, *args, accounting=None, **kwargs):
+def _materialize_image(target, *args, accounting=None, source=None, **kwargs):
     if target is None:
         if accounting is not None:
             training_dataset_storage._reject("training_storage_binding_unproven")
@@ -365,6 +392,7 @@ def _materialize_image(target, *args, accounting=None, **kwargs):
     return training_storage_io.physical(
         target,
         lambda bound: materialize_image(*args, transport=bound, **kwargs),
+        **({"source": source} if source is not None else {}),
         **({"accounting": accounting} if accounting is not None else {}),
     )
 
@@ -382,6 +410,7 @@ async def materialize_sample(
     guard=None,
     target=None,
     accounting=None,
+    source=None,
 ):
     """Try retained bytes first, then resolve an authorized reference if needed."""
     owner = training_dataset_storage.resolve(version)
@@ -392,6 +421,8 @@ async def materialize_sample(
     owner.contains(f"{prefix}/media/{sample['task_id']}")
     if target is None and (owner.key_prefix or accounting is not None):
         target = await training_storage_io.prepare(db, owner)
+    if getattr(target, "is_registered", False) and source is None:
+        training_dataset_storage._reject("training_storage_binding_unproven")
 
     async def checkpoint():
         if authority is not None:
@@ -414,6 +445,7 @@ async def materialize_sample(
             directory,
             bucket=owner.bucket,
             accounting=accounting,
+            source=source,
             timeout=120,
         )
         await checkpoint()
@@ -440,6 +472,7 @@ async def materialize_sample(
                 directory,
                 bucket=owner.bucket,
                 accounting=accounting,
+                source=source,
                 verified_original=stage,
                 timeout=120,
             )
@@ -472,6 +505,7 @@ async def materialize_sample(
             directory,
             bucket=owner.bucket,
             accounting=accounting,
+            source=source,
             verified_reference=content,
             timeout=120,
         )
@@ -636,6 +670,13 @@ async def _build_dataset_contents(
                 originals.output_purpose(version_id),
             )
             accounting.permit = permit
+            source = training_storage_io.source_for(
+                target,
+                owner,
+                permit,
+                attempt=attempt_id,
+                accounting=accounting.recorder,
+            )
             async with permit:
                 with originals.temporary_directory(prefix="training-") as temporary:
                     directory = Path(temporary)
@@ -666,6 +707,7 @@ async def _build_dataset_contents(
                                 guard=guard,
                                 target=target,
                                 accounting=accounting.recorder,
+                                source=source,
                             )
                         )
                         if media[-1].pop("_source_backed", False):
@@ -706,8 +748,11 @@ async def _build_dataset_contents(
                                 bucket=owner.bucket,
                                 content_type="application/zip",
                             ),
+                            path=package,
+                            content_type="application/zip",
                         ),
                         accounting=accounting.recorder,
+                        **({"source": source} if source is not None else {}),
                     )
                 await require_authority(db, version)
                 await originals.check(db, authority)
@@ -817,12 +862,24 @@ async def _build_dataset_contents(
                             expected_revision=permit.revision if permit else None,
                         )
                         async with cleanup_permit:
+                            cleanup_source = training_storage_io.source_for(
+                                cleanup_target,
+                                owner,
+                                cleanup_permit,
+                                attempt=attempt_id,
+                            )
                             await originals.physical(
                                 training_storage_io.physical,
                                 cleanup_target,
-                                lambda bound: bound.delete_prefix(
+                                lambda bound: training_storage_io.retire(
+                                    bound,
                                     f"{prefix}/attempts/{attempt_id}/",
                                     bucket=owner.bucket,
+                                ),
+                                **(
+                                    {"source": cleanup_source}
+                                    if cleanup_source is not None
+                                    else {}
                                 ),
                             )
                 except Exception:

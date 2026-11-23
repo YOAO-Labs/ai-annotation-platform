@@ -22,7 +22,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from app.schemas.training_dataset_analysis import TrainingDatasetAnalyzedSampleOut
 from app.services import training_dataset_data as data
 from app.services.storage import storage_service as storage
-from app.services import training_dataset_storage, storage_access
+from app.services import storage_access, training_dataset_storage, training_storage_io
 from app.services.training_dataset_bridge import (
     TrainingDatasetError,
     content_digest,
@@ -885,7 +885,7 @@ def read_media(project_id, version, sample, *, preview=False, transport=None):
     temporary = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     body = None
     try:
-        head = destination.client.head_object(Bucket=owner.bucket, Key=key)
+        head = training_storage_io.head_object(destination, owner.bucket, key)
         if (
             head.get("Metadata", {}).get("snapshot-digest") != version.snapshot_digest
             or head.get("Metadata", {}).get("sha256") != sample.sha256
@@ -897,8 +897,8 @@ def read_media(project_id, version, sample, *, preview=False, transport=None):
             raise TrainingDatasetError(
                 "frozen_media_identity", "冻结图片身份或大小不匹配", status_code=409
             )
-        response = destination.client.get_object(
-            Bucket=owner.bucket, Key=key, IfMatch=head["ETag"]
+        response = training_storage_io.get_object(
+            destination, owner.bucket, key, if_match=head["ETag"]
         )
         body = response["Body"]
         digest, size = hashlib.sha256(), 0
@@ -997,7 +997,7 @@ def read_instance_masks(project_id, version, sample, annotation_ids, *, transpor
     key = owner.key(f"masks/{sample.task_id}.json")
     result = {}
     try:
-        response = destination.client.get_object(Bucket=owner.bucket, Key=key)
+        response = training_storage_io.get_object(destination, owner.bucket, key)
         try:
             data = response["Body"].read(
                 INSTANCE_RLE_LIMITS["max_sample_label_bytes"] + 1

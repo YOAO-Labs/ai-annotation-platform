@@ -637,8 +637,8 @@ async def assert_routable_backend(db, project_id, registry_id):
 
 def download_url(key, *, bucket, transport=None):
     transport = storage if transport is None else transport
-    return transport.generate_download_url(
-        key, bucket=bucket, expires_in=600, align=False, audience="ml"
+    return storage_io.sign_download(
+        transport, key, bucket=bucket, expires_in=600, align=False, audience="ml"
     )
 
 

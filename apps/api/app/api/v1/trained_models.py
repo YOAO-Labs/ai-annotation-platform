@@ -142,7 +142,8 @@ async def model_detail(
                 db,
                 owner,
                 "training_model_url",
-                lambda transport: transport.generate_download_url(
+                lambda transport: service.storage_io.sign_download(
+                    transport,
                     key,
                     expires_in=600,
                     bucket=owner.bucket,
@@ -270,7 +271,8 @@ async def download_model(
         db,
         owner,
         "training_model_url",
-        lambda transport: transport.generate_download_url(
+        lambda transport: service.storage_io.sign_download(
+            transport,
             version.artifact["key"],
             expires_in=600,
             bucket=owner.bucket,

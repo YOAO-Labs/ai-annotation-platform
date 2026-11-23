@@ -634,7 +634,8 @@ async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
 
 def internal_download(key, *, bucket=None, audience="internal", transport=None):
     transport = storage if transport is None else transport
-    return transport.generate_download_url(
+    return storage_io.sign_download(
+        transport,
         key,
         bucket=transport.training_bucket if bucket is None else bucket,
         expires_in=600,
@@ -1003,6 +1004,7 @@ async def authorize_upload(db, attempt_id, body):
         owner,
         "training_upload_urls",
         lambda transport: _upload_urls(transport, owner, attempt, inventory),
+        source_boot=body.boot_id,
     )
 
 
@@ -1011,29 +1013,20 @@ def _upload_urls(transport, owner, attempt, inventory):
     for name, spec in inventory.items():
         key = artifact_key(owner, attempt.id, name)
         metadata = {"sha256": spec["sha256"], "attempt-id": str(attempt.id)}
-        url = transport.client.generate_presigned_url(
-            "put_object",
-            Params={
-                "Bucket": owner.bucket,
-                "Key": key,
-                "ContentLength": spec["size_bytes"],
-                "Metadata": metadata,
-            },
-            ExpiresIn=600,
+        result[name] = storage_io.sign_upload(
+            transport,
+            owner.bucket,
+            key,
+            size=spec["size_bytes"],
+            metadata=metadata,
+            expires_in=600,
         )
-        result[name] = {
-            "url": url,
-            "headers": {
-                "x-amz-meta-sha256": spec["sha256"],
-                "x-amz-meta-attempt-id": str(attempt.id),
-            },
-        }
     return result
 
 
 def verify_artifact(key, spec, attempt_id, *, bucket, transport=None):
     transport = storage if transport is None else transport
-    response = transport.client.get_object(Bucket=bucket, Key=key)
+    response = storage_io.get_object(transport, bucket, key)
     try:
         if response["ContentLength"] != spec["size_bytes"] or response.get(
             "Metadata", {}
@@ -1064,7 +1057,7 @@ def verify_native_artifact(run, attempt, artifacts, *, transport=None):
             "v2 success requires a bounded native configuration observation"
         )
     owner = attempt_storage_owner(run, attempt, receipt["key"])
-    response = transport.client.get_object(Bucket=owner.bucket, Key=receipt["key"])
+    response = storage_io.get_object(transport, owner.bucket, receipt["key"])
     try:
         blob = json.loads(response["Body"].read(1024 * 1024 + 1))
     finally:
@@ -1181,6 +1174,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 lambda transport: verify_artifact(
                     key, spec, attempt.id, bucket=owner.bucket, transport=transport
                 ),
+                source_boot=body.boot_id,
             )
         except Exception as exc:
             if status == "succeeded":
@@ -1200,6 +1194,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                     lambda transport: verify_summary(
                         run, attempt, artifacts[name], transport=transport
                     ),
+                    source_boot=body.boot_id,
                 )
             except (ValueError, KeyError, TypeError) as exc:
                 if status == "succeeded":
@@ -1224,6 +1219,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 lambda transport: verify_native_artifact(
                     run, attempt, artifacts, transport=transport
                 ),
+                source_boot=body.boot_id,
             )
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(
@@ -1238,6 +1234,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 lambda transport: verify_input_artifact(
                     run, attempt, artifacts, transport=transport
                 ),
+                source_boot=body.boot_id,
             )
         except (ValueError, KeyError, TypeError, OSError) as exc:
             raise HTTPException(

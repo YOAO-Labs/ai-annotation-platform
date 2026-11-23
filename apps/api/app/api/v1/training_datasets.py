@@ -323,12 +323,14 @@ async def download_version(
         fail(exc)
 
     def download(bound):
-        if not bound.verify_upload(version.package_key, bucket=owner.bucket):
+        if not training_storage_io.verify_upload(
+            bound, version.package_key, bucket=owner.bucket
+        ):
             raise HTTPException(
                 status_code=409, detail="训练包不可用，请联系管理员检查持久存储"
             )
-        return bound.generate_download_url(
-            version.package_key, bucket=owner.bucket, expires_in=600
+        return training_storage_io.sign_download(
+            bound, version.package_key, bucket=owner.bucket, expires_in=600
         )
 
     try:

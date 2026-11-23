@@ -497,12 +497,15 @@ async def download_artifact(
         }
 
     def download(transport):
-        if not transport.verify_upload(artifact["key"], bucket=owner.bucket):
+        if not service.storage_io.verify_upload(
+            transport, artifact["key"], bucket=owner.bucket
+        ):
             raise HTTPException(
                 status_code=409, detail="训练产物已不可用，请联系管理员"
             )
         return {
-            "url": transport.generate_download_url(
+            "url": service.storage_io.sign_download(
+                transport,
                 artifact["key"],
                 expires_in=600,
                 bucket=owner.bucket,

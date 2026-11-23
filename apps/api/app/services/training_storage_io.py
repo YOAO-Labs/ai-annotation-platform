@@ -2,6 +2,7 @@
 
 from contextlib import contextmanager
 
+from botocore.exceptions import ClientError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.services import storage_access, training_dataset_storage as owners
@@ -10,6 +11,7 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService, storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.training_saved_io import TrainingSavedIO
 
 
 async def prepare(db, owner, *, require_enabled=True):
@@ -32,6 +34,8 @@ class _Storage(StorageService):
 @contextmanager
 def service(target, *, accounting=None):
     """Open only inside an admitted operation; never replace the global client."""
+    if getattr(target, "is_registered", False):
+        raise ValueError("Registered training storage requires a Source admission")
     with target.client(**({"owned": True} if accounting is not None else {})) as client:
         yield _bound(
             client,
@@ -53,6 +57,84 @@ def _bound(client, bucket, *, legacy, accounting=None):
     bound._write_accounting = accounting
     bound._legacy = legacy
     return bound
+
+
+def head_object(transport, bucket, key):
+    if isinstance(transport, TrainingSavedIO):
+        return transport.head(key)
+    return transport.client.head_object(Bucket=bucket, Key=key)
+
+
+def get_object(transport, bucket, key, *, if_match=None, version=None):
+    if isinstance(transport, TrainingSavedIO):
+        return transport.download(key, if_match=if_match)
+    params = {"Bucket": bucket, "Key": key}
+    if if_match is not None:
+        params["IfMatch"] = if_match
+    if version is not None:
+        params["VersionId"] = version
+    return transport.client.get_object(**params)
+
+
+def verify_upload(transport, key, *, bucket):
+    if isinstance(transport, TrainingSavedIO):
+        try:
+            return transport.head(key)
+        except ClientError as exc:
+            if exc.response["Error"]["Code"] in {
+                "404",
+                "NoSuchKey",
+                "NoSuchVersion",
+                "NotFound",
+            }:
+                return None
+            raise
+    return transport.verify_upload(key, bucket=bucket)
+
+
+def sign_download(transport, key, **options):
+    if isinstance(transport, TrainingSavedIO):
+        return transport.sign_download(
+            key,
+            expires_in=options.get("expires_in", 3600),
+            download_name=options.get("download_name"),
+        )
+    return transport.generate_download_url(key, **options)
+
+
+def sign_upload(transport, bucket, key, *, size, metadata, expires_in):
+    if isinstance(transport, TrainingSavedIO):
+        return transport.sign_upload(key, expires_in=expires_in)
+    return {
+        "url": transport.client.generate_presigned_url(
+            "put_object",
+            Params={
+                "Bucket": bucket,
+                "Key": key,
+                "ContentLength": size,
+                "Metadata": metadata,
+            },
+            ExpiresIn=expires_in,
+        ),
+        "headers": {"x-amz-meta-" + name: value for name, value in metadata.items()},
+    }
+
+
+def retire(transport, prefix, *, bucket):
+    if isinstance(transport, TrainingSavedIO):
+        return transport.retire(prefix)
+    return transport.delete_prefix(prefix, bucket=bucket)
+
+
+def discard_report(transport, bucket, key):
+    if isinstance(transport, TrainingSavedIO):
+        return transport.discard_report(key)
+    return transport.client.delete_object(Bucket=bucket, Key=key)
+
+
+def source_for(target, owner, permit, **facts):
+    if getattr(target, "is_registered", False):
+        return TrainingSavedIO(owner, permit, **facts)
 
 
 async def read(
@@ -85,6 +167,8 @@ async def read(
                 options["on_acquired"] = on_acquired
             if timeout is not None:
                 options["timeout"] = timeout
+            if owner.key_prefix:
+                options["source_key"] = object_key
             return await run(
                 db,
                 owner,
@@ -111,8 +195,10 @@ async def read(
         ) from None
 
 
-def physical(target, callback, *args, accounting=None, **kwargs):
+def physical(target, callback, *args, accounting=None, source=None, **kwargs):
     """Run synchronous I/O under a caller-owned permit, including client close."""
+    if source is not None:
+        return callback(source, *args, **kwargs)
     with service(target, accounting=accounting) as bound:
         return callback(bound, *args, **kwargs)
 
@@ -129,6 +215,10 @@ async def run(
     node_id=None,
     timeout=None,
     accounting=None,
+    source_attempt=None,
+    source_boot=None,
+    source_deletion=None,
+    source_key=None,
     **kwargs,
 ):
     """Register I/O without committing the caller's business transaction.
@@ -147,6 +237,7 @@ async def run(
     ):
         owners._reject()
     permit, failure, result = None, None, None
+    registered = getattr(target, "is_registered", False)
 
     async def acquired(current):
         nonlocal permit
@@ -154,20 +245,45 @@ async def run(
         if on_acquired is not None:
             await on_acquired(current)
 
+    def invoke(destination, operation, *arguments, **options):
+        return physical(
+            destination,
+            operation,
+            *arguments,
+            source=source_for(
+                target,
+                owner,
+                permit,
+                attempt=source_attempt,
+                boot=source_boot,
+                deletion=source_deletion,
+                read_key=source_key,
+                accounting=accounting,
+                timeout=timeout,
+            ),
+            **options,
+        )
+
     try:
         result = await storage_access.run(
             db,
             owner.location_id,
             purpose,
-            physical,
+            invoke if registered else physical,
             target,
             callback,
             *args,
             expected_revision=expected_revision,
             node_id=node_id,
             timeout=timeout,
-            on_acquired=acquired if accounting is not None else on_acquired,
-            **({"accounting": accounting} if accounting is not None else {}),
+            on_acquired=acquired
+            if accounting is not None or registered
+            else on_acquired,
+            **(
+                {"accounting": accounting}
+                if accounting is not None and not registered
+                else {}
+            ),
             **kwargs,
         )
     except BaseException as exc:

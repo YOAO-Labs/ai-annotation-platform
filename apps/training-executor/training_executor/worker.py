@@ -60,6 +60,12 @@ def retryable_publication_response(response, *, storage=False):
     }
 
 
+def require_upload_response(response, target):
+    """A prior conditional upload must still pass the API's finish verification."""
+    if response.status_code != 412 or target["headers"].get("If-None-Match") != "*":
+        response.raise_for_status()
+
+
 def runtime_identity():
     import torch
     from training_contract.catalog import supported_identities, instance_rle_capability
@@ -444,7 +450,7 @@ class Supervisor:
                             timeout=120,
                             trust_env=False,
                         )
-                    response.raise_for_status()
+                    require_upload_response(response, target)
                 journal["finish_body"] = self.finish_body(journal)
                 self.save(journal)
                 stage = "finish"

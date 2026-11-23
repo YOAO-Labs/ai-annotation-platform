@@ -93,7 +93,8 @@ async def purge_requested(db, intent_id):
         db,
         owner,
         "training_cleanup",
-        lambda transport: transport.delete_prefix(prefix, bucket=bucket),
+        lambda transport: storage_io.retire(transport, prefix, bucket=bucket),
+        source_deletion=intent_id,
     )
     await db.execute(
         select(

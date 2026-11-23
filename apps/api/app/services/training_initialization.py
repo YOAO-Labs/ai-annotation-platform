@@ -261,7 +261,7 @@ def verify_storage(pin, metrics, *, owner, full, transport=None):
         )
         _verify_metrics(pin, metrics, report)
     else:
-        head = transport.client.head_object(Bucket=owner.bucket, Key=artifact["key"])
+        head = storage_io.head_object(transport, owner.bucket, artifact["key"])
         if (
             head["ContentLength"] != artifact["size_bytes"]
             or head.get("Metadata", {}).get("attempt-id") != pin["attempt_id"]
