@@ -5871,7 +5871,7 @@ def _create_import_storage_scope(scope: dict, *, source: bool) -> None:
             },
             {
                 "Effect": "Allow",
-                "Action": ["s3:GetObject"],
+                "Action": ["s3:GetObject", "s3:GetObjectVersion"],
                 "Resource": [
                     f"arn:aws:s3:::{scope['source_bucket']}/connector-import-source/*"
                 ],

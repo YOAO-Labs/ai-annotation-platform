@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from alembic import op
+from sqlalchemy import text
 
 revision = "bo0507"
 down_revision = "bo0506"
@@ -13,7 +14,12 @@ depends_on = None
 def upgrade():
     sql = Path(__file__).resolve().parents[1] / "sql" / "0507_training_saved_io.sql"
     for statement in sql.read_text(encoding="utf-8").split("-- aap-statement-break"):
-        op.execute(statement.strip())
+        if statement.strip():
+            op.execute(
+                text(statement.replace(":", r"\:")).execution_options(
+                    no_parameters=True
+                )
+            )
 
 
 def downgrade():
