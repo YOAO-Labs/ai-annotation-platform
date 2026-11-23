@@ -2559,6 +2559,7 @@ _SAVED_SOURCE_NODES = frozenset(
         "tests/test_saved_media_io_live.py::test_registered_media_round_trip_and_denial",
         _SAVED_MIGRATION_NODE,
         "tests/test_training_saved_io_live.py::test_training_attached_archive_publication_and_retirement",
+        "tests/test_training_saved_io_live.py::test_training_attached_executor_put_and_finish",
     }
 )
 _EMBEDDED_LOGIN_FILES = frozenset(
@@ -2594,8 +2595,12 @@ _M2B_DEFAULT_NODES = frozenset(
     {
         *_SAVED_SOURCE_NODES,
         "tests/test_bug_attachment_uploads.py::test_live_diagnostics_login_preserves_report_and_exact_version_attachment_lifecycle",
+        "tests/test_identity_module_assembly_live.py::test_complete_compose_remote_api_workers_restart_and_restore",
+        "tests/test_identity_module_assembly_live.py::test_embedded_identity_with_isolated_mail_on_cold_api",
         "tests/test_mask_ai_observability.py::test_metrics_reads_current_tracker_and_accept_ledger_as_api_login",
         "tests/test_model_lineage.py::test_real_concurrent_decisions_and_publication_preserve_both_notes",
+        "tests/test_notifications_module_assembly_live.py::test_notifications_module_cold_composition_and_full_restore",
+        "tests/test_notifications_module_assembly_live.py::test_notifications_hosted_beat_recovers_after_redis_acl_outage",
         "tests/test_sample_evaluation_worker.py::test_cancel_stays_pending_while_native_busy_and_seals_before_late_post",
         "tests/test_sample_evaluation_worker.py::test_dispatch_without_private_jobs_read",
         "tests/test_sample_evaluation_worker.py::test_private_learning_model_and_evaluation_acl",
@@ -6223,6 +6228,8 @@ def _sql_artifact_path(name: str) -> Path:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"
     elif name == "0484_notifications_terminal_outbox.sql":
         directory = ROOT / "apps/notifications/src/yoao_notifications/sql"
+    elif name == "0485_audit_platform_maintenance.sql":
+        directory = ROOT / "apps/audit/src/yoao_audit/sql"
     elif name in PACKAGED_CURRENT_SQL:
         directory = ROOT / PACKAGED_CURRENT_SQL[name]
     else:
@@ -8749,7 +8756,7 @@ def main(
             ).hexdigest()
             for path in (*contract_sql_paths, *schema_paths)
         }
-        grant_sql = grants_path.read_text(encoding="utf-8")
+        grant_sql = read_psql_grant_script(grants_path)
         catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
         import_grant_sql = import_grants_path.read_text(encoding="utf-8")
@@ -13381,6 +13388,7 @@ SELECT pg_catalog.jsonb_build_object(
         }
         resource_environment.update(
             {
+                "AAP_MODULE_DATA_IDENTITY_AVATAR_RUNTIME": "1" if m2b_profile else "",
                 "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL": URL.create(
                     "postgresql+asyncpg",
                     username=IDENTITY_API_CONSUMER_ROLE,

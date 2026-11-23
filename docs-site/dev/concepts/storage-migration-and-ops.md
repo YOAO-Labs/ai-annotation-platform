@@ -29,6 +29,8 @@ Worker 对保存 task ID 仅作一次 `pending → running` 领取，显式重�
 
 `storage_migration_copy` 使用同一 27 家族保存业务引用目录及复制核心，先从保存的封存报告生成配对目录及 SQLite 计划，审阅后再执行初次复制。0256 的复制 owner 独立于单次 AsyncJob，保存冻结输入、目标物理身份、处理选择、基线及摘要；逐对象 delta 在独立短事务中提交。执行时恢复同一基线＋delta，`writing/nonce` 先于 PUT，ACK 版本先于完整读回，权限或取消的晚期变化不删除已发生事实。
 
+业务引用目录在同一 PostgreSQL `REPEATABLE READ READ ONLY` 事务中，通过各 owner 为 27 个业务家族提供的固定投影逐族读取。每个投影仅返回保存地址、状态、收据及必要的未展开标记，按主键续页；对象成员按 owner ID 和 C 排序的键续页，不返回整个 inventory 或冻结输入。数据库迁移版本由专用元数据函数读取，不依赖普通角色对 `alembic_version` 的可见性。空的业务家族仍记为已枚举；缺少函数或权限表示快照未完成，不能解释为无引用。
+
 目标为已登记全局 S3 位置／连接，冻结 `base_prefix` 下的独立迁移命名空间，不借用业务 purpose 或改变 Binding。普通 Worker 不读取连接凭据：既有 Assets Source 按已提交的 attempt、两个 Permit、精确对象决策及写入 nonce 复核目标。在接收单次条件写之前校验正文 SHA／大小和目标版本历史；同一 attempt 的意图不可重放，明确续跑仍先读回原创建身份。仅轮换密钥不会重解释旧地址，运行中修订变化停止下一次 I/O，后续 attempt 重新解析当前配置。新 owner 计入位置引用保护与维护影响，任务终态和 30 天清理不解除实际保存责任。
 
 源与目标分别取得 Permit，两个 operation ID 先提交，再启动原生线程；回到所属 loop 的短 Session 处理检查及对象 delta，不跨线程共享 Session，不跨 S3 I/O 持有事务。流、客户端、SQLite 和临时正文真正关闭后才发布；应用正文使用匿名临时文件，检查点权威在数据库。未知关闭保留责任，不按超时清除。显式续跑创建新 attempt，共享 Job 只描述该次执行。

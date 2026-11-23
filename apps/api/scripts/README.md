@@ -138,7 +138,7 @@ dataset 按 DS-NU-<name> 复用;同名 scene 已存在则跳过。详见脚本�
 - `import_images.py`:批量导入本地图片到 dataset，启动时输出实际数据库 session／current 用户以便核对受限身份。
 - `bootstrap_admin.py`:从 ENV 读取首次超管信息，提交由 CLI 持有；用户创建归 `IdentityCommandService`，`application/bootstrap_admin.py` 组合 `AuditService` 写入同事务审计。已存在邮箱不改资料、不追加审计。
 - `backfill_task_datasets.py`:`--dry-run` / `--verify` 使用 PostgreSQL 只读事务，`--apply` 按批提交；`application/task_dataset_backfill.py` 负责扫描/报告并委托 `project_task_dataset.ensure_membership` 写入，不改冻结版本内容。
-- `reset_datasets.py`:清空 datasets + 关联表
+- `reset_datasets.py`：仅接受命令环境显式传入的 `MIGRATION_DATABASE_URL`；解除任务素材引用并清空全库数据集及关联表，不清理对象存储。
 - `dump-openapi.py`:导出 openapi.snapshot.json
 
 ## 示例素材与测试夹具

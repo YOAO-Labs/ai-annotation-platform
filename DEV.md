@@ -266,6 +266,8 @@ CPU 增强预览使用相同的发布分类与持久回执保护。预览失败�
 `--with-worker` 同时启动普通 worker 和单并发维护 worker。普通 worker 使用运行账号；
 维护 worker 只消费 `maintenance`，使用同库的 owner 连接处理分区维护和统计刷新。
 `doctor` 分别显示两者状态；任一个退出都会停止同次启动的服务。
+LAN 发布档的 `celery-worker-maintenance` 不使用此工作树 owner 连接。统计刷新从
+`INSIGHTS_REFRESH_DATABASE_URL_FILE` 读取独立 LOGIN，仅可执行刷新函数；不要把它或迁移 DSN 交给 API 和普通 worker。
 
 迁移前检查 revision 唯一性、单 head 和数据库版本可达性；通过后才运行 Alembic。
 API 默认从 `8100`、Web 从 `3100` 扫描空闲端口，并验证 HTTP 就绪。

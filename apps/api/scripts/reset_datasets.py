@@ -4,37 +4,40 @@
 
 用法：
     cd apps/api
-    uv run python scripts/reset_datasets.py
+    MIGRATION_DATABASE_URL="$RESET_TARGET_OWNER_URL" uv run python scripts/reset_datasets.py
 """
 
 import asyncio
+import os
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-
-from app.application.dataset_reset import DatasetResetWorkflow
-from app.config import settings
-
-engine = create_async_engine(settings.database_url, echo=False)
-Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 
 async def reset() -> None:
-    async with Session() as db:
-        workflow = DatasetResetWorkflow(db)
-        rows = await workflow.list_datasets()
-        if not rows:
-            print("没有数据集需要清理")
-            return
+    url = os.environ.get("MIGRATION_DATABASE_URL")
+    if not url:
+        raise SystemExit(
+            "请显式设置目标库的 MIGRATION_DATABASE_URL；不会使用普通运行连接"
+        )
+    from app.application.dataset_reset import DatasetResetWorkflow
 
-        print(f"即将删除 {len(rows)} 个数据集：")
-        for row in rows:
-            print(f"  {row.display_id}  {row.name}")
+    engine = create_async_engine(url)
+    try:
+        async with AsyncSession(engine) as db, db.begin():
+            workflow = DatasetResetWorkflow(db)
+            rows = await workflow.list_datasets()
+            if not rows:
+                print("没有数据集需要清理")
+                return
 
-        await workflow.reset()
-        await db.commit()
+            print(f"即将删除 {len(rows)} 个数据集：")
+            for row in rows:
+                print(f"  {row.display_id}  {row.name}")
+
+            await workflow.reset()
         print(f"\n已清空 {len(rows)} 个数据集及关联记录")
-
-    await engine.dispose()
+    finally:
+        await engine.dispose()
 
 
 if __name__ == "__main__":
