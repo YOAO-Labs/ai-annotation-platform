@@ -48,7 +48,6 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJobStatus
@@ -61,6 +60,7 @@ from app.schemas.data_manager import (
     DataManagerScopeSummary,
     DataManagerSummaryResponse,
 )
+from app.services.assets_spatial_views import labeling_dataset_item_facts
 from yoao_workspace.configuration_policy import project_kind
 from app.services.prediction import to_internal_shape
 from app.services.project_access import is_privileged_for_project
@@ -341,33 +341,31 @@ class DataManagerService:
         kind = project_kind(project.data_type, project.scene_mode)
         kind_metrics: dict[str, int | float | None] = {}
         if kind.data_type == "image":
+            item = labeling_dataset_item_facts
             image_rows = (
                 await self.db.execute(
                     select(
-                        func.count(DatasetItem.id)
-                        .filter(
-                            DatasetItem.width.is_not(None),
-                            DatasetItem.height.is_not(None),
-                        )
+                        func.count(item.id)
+                        .filter(item.width.is_not(None), item.height.is_not(None))
                         .label("with_dimensions"),
                         func.count(
                             func.distinct(
                                 func.concat(
-                                    DatasetItem.width,
+                                    item.width,
                                     "x",
-                                    DatasetItem.height,
+                                    item.height,
                                 )
                             )
                         )
                         .filter(
-                            DatasetItem.width.is_not(None),
-                            DatasetItem.height.is_not(None),
+                            item.width.is_not(None),
+                            item.height.is_not(None),
                         )
                         .label("distinct_resolutions"),
                     )
                     .select_from(task_row)
                     .join(matched_ids, matched_ids.c.id == task_row.id)
-                    .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
+                    .join(item, item.id == task_row.dataset_item_id)
                 )
             ).one()
             kind_metrics = {
@@ -375,13 +373,14 @@ class DataManagerService:
                 "distinct_resolutions": int(image_rows.distinct_resolutions or 0),
             }
         elif kind.data_type == "video":
+            item = labeling_dataset_item_facts
             video_item_ids = list(
                 (
                     await self.db.execute(
                         select(task_row.dataset_item_id)
                         .select_from(task_row)
                         .join(matched_ids, matched_ids.c.id == task_row.id)
-                        .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
+                        .join(item, item.id == task_row.dataset_item_id)
                         .where(task_row.dataset_item_id.is_not(None))
                     )
                 )

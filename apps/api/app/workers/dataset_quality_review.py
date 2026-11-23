@@ -7,12 +7,10 @@ import time
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_quality_review import DatasetQualityReviewBatch as Batch
+from app.services import async_job as jobs
 from app.services import dataset_quality_review as svc
-from app.services.async_job import mark_running, update_progress
+from app.services.dataset_quality_data import QualityData
 from app.workers.celery_app import celery_app
 from app.workers.dataset_quality import _session
 
@@ -38,7 +36,7 @@ def _publish(batch_id, task_id):
 
 
 async def dispatch(db, batch):
-    job = await db.get(AsyncJob, batch.async_job_id)
+    job = await jobs.get_job(db, batch.async_job_id)
     batch_id, task_id = batch.id, job.celery_task_id
     await db.commit()
     try:
@@ -53,46 +51,54 @@ async def process_one(db, batch_id, job_id, task_id, generation):
         await db.rollback()
         return False
     actor, run = await svc.authority(db, batch)
-    if not await svc.process_member(db, batch, actor, run):
-        await svc.finish(db, batch, "completed")
+    processed = await svc.process_member(db, batch, actor, run, task_id)
+    if processed is None:
+        await svc.finish(db, batch, "completed", task_id=task_id)
         await db.commit()
         return False
+    if processed is False:
+        await db.rollback()
+        return False
     await svc.authority(db, batch)
-    batch.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-    await update_progress(
+    await jobs.update_progress(
         db,
         job_id,
-        int(batch.processed * 100 / max(1, batch.total)),
-        extra_payload={"processed_count": batch.processed},
+        int(processed * 100 / max(1, batch.total)),
+        extra_payload={"processed_count": processed},
     )
     await db.commit()
     return True
 
 
 async def execute(db, batch_id, task_id):
-    batch = await db.scalar(
-        select(Batch)
-        .where(Batch.id == batch_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    data = QualityData(db)
+    batch = await data.batch_attempt(
+        "claim", svc.now(), batch_id=batch_id, task_id=task_id
     )
-    if batch is None or batch.status != "pending":
-        await db.rollback()
-        return
-    job = await db.get(AsyncJob, batch.async_job_id, populate_existing=True)
-    if job is None or job.celery_task_id != task_id or job.status not in svc.ACTIVE:
+    if batch is None:
         await db.rollback()
         return
     try:
         await svc.authority(db, batch)
     except HTTPException as exc:
-        await svc.finish(db, batch, "failed", svc.failure_code(exc))
+        await svc.finish(db, batch, "failed", svc.failure_code(exc), task_id=task_id)
         await db.commit()
         return
-    generation, job_id = batch.generation, job.id
-    batch.status = "running"
-    batch.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-    await mark_running(db, job_id)
+    generation, job_id = batch.generation, batch.async_job_id
+    claimed_at = svc.now()
+    if (
+        await data.transition_batch(
+            batch,
+            "claim",
+            claimed_at,
+            task_id=task_id,
+            lease_until=claimed_at + timedelta(seconds=svc.LEASE_SECONDS),
+        )
+        is None
+    ):
+        await db.rollback()
+        return
+    await jobs.mark_running(db, job_id)
     await db.commit()
     try:
         started = time.monotonic()
@@ -104,44 +110,46 @@ async def execute(db, batch_id, task_id):
         batch = await svc.fenced(db, batch_id, job_id, task_id, generation)
         if batch:
             await svc.authority(db, batch)
-            job = await db.get(AsyncJob, job_id)
-            batch.status = "pending"
-            batch.generation += 1
-            job.celery_task_id = str(uuid.uuid4())
-            await dispatch(db, batch)
+            await _redispatch(db, data, batch, task_id)
     except Exception as exc:
         await db.rollback()
         batch = await svc.fenced(db, batch_id, job_id, task_id, generation)
         if batch:
-            await svc.finish(db, batch, "failed", svc.failure_code(exc))
+            await svc.finish(
+                db, batch, "failed", svc.failure_code(exc), task_id=task_id
+            )
             await db.commit()
         log.warning(
             "Quality review stopped batch=%s exception=%s", batch_id, type(exc).__name__
         )
 
 
-async def recover(db):
-    ids = list(
-        await db.scalars(
-            select(Batch.id)
-            .where(Batch.status.in_(svc.ACTIVE), Batch.lease_until <= svc.now())
-            .limit(50)
-        )
+async def _redispatch(db, data, batch, task_id, *, recovered=False):
+    queued_at = svc.now()
+    updated = await data.transition_batch(
+        batch,
+        "redispatch",
+        queued_at,
+        task_id=task_id,
+        lease_until=queued_at + timedelta(seconds=svc.LEASE_SECONDS)
+        if recovered
+        else None,
     )
-    for batch_id in ids:
-        batch = await db.scalar(
-            select(Batch)
-            .where(
-                Batch.id == batch_id,
-                Batch.status.in_(svc.ACTIVE),
-                Batch.lease_until <= svc.now(),
-            )
-            .with_for_update(skip_locked=True)
-            .execution_options(populate_existing=True)
-        )
+    if updated is None:
+        await db.rollback()
+        return
+    job = await jobs.get_job(db, batch.async_job_id, populate_existing=True)
+    jobs.bind_execution_id(job, str(uuid.uuid4()))
+    await dispatch(db, updated)
+
+
+async def recover(db):
+    data = QualityData(db)
+    for batch_id in await data.expired_batches(svc.now()):
+        batch = await data.batch_attempt("recover", svc.now(), batch_id=batch_id)
         if batch is None:
             continue
-        job = await db.get(AsyncJob, batch.async_job_id, populate_existing=True)
+        job = await jobs.get_job(db, batch.async_job_id, populate_existing=True)
         if job is None or job.status not in svc.ACTIVE:
             await svc.finish(db, batch, "failed", "worker_failed")
             await db.commit()
@@ -149,14 +157,12 @@ async def recover(db):
         try:
             await svc.authority(db, batch)
         except HTTPException as exc:
-            await svc.finish(db, batch, "failed", svc.failure_code(exc))
+            await svc.finish(
+                db, batch, "failed", svc.failure_code(exc), task_id=job.celery_task_id
+            )
             await db.commit()
             continue
-        batch.status = "pending"
-        batch.generation += 1
-        batch.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-        job.celery_task_id = str(uuid.uuid4())
-        await dispatch(db, batch)
+        await _redispatch(db, data, batch, job.celery_task_id, recovered=True)
 
 
 @celery_app.task(bind=True, acks_late=True, soft_time_limit=150, time_limit=180)

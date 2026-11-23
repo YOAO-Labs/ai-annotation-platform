@@ -202,9 +202,10 @@ async def test_old_quality_run_stops_before_any_member_read_after_resume(
             await db.commit()
             assert run.authority["storage_maintenance"] == {str(world.location_id): 1}
             if legacy:
-                run.authority = {
+                stored = await db.get(DatasetQualityRun, run.id)
+                stored.authority = {
                     key: value
-                    for key, value in run.authority.items()
+                    for key, value in stored.authority.items()
                     if key != "storage_maintenance"
                 }
                 await db.commit()

@@ -77,6 +77,8 @@ cd apps/api
 
 统一短锁顺序为 `Location → Source → Job → Run`，与 Job retention 的 `Job → Run` 外键清理一致；文件系统 I/O 在事务提交后执行。来源行锁加活动运行部分唯一索引防并发启动，任务只 claim 一次；失租后显式 resume 创建新 Job/`task_id`。每批核对 task ID、来源代次、generation、token、有效期与授权；扫描 signal 在通用 fallback 前分派到同一 owner，旧信号不影响新尝试。
 
+普通 API 与目录 worker 使用 Assets 拥有的固定 PostgreSQL 能力读取观测和提交目录／分页检查点、接受修订及复核结果，不直接访问这些账本或显示编号、接纳顺序序列。能力沿用调用方事务；来源、代次、令牌及当前授权不匹配时不推进检查点。对象存储或目录读取仍由原有物理 I/O 边界执行，发布前复查实际观测证据，而不是以 SQL 快照或作业状态替代重新读取。
+
 Job 外键 `SET NULL`，数据集删除只清空来源关联，长期观测账本保留；来源引用参与位置改向/删除保护。无来源数据时 0196 可降级，有数据则保留表并回退应用入口。接口与支持预算见[目录来源与观测扫描](/api/guides/dataset-sources)，决策见[ADR 0093](/dev/adr/archive/0093-resumable-directory-inventory)。
 
 ## 图片内容核验与请求快照
@@ -216,7 +218,7 @@ LIST 显式 URL 编码后严格解码一次，`ContinuationToken` 原样保存�
 `services/dataset_workbench.py` 以统一的 `observations()` SQL 关系同時支撑样本筛选、分页列表与状态汇总，全程不发起物理源 I/O：
 
 - **六态可用性推导**：在数据库内联合 `DatasetItem`、`DatasetAsset`、`DatasetReference`、`DatasetSource`、`StorageLocation`、完整预检差异（`DatasetSourceChange`）、按需原图缓存（`OriginalCacheEntry`）、显式同内容副本（`DatasetReferenceReplica`）与站点 Agent 状态，计算 `verified`、`missing`、`changed`、`preview_only`、`unavailable`、`unverified` 六种状态及允许操作列表（`allowed_actions`）。
-- **多维组合筛选**：`item_query()` 支持按来源（`source_id`，需通过 `source_scope_clause` 校验可见性）、可用性状态（`state`）、文件名模糊搜索（`search`）、所属场景（`scene_id`）、媒体类型（`media_type`）、逻辑文件名后缀（`extension`，忽略不透明引用键，`jpg` 同时匹配 `jpg/jpeg`）以及宽高已知状态与数值区间（`dimension_state`、`min_width/max_width`、`min_height/max_height`）组合过滤。当前页通过 `MATERIALIZED CTE` 限制 `available_cache_ids` 与媒体序列化范围，避免全表水合。
+- **多维组合筛选**：`item_query()` 支持按来源（`source_id`，由 Assets 以当前账号、数据集所有权和位置授权校验可见性）、可用性状态（`state`）、文件名模糊搜索（`search`）、所属场景（`scene_id`）、媒体类型（`media_type`）、逻辑文件名后缀（`extension`，忽略不透明引用键，`jpg` 同时匹配 `jpg/jpeg`）以及宽高已知状态与数值区间（`dimension_state`、`min_width/max_width`、`min_height/max_height`）组合过滤。当前页通过 `MATERIALIZED CTE` 限制 `available_cache_ids` 与媒体序列化范围，避免全表水合。
 - **关联项目上下文统计**：`workbench()` 按调用者对各关联项目的实际访问级别（特权管理者或 `annotator` / `reviewer` / `viewer` 成员角色）分组，复用 Data Manager 的 `apply_task_visibility` 在单条 `UNION ALL` 聚合 SQL 中统计当前用户可见的 `total_tasks`、`labeled_tasks`、`completed_tasks` 与 `review_tasks`。
 
 ### 个人保存视图（`DatasetSavedView`）

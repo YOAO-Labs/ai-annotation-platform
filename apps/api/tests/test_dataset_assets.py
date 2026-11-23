@@ -176,8 +176,12 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
         )
         assert response.status_code == (409 if i == 2 else 200), response.text
         if i == 0:
-            await DatasetService(db_session).update(dataset.id, "second-name", None)
-            await DatasetService(db_session).update(dataset.id, "third-name", None)
+            await DatasetService(db_session).update(
+                dataset.id, "second-name", None, actor_id=user.id
+            )
+            await DatasetService(db_session).update(
+                dataset.id, "third-name", None, actor_id=user.id
+            )
     assert len(set(keys)) == 4
     assert all(thread != threading.get_ident() for thread in fake.read_threads)
     assert dataset_relative_path(keys[1]) == "a-1.bin"

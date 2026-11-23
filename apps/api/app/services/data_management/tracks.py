@@ -10,9 +10,6 @@ from fastapi import HTTPException
 from sqlalchemy import Integer, String, and_, case, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
-
-from app.db.models.dataset import DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.user import User
@@ -26,6 +23,7 @@ from app.schemas.data_manager import (
     DataManagerTrackQueryResponse,
     DataManagerTrackSourceSummary,
 )
+from app.services.assets_spatial_views import spatial_item_references
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.data_management.cursor import (
     decode_cursor,
@@ -518,7 +516,7 @@ class DataManagerTrackService:
                 .join(base, base.c.id == annotation_row.id)
             )
         ).one()
-        item = aliased(DatasetItem)
+        item = spatial_item_references
         sort_expr = _compact_sort(field)
         q = (
             select(
@@ -527,7 +525,7 @@ class DataManagerTrackService:
                 task_row.display_id.label("task_display_id"),
                 task_row.batch_id,
                 task_row.file_name,
-                item.id.label("dataset_item_id"),
+                item.c.item_id.label("dataset_item_id"),
                 annotation_row.track_id,
                 annotation_row.class_name,
                 annotation_row.tool_unit_id,
@@ -541,7 +539,7 @@ class DataManagerTrackService:
             .select_from(annotation_row)
             .join(base, base.c.id == annotation_row.id)
             .join(task_row, task_row.id == annotation_row.task_id)
-            .outerjoin(item, item.id == task_dataset_item_id_expr())
+            .outerjoin(item, item.c.item_id == task_dataset_item_id_expr())
         )
         if payload.cursor:
             value, tie = decode_cursor(payload.cursor, field=field, direction=direction)
@@ -604,8 +602,7 @@ class DataManagerTrackService:
         visible = self._visible(
             project_id, user, project, "dm_scene_visible", project_role=project_role
         )
-        item = aliased(DatasetItem)
-        scene = aliased(Scene)
+        item = spatial_item_references
         return (
             select(
                 annotation_row.id.label("annotation_id"),
@@ -613,10 +610,10 @@ class DataManagerTrackService:
                 task_row.display_id.label("task_display_id"),
                 task_row.batch_id,
                 task_row.file_name,
-                item.id.label("dataset_item_id"),
-                item.scene_id,
-                scene.name.label("scene_name"),
-                item.frame_index,
+                item.c.item_id.label("dataset_item_id"),
+                item.c.scene_id,
+                item.c.scene_name,
+                item.c.frame_index,
                 annotation_row.track_id,
                 annotation_row.scene_track_id,
                 annotation_row.class_name,
@@ -630,8 +627,7 @@ class DataManagerTrackService:
             .select_from(annotation_row)
             .join(visible, visible.c.id == annotation_row.task_id)
             .join(task_row, task_row.id == annotation_row.task_id)
-            .outerjoin(item, item.id == task_dataset_item_id_expr())
-            .outerjoin(scene, scene.id == item.scene_id)
+            .outerjoin(item, item.c.item_id == task_dataset_item_id_expr())
             .where(
                 self._active(project_id),
                 annotation_row.annotation_type.not_in(COMPACT_TRACK_TYPES),
@@ -1015,15 +1011,15 @@ class DataManagerTrackService:
             "dm_scene_frame_visible",
             project_role=project_role,
         )
-        item = aliased(DatasetItem)
+        item = spatial_item_references
         rows = await self.db.execute(
-            select(item.scene_id, item.frame_index)
+            select(item.c.scene_id, item.c.frame_index)
             .select_from(task_row)
             .join(visible, visible.c.id == task_row.id)
-            .join(item, item.id == task_dataset_item_id_expr())
+            .join(item, item.c.item_id == task_dataset_item_id_expr())
             .where(
-                item.scene_id.in_(scene_ids),
-                item.frame_index.is_not(None),
+                item.c.scene_id.in_(scene_ids),
+                item.c.frame_index.is_not(None),
             )
             .distinct()
         )
@@ -1042,7 +1038,7 @@ class DataManagerTrackService:
             "dm_compact_detail_visible",
             project_role=project_role,
         )
-        item = aliased(DatasetItem)
+        item = spatial_item_references
         row = (
             await self.db.execute(
                 select(
@@ -1050,7 +1046,7 @@ class DataManagerTrackService:
                     annotation_row.task_id,
                     task_row.display_id.label("task_display_id"),
                     task_row.batch_id,
-                    item.id.label("dataset_item_id"),
+                    item.c.item_id.label("dataset_item_id"),
                     annotation_row.track_id,
                     annotation_row.class_name,
                     annotation_row.tool_unit_id,
@@ -1063,7 +1059,7 @@ class DataManagerTrackService:
                 .select_from(annotation_row)
                 .join(visible, visible.c.id == annotation_row.task_id)
                 .join(task_row, task_row.id == annotation_row.task_id)
-                .outerjoin(item, item.id == task_dataset_item_id_expr())
+                .outerjoin(item, item.c.item_id == task_dataset_item_id_expr())
                 .where(
                     self._active(project_id),
                     annotation_row.id == annotation_id,

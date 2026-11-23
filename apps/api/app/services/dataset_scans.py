@@ -2,33 +2,31 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 import hashlib
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
+from sqlalchemy.orm.attributes import set_committed_value
+from yoao_jobs.lifecycle import JobsLifecycleManager
 
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import Dataset
-from app.db.models.dataset_source import DatasetSource, DatasetScanEntry, DatasetScanRun
-from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
-from app.services import async_job as jobs
-from app.services import filesystem_storage as fs
-from app.services import storage_location as locations
 from app.services import (
+    async_job as jobs,
+    dataset_scan_data as data,
+    dataset_source_access as access,
+    filesystem_storage as fs,
     reference_storage,
     source_selection as selection,
     storage_access,
     storage_job_progress as progress,
+    storage_location as locations,
 )
-from app.services import dataset_source_access as access
 from app.services.async_job_notify import notify_job_terminal
+from app.services.assets_dataset_data import dataset_metadata
+from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData
+from app.services.storage_registry_data import get_location, get_probe
 
 KIND = "dataset_scan"
-LEASE_SECONDS = 60
-BUDGET = {"max_entries": 50000, "max_directories": 5000}
 ACTIVE = {"pending", "running"}
 
 
@@ -45,9 +43,7 @@ async def source_out(db, source, *, location=None, agent_status=...):
     from app.services.directory_policy import effective_cache_policy
     from app.services.dataset_source_protection import declaration
 
-    location = location or await db.get(
-        StorageLocation, source.location_id, populate_existing=True
-    )
+    location = location or await get_location(db, source.location_id)
     if agent_status is ...:
         agent_status = (
             (await agent_availability.for_locations(db, [location.id])).get(location.id)
@@ -86,7 +82,7 @@ async def source_out(db, source, *, location=None, agent_status=...):
 
 
 async def now(db):
-    return await db.scalar(select(func.clock_timestamp()))
+    return await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
 
 
 async def require_actor(db, actor_id, source=None):
@@ -97,47 +93,21 @@ async def require_actor(db, actor_id, source=None):
 
 
 async def source_context(db, source_id):
-    source = await db.get(DatasetSource, source_id)
+    source = await data.lock_source(db, source_id)
     if source is None:
         raise HTTPException(404, "Dataset source not found")
-    location = await db.scalar(
-        select(StorageLocation)
-        .where(StorageLocation.id == source.location_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    source = await db.scalar(
-        select(DatasetSource)
-        .where(DatasetSource.id == source_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    return location, source
+    return await get_location(db, source.location_id), source
 
 
 async def run_context(db, run_id):
-    run = await db.get(DatasetScanRun, run_id)
+    run = await data.execution_run(db, run_id, lock=True)
     if run is None:
         raise HTTPException(404, "Dataset scan not found")
     location, source = await source_context(db, run.source_id)
-    job_id = await db.scalar(
-        select(DatasetScanRun.async_job_id).where(DatasetScanRun.id == run_id)
-    )
     job = (
-        await db.scalar(
-            select(AsyncJob)
-            .where(AsyncJob.id == job_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if job_id
+        await jobs.get_job(db, run.async_job_id, populate_existing=True)
+        if run.async_job_id
         else None
-    )
-    run = await db.scalar(
-        select(DatasetScanRun)
-        .where(DatasetScanRun.id == run_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
     )
     return location, source, run, job
 
@@ -149,7 +119,7 @@ async def validate_context(
         not source.enabled
         or source.unregistered_at is not None
         or source.dataset_id is None
-        or await db.get(Dataset, source.dataset_id, populate_existing=True) is None
+        or await dataset_metadata(db, source.dataset_id) is None
     ):
         raise fs.FilesystemStorageError("source_unavailable")
     if (
@@ -230,13 +200,15 @@ async def create_source(db, payload, actor, *, api_key_id=None):
         for pattern in [*payload.include_globs, *payload.exclude_globs]
     ):
         raise HTTPException(422, "Invalid source filter")
-    source = DatasetSource(
-        dataset_id=payload.dataset_id,
-        location_id=location.id,
-        name=payload.name,
-        ownership_mode=payload.ownership_mode,
-        cache_policy=payload.cache_policy,
-        config=payload.model_dump(
+    source_id = await data.create_source(
+        db,
+        actor.id,
+        payload.dataset_id,
+        location.id,
+        payload.name,
+        payload.ownership_mode,
+        payload.cache_policy,
+        payload.model_dump(
             include={
                 "relative_path",
                 "node_id",
@@ -246,9 +218,9 @@ async def create_source(db, payload, actor, *, api_key_id=None):
             }
         ),
     )
-    db.add(source)
-    await db.flush()
-    return source
+    if source_id is None:
+        raise HTTPException(404, "Dataset source not found")
+    return await data.lock_source(db, source_id)
 
 
 async def update_source(db, source_id, payload, actor, *, api_key_id=None):
@@ -260,39 +232,22 @@ async def update_source(db, source_id, payload, actor, *, api_key_id=None):
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     await require_dataset_write(db, source)
-    if source.config_revision != payload.expected_revision:
-        raise HTTPException(409, "Source configuration revision changed")
-    if source.unregistered_at is not None:
-        raise HTTPException(409, "Source has been unregistered")
-    if payload.enabled is not None and payload.enabled != source.enabled:
-        raise HTTPException(409, detail={"code": "lifecycle_impact_required"})
-    if await db.scalar(
-        select(DatasetScanRun.id)
-        .where(DatasetScanRun.source_id == source.id, DatasetScanRun.status.in_(ACTIVE))
-        .limit(1)
-    ):
-        raise HTTPException(409, "Cancel the active scan before editing its source")
-    from app.db.models.dataset_source import DatasetRegistrationRun
-
-    if await db.scalar(
-        select(DatasetRegistrationRun.id).where(
-            DatasetRegistrationRun.source_id == source.id,
-            DatasetRegistrationRun.status.in_(ACTIVE),
-        )
-    ):
+    result = await data.edit_source(db, actor.id, source.id, payload)
+    if result == "not_found":
+        raise HTTPException(404, "Dataset source not found")
+    if result == "lifecycle_impact_required":
+        raise HTTPException(409, detail={"code": result})
+    if result != "updated":
         raise HTTPException(
-            409, "Cancel the active registration before editing its source"
+            409,
+            {
+                "revision_changed": "Source configuration revision changed",
+                "unregistered": "Source has been unregistered",
+                "scan_active": "Cancel the active scan before editing its source",
+                "registration_active": "Cancel the active registration before editing its source",
+            }[result],
         )
-    if payload.name is not None:
-        source.name = payload.name
-    if payload.enabled is not None:
-        source.enabled = payload.enabled
-    if payload.cache_policy is not None and payload.cache_policy != source.cache_policy:
-        source.cache_policy = payload.cache_policy
-        source.policy_revision += 1
-    source.config_revision += 1
-    await db.flush()
-    return source
+    return await data.lock_source(db, source_id)
 
 
 async def new_job(db, run, source, actor, *, api_key_id=None, key_proof=None):
@@ -301,11 +256,8 @@ async def new_job(db, run, source, actor, *, api_key_id=None, key_proof=None):
     await require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    run.snapshot = {
-        **run.snapshot,
-        "api_key_id": str(api_key_id) if api_key_id else None,
-        "key_proof": key_proof,
-    }
+    if api_key_id:
+        api_key_id = uuid.UUID(str(api_key_id))
     task_id = str(uuid.uuid4())
     job = await jobs.create_job(
         db,
@@ -320,14 +272,9 @@ async def new_job(db, run, source, actor, *, api_key_id=None, key_proof=None):
             "progress_mode": "indeterminate",
         },
     )
-    run.async_job_id = job.id
-    run.status = "pending"
-    run.error_code = None
-    run.complete = False
-    run.completed_at = None
-    run.lease_token = None
-    run.lease_expires_at = None
-    return job
+    if not await data.bind_attempt(db, run, job, api_key_id, key_proof):
+        raise HTTPException(409, "Scan attempt has been superseded")
+    return await data.execution_run(db, run.id)
 
 
 async def start_scan(db, source_id, actor, *, api_key_id=None):
@@ -337,12 +284,9 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
     location, source = await source_context(db, source_id)
     await require_actor(db, actor.id, source)
     dataset = await validate_write_context(db, location, source)
-    existing = await db.scalar(
-        select(DatasetScanRun).where(
-            DatasetScanRun.source_id == source.id, DatasetScanRun.status.in_(ACTIVE)
-        )
-    )
-    if existing:
+    existing_id = await data.active_scan_id(db, source.id)
+    if existing_id:
+        existing = await data.execution_run(db, existing_id)
         await validate_write_context(db, location, source, snapshot=existing.snapshot)
         return existing, False
     node = f"worker:{source.config['node_id']}"
@@ -350,15 +294,12 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
     anchor = await locations.node_anchor(db, location, node)
     if anchor is None:
         raise HTTPException(409, "Worker root identity is not verified")
-    probe = await db.get(
-        StorageLocationProbe,
-        (location.id, locations.probe_node_id(location, node)),
-        populate_existing=True,
-    )
-    run = DatasetScanRun(
-        source_id=source.id,
-        snapshot={
-            "source_revision": source.config_revision,
+    probe = await get_probe(db, location.id, locations.probe_node_id(location, node))
+    run_id = await data.start(
+        db,
+        actor.id,
+        source.id,
+        {
             "location_revision": location.config_revision,
             "maintenance_revision": await storage_access.check(
                 db, location.id, lock=True
@@ -366,45 +307,23 @@ async def start_scan(db, source_id, actor, *, api_key_id=None):
             "dataset_lifecycle_revision": dataset.lifecycle_revision,
             "anchor": anchor,
             "scan_host_id": probe.result.get("host_id"),
-            "config": dict(source.config),
-            "budget": dict(BUDGET),
         },
     )
-    db.add(run)
-    await db.flush()
-    db.add(
-        DatasetScanEntry(
-            run_id=run.id,
-            path_digest=path_digest(""),
-            relative_path="",
-            kind="directory",
-            state="pending",
-            observed={},
-        )
+    if run_id is None:
+        raise HTTPException(404, "Dataset source not found")
+    run = await data.execution_run(db, run_id)
+    run = await new_job(
+        db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof
     )
-    await new_job(db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof)
-    await db.flush()
     return run, True
 
 
 async def finish(db, run, job, status, code=None):
-    run.status = status
-    run.error_code = code
-    run.complete = status == "completed"
-    run.completed_at = await now(db)
-    run.lease_token = None
-    run.lease_expires_at = None
+    if not await data.settle(db, run, job, status, code):
+        raise LostScanLease()
+    await data.execution_run(db, run.id)
     if job is not None:
-        job.status = status
-        job.progress_pct = 100 if run.complete else 0
-        job.completed_at = run.completed_at
-        job.error_message = code
-        job.result = {
-            **run.counts,
-            "complete": run.complete,
-            "error_code": code,
-            "run_id": str(run.id),
-        }
+        await jobs.get_job(db, job.id, populate_existing=True)
         await notify_job_terminal(db, job_id=job.id)
 
 
@@ -423,30 +342,21 @@ async def resume_scan(db, run_id, actor, *, api_key_id=None):
         and run.lease_expires_at > await now(db)
     ):
         raise HTTPException(409, "Scan worker still holds a current lease")
-    other = await db.scalar(
-        select(DatasetScanRun.id).where(
-            DatasetScanRun.source_id == source.id,
-            DatasetScanRun.id != run.id,
-            DatasetScanRun.status.in_(ACTIVE),
-        )
-    )
-    if other:
+    if await data.active_scan_id(db, source.id, except_run_id=run.id):
         raise HTTPException(409, "Another scan is active for this source")
     await locations.require_scan_node(
         db, location, f"worker:{source.config['node_id']}"
     )
     if job and job.status in ACTIVE:
         await finish(db, run, job, "failed", "attempt_superseded")
-    await new_job(db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof)
-    await db.flush()
-    return run
+    return await new_job(
+        db, run, source, actor, api_key_id=api_key_id, key_proof=key_proof
+    )
 
 
 async def cancel_job(db, job_id, actor):
     await require_actor(db, actor.id)
-    run_id = await db.scalar(
-        select(DatasetScanRun.id).where(DatasetScanRun.async_job_id == job_id)
-    )
+    run_id = await data.run_id_for_job(db, job_id)
     if run_id is None:
         raise HTTPException(409, "Scan attempt has been superseded")
     _, source, run, job = await run_context(db, run_id)
@@ -457,16 +367,15 @@ async def cancel_job(db, job_id, actor):
 
 
 async def signal_interrupted(db, job, *, cancelled):
-    run_id = await db.scalar(
-        select(DatasetScanRun.id).where(DatasetScanRun.async_job_id == job.id)
-    )
+    job_id, task_id = job.id, job.celery_task_id
+    run_id = await data.run_id_for_job(db, job_id)
     if run_id is None:
         return
     _, _, run, current = await run_context(db, run_id)
     if (
         current is None
-        or current.id != job.id
-        or current.celery_task_id != job.celery_task_id
+        or current.id != job_id
+        or current.celery_task_id != task_id
         or run.status not in ACTIVE
     ):
         return
@@ -513,24 +422,21 @@ async def claim(db, run_id, task_id, node_id):
             failure_code(exc, "node_not_verified"),
         )
         return None
-    source.generation += 1
     if location.kind == "agent":
-        probe = await db.get(
-            StorageLocationProbe,
-            (location.id, locations.probe_node_id(location, f"worker:{node_id}")),
-            populate_existing=True,
+        probe = await get_probe(
+            db, location.id, locations.probe_node_id(location, f"worker:{node_id}")
         )
         host_id = probe.result.get("host_id") if probe is not None else None
     else:
         host_id = fs.host_identity()
-    run.snapshot = {**run.snapshot, "scan_host_id": host_id}
-    run.generation = source.generation
-    run.lease_token = uuid.uuid4()
-    run.lease_expires_at = await now(db) + timedelta(seconds=LEASE_SECONDS)
-    run.status = "running"
-    run.phase = "resume_validation"
-    job.status = "running"
-    job.started_at = await now(db)
+    started_at = await data.claim(db, run, job, node_id, host_id)
+    if started_at is None:
+        return None
+    run = await data.execution_run(db, run.id)
+    set_committed_value(source, "generation", run.generation)
+    JobsLifecycleManager(
+        JobsLifecyclePostgresData(db), clock=lambda: started_at
+    ).mark_running(job)
     return (run.generation, run.lease_token)
 
 
@@ -585,36 +491,16 @@ async def next_directory(db, run_id, task_id, fence):
                 db, location, source, run, job, work
             )
         return work
-    base = select(DatasetScanEntry).where(
-        DatasetScanEntry.run_id == run.id, DatasetScanEntry.kind == "directory"
-    )
-    if run.phase in {"resume_validation", "validating"}:
-        query = base.where(
-            DatasetScanEntry.state == "captured",
-            DatasetScanEntry.validated_generation != run.generation,
-        )
-    else:
-        query = base.where(DatasetScanEntry.state == "pending")
-    entry = await db.scalar(query.order_by(DatasetScanEntry.path_digest).limit(1))
-    if entry is None:
-        if run.phase == "validating":
-            await finish(db, run, job, "completed")
-            return None
-        if run.phase == "resume_validation":
-            run.phase = "enumerating"
-        else:
-            run.phase = "validating"
-            await db.execute(
-                update(DatasetScanEntry)
-                .where(
-                    DatasetScanEntry.run_id == run.id,
-                    DatasetScanEntry.kind == "directory",
-                )
-                .values(validated_generation=0)
-            )
+    entry = await data.next_directory(db, run, job)
+    if entry.outcome == "stale":
+        raise LostScanLease()
+    if entry.outcome == "done":
+        await finish(db, run, job, "completed")
+        return None
+    run = await data.execution_run(db, run.id)
+    if entry.outcome == "transition":
         return {"transition": True}
-    run.lease_expires_at = await now(db) + timedelta(seconds=LEASE_SECONDS)
-    job.payload = {**job.payload, "stage": run.phase}
+    await jobs.update_payload(db, job.id, {"stage": run.phase})
     path = "/".join(
         part for part in [source.config["relative_path"], entry.relative_path] if part
     )
@@ -676,21 +562,17 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
     if work.get("kind") == "s3":
         from app.services.s3_dataset_scan import apply_page
 
-        return await apply_page(db, source, run, job, work, manifest)
-    entry = await db.get(
-        DatasetScanEntry, (run.id, work["path_digest"]), populate_existing=True
-    )
-    if run.phase != work["phase"] or entry is None:
+        return await apply_page(db, run, job, work, manifest)
+    if run.phase != work["phase"]:
         raise LostScanLease()
     if work["phase"] != "enumerating":
-        if entry.directory_digest != manifest["digest"]:
-            raise fs.FilesystemStorageError("directory_changed")
-        changed = entry.validated_generation != run.generation
-        entry.validated_generation = run.generation
-        if changed:
-            await directory_progress(db, run, job, task_id, entry)
+        result = await data.validate_directory(db, run, job, work, manifest)
+        require_capture(result.outcome)
+        if result.progress_count is not None:
+            await directory_progress(db, run, job, task_id, work, result.progress_count)
         return
-    if entry.state != "pending":
+    entry = await data.read_directory(db, run, job, work["path_digest"])
+    if entry is None or entry.state != "pending":
         raise LostScanLease()
     config = run.snapshot["config"]
     rows = []
@@ -711,7 +593,6 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
         )
         rows.append(
             {
-                "run_id": run.id,
                 "path_digest": path_digest(path),
                 "relative_path": path,
                 "kind": item["kind"],
@@ -721,84 +602,33 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
                 },
             }
         )
-    count = await db.scalar(
-        select(func.count())
-        .select_from(DatasetScanEntry)
-        .where(DatasetScanEntry.run_id == run.id)
-    )
-    directories = await db.scalar(
-        select(func.count())
-        .select_from(DatasetScanEntry)
-        .where(DatasetScanEntry.run_id == run.id, DatasetScanEntry.kind == "directory")
-    )
-    if (
-        count - 1 + len(rows) > run.snapshot["budget"]["max_entries"]
-        or directories + sum(item["kind"] == "directory" for item in rows)
-        > run.snapshot["budget"]["max_directories"]
-    ):
-        raise fs.FilesystemStorageError("scan_budget_exceeded")
+    result = await data.capture_directory(db, run, job, work, manifest, rows)
+    require_capture(result.outcome)
     if not entry.relative_path:
-        if (
-            source.root_identity is not None
-            and source.root_identity != manifest["identity"]
-        ):
-            raise fs.FilesystemStorageError("directory_identity_changed")
-        source.root_identity = manifest["identity"]
-    for offset in range(0, len(rows), 200):
-        await db.execute(
-            insert(DatasetScanEntry)
-            .values(rows[offset : offset + 200])
-            .on_conflict_do_nothing()
-        )
-    entry.state = "captured"
-    entry.observed = {"identity": manifest["identity"]}
-    entry.directory_digest = manifest["digest"]
-    await db.flush()
-    grouped = (
-        await db.execute(
-            select(DatasetScanEntry.kind, DatasetScanEntry.state, func.count())
-            .where(
-                DatasetScanEntry.run_id == run.id, DatasetScanEntry.relative_path != ""
-            )
-            .group_by(DatasetScanEntry.kind, DatasetScanEntry.state)
-        )
-    ).all()
-    run.counts = {
-        "processed_count": sum(n for _, _, n in grouped),
-        "file_count": sum(
-            n for kind, state, n in grouped if kind == "file" and state == "observed"
-        ),
-        "directory_count": sum(n for kind, _, n in grouped if kind == "directory"),
-        "skipped_count": sum(n for _, state, n in grouped if state == "skipped"),
-    }
-    run.lease_expires_at = await now(db) + timedelta(seconds=LEASE_SECONDS)
-    job.result = {**run.counts, "complete": False}
-    await directory_progress(db, run, job, task_id, entry)
+        set_committed_value(source, "root_identity", manifest["identity"])
+    await data.execution_run(db, run.id)
+    await jobs.replace_result(db, job.id, result={**result.counts, "complete": False})
+    await directory_progress(db, run, job, task_id, work, result.progress_count)
 
 
-async def directory_progress(db, run, job, task_id, entry):
-    """Observe only accepted directory facts inside the scan owner's transaction."""
+def require_capture(outcome):
+    if outcome == "stale":
+        raise LostScanLease()
+    if outcome != "accepted":
+        raise fs.FilesystemStorageError(outcome)
+
+
+async def directory_progress(db, run, job, task_id, work, completed):
     await db.flush()
-    query = (
-        select(func.count())
-        .select_from(DatasetScanEntry)
-        .where(
-            DatasetScanEntry.run_id == run.id,
-            DatasetScanEntry.kind == "directory",
-            DatasetScanEntry.state == "captured",
-        )
-    )
     validating = run.phase != "enumerating"
-    if validating:
-        query = query.where(DatasetScanEntry.validated_generation == run.generation)
     await progress.record(
         db,
         job,
         task_id=task_id,
         stage="validating" if validating else "scanning",
         unit="directories",
-        completed=await db.scalar(query),
-        marker=f"{run.id}:{run.generation}:{run.phase}:{entry.path_digest}",
+        completed=completed,
+        marker=f"{run.id}:{run.generation}:{run.phase}:{work['path_digest']}",
     )
 
 

@@ -288,7 +288,12 @@ async def test_cache_record_does_not_rewrite_source_missing_observation(
         await preflight(db, rescanned)
     async with world.factory() as db:
         ids = await available_cache_ids(db, world.dataset_id, world.manager)
-        obs = observations(world.dataset_id, world.manager, cache_entry_ids=ids)
+        obs = observations(
+            world.dataset_id,
+            world.manager,
+            item_ids=[world.item_id],
+            cache_entry_ids=ids,
+        )
         row = (
             (await db.execute(select(obs).where(obs.c.item_id == world.item_id)))
             .mappings()
@@ -308,7 +313,12 @@ async def test_cache_record_does_not_rewrite_source_missing_observation(
         await db.commit()
     async with world.factory() as db:
         ids = await available_cache_ids(db, world.dataset_id, world.manager)
-        obs = observations(world.dataset_id, world.manager, cache_entry_ids=ids)
+        obs = observations(
+            world.dataset_id,
+            world.manager,
+            item_ids=[world.item_id],
+            cache_entry_ids=ids,
+        )
         row = (
             (await db.execute(select(obs).where(obs.c.item_id == world.item_id)))
             .mappings()
