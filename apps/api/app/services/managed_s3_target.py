@@ -9,10 +9,9 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.config import settings
-from app.db.models.storage_connection import StorageConnection
-from app.services import connector_guard, storage_access
+from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.source_readers.s3 import S3Access, ScopedS3Access, configured_endpoint
+from app.services.source_readers.s3 import ScopedS3Access, configured_endpoint
 from app.services.storage_registry_data import get_connection
 from app.services.reference_keys import is_reference
 
@@ -184,10 +183,15 @@ class Target:
     bucket: str
     key_prefix: str
     purpose: str = field(default="avatars", repr=False, compare=False)
-    _access: S3Access | ScopedS3Access | None = field(
-        default=None, repr=False, compare=False
-    )
+    _access: ScopedS3Access | None = field(default=None, repr=False, compare=False)
     _legacy_client: object = field(default=None, repr=False, compare=False)
+
+    @property
+    def is_registered(self):
+        """Whether physical work must use the registered Source channel."""
+        return self.location_id != LEGACY_LOCATION_ID and not isinstance(
+            self._access, ScopedS3Access
+        )
 
     @property
     def facts(self):
@@ -202,6 +206,8 @@ class Target:
 
     @contextmanager
     def client(self, *, read_timeout=None, single_attempt=False, owned=False):
+        if self.is_registered:
+            raise error(self.purpose, "source_unavailable")
         if self._access is None and self._legacy_client is None:
             raise error(self.purpose, "binding_unproven")
         if self._access is None and owned:
@@ -371,23 +377,7 @@ async def target_for(
         return replace(
             origin, _legacy_client=owner_module(purpose).storage_service.client
         )
-    connection = await db.get(
-        StorageConnection, location.connection_id, populate_existing=True
-    )
-    if (
-        connection is None
-        or connection.revision != origin.connection_revision
-        or not connection.secret_enc
-    ):
-        raise error(purpose, "binding_unproven")
-    return replace(
-        origin,
-        _access=S3Access(
-            dict(connection.config),
-            connection.secret_enc,
-            tuple(await connector_guard.get_allowlist(db)),
-        ),
-    )
+    return origin
 
 
 def version_id(response, *, purpose="avatars"):

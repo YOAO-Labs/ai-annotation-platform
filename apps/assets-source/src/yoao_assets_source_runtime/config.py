@@ -19,6 +19,7 @@ from yoao_assets_source.connectors.host_guard import (
     ConnectorAllowlistInvalid,
     normalize_allowlist,
 )
+from yoao_assets_source.saved_io import READ_WRITE_SCOPES, TOKEN_SETTINGS, valid_token
 
 
 class ConfigurationError(ValueError):
@@ -128,20 +129,23 @@ def _known_hosts_file(environment: Mapping[str, str]) -> str | None:
     return str(path)
 
 
-def _postgres_dsn(environment: Mapping[str, str]) -> tuple[str, str]:
-    raw = _required_secret(environment, "ASSETS_SOURCE_DATABASE_URL")
+def _postgres_dsn(
+    environment: Mapping[str, str], name: str = "ASSETS_SOURCE_DATABASE_URL"
+) -> tuple[str, str]:
+    raw = _required_secret(environment, name)
     try:
         parsed = urlsplit(raw)
         parsed.port
         valid = (
             parsed.scheme in {"postgres", "postgresql", "postgresql+asyncpg"}
             and bool(parsed.hostname)
-            and parsed.username is not None
+            and bool(parsed.username)
+            and not parsed.fragment
         )
     except ValueError:
         valid = False
     if not valid:
-        raise ConfigurationError("ASSETS_SOURCE_DATABASE_URL must be a PostgreSQL URL")
+        raise ConfigurationError(f"{name} must be a PostgreSQL URL")
     driver_dsn = urlunsplit(
         (
             "postgresql" if parsed.scheme == "postgresql+asyncpg" else parsed.scheme,
@@ -258,6 +262,14 @@ class NativeSignerSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class SavedIOSettings:
+    database_url: str = field(repr=False)
+    tokens: Mapping[str, str] = field(repr=False)
+    spool_dir: str | None
+    max_upload_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
 class SourceConfig:
     database_url: str
     driver_database_url: str
@@ -289,6 +301,10 @@ class SourceConfig:
     upload_url_expires_seconds: int = 900
     image_header_bytes: int = 256 * 1024
     native: NativeSignerSettings | None = None
+    connections_token: str = field(default="", repr=False)
+    saved_io: SavedIOSettings | None = None
+    annotations_bucket: str | None = None
+    sftp_roots: dict[str, dict] = field(default_factory=dict)
 
     @property
     def cleanup_bucket(self) -> str:
@@ -305,8 +321,7 @@ def _native_signer_settings(
 ) -> NativeSignerSettings | None:
     """Load the whole Native signer or leave the feature unconfigured."""
     values = {
-        name: _optional_secret(environment, name)
-        for name in _NATIVE_SIGNER_SECRETS
+        name: _optional_secret(environment, name) for name in _NATIVE_SIGNER_SECRETS
     }
     configured = [name for name, value in values.items() if value]
     if not configured:
@@ -345,6 +360,68 @@ def _native_signer_settings(
     )
 
 
+def _saved_io_settings(
+    source: Mapping[str, str],
+    existing_tokens: tuple[str, ...],
+    connector_key: str,
+    management_dsn: str,
+) -> SavedIOSettings | None:
+    token_values = {
+        scope: _optional_secret(source, name) for scope, name in TOKEN_SETTINGS.items()
+    }
+    database_name = "ASSETS_SOURCE_SAVED_IO_DATABASE_URL"
+    database = _optional_secret(source, database_name)
+    if not database and not any(token_values.values()):
+        return None
+    if (
+        not database
+        or not connector_key
+        or any(not token_values[scope] for scope in READ_WRITE_SCOPES)
+    ):
+        raise ConfigurationError(
+            "Saved I/O requires the dedicated PostgreSQL URL, read/write/cleanup "
+            "tokens and Source connector encryption key together"
+        )
+    tokens = {scope: token for scope, token in token_values.items() if token}
+    if not all(valid_token(token) for token in tokens.values()) or len(
+        {*tokens.values(), *existing_tokens}
+    ) != len(tokens) + len(existing_tokens):
+        raise ConfigurationError("Saved I/O bearer tokens must be valid and distinct")
+    _, dsn = _postgres_dsn({database_name: database}, database_name)
+    if dsn == management_dsn:
+        raise ConfigurationError("Saved I/O must use a dedicated PostgreSQL login")
+    spool = source.get("ASSETS_SOURCE_SAVED_IO_SPOOL_DIR", "").strip()
+    if (
+        not spool
+        or not Path(spool).is_dir()
+        or not os.access(spool, os.R_OK | os.W_OK | os.X_OK)
+    ):
+        raise ConfigurationError("ASSETS_SOURCE_SAVED_IO_SPOOL_DIR is not accessible")
+    return SavedIOSettings(
+        database_url=dsn,
+        tokens=tokens,
+        spool_dir=spool,
+        max_upload_bytes=_positive_int(
+            source,
+            "ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES",
+            "68719476736",
+            maximum=5 * 1024**4,
+        ),
+    )
+
+
+def _sftp_roots(source: Mapping[str, str]) -> dict[str, dict]:
+    raw = source.get("STORAGE_SFTP_ROOTS", "").strip()
+    if not raw or raw == "{}":
+        return {}
+    from yoao_assets_source.reference_protocol import parse_sftp_roots
+
+    try:
+        return parse_sftp_roots(raw)
+    except ValueError:
+        raise ConfigurationError("STORAGE_SFTP_ROOTS is invalid") from None
+
+
 def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
     database_url, driver_database_url = _postgres_dsn(source)
     service_token, host, port, max_request_bytes, max_response_bytes = (
@@ -354,7 +431,9 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
     try:
         token_bytes = import_verify_token.encode("ascii")
     except UnicodeEncodeError as exc:
-        raise ConfigurationError("ASSETS_SOURCE_IMPORT_VERIFY_TOKEN must be ASCII") from exc
+        raise ConfigurationError(
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN must be ASCII"
+        ) from exc
     if (
         len(token_bytes) < 32
         or any(chr(byte).isspace() for byte in token_bytes)
@@ -394,6 +473,19 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
         source_access_key=source_access_key,
     )
 
+    existing = (service_token, import_verify_token)
+    if native is not None:
+        existing += (native.writer_token, native.reader_token, native.cleanup_token)
+    connections_token = _optional_secret(source, "ASSETS_SOURCE_CONNECTIONS_TOKEN")
+    if connections_token:
+        if not valid_token(connections_token) or connections_token in existing:
+            raise ConfigurationError(
+                "ASSETS_SOURCE_CONNECTIONS_TOKEN must be valid and distinct"
+            )
+        existing += (connections_token,)
+    connector_key = _connector_encryption_key(source)
+    saved_io = _saved_io_settings(source, existing, connector_key, driver_database_url)
+
     return SourceConfig(
         database_url=database_url,
         driver_database_url=driver_database_url,
@@ -404,7 +496,7 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
         s3_region=region,
         s3_access_key=source_access_key,
         s3_secret_key=_required_secret(source, "ASSETS_SOURCE_S3_SECRET_KEY"),
-        connector_encryption_key=_connector_encryption_key(source),
+        connector_encryption_key=connector_key,
         connector_host_allowlist=_connector_host_allowlist(source),
         sftp_known_hosts_file=_known_hosts_file(source),
         datasets_bucket=_bucket(source, "ASSETS_SOURCE_DATASETS_BUCKET"),
@@ -433,6 +525,14 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
         ),
         image_policy=image_policy,
         native=native,
+        connections_token=connections_token,
+        saved_io=saved_io,
+        annotations_bucket=(
+            _bucket(source, "ASSETS_SOURCE_ANNOTATIONS_BUCKET")
+            if source.get("ASSETS_SOURCE_ANNOTATIONS_BUCKET", "").strip()
+            else None
+        ),
+        sftp_roots=_sftp_roots(source),
     )
 
 

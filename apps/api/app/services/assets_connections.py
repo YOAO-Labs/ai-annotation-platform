@@ -18,22 +18,13 @@ from yoao_assets_source.connections_contract import (
     CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
     CONNECTION_OPERATIONS,
-    RUNTIME_NATIVE_ARGUMENTS,
-    RUNTIME_NATIVE_SIGNATURES,
-    CaptureConnectionRequest,
-    ConnectionCapture,
     ConnectionFailure,
     ConnectionMutation,
-    ConnectionPolicy,
-    ConnectionPolicyRequest,
-    ConnectionProbeFinish,
-    ConnectionProbeLease,
     ConnectionProbeReceipt,
     ConnectionReceiptLookup,
     ConnectionReceiptRequest,
     ConnectionRead,
     ConnectionsPage,
-    CreateConnectionNativeRequest,
     CreateConnectionRequest,
     DeleteConnectionRequest,
     ListConnectionsRequest,
@@ -41,15 +32,14 @@ from yoao_assets_source.connections_contract import (
     NativeConnectionRead,
     NativeConnectionsPage,
     ReadConnectionRequest,
-    RecordConnectionTestRequest,
     TestConnectionRequest,
-    UpdateConnectionAuthorizedRequest,
     UpdateConnectionRequest,
-    decode_connection_probe_reply,
     decode_connection_reply,
     require_connection_scope,
 )
+from yoao_assets_source.saved_io import SavedIOError, valid_token
 from app.config import settings
+from app.services.saved_io import source_token
 
 _RESULT = TypeVar("_RESULT", bound=BaseModel)
 _MAX_REQUEST_BYTES = 1 * 1024 * 1024
@@ -127,9 +117,9 @@ class AssetsConnectionsGatewayError(HTTPException):
         )
 
 
-def _peer_url() -> str | None:
+def _peer_url(token: str) -> str | None:
     value = settings.assets_source_url
-    if not value:
+    if not token:
         return None
     try:
         parsed = urlsplit(value)
@@ -144,16 +134,7 @@ def _peer_url() -> str | None:
         )
     except ValueError:
         valid = False
-    token = settings.assets_source_token
-    if (
-        not valid
-        or len(token) < 32
-        or not token.isascii()
-        or any(
-            character.isspace() or ord(character) < 32 or ord(character) == 127
-            for character in token
-        )
-    ):
+    if not valid or not valid_token(token):
         raise AssetsConnectionsGatewayError(
             "service_unavailable", "Assets source service is unavailable", 503
         )
@@ -264,15 +245,16 @@ class AssetsConnectionsGateway:
 
         return ConnectionsWorkflow(
             native=self,
-            options=ConnectionsOptions(
-                encryption_key=settings.connector_encryption_key,
-                fallback_allowlist=tuple(settings.connector_host_allowlist),
-                known_hosts_file=None,
-            ),
+            options=ConnectionsOptions(),
         )
 
     async def _remote(
-        self, peer: str, operation: str, request: BaseModel, result_type: type[_RESULT]
+        self,
+        peer: str,
+        token: str,
+        operation: str,
+        request: BaseModel,
+        result_type: type[_RESULT],
     ) -> _RESULT:
         body = _encode_request(request)
         try:
@@ -285,7 +267,7 @@ class AssetsConnectionsGateway:
                     "POST",
                     f"{peer}/v1/connections/{operation}",
                     headers={
-                        "Authorization": f"Bearer {settings.assets_source_token}",
+                        "Authorization": f"Bearer {token}",
                         "Content-Type": "application/json",
                         "Accept": "application/json",
                     },
@@ -340,13 +322,28 @@ class AssetsConnectionsGateway:
         if CONNECTION_OPERATIONS.get(operation) != (type(request), result_type):
             raise TypeError(f"Invalid connection request/result pair for {operation}")
         _encode_request(request)
-        peer = _peer_url() if operation in _MUTATING_OPERATIONS else None
+        peer = None
+        token = ""
+        if operation in _MUTATING_OPERATIONS:
+            try:
+                token = source_token("connections") or settings.assets_source_token
+            except SavedIOError:
+                raise AssetsConnectionsGatewayError(
+                    "service_unavailable", "Assets source service is unavailable", 503
+                ) from None
+            peer = _peer_url(token)
         local = peer is None
+        if local and operation in {"create", "update", "test"}:
+            raise AssetsConnectionsGatewayError(
+                "service_unavailable", "Assets source service is unavailable", 503
+            )
         try:
             if peer is None:
                 result = await self._workflow().invoke(operation, request)
             else:
-                result = await self._remote(peer, operation, request, result_type)
+                result = await self._remote(
+                    peer, token, operation, request, result_type
+                )
             if not isinstance(result, result_type):
                 raise _invalid_response()
             try:
@@ -442,53 +439,6 @@ class AssetsConnectionsGateway:
     ) -> ConnectionMutation:
         return await self._invoke("update", request, ConnectionMutation, commit=True)
 
-    async def begin_connection_probe(self, request):
-        return await self._runtime_call(
-            "begin_connection_probe", request, ConnectionProbeLease
-        )
-
-    async def finish_connection_probe(self, request):
-        return await self._runtime_call(
-            "finish_connection_probe", request, ConnectionProbeFinish
-        )
-
-    async def _runtime_call(self, name, request, result_type):
-        arguments = RUNTIME_NATIVE_ARGUMENTS[name]
-        kinds = RUNTIME_NATIVE_SIGNATURES[name].split(",")
-        placeholders = ", ".join(
-            f"CAST(:{argument} AS {kind})"
-            for argument, kind in zip(arguments, kinds, strict=True)
-        )
-        parameters = {}
-        for argument, kind in zip(arguments, kinds, strict=True):
-            value = getattr(request, argument)
-            if kind == "jsonb":
-                parameters[argument] = (
-                    None
-                    if value is None
-                    else json.dumps(
-                        _json_value(value), separators=(",", ":"), allow_nan=False
-                    )
-                )
-            elif kind == "text[]":
-                parameters[argument] = list(value)
-            else:
-                parameters[argument] = value
-        statement = text(f"SELECT yoao_assets_v1.{name}({placeholders})")
-        if name in {"begin_connection_probe", "finish_connection_probe"}:
-            from app.services.storage_access import engine
-
-            async with engine(self.db).begin() as connection:
-                payload = await connection.scalar(statement, parameters)
-        else:
-            payload = await self.db.scalar(statement, parameters)
-        try:
-            return decode_connection_probe_reply(payload, result_type)
-        except ConnectionFailure:
-            raise
-        except (ValidationError, ValueError, TypeError):
-            raise ConnectionFailure("invalid_response") from None
-
     async def delete_connection(
         self, request: DeleteConnectionRequest
     ) -> ConnectionMutation:
@@ -568,30 +518,6 @@ class AssetsConnectionsGateway:
             NativeConnectionRead,
         )
 
-    async def read_storage_connection_policy(
-        self, request: ConnectionPolicyRequest
-    ) -> ConnectionPolicy:
-        return await self._native_call(
-            "read_storage_connection_policy",
-            request,
-            (request.actor_id, request.fallback_allowlist),
-            ConnectionPolicy,
-        )
-
-    async def capture_storage_connection(
-        self, request: CaptureConnectionRequest
-    ) -> ConnectionCapture:
-        return await self._native_call(
-            "capture_storage_connection",
-            request,
-            (
-                request.actor_id,
-                request.connection_id,
-                request.access,
-            ),
-            ConnectionCapture,
-        )
-
     async def read_storage_connection_receipt(
         self, request: ConnectionReceiptRequest
     ) -> ConnectionReceiptLookup:
@@ -608,49 +534,6 @@ class AssetsConnectionsGateway:
             ConnectionReceiptLookup,
         )
 
-    async def create_storage_connection(
-        self, request: CreateConnectionNativeRequest
-    ) -> NativeConnectionMutation:
-        return await self._native_call(
-            "create_storage_connection",
-            request,
-            (
-                request.operation_id,
-                request.actor_id,
-                request.intent,
-                request.config,
-                request.secret_enc,
-                request.policy_digest,
-                request.fallback_allowlist,
-                request.audit_context,
-            ),
-            NativeConnectionMutation,
-        )
-
-    async def update_storage_connection_authorized(
-        self, request: UpdateConnectionAuthorizedRequest
-    ) -> NativeConnectionMutation:
-        return await self._native_call(
-            "update_storage_connection_authorized",
-            request,
-            (
-                request.operation_id,
-                request.actor_id,
-                request.connection_id,
-                request.intent,
-                request.config,
-                request.secret_enc,
-                request.source_snapshot,
-                request.policy_digest,
-                request.fallback_allowlist,
-                request.audit_context,
-                request.api_key_id,
-                request.required_scopes,
-                request.expected_proof,
-            ),
-            NativeConnectionMutation,
-        )
-
     async def delete_storage_connection(
         self, request: DeleteConnectionRequest
     ) -> NativeConnectionMutation:
@@ -664,23 +547,4 @@ class AssetsConnectionsGateway:
                 request.audit_context,
             ),
             NativeConnectionMutation,
-        )
-
-    async def record_storage_connection_test(
-        self, request: RecordConnectionTestRequest
-    ) -> ConnectionProbeReceipt:
-        return await self._native_call(
-            "record_storage_connection_test",
-            request,
-            (
-                request.operation_id,
-                request.actor_id,
-                request.connection_id,
-                request.source_snapshot,
-                request.policy_digest,
-                request.fallback_allowlist,
-                request.result,
-                request.audit_context,
-            ),
-            ConnectionProbeReceipt,
         )

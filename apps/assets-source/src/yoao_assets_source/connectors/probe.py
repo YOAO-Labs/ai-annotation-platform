@@ -78,6 +78,7 @@ async def probe_connection(
     *,
     allowlist: list[str],
     known_hosts_file: str | None = None,
+    pin_transport: bool = False,
 ) -> tuple[bool, str, int | None]:
     """Check a connector and count a small sample without exposing SDK errors."""
     normalized_allowlist = normalize_allowlist(allowlist)
@@ -94,9 +95,12 @@ async def probe_connection(
             dict(config or {}),
             dict(secret or {}),
             known_hosts_file,
+            *([normalized_allowlist] if pin_transport else []),
         )
         return True, "连接成功", count
     except Exception as exc:  # noqa: BLE001 - never expose SDK text or endpoints
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
         return False, f"连接失败: {_safe_exception_class(exc)}", None
 
 
@@ -112,32 +116,46 @@ def _probe_blocking(
     config: dict[str, Any],
     secret: dict[str, Any],
     known_hosts_file: str | None,
+    allowlist: list[str] | None = None,
 ) -> int:
     if kind == "s3":
-        return _probe_s3(config, secret)
-    return _probe_sftp(config, secret, known_hosts_file)
+        return (
+            _probe_s3(config, secret, allowlist)
+            if allowlist is not None
+            else _probe_s3(config, secret)
+        )
+    if allowlist is None:
+        return _probe_sftp(config, secret, known_hosts_file)
+    return _probe_sftp(config, secret, known_hosts_file, allowlist)
 
 
-def _probe_s3(config: dict[str, Any], secret: dict[str, Any]) -> int:
-    import boto3
-    from botocore.config import Config as BotoConfig
+def _probe_s3(config: dict[str, Any], secret: dict[str, Any], allowlist=None) -> int:
+    if allowlist is not None:
+        from .s3_socket import open_pinned_s3
 
-    scheme = "https" if config.get("use_ssl") else "http"
-    endpoint = config["endpoint"]
-    if "://" not in endpoint:
-        endpoint = f"{scheme}://{endpoint}"
-    client = boto3.client(
-        "s3",
-        endpoint_url=endpoint,
-        aws_access_key_id=secret.get("access_key") or "",
-        aws_secret_access_key=secret.get("secret_key") or "",
-        region_name=config.get("region"),
-        config=BotoConfig(
-            connect_timeout=10,
-            read_timeout=15,
-            retries={"total_max_attempts": 1, "mode": "standard"},
-        ),
-    )
+        client = open_pinned_s3(
+            config, secret, allowlist, connect_timeout=10, read_timeout=15
+        )
+    else:
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        scheme = "https" if config.get("use_ssl") else "http"
+        endpoint = config["endpoint"]
+        if "://" not in endpoint:
+            endpoint = f"{scheme}://{endpoint}"
+        client = boto3.client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id=secret.get("access_key") or "",
+            aws_secret_access_key=secret.get("secret_key") or "",
+            region_name=config.get("region"),
+            config=BotoConfig(
+                connect_timeout=10,
+                read_timeout=15,
+                retries={"total_max_attempts": 1, "mode": "standard"},
+            ),
+        )
     try:
         response = client.list_objects_v2(
             Bucket=config["bucket"],
@@ -153,6 +171,7 @@ def _probe_sftp(
     config: dict[str, Any],
     secret: dict[str, Any],
     known_hosts_file: str | None,
+    allowlist: list[str] | None = None,
 ) -> int:
     import paramiko
 
@@ -161,6 +180,7 @@ def _probe_sftp(
     client = paramiko.SSHClient()
     sftp = None
     entries = None
+    sock = None
     try:
         with _close_on_deadline(client.close):
             if known_hosts_file:
@@ -169,6 +189,15 @@ def _probe_sftp(
                 client.load_system_host_keys()
             client.set_missing_host_key_policy(paramiko.RejectPolicy())
             private_key = load_sftp_private_key(secret)
+            if allowlist is not None:
+                from .host_guard import open_allowed_socket
+
+                sock = open_allowed_socket(
+                    config["host"],
+                    int(config.get("port", 22)),
+                    allowlist,
+                    timeout=PROBE_CONNECT_TIMEOUT,
+                )
             client.connect(
                 hostname=config["host"],
                 port=int(config.get("port", 22)),
@@ -180,6 +209,7 @@ def _probe_sftp(
                 channel_timeout=PROBE_CONNECT_TIMEOUT,
                 allow_agent=False,
                 look_for_keys=False,
+                **({"sock": sock} if sock is not None else {}),
             )
             sftp = client.open_sftp()
             channel = getattr(sftp, "get_channel", lambda: None)()
@@ -196,7 +226,7 @@ def _probe_sftp(
                     break
             return count
     finally:
-        _close_all(entries, sftp, client)
+        _close_all(entries, sftp, client, sock)
 
 
 __all__ = ["probe_connection"]

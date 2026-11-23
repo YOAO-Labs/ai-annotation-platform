@@ -41,16 +41,22 @@ def test_config_uses_bounded_defaults_and_media_cache_cleanup_target() -> None:
 
 
 def test_import_verification_budget_is_independent_and_bounded() -> None:
-    config = load_config({
-        **_environment(),
-        "ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS": "1",
-        "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": "600",
-    })
+    config = load_config(
+        {
+            **_environment(),
+            "ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS": "1",
+            "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": "600",
+        }
+    )
     assert config.s3_read_timeout_seconds == 1
     assert config.import_verify_timeout_seconds == 600
     for value in ("0.09", "600.1", "nan"):
-        with pytest.raises(ConfigurationError, match="ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS"):
-            load_config({**_environment(), "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": value})
+        with pytest.raises(
+            ConfigurationError, match="ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS"
+        ):
+            load_config(
+                {**_environment(), "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": value}
+            )
 
 
 def test_source_config_captures_explicit_image_policy_environment():
@@ -252,3 +258,62 @@ def test_config_rejects_unsafe_or_inconsistent_values(
 ) -> None:
     with pytest.raises(ConfigurationError, match=message):
         load_config({**_environment(), key: value})
+
+
+def test_saved_io_requires_an_independent_complete_profile(tmp_path):
+    assert load_config(_environment()).saved_io is None
+    key = Fernet.generate_key().decode("ascii")
+    environment = {
+        **_environment(),
+        "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": key,
+        "ASSETS_SOURCE_CONNECTIONS_TOKEN": "m" * 40,
+        "ASSETS_SOURCE_SAVED_IO_DATABASE_URL": "postgresql+asyncpg://saved_io:private@db.test/aap",
+        "ASSETS_SOURCE_SAVED_IO_READ_TOKEN": "r" * 40,
+        "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN": "w" * 40,
+        "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN": "c" * 40,
+        "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR": str(tmp_path),
+    }
+    config = load_config(environment)
+    assert config.saved_io is not None
+    assert config.saved_io.database_url.startswith("postgresql://saved_io:")
+    assert set(config.saved_io.tokens) == {"read", "write", "cleanup"}
+    assert config.saved_io.spool_dir == str(tmp_path)
+    assert config.saved_io.max_upload_bytes == 64 * 1024**3
+    assert "private" not in repr(config.saved_io)
+    assert key not in repr(config)
+
+    for name in (
+        "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY",
+        "ASSETS_SOURCE_SAVED_IO_DATABASE_URL",
+        "ASSETS_SOURCE_SAVED_IO_READ_TOKEN",
+        "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN",
+        "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN",
+        "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR",
+    ):
+        with pytest.raises(ConfigurationError):
+            load_config({**environment, name: ""})
+    for name, value in (
+        (
+            "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN",
+            environment["ASSETS_SOURCE_CONNECTIONS_TOKEN"],
+        ),
+        ("ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN", environment["ASSETS_SOURCE_TOKEN"]),
+        (
+            "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN",
+            environment["ASSETS_SOURCE_SAVED_IO_READ_TOKEN"],
+        ),
+        (
+            "ASSETS_SOURCE_SAVED_IO_DATABASE_URL",
+            environment["ASSETS_SOURCE_DATABASE_URL"],
+        ),
+        ("ASSETS_SOURCE_SAVED_IO_SPOOL_DIR", str(tmp_path / "missing")),
+    ):
+        with pytest.raises(ConfigurationError):
+            load_config({**environment, name: value})
+    enabled_cutover = load_config(
+        {
+            **environment,
+            "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN": "x" * 40,
+        }
+    )
+    assert enabled_cutover.saved_io.tokens["cutover"] == "x" * 40
