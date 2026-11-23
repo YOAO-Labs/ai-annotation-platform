@@ -126,6 +126,22 @@ class EnvironmentTests(unittest.TestCase):
             environment["INFERENCE_BACKEND_CONTROL_URL"], "http://fixture-owner"
         )
 
+    def test_application_clears_insights_refresh_selectors_case_insensitively(self):
+        from worktree_env import application_environment
+
+        env = application_environment(
+            {
+                "insights_refresh_database_url": "postgresql://fixture-owner/postgres",
+                "Insights_Refresh_Database_Url_File": "/tmp/fixture-refresh",
+                "DATABASE_URL": "postgresql://fixture-runtime/annotation",
+            }
+        )
+        self.assertEqual(env["INSIGHTS_REFRESH_DATABASE_URL"], "")
+        self.assertEqual(env["INSIGHTS_REFRESH_DATABASE_URL_FILE"], "")
+        self.assertNotIn("insights_refresh_database_url", env)
+        self.assertNotIn("Insights_Refresh_Database_Url_File", env)
+        self.assertEqual(env["DATABASE_URL"], "postgresql://fixture-runtime/annotation")
+
     def test_every_identity_settings_database_selector_is_overridden(self):
         import ast
         from worktree_env import isolated_environment, load_identity, topology
@@ -179,6 +195,8 @@ class EnvironmentTests(unittest.TestCase):
             "JOBS_DISPATCH_RELAY_DATABASE_URL_FILE",
             "JOBS_DISPATCH_DATABASE_URL",
             "JOBS_PUBLICATION_DATABASE_URL_FILE",
+            "INSIGHTS_REFRESH_DATABASE_URL",
+            "INSIGHTS_REFRESH_DATABASE_URL_FILE",
             "IDENTITY_URL",
             "IDENTITY_RUNTIME_SIGNING_SECRET_FILE",
             "IDENTITY_EMBEDDED_SIGNING_SECRET_FILE",

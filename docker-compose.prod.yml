@@ -10,6 +10,8 @@ x-private-env: &private-env
   JOBS_PUBLICATION_DATABASE_URL_FILE: ""
   EXPORT_EXECUTION_DATABASE_URL: ""
   EXPORT_EXECUTION_DATABASE_URL_FILE: ""
+  INSIGHTS_REFRESH_DATABASE_URL: ""
+  INSIGHTS_REFRESH_DATABASE_URL_FILE: ""
   NOTIFICATION_PUBLICATION_URL: ""
   NOTIFICATION_PUBLICATION_TOKEN: ""
   NOTIFICATION_PUBLICATION_TOKEN_FILE: ""
@@ -349,6 +351,7 @@ services:
     environment:
       <<: [*assets-source-read-env, *assets-source-write-env, *prod-infra-env]
       DATABASE_URL: ${MIGRATION_DATABASE_URL:-${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}}
+      INSIGHTS_REFRESH_DATABASE_URL_FILE: ${INSIGHTS_REFRESH_DATABASE_URL_FILE:+/run/secrets/insights_refresh_database_url}
     depends_on:
       api:
         condition: service_healthy

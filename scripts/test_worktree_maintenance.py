@@ -40,6 +40,11 @@ class MaintenanceTests(unittest.TestCase):
             ):
                 shutil.copy(ROOT / name, root / name)
             (root / ".env.production").write_text("")
+            insights_refresh = root / "insights-refresh-database-url"
+            insights_refresh.write_text(
+                "postgresql://insights_refresh:fixture@postgres/prod\n",
+                encoding="utf-8",
+            )
             values = {
                 "DATABASE_URL_DOCKER": "postgresql+asyncpg://runtime:fixture@postgres/dev",
                 "MIGRATION_DATABASE_URL_DOCKER": "postgresql+asyncpg://owner:fixture@postgres/dev",
@@ -55,6 +60,7 @@ class MaintenanceTests(unittest.TestCase):
                 "AAP_SHARED_NETWORK": "fixture",
                 "AAP_PRODUCTION_STATE_DIR": temporary,
                 "LAN_BIND_IP": "127.0.0.1",
+                "INSIGHTS_REFRESH_DATABASE_URL_FILE": str(insights_refresh),
             }
             env_file.write_text(
                 "".join(f"{key}={value}\n" for key, value in values.items())
