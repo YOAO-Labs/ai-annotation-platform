@@ -5,7 +5,6 @@ import uuid
 
 from fastapi import HTTPException
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import select
 from training_contract.initialization import (
     policy_for_model,
     validate_pin,
@@ -19,12 +18,12 @@ from training_contract.dataset import (
     data_task,
 )
 
-from app.db.models.trained_model import TrainedModelVersion
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.schemas.training_initialization import TrainingInitialization
 from app.services.storage import storage_service as storage
 from app.services import training_adapters
+from app.services import learning_models_data as models
+from app.services import training_dataset_data as datasets
+from app.services import training_run_data as runs
 from app.services.training_dataset_bridge import content_digest
 
 
@@ -62,29 +61,13 @@ def compatible_pin(pin, framework, base_model, classes=None, *, framework_versio
 
 
 async def source_pin(db, project_id, version_id):
-    version = await db.scalar(
-        select(TrainedModelVersion)
-        .where(
-            TrainedModelVersion.id == version_id,
-            TrainedModelVersion.project_id == project_id,
-        )
-        .with_for_update(read=True, key_share=True)
-    )
+    version = await models.get_version(db, project_id, version_id, key_share=True)
     if version is None:
         raise HTTPException(status_code=404, detail="初始化模型不存在或不属于当前项目")
-    run = await db.scalar(
-        select(TrainingRun).where(
-            TrainingRun.id == version.run_id, TrainingRun.project_id == project_id
-        )
-    )
-    attempt = await db.get(TrainingAttempt, version.attempt_id)
+    run = await runs.get_run(db, project_id, version.run_id)
+    attempt = await runs.get_attempt(db, version.attempt_id)
     dataset = (
-        await db.scalar(
-            select(TrainingDatasetVersion).where(
-                TrainingDatasetVersion.id == run.dataset_id,
-                TrainingDatasetVersion.project_id == project_id,
-            )
-        )
+        await datasets.read_version_facts(db, run.dataset_id, project_id=project_id)
         if run
         else None
     )
@@ -228,7 +211,9 @@ async def source_storage_owner(db, pin):
     from app.services.trained_models import owner_for_model
 
     try:
-        version = await db.get(TrainedModelVersion, uuid.UUID(pin["model_version_id"]))
+        version = await models.get_version(
+            db, uuid.UUID(pin["project_id"]), uuid.UUID(pin["model_version_id"])
+        )
         if (
             version is None
             or any(
@@ -366,11 +351,8 @@ async def eligibility(
         }
     classes = None
     if dataset_id:
-        dataset = await db.scalar(
-            select(TrainingDatasetVersion).where(
-                TrainingDatasetVersion.id == dataset_id,
-                TrainingDatasetVersion.project_id == project_id,
-            )
+        dataset = await datasets.read_version_facts(
+            db, dataset_id, project_id=project_id
         )
         if dataset is None:
             raise HTTPException(status_code=404, detail="训练数据版本不存在")

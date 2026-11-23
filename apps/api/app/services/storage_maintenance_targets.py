@@ -33,10 +33,9 @@ from app.db.models.task import Task
 from app.db.models.task_original import TaskOriginal
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_preview import TrainingPreview
-from app.db.models.training_run import TrainingRun
 from app.db.models.training_storage_deletion import TrainingStorageDeletion
 from app.db.models.video_derivative import VideoDerivativeOutput
+from app.services.training_run_data import preview_storage_row, run_storage_row
 
 
 PURPOSES = (
@@ -107,28 +106,29 @@ def _roles(*, with_fingerprint):
         where=(),
         joins=(),
         locator_fields=(),
+        family=None,
         **links,
     ):
-        locator = getattr(model, ref) if ref else None
+        columns = model if family is None else model.c
+        family = model.__tablename__ if family is None else family
+        locator = getattr(columns, ref) if ref else None
         if location is None:
             location = locator["location_id"].astext
-        values = [getattr(model, name) for name in fields.split()] + list(
+        values = [getattr(columns, name) for name in fields.split()] + list(
             locator_fields
         )
         fingerprint = (
-            _digest(
-                cast(func.jsonb_build_array(model.__tablename__, kind, *values), Text)
-            )
+            _digest(cast(func.jsonb_build_array(family, kind, *values), Text))
             if with_fingerprint
             else literal("")
         )
         statement = select(
-            literal(model.__tablename__).label("family"),
+            literal(family).label("family"),
             literal(kind).label("role"),
             (literal(purpose) if isinstance(purpose, str) else purpose).label(
                 "purpose"
             ),
-            cast(identity if identity is not None else model.id, Text).label(
+            cast(identity if identity is not None else columns.id, Text).label(
                 "record_id"
             ),
             cast(location, Text).label("location_id"),
@@ -177,16 +177,18 @@ def _roles(*, with_fingerprint):
         project_id=TrainingDatasetVersion.project_id,
     )
     role(
-        TrainingRun,
+        run_storage_row,
         "training",
         "id project_id dataset_id current_attempt_id status storage_ref",
-        project_id=TrainingRun.project_id,
+        family="training_runs",
+        project_id=run_storage_row.c.project_id,
     )
     role(
-        TrainingPreview,
+        preview_storage_row,
         "training",
         "id project_id dataset_id claim_id status storage_ref",
-        project_id=TrainingPreview.project_id,
+        family="training_previews",
+        project_id=preview_storage_row.c.project_id,
     )
     role(
         SampleEvaluationRun,
@@ -425,9 +427,7 @@ def dependencies(location_id, *, with_fingerprint=False):
             )
         ),
         "target_runs": count(
-            select(selected.c.record_id).where(
-                selected.c.family == TrainingRun.__tablename__
-            )
+            select(selected.c.record_id).where(selected.c.family == "training_runs")
         ),
         "current_bindings": count(bindings),
         "unlocated_targets": count(

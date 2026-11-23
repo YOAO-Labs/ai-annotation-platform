@@ -11,8 +11,6 @@ from sqlalchemy.orm import aliased, defer
 
 from app.db.enums import MANAGER_PLATFORM_ROLES
 from app.db.models.project import Project
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import TrainingResourceLease, TrainingRun
 from app.deps import get_current_user, get_db, require_roles, require_scopes
 from app.schemas.training_hub import (
     TrainingHubCatalog,
@@ -22,6 +20,8 @@ from app.schemas.training_hub import (
 from app.schemas.training_run import TrainingRunOut
 from app.services import training_runs as service
 from app.services import training_adapters as adapters
+from app.services.training_dataset_data import dataset_lineage_row
+from app.services.training_run_data import get_lease, run_summary_row
 from app.services.project_aggregates import managed_project_scope_clause
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_facts, project_rows
@@ -43,7 +43,7 @@ def project_scope(user: IdentityActorFacts, project_id_column):
 @router.get("/catalog", response_model=TrainingHubCatalog)
 async def catalog(db: AsyncSession = Depends(get_db)):
     result = adapters.catalog()
-    lease = await db.get(TrainingResourceLease, adapters.resource_id())
+    lease = await get_lease(db, adapters.resource_id())
     online = bool(
         lease
         and lease.last_seen_at
@@ -112,12 +112,14 @@ async def projects(
                 project.display_id.ilike(search_value, escape="\\"),
             )
         )
+    dataset = dataset_lineage_row.c
+    run = run_summary_row.c
     ready_count = (
         select(func.count())
         .where(
-            TrainingDatasetVersion.project_id == project.id,
-            TrainingDatasetVersion.status == "ready",
-            TrainingDatasetVersion.package_sha256.is_not(None),
+            dataset.project_id == project.id,
+            dataset.status == "ready",
+            dataset.package_sha256.is_not(None),
         )
         .correlate(project)
         .scalar_subquery()
@@ -125,8 +127,8 @@ async def projects(
     active_count = (
         select(func.count())
         .where(
-            TrainingRun.project_id == project.id,
-            TrainingRun.status.in_(service.ACTIVE),
+            run.project_id == project.id,
+            run.status.in_(service.ACTIVE),
         )
         .correlate(project)
         .scalar_subquery()
@@ -174,19 +176,21 @@ async def runs(
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()
+    run = run_summary_row.c
     counts_projects = project_facts()
     count_predicates = project_scope(user, counts_projects.c.id)
     if project_id:
         count_predicates.append(counts_projects.c.id == project_id)
     if framework:
-        count_predicates.append(TrainingRun.config["framework"].astext == framework)
+        count_predicates.append(run.config["framework"].astext == framework)
     counts = dict(
         (
             await db.execute(
-                select(TrainingRun.status, func.count())
-                .join(counts_projects, counts_projects.c.id == TrainingRun.project_id)
+                select(run.status, func.count())
+                .select_from(run_summary_row)
+                .join(counts_projects, counts_projects.c.id == run.project_id)
                 .where(*count_predicates)
-                .group_by(TrainingRun.status)
+                .group_by(run.status)
             )
         ).all()
     )
@@ -201,35 +205,43 @@ async def runs(
     if project_id:
         run_predicates.append(run_projects.c.id == project_id)
     if framework:
-        run_predicates.append(TrainingRun.config["framework"].astext == framework)
+        run_predicates.append(run.config["framework"].astext == framework)
     if state == "active":
-        run_predicates.append(TrainingRun.status.in_(service.ACTIVE))
+        run_predicates.append(run.status.in_(service.ACTIVE))
     elif state == "finished":
-        run_predicates.append(TrainingRun.status.in_(service.TERMINAL))
+        run_predicates.append(run.status.in_(service.TERMINAL))
     elif state == "failed":
-        run_predicates.append(TrainingRun.status.in_({"failed", "lost"}))
+        run_predicates.append(run.status.in_({"failed", "lost"}))
     statement = (
-        select(TrainingRun, run_projects.c.name, run_projects.c.display_id)
-        .join(run_projects, run_projects.c.id == TrainingRun.project_id)
+        select(
+            run_summary_row,
+            run_projects.c.name.label("project_name"),
+            run_projects.c.display_id.label("project_display_id"),
+        )
+        .join_from(run_summary_row, run_projects, run_projects.c.id == run.project_id)
         .where(*run_predicates)
     )
     total = await db.scalar(select(func.count()).select_from(statement.subquery()))
     rows = (
-        await db.execute(
-            statement.order_by(TrainingRun.created_at.desc(), TrainingRun.id)
-            .limit(limit)
-            .offset(offset)
+        (
+            await db.execute(
+                statement.order_by(run.created_at.desc(), run.id)
+                .limit(limit)
+                .offset(offset)
+            )
         )
-    ).all()
+        .mappings()
+        .all()
+    )
     return {
         "total": total or 0,
         "counts": summary,
         "items": [
             {
-                "run": TrainingRunOut.model_validate(run),
-                "project_name": name,
-                "project_display_id": display_id,
+                "run": TrainingRunOut.model_validate(row),
+                "project_name": row["project_name"],
+                "project_display_id": row["project_display_id"],
             }
-            for run, name, display_id in rows
+            for row in rows
         ],
     }
