@@ -220,6 +220,9 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                         "token": token,
                     },
                 )
+            await _observe_health_owner(test_engine, conn, registry_id, token)
+            record_property("inference_health_owner", _HEALTH_OWNER)
+            async with test_engine.begin() as db:
                 for schema in (yoao, aap, partition_schema):
                     await db.exec_driver_sql(f"CREATE SCHEMA {schema}")
                 await db.exec_driver_sql(f"CREATE ROLE {peer} NOLOGIN")
@@ -370,9 +373,7 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                 with pytest.raises(asyncpg.InsufficientPrivilegeError) as denied:
                     await conn.fetchval(f"SELECT {function}({arguments})")
                 assert denied.value.sqlstate == "42501"
-            await _observe_health_owner(test_engine, conn, registry_id, token)
             record_property("private_inference_rpc_sqlstate", "42501")
-            record_property("inference_health_owner", _HEALTH_OWNER)
             assert await conn.fetchval(
                 "SELECT has_function_privilege('yoao_identity_v1.authentication_policy()', 'EXECUTE')"
             ) == (profile != "lan-isolated-issuer")
