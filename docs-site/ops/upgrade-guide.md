@@ -53,7 +53,7 @@ last_reviewed: 2026-10-28
 
 ### Workspace 旧拆分安装 {#workspace-split-upgrade}
 
-当前默认 API 在原数据库事务中调用六组 Workspace owner，不再有按操作选定 Workspace URL、专用 DSN 或控制 bearer 的部署档。默认安装沿用原普通应用 SQL 角色；此变更没有新的 Workspace schema 迁移或授权。
+当前默认 API 在原数据库事务中调用六组 Workspace owner，不再有按操作选定 Workspace URL、专用 DSN 或控制 bearer 的部署档。Workspace 首切片本身未引入新 schema 或授权；升级整套收敛拓扑仍须满足下节普通角色门禁。
 
 若当前安装仍有这六组独立服务，或 API 环境仍设置其旧选择器，**不要带旧环境与 Compose 文件链滚动升级**。暂停升级，单独取得切换授权与维护窗口，核对现用 API／worker 角色、旧服务、配置注入及 secret 挂载，先备份并在隔离副本验证。再按批准的方案排空旧消费者、改用当前默认装配并复验权限与真实业务。代码合并不切换维护者日常环境，也不自动撤销既有凭据。
 
@@ -61,17 +61,21 @@ last_reviewed: 2026-10-28
 
 ### 旧模块拓扑升级门禁 {#split-topology-upgrade}
 
-**部署合并不迁移数据库账本或对象归属，也不自动更换密钥。** 下列步骤只供已获授权的目标部署。先在隔离副本运行新装配，核对当前版本的固定函数和所用角色；包／协议测试通过不等于现网可切换。先备份数据库、角色、对象及私有环境文件，保留旧镜像和启动定义。暂停入口、定时器及领取新任务，排空旧 worker、独立服务、连接、租约和实际 I/O；到期、撤销或未收到确认不证明外部动作停止。
+**以下是获准切换时的门禁，不是现网已经通过或可以滚动升级的承诺。** [进程清单](../dev/concepts/module-deployment#deployment-convergence)区分源码默认档、保留服务和已观察证据。部署收敛不改写已接受的账本、对象地址或密钥。先备份数据库、角色、准确对象版本和私有环境文件，保留旧镜像与启动定义；先在隔离副本验证。切换时暂停入口、定时器及领取新任务，排空旧 worker、独立服务、连接、租约和实际 I/O；到期、撤销或未收到确认不证明外部动作停止。
 
-| 旧绑定                                        | 切换到当前装配并核验                                                                                                                                                                                                                                                         |
-| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace、Labeling Class Query／Video Writer | 停止旧进程，删除旧 Workspace 与 `LABELING_CLASS_QUERY_*`／`LABELING_VIDEO_WRITER_*` 产品绑定及对应宿主 secret 选择器。复核普通角色的三个类目函数；历史 SHA Mask GC 仍可用 `mask-gc` profile 手动预览。保留 `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS`，它仍约束本地事务。        |
-| Jobs Queue／Dispatch Relay                    | 退役旧 HTTP 队列／relay、`JOBS_QUEUE_*`、`JOBS_DISPATCH_RELAY_*`、`AAP_JOBS_DEVELOPMENT_NETWORK` 及旧开发镜像选择。先安装新的[受限绑定](./deploy/docker-compose#jobs-recovery-provisioning)，再启恢复 worker 与 Beat。保留原消息、租约、执行 ID 及不确定发布记录。           |
-| Identity Admission／Mail／通知 publisher      | 默认内嵌签发；需要隔离才选 `identity-issuer` 与既有 `IDENTITY_URL`。保留原有效 JWT key，停 V1 Mail 与旧 kick；唯一 `identity-mail-v2` 接管同库邮件。移除 `IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE`、旧 Identity publisher 选择器和旧 `mail-v2` profile。                     |
-| 独立 Notifications socket／publisher          | 移除 `NOTIFICATION_SOCKET_*`，反代仍指向 API；默认 Beat 每 10 秒恢复，与远程 Identity 无关。只在 publish-only 隔离时启用新发布 overlay，确认 API 仅有订阅身份与私有 bearer。                                                                                                 |
-| Assets Catalog／Source／Media                 | 退役 Catalog HTTP 和 `ASSETS_CATALOG_*`。确定 `ASSETS_VIDEO_EXECUTOR`／`ASSETS_IMAGE_EXECUTOR`，Celery 需要时准备[窄 LOGIN](./deploy/docker-compose#media-executor-provisioning)，不靠 `ASSETS_MEDIA_URL` 切换执行。保留实际需要的 Source 与历史对象访问，结清旧领取和 I/O。 |
-| 独立 Inference Registry／Health／Probe        | 关闭按操作的容器，把已启用 URL 指向同一个 `inference:8768` 私网 origin。各用途 bearer、窄 SQL LOGIN、GPU Redis 与签名文件继续分开；不交给 API 或模型容器。确认端口空闲、逐项就绪后才放行调用方；不把宿主机转发可达性或 GPU 资格当作已验收。                                  |
-| Audit                                         | 保持 Beat 与维护 worker；先确认管理员能查看已发布的归档输出。受限 CLI 只作一次性运维，不能代替产出 `audit_archive_outputs` 的定时任务或整个维护队列。                                                                                                                        |
+| 旧绑定                                        | 切换到当前装配并核验                                                                                                                                                                                                                                                                            |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace、Labeling Class Query／Video Writer | 停止旧进程，删除旧 Workspace 与 `LABELING_CLASS_QUERY_*`／`LABELING_VIDEO_WRITER_*` 产品绑定及对应宿主 secret 选择器。复核普通角色的三个类目函数；历史 SHA Mask GC 仍可用 `mask-gc` profile 手动预览。保留 `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS`，它仍约束本地事务。                           |
+| Jobs Queue／Dispatch Relay                    | 退役旧 HTTP 队列／relay、`JOBS_QUEUE_*`、`JOBS_DISPATCH_RELAY_*`、`AAP_JOBS_DEVELOPMENT_NETWORK` 及旧开发镜像选择。先安装新的[受限绑定](./deploy/docker-compose#jobs-recovery-provisioning)，再启恢复 worker 与 Beat。保留原消息、租约、执行 ID 及不确定发布记录。                              |
+| Identity Admission／Mail／通知 publisher      | 默认内嵌签发；需要隔离才选 `identity-issuer` 和 `IDENTITY_URL`。保留现用 JWT key，停 V1 与旧 kick；`identity-mail-v2` 接管同库投递，包括测试邮件。移除旧 Mail DSN、旧 Identity publisher、`mail-v2` profile 及 API／worker 的 `SMTP_PASSWORD(_FILE)`；不要移除 sender 自己的密码。              |
+| 独立 Notifications socket／publisher          | 移除 `NOTIFICATION_SOCKET_*`，反代仍指向 API；默认 Beat 每 10 秒恢复，与远程 Identity 无关。只在 publish-only 隔离时启用新发布 overlay，确认 API 仅有订阅身份与私有 bearer。                                                                                                                    |
+| Assets Catalog／Source／Media                 | 退役 Catalog HTTP 和 `ASSETS_CATALOG_*`。分别选择 `ASSETS_VIDEO_EXECUTOR`／`ASSETS_IMAGE_EXECUTOR` 和[窄执行 LOGIN](./deploy/docker-compose#media-executor-provisioning)，不靠 `ASSETS_MEDIA_URL` 切换执行。已登记自定义 S3／SFTP 沿用现有 Source，见下文；保留历史保存目标并结清旧领取和 I/O。 |
+| 独立 Inference Registry／Health／Probe        | 关闭按操作的容器，把已启用 URL 指向同一个 `inference:8768` 私网 origin。各用途 bearer、窄 SQL LOGIN、GPU Redis 与签名文件继续分开；不交给 API 或模型容器。确认端口空闲、逐项就绪后才放行调用方；不把宿主机转发可达性或 GPU 资格当作已验收。                                                     |
+| Audit                                         | 保持 Beat 与维护 worker；先确认管理员能查看已发布的归档输出。受限 CLI 只作一次性运维，不能代替产出 `audit_archive_outputs` 的定时任务或整个维护队列。                                                                                                                                           |
+
+**迁移与恢复授权顺序**：先对准确目标使用迁移 LOGIN 应用 Alembic head。采用独立 NOLOGIN owner 的库，在装配普通授权前，以该迁移操作者运行 `psql -X -v ON_ERROR_STOP=1 … -f infra/docker/module-data-grants.sql`，使用脚本头所列目标库和角色变量；保持同版本脚本及相邻 SQL 的目录结构。`pg_restore --no-owner --no-privileges` 的隔离副本也要重放实际 owner 和窄角色授权，不能跳过。标准工作树按启动器的迁移角色和普通授权装配，不用伪造 NOLOGIN owner 去执行拆分配方。分别检查 LAN 内嵌、LAN 远程 issuer 的 API consumer 与生成工作树的实际运行 LOGIN 对私表、列、物化视图、外表、父子分区及序列均无有效权限；重点核对实际所有权、PUBLIC 与成员关系。维护／迁移另用授权身份，不给普通 API／worker DDL 连接。
+
+**登记的自定义 S3／SFTP**：切换前逐项盘点保存的版本、未结算的 I/O 和仍需历史访问的位置。既有 `assets-source` 是经确认的物理 I/O 归属；此能力仍在实施，保留内建 MinIO、受控目录及站点 Agent。不能把连接器秘密、开封函数或 Source 的数据库连接下放给普通 API／worker。只有在独立副本中用原保存身份验证真实连接器字节、拒绝回退与原记录接续后，才考虑切换该档，见[普通角色与 Source 边界](../dev/concepts/module-deployment#m2b-runtime-boundary)。
 
 **需要保留的 Recovery 邮件密文**：原来设置了独立 Recovery Fernet key 的，继续使用原 key。若旧内嵌 producer 曾自动由其有效 JWT 密钥派生，则在可信离线环境用已安装的 Identity 包一次性派生到新文件；`OLD_EFFECTIVE_JWT_FILE` 是只含旧有效 JWT key 的只读单行文件，`RECOVERY_FERNET_FILE` 是受限目录内尚不存在的目标：
 
@@ -92,7 +96,7 @@ PY
 
 不打印或挂载旧 JWT key 给 sender。只把派生结果交给 sender 和实际恢复 producer（API 内嵌或远程 issuer）；不要把 SMTP／sender DSN 提供给 API。先在隔离恢复中确认历史待投递邮件可解密，再启新生产者。若原 key 不可确定，保持围栏与记录，不随机生成密钥覆盖历史意图。
 
-迁移与授权后重建实际消费者，先检查真实 claim／publication、至少一次重新派发、WebSocket 许可、待投递邮件和已启用的 split。若显式 owner 不可用，确认请求不会降回更宽的本地凭据。新配置未通过时保持入口关闭并保留原工件与数据，不用无保护回退或强删 outbox。仅在验证成功、回退资源已有副本且获明确授权后退役已不再使用的凭据。
+迁移与授权后重建实际消费者，核对登录、项目、导入、标注、审核、插件预标注、WebSocket 许可，验证实际 claim／publication、至少一次重新派发及待投递邮件恢复。启用的 split 也须按真实 overlay 验证冷启、拒绝与恢复。显式 owner 不可用时不得降回更宽的本地凭据；提交状态不确定时查原账本，不新建请求。新配置未通过则保持入口关闭并保留旧工件与数据，不用无保护回退或强删 outbox。仅在验证成功、回退资源已有副本且获明确授权后退役不再使用的凭据。
 
 ### 维护者日常环境另行迁移（M2c） {#daily-topology-cutover}
 

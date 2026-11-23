@@ -1,12 +1,12 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：实施中。M0、M1a、M2a 已完成；M2b 首批 Workspace 六项已在默认 LAN 与严格账号下通过本地验收。其他服务未切换，M2c 日常环境迁移不随代码合并进行。
+> 状态：实施中。M0、M1a、M2a 已完成；M2b 已有源码收敛和有限冷运行证据，完整验收未通过。M2c 日常环境迁移未获授权。
 >
 > 创建日期：2026-11-23。
 >
 > 替代：[后端业务模块解耦与跨语言替换](archive/1792160873_backend-module-decoupling.md)（已标记 superseded）。承接已完成的 [LibreYOLO 推理插件首切片](archive/1793156248_libreyolo-inference-plugin.md) 与 [推理插件拆仓](archive/1793184138_inference-plugins-repository-extraction.md) 的剩余事项。
 >
-> 架构决定：[ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)（已采纳）。依据：[能力边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)。实时状态仍以[模块部署与边界台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)为唯一入口；本计划不复制模块完成状态。
+> 架构决定：[ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)（已采纳）。依据：[能力边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)。[模块部署进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)是唯一实时拓扑入口；本计划不复制服务决定表。
 
 ## 1. 目标与非目标
 
@@ -90,7 +90,7 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 2. **M2b 合并**：默认档改用已有的进程内 owner 路径；只服务按操作拆分的 overlay、CI 选择器和文档一并退役。模块代码、契约、冻结 SQL 和一致性检查保留。
 3. **M2c 日常环境迁移**：维护者本机从独立拓扑切回默认档需要单独授权，按 runtime 技能先备份、再切换、再验证，不在合并提交中自动切换。
 
-验收：新 checkout 以默认档冷启动，完成登录、建项目、导入、标注、审核、通知、预标注（任一插件）的真实业务冒烟；普通运行账号对各模块私表仍无直接权限；保留独立的服务仍能以 split overlay 启动；进程清单写入部署文档。
+验收：新 checkout 以默认档冷启动，完成登录、建项目、导入、标注、审核、通知、预标注（任一插件）的真实业务冒烟和约定的恢复；LAN 内嵌、LAN 远程 issuer 的普通消费者、工作树生成的普通运行 LOGIN，对所有模块私表（含列、分区、外表与物化视图）和序列均无有效权限。保留的独立服务须以实际 split overlay 冷启和取证。拓扑、凭据边界与通过范围见[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。
 
 ### M3 通知渠道扩展点：飞书私信
 
@@ -166,6 +166,6 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 ## 7. 当前状态
 
 - **M1a 已通过。** 无平台源码的作者环境构建并部署 CPU 服务；经真实 Registry、项目服务池及签名原图，默认路由和同代契约完成绑定后的强制路由均返回预期预测。制品范围、被拒绝的旧契约与隔离证据见[运行账本](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md)。作者从[直连教程](../../docs-site/dev/tutorials/ml-backend-starter.md#direct-registration)开始。
-- **M2a 已完成。** [逐服务决定表](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)保留各能力的嵌入入口、凭据和拆出理由。
-- **M2b 首批：Workspace 六项。** 成员管理、负责人移交、项目配置、模板查询、项目查询和成员目录查询已改用 API 调用方的数据库会话。跨模块类目改名仍在一个事务内，Inference 后端探测保留独立凭据和可拆出的进程。[首批验收记录](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)区分默认 LAN 与严格账号能执行的操作；其他候选尚未获准合并。
+- **M2a 已完成。** 历史数目和当前源码装配统一索引在[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。
+- **M2b 实施中，无全量通过结论。** [Workspace 首切片](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)保留原验收范围；[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)另记配置、Inference 冷容器以及三角色 ACL 的失败基线。三角色授权、默认业务与恢复、保留 overlay 的定向验收仍需最终集成回执。维护者决定将已登记自定义 S3／SFTP 的物理 I/O 收到既有 Source，不增进程，也不改变内建 MinIO、受控目录或站点 Agent；实现和运行证据仍在推进。
 - M1b、M1c、M3、M4 尚未实施。正式发布和 M2c 日常切换仍需分别授权。

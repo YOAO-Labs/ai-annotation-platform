@@ -36,20 +36,19 @@ last_reviewed: 2026-10-26
 
 ### 默认进程、可选服务与凭据 {#module-process-selection}
 
-| 能力                     | 默认运行者与凭据                                                                         | 何时另启进程／选什么                                                                                                                                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Workspace、Labeling      | API／tracker worker 使用既有 SQL 角色与调用方事务；LAN 类目查询只增三项固定函数          | 旧按操作服务不再部署。历史 SHA Mask 回收用 `docker-compose.labeling-mask-gc.yml` 的 `mask-gc` profile 加 Assets Mask overlay；六函数 LOGIN 与仅清理 bearer，默认不轮询。                                  |
-| Jobs                     | 本地 broker；`celery-worker-jobs-recovery` 有独立 claim／publication LOGIN               | 默认必须启动恢复消费者，不能换成普通／维护 worker。Broker 不再经 Jobs HTTP 转发。发布凭据只交给实际需要的生产者、消费者与恢复 worker。                                                                    |
-| Identity                 | JWT 在 API 内签发，可独立配置本地 JWT 密钥；API 的 `SECRET_KEY` 保留媒体签名             | 签发或登录 Redis 需隔离时选择 `identity-issuer` profile；需要投递邮件时加 Identity overlay 的独立 `identity-mail-v2`。两者不共享 signer、SMTP 或 LOGIN 凭据，见[配置](#production-mail)。                 |
-| Notifications            | API 终结 `/ws/notifications`；默认 Beat 每 10 秒恢复 outbox，独立于 Identity             | 单独的 Redis ACL 可区分订阅与发布；要求进程级 publish-only 时才启用[私有发布者](#notification-publisher-split)。无远程 socket。                                                                           |
-| Assets Catalog 与 Source | 目录和常规来源工作流内嵌；无需目录服务专用 SQL／S3 身份                                  | `docker-compose.assets-source.yml` 持独立连接器凭据与主机策略，提供精确版本核验／恢复和 Native 有限签名。只有连接器创建／更新／删除／测试可用 Source 控制 URL；不转发列表／读取。                         |
-| Assets Media             | 默认用 Celery 与[窄媒体执行身份](#media-executor-provisioning)，控制留在 API             | FFmpeg／临时盘或 libvips／内存需隔离时，用 `docker-compose.assets-media.yml` 相应执行 profile 与 `ASSETS_VIDEO_EXECUTOR=split` 或 `ASSETS_IMAGE_EXECUTOR=split`；`ASSETS_MEDIA_URL` 只选控制。            |
-| Assets 字节与清理        | 没有等价 API 领取／复制／删除者                                                          | 按需保留 Source 核验配套的 Import、Assets Cleanup、Mask Content／Cleanup；使用各自函数 LOGIN 与精确前缀、版本、读写／清理身份。FFmpeg 探测可用 `docker-compose.modules.yml` 的 `media-probe`，无 DB／S3。 |
-| Inference                | 简单命名流水线可调用方内嵌；真实执行、Registry 同步、探测／观察、路由与 GPU 有凭据 owner | `docker-compose.inference.yml` 只起一个 `inference`；启用的 URL 指向同一私网 origin 8768，每项保留独立 bearer／窄 DSN。CPU 路径也需要 owner，不等于启用 GPU。                                             |
-| 模型、训练、站点         | 按需启用，不随核心栈安装；不是 Inference owner 的替代                                    | 官方插件依设备／模型分开；`training-executor` 持专用 token 与固定设备、不持 DB／broker；[站点 Agent](./site-agents)出站访问中心、只读源文件。                                                             |
-| Audit                    | 仍由单实例 Beat 与 `celery-worker-maintenance` 调度，管理员读 `audit_archive_outputs`    | `docker-compose.audit.yml` 的 `maintenance` profile 仅用于显式一次性 CLI，单函数 LOGIN、独立归档身份，不生成管理员的同一输出表，也不能接管混合维护队列。                                                  |
+完整[进程清单](../../dev/concepts/module-deployment#deployment-convergence)列出准确的文件、服务键、profile、退役工件及本地通过范围。这里的命令说明如何装配选定服务，不等于 M2b 已取得整栈切换资格。
 
-有独立进程的能力按服务准备密钥文件，不复制整份 API 环境或把迁移连接、私有 opener 或宽 S3 身份交给调用方。容器使用私网 DNS，宿主 DB 转发故障不因服务合并而解决。LAN 沿用已有 `production`／`shared` 网络，除明确支持 LAN 的 overlay 外，要为独立 owner 按实际拓扑配置私网可达性，不能假设它加入 LAN 应用网络。独立媒体、导入与清理的探针使用实际 `yoao_*` 包入口，具体命令见[图片运行手册](../runbooks/image-pyramid)与[来源／导入指南](/api/guides/assets-source)。
+- 默认要求独立的 [Jobs 恢复身份](#jobs-recovery-provisioning)与[媒体执行角色](#media-executor-provisioning)。普通应用、恢复、维护和迁移连接不能互换。历史 SHA Mask GC 和一次性 Audit operator 不替代定时维护。
+- Inference 的实际执行（含 CPU）、Registry、健康与探测共用私网 `inference:8768`，用途 bearer、窄 DSN 与签名身份仍独立。模型服务、训练器和站点 Agent 不是 Inference 凭据 owner。
+- 显式选 Source 或媒体隔离时，按对应服务配置凭据而不是复制整份 API 环境。LAN 使用 `production`／`shared` 网络，除明确支持 LAN 的 overlay 外，须另行配置实际私网可达性。独立媒体、导入与清理探针使用 `yoao_*` 入口，见[图片运行手册](../runbooks/image-pyramid)和[来源／导入指南](../../api/guides/assets-source)。
+
+#### 自定义连接器的 Source 边界 {#source-registered-io}
+
+已登记自定义 S3／SFTP 的物理 I/O 归入既有 `docker-compose.assets-source.yml` 的 `assets-source`，不新启容器。以下是正在集成的凭据边界，不是可直接上线的配方：
+
+- 普通 API／worker 只配私网 `ASSETS_SOURCE_URL` 及所执行操作所需的 `ASSETS_SOURCE_SAVED_IO_READ_TOKEN[_FILE]`、`ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN[_FILE]` 或 `ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN[_FILE]`。三类 token 分开，也不复用连接管理、Native 签名或导入核验 token。
+- Source 才持 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]` 的仅函数连接，并使用其 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY[_FILE]`、主机白名单和 SFTP 所需的公钥配置。只给 Source 与获准操作的 CLI 配置 `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]`；不启用切换时留空。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。
+- 按原保存目标访问；缺 Source、身份不符或历史目标不可达时不改向、不回退。内建 MinIO、受控目录及站点 Agent 仍走原路径。升级前按[旧拓扑升级门禁](../upgrade-guide#split-topology-upgrade)验证真实连接器和恢复。
 
 #### 独立 Notifications 发布者 {#notification-publisher-split}
 
@@ -238,7 +237,7 @@ SAM3 图像、PVS 与 multiplex 视频分别依赖获准的 `sam3.pt` 和 `sam3.
 
 ### 2.11 应用邮件与监控告警 {#production-mail}
 
-**默认栈没有邮件执行者。** 台账中的密码恢复、验证和邀请邮件只由 `identity-mail-v2` 投递。启用前对目标库迁移、装好 Identity Recovery／Invitations 授权，按[Identity 运行协议](/api/guides/identity-runtime)给 sender 建立 MailV2 四函数 LOGIN 和 Settings 单函数 LOGIN；两者须与 producer 使用同一数据库。需要生产发信时先配置真实中继和可信的前端链接，再启用开放邮箱验证／邀请邮件功能。
+**默认栈没有邮件执行者。** 密码恢复、验证、邀请及测试邮件都由 `identity-mail-v2` 投递。启用前对目标库迁移，重放 Identity Recovery／Invitations 授权。sender 的 MailV2 LOGIN 只执行四项邮件操作；独立的 Settings LOGIN 只执行 `mail_delivery_policy`、`claim_smtp_test`、`finish_smtp_test`。两者须与 producer 使用同一数据库，见 [Identity 运行协议](../../api/guides/identity-runtime)。需要生产发信时先配置真实中继和可信的前端链接，再启用开放邮箱验证／邀请。
 
 在仓库外的私有 `$IDENTITY_OWNER_ENV` 中设置 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 和 `IDENTITY_MAIL_SMTP_HOST`／`PORT`／`FROM`；认证时另设 `IDENTITY_MAIL_SMTP_USER` 和 `IDENTITY_MAIL_SMTP_PASSWORD_FILE`，不同时放入明文密码。选用 587（STARTTLS）或 465（TLS），数据库 Settings 保存的中继策略优先；删除旧 Mailpit 覆盖。文件只读、仅给调用身份。`IDENTITY_OWNER_ENV` 是插值来源，不是 API／Celery 的环境文件。
 
@@ -252,7 +251,7 @@ docker compose --env-file .env.production --env-file "$IDENTITY_OWNER_ENV" \
 
 若明确要求私有签发进程，提供 `IDENTITY_RUNTIME_SIGNING_SECRET_FILE`、登录 Redis、控制 bearer 与各 Identity 函数 DSN，在同一命令选择 `--profile identity-issuer` 并同时指定 `identity-issuer identity-mail-v2`。API 使用 `IDENTITY_URL=http://identity-issuer:8170` 和 `IDENTITY_TOKEN`，不持远程签发／登录 Redis／Recovery DSN 或该 producer 的 Fernet key；issuer 不持 sender 的 MailV2／Settings DSN 或 SMTP secret。确认 signer 归属和原 JWT 密钥后再刷新 API／相关 worker；失败不会切回本地。LAN 或宿主机绑定使用各进程实际可达的私网 origin。
 
-管理员「发送测试邮件」是独立 API 功能。只有需要显式测试独立中继时才为 API 配置 `SMTP_*`／`SMTP_PASSWORD_FILE`，不要复用 sender 密码或给 Celery 注入它。sender 健康检查不代表邮件已发送；在隔离库和本地收件器上实际验证恢复与邀请。
+管理员「发送测试邮件」也通过 `identity-mail-v2` 控制投递。普通 API 只登记一次测试请求并读取投递回执，不直接访问 SMTP；实际认证密码与正常邮件一样只配置在 sender，不能给 API 或 Celery 配置 `SMTP_PASSWORD`／`SMTP_PASSWORD_FILE`。sender 健康检查不代表邮件已送达；在隔离库和测试收件器实际验证测试邮件、密码恢复与邀请。
 
 **Alertmanager 的邮件单独配置。** `monitoring` profile 默认不启动；启用后，生产默认仍只接收告警，不发通知。要启用邮件，在仓库外保存下列配置并设置 `ALERTMANAGER_CONFIG_FILE` 为宿主文件绝对路径。用户名、发件地址和收件地址用实际值替换；密码仅存放在 `ALERTMANAGER_SMTP_PASSWORD_FILE` 指向的宿主文件中。两份文件均只读挂载，宿主权限须允许 Alertmanager 的容器运行身份（镜像默认 `nobody`）读取，不要为此将密码改成全局可读。无认证的受信任中继不填用户名和密码文件项，也不设置 `ALERTMANAGER_SMTP_PASSWORD_FILE`。
 
@@ -1072,7 +1071,7 @@ Match User aap-reader
     PasswordAuthentication no
 ```
 
-确认配置生效，实际验证 jail 外文件及越界链接不可读，创建、写入、删除、改名、终端和转发均被拒绝。不要复用 root 或日常部署账号。通过可信渠道核验服务器完整公钥，再在所有参与的 API/worker 配置 `STORAGE_SFTP_ROOTS`；示例中的公钥内容须替换为真实值：
+确认配置生效，实际验证 jail 外文件及越界链接不可读，创建、写入、删除、改名、终端和转发均被拒绝。不要复用 root 或日常部署账号。通过可信渠道核验服务器完整公钥；当前与目标装配的配置归属不同，按下文只给实际读取者配置 `STORAGE_SFTP_ROOTS`。示例中的公钥内容须替换为真实值：
 
 ```dotenv
 STORAGE_SFTP_ROOTS={"company-sftp":{"host":"sftp.example.internal","port":22,"username":"aap-reader","host_key":"ssh-ed25519 <实际公钥的base64内容>"}}
@@ -1080,9 +1079,9 @@ STORAGE_SFTP_ROOTS={"company-sftp":{"host":"sftp.example.internal","port":22,"us
 
 配置只包含公开主机身份，不包含密码或私钥；客户端凭据仍在平台连接器加密保存。默认 `{}` 不授予任何 SFTP 引用资格。目标须另行加入连接器主机白名单。连接器必须精确匹配 host/port/username，Base path 填 `/`；来源选择 `data/...` 等相对目录。严格客户端只信任上述公钥，在认证前校验；此链路不读取 known_hosts。连接器的“测试连接”和复制导入仍使用前述系统 known_hosts，不能用它们的成功结果替代引用节点探测。
 
-生产 API/worker 从 `.env.production` 加载配置，开发宿主 API 读取根 `.env`，通用 Compose worker 显式透传。其他定向扫描节点须独立配置。环境变更重启宿主进程或重建受影响容器，无需因此重建镜像。分别验证 API 和实际 Celery hostname 的 list/read；资格存在只表示准入，不能保证当前可达。浏览/扫描每目录最多5000项；原图读取仍有完整摘要和临时快照预算。
+旧路径由实际 API／worker 加载 `STORAGE_SFTP_ROOTS`；M2b 目标档的已登记自定义 SFTP 由 Source 访问，在[独立 Source](#source-registered-io) 验证通过后才按升级门禁切换，不能借普通进程的旧私钥访问。环境变更重启实际宿主进程或重建受影响容器。分别从用户读取入口与实际扫描节点验证 list/read；存在资格只表示准入，不保证当前可达。浏览／扫描每目录最多 5000 项；原图读取仍有完整摘要与临时快照预算。
 
-已有资格需要轮换或撤回时：先在平台禁用对应位置并确认修订已提交，使旧扫描和登记失效；再协调全部 API/worker 更新或移除配置、刷新进程，并检查节点探测结果。只改一个节点的环境不等于集群撤权。更换服务器、公钥或隔离根时新建连接与位置，历史引用不自动重绑；恢复旧来源前须重新核验原资格与内容。原图离线不删除索引和标注，独立预览也不能用于继续原图标注。
+已有资格需要轮换或撤回时：先在平台禁用对应位置并确认修订已提交，使旧扫描和登记失效；再更新实际持有配置的 owner、刷新进程并检查节点探测。只改一个节点的环境不等于集群撤权。更换服务器、公钥或隔离根时新建连接与位置，历史引用不自动重绑；恢复旧来源前须重新核验原资格与内容。原图离线不删除索引和标注，独立预览也不能用于继续原图标注。
 
 ## 周期来源扫描部署
 
