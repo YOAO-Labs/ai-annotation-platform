@@ -256,7 +256,15 @@ class MediaCompose:
         self._owned_labels(network)
         assert network["Driver"] == "bridge" and not network["Containers"]
         self.network = network["Id"]
-        _docker("network", "connect", "--alias", _DATABASE_ALIAS, self.network, self.pg)
+        _docker(
+            "network",
+            "connect",
+            "--gw-priority=-1",
+            "--alias",
+            _DATABASE_ALIAS,
+            self.network,
+            self.pg,
+        )
         self.record("media_compose_project", self.project)
         self.record("media_compose_network", self.network)
         if subnet_value:
@@ -412,6 +420,8 @@ class MediaCompose:
             service = observed["Config"]["Labels"][_SERVICE_LABEL]
             assert service in self.roles
             self._owned_labels(observed, service)
+        if ids:
+            self._compose("stop", timeout=160)
         for network_id in _docker("network", "ls", "-q", *filters).splitlines():
             network = _inspect_docker(network_id)
             self._owned_labels(network)
