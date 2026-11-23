@@ -127,25 +127,37 @@ async def owned(test_engine, monkeypatch):
             await db.commit()
 
 
-async def _new(db, owned, kind="metadata", *, old=False):
-    row = await objects.allocate(
-        db,
+async def _new(db, owned, kind="metadata", *, old=False, metadata_output_id=None):
+    identifier = uuid.uuid4()
+    spec = {"profile": "owned-test"}
+    if kind == "frame":
+        spec.update(frame_index=9, width=512, format="webp")
+    elif kind == "chunk":
+        spec.update(chunk_id=9)
+    row = Output(
+        id=identifier,
         dataset_item_id=owned.item_id,
         kind=kind,
-        spec={"profile": "owned-test"},
+        spec=spec,
         original_ref={"schema": 1, "sha256": "a" * 64},
         auth_ref={"schema": 1, "mode": "system"},
-        metadata_output_id=None if kind == "metadata" else uuid.uuid4(),
+        metadata_output_id=metadata_output_id if kind != "metadata" else None,
+        storage_ref=await physical.allocate(db, identifier),
     )
     if old:
         row.updated_at = objects.utcnow() - timedelta(days=60)
+    db.add(row)
     await db.commit()
     return row
 
 
 async def _ready(db, owned, kind="metadata", *, old=False):
-    row = await _new(db, owned, kind)
-    await objects.claim(db, row)
+    row = await _new(
+        db, owned, kind, metadata_output_id=uuid.uuid4() if kind != "metadata" else None
+    )
+    row.lease_token = uuid.uuid4()
+    row.lease_expires_at = objects.utcnow() + timedelta(minutes=15)
+    await db.flush()
     owner = physical.resolve(row)
     body = b'{"schema":1}'
     row.inventory = {
@@ -254,13 +266,16 @@ async def test_snapshot_copies_all_model_facts_without_aliases(owned):
 
 async def test_lease_is_claimed_once_and_never_renewed(owned, monkeypatch):
     async with owned.factory() as db:
-        row = await _new(db, owned)
+        fixture = await _new(db, owned)
+        await objects.attach(db, fixture, slot_id=None, previous_output_id=None)
+        row = await objects.read_attempt(db, owned.item_id, "metadata", fixture.id)
+        stale = await objects.read_attempt(db, owned.item_id, "metadata", fixture.id)
         first = await objects.claim(db, row)
         expires = row.lease_expires_at
         assert isinstance(first, uuid.UUID) and expires > objects.utcnow()
-        assert await objects.claim(db, row) is None
+        assert await objects.claim(db, stale) is None
         monkeypatch.setattr(objects, "utcnow", lambda: expires + timedelta(seconds=1))
-        assert await objects.claim(db, row) is None
+        assert await objects.claim(db, stale) is None
         assert row.lease_token == first and row.lease_expires_at == expires
         await db.rollback()
 
@@ -515,8 +530,7 @@ async def test_expired_attempt_clears_only_matching_pending_pointer(
 ):
     async with owned.factory() as db:
         active = await _ready(db, owned)
-        output = await _new(db, owned, kind)
-        await objects.claim(db, output)
+        output = await _new(db, owned, kind, metadata_output_id=active.id)
         item = await db.get(DatasetItem, owned.item_id)
         item.video_output_id = active.id
         if kind == "metadata":
@@ -542,6 +556,9 @@ async def test_expired_attempt_clears_only_matching_pending_pointer(
                 status="pending",
             )
             db.add(row)
+        await db.flush()
+        pending = await objects.read_attempt(db, owned.item_id, kind, output.id)
+        assert await objects.claim(db, pending) is not None
         await db.commit()
         now = objects.utcnow() + timedelta(hours=2)
         monkeypatch.setattr(objects, "utcnow", lambda: now)
@@ -560,9 +577,11 @@ async def test_expired_attempt_clears_only_matching_pending_pointer(
 async def test_live_lease_and_unknown_operation_prevent_expiration(owned, monkeypatch):
     async with owned.factory() as db:
         output = await _new(db, owned)
-        await objects.claim(db, output)
         item = await db.get(DatasetItem, owned.item_id)
         item.video_building_output_id = output.id
+        await db.flush()
+        pending = await objects.read_attempt(db, owned.item_id, "metadata", output.id)
+        assert await objects.claim(db, pending) is not None
         await db.commit()
         assert await objects.reconcile(db) == 0
         db.add(_unknown(output.id))

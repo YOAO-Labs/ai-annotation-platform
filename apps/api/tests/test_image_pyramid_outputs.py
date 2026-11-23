@@ -421,8 +421,10 @@ async def _leased(db, registered):
     generation = await service.prepare_generation(
         db, registered.owner, force=True, delegation=registered.delegation
     )
-    asset = await service.get_asset_for_owner(db, registered.owner)
+    owner = await service.get_asset_for_owner(db, registered.owner)
+    asset = await db.get(ImagePyramidAsset, owner.id)
     token = await service.acquire_generation_lease(db, asset.id, generation.generation)
+    generation = await db.get(ImagePyramidGeneration, (asset.id, generation.generation))
     output = await db.get(ImagePyramidOutput, generation.output_id)
     return asset, generation, token, output
 
@@ -436,6 +438,7 @@ async def test_expired_lease_reacquisition_allocates_a_new_uuid_owner(
     token2 = await service.acquire_generation_lease(
         db_session, asset.id, generation.generation
     )
+    await db_session.refresh(generation)
     output2 = await db_session.get(ImagePyramidOutput, generation.output_id)
     assert token1 != token2
     assert output1.id != output2.id
@@ -453,6 +456,7 @@ async def test_stale_publish_and_fail_cannot_damage_a_new_lease(db_session, regi
     token2 = await service.acquire_generation_lease(
         db_session, asset.id, generation.generation
     )
+    await db_session.refresh(generation)
     output2_id = generation.output_id
     assert await service.publish_generation(db_session, **old_publication) is False
     await service.fail_generation(
@@ -584,6 +588,8 @@ async def test_valid_publication_sets_saved_output_and_thumbnail(
     asset, generation, token, output = await _leased(db_session, registered)
     publication = _publication(registered, asset, generation, output, token)
     assert await service.publish_generation(db_session, **publication) is True
+    await db_session.refresh(asset)
+    await db_session.refresh(generation)
     await db_session.refresh(output)
     await db_session.refresh(registered.item)
     assert generation.status == "ready"

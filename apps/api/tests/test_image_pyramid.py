@@ -127,15 +127,15 @@ async def test_prepare_generation_is_singleflight_and_fences_metadata_rebinding(
     duplicate = await pyramids.prepare_generation(
         db_session, owner, force=False, delegation=delegation
     )
-    assert first is not None and duplicate is first and first.status == "pending"
-    asset = await pyramids.get_asset_for_owner(db_session, owner)
-    await ready_generation(db_session, item, asset=asset, generation=first)
-    assert (
-        await pyramids.prepare_generation(
-            db_session, owner, force=False, delegation=delegation
-        )
-        is first
+    assert first is not None and duplicate == first and first.status == "pending"
+    asset_facts = await pyramids.get_asset_for_owner(db_session, owner)
+    asset = await db_session.get(ImagePyramidAsset, asset_facts.id)
+    pending = await db_session.get(ImagePyramidGeneration, (asset.id, first.generation))
+    await ready_generation(db_session, item, asset=asset, generation=pending)
+    ready = await pyramids.prepare_generation(
+        db_session, owner, force=False, delegation=delegation
     )
+    assert ready.generation == first.generation and ready.status == "ready"
 
     item.width += 1
     await db_session.flush()
@@ -154,6 +154,7 @@ async def test_prepare_generation_is_singleflight_and_fences_metadata_rebinding(
     )
     assert replacement.generation == first.generation + 1
     assert replacement.original_ref != first.original_ref
+    await db_session.refresh(asset)
     assert asset.active_generation is None
 
 
@@ -363,8 +364,10 @@ async def test_retry_is_idempotent_while_generation_is_pending(
         )
         assert response.status_code == 202
         assert response.json()["status"] == "pending"
-    await db_session.refresh(generation)
-    assert generation.status == "pending"
+    current = await db_session.get(
+        ImagePyramidGeneration, (generation.asset_id, generation.generation)
+    )
+    assert current.status == "pending"
     generations = await db_session.scalars(
         select(ImagePyramidGeneration.generation).where(
             ImagePyramidGeneration.asset_id == generation.asset_id

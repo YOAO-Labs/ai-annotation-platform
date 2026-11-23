@@ -4,19 +4,15 @@ import hashlib
 import json
 import math
 import uuid
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from typing import Any, Literal
 
-from sqlalchemy import func, or_, select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.image_pyramid import (
-    ImagePyramidAsset,
-    ImagePyramidGeneration,
-)
+from app.services import image_pyramid_data as pyramid_data
+from app.services.image_pyramid_data import AssetFacts, GenerationFacts
 from app.db.models.task import Task
 from app.services.storage import StorageService, storage_service
 from app.services import image_pyramid_originals as originals
@@ -246,35 +242,12 @@ def source_identity(
     ]
 
 
-def _asset_owner_values(owner: ImagePyramidOwner) -> dict[str, Any]:
-    return {
-        "dataset_item_id": owner.id if owner.kind == "dataset_item" else None,
-        "task_id": owner.id if owner.kind == "task" else None,
-        "profile_version": settings.image_pyramid_profile_version,
-    }
-
-
-def _asset_owner_clause(owner: ImagePyramidOwner):
-    if owner.kind == "dataset_item":
-        return ImagePyramidAsset.dataset_item_id == owner.id
-    return ImagePyramidAsset.task_id == owner.id
-
-
 async def get_asset_for_owner(
-    db: AsyncSession,
-    owner: ImagePyramidOwner,
-    *,
-    for_update: bool = False,
-) -> ImagePyramidAsset | None:
-    statement = select(ImagePyramidAsset).where(
-        _asset_owner_clause(owner),
-        ImagePyramidAsset.profile_version == settings.image_pyramid_profile_version,
+    db: AsyncSession, owner: ImagePyramidOwner
+) -> AssetFacts | None:
+    return await pyramid_data.read_asset(
+        db, owner.kind, owner.id, settings.image_pyramid_profile_version
     )
-    if for_update:
-        statement = statement.with_for_update().execution_options(
-            populate_existing=True
-        )
-    return (await db.execute(statement)).scalar_one_or_none()
 
 
 async def prepare_generation(
@@ -283,7 +256,7 @@ async def prepare_generation(
     *,
     force: bool,
     delegation: dict,
-) -> ImagePyramidGeneration | None:
+) -> GenerationFacts | None:
     from app.services.directory_policy import owns_media
 
     if owner.kind == "dataset_item" and await owns_media(db, owner.id):
@@ -301,134 +274,50 @@ async def prepare_generation(
     if source_size > settings.image_pyramid_max_source_bytes:
         raise ImagePyramidError("resource_limit")
 
-    await db.execute(
-        pg_insert(ImagePyramidAsset)
-        .values(id=uuid.uuid4(), **_asset_owner_values(owner))
-        .on_conflict_do_nothing()
+    from app.services import fixture_media_execution
+
+    execution = fixture_media_execution.current()
+    generation, reused_inflight = await pyramid_data.prepare(
+        db,
+        asset=uuid.uuid4(),
+        kind=owner.kind,
+        owner=owner.id,
+        profile=settings.image_pyramid_profile_version,
+        identity=identity,
+        original=originals.receipt(owner.source),
+        authority=delegation,
+        normalization=settings.image_pyramid_normalization_version,
+        force=force,
+        keep_inflight=execution is not None,
     )
-    asset = await get_asset_for_owner(db, owner, for_update=True)
-    if asset is None:  # pragma: no cover - defensive after INSERT/ON CONFLICT
-        raise ImagePyramidError("state_conflict")
-
-    inflight = (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(
-                ImagePyramidGeneration.asset_id == asset.id,
-                ImagePyramidGeneration.status.in_(("pending", "building")),
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    now = utcnow()
-    if inflight is not None:
-        from app.services import fixture_media_execution
-
-        execution = fixture_media_execution.current()
-        if execution is not None:
-            if execution.kind not in {"pyramid", "independent"}:
-                raise ImagePyramidError("fixture_media_scope_mismatch")
-            await execution.bind_generation(inflight.asset_id, inflight.generation)
-            return None
-        if (
-            inflight.status == "building"
-            and inflight.lease_expires_at is not None
-            and inflight.lease_expires_at <= now
-        ):
-            inflight.status = "failed"
-            inflight.error_code = "lease_expired"
-            inflight.lease_token = None
-            inflight.lease_expires_at = None
-            if asset.building_generation == inflight.generation:
-                asset.building_generation = None
-            await db.flush()
-        else:
-            return inflight
-
-    active: ImagePyramidGeneration | None = None
-    if asset.active_generation is not None:
-        active = await db.get(
-            ImagePyramidGeneration, (asset.id, asset.active_generation)
-        )
-        if (
-            active is None
-            or active.status != "ready"
-            or active.source_identity != identity
-        ):
-            asset.active_generation = None
-            active = None
-    if active is not None and not force:
-        return active
-
-    latest = (
-        await db.execute(
-            select(func.max(ImagePyramidGeneration.generation)).where(
-                ImagePyramidGeneration.asset_id == asset.id
-            )
-        )
-    ).scalar_one()
-    generation_number = int(latest or 0) + 1
-    generation = ImagePyramidGeneration(
-        asset_id=asset.id,
-        generation=generation_number,
-        source_identity=identity,
-        original_ref=originals.receipt(owner.source),
-        auth_ref=delegation,
-        status="pending",
-        normalization_version=settings.image_pyramid_normalization_version,
-        tile_size=PYRAMID_TILE_SIZE,
-        overlap=PYRAMID_OVERLAP,
-    )
-    db.add(generation)
-    asset.building_generation = generation_number
-    await db.flush()
+    if reused_inflight and execution is not None:
+        if execution.kind not in {"pyramid", "independent"}:
+            raise ImagePyramidError("fixture_media_scope_mismatch")
+        await execution.bind_generation(generation.asset_id, generation.generation)
+        return None
     return generation
 
 
 async def acquire_generation_lease(
     db: AsyncSession, asset_id: uuid.UUID, generation_number: int
 ) -> uuid.UUID | None:
-    asset = await db.scalar(
-        select(ImagePyramidAsset)
-        .where(ImagePyramidAsset.id == asset_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if asset is None:
+    if not await pyramid_data.lock_claim(db, asset_id, generation_number):
         return None
-    generation = (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(
-                ImagePyramidGeneration.asset_id == asset_id,
-                ImagePyramidGeneration.generation == generation_number,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if generation is None or generation.status in {"ready", "failed"}:
-        return None
-    now = utcnow()
-    if (
-        generation.status == "building"
-        and generation.lease_expires_at is not None
-        and generation.lease_expires_at > now
+    from app.services import image_pyramid_storage as physical, storage_access
+
+    identifier, token = uuid.uuid4(), uuid.uuid4()
+    reference = await physical.allocate(db, identifier)
+    await storage_access.check(db, uuid.UUID(reference["location_id"]), lock=True)
+    if not await pyramid_data.claim(
+        db,
+        asset_id,
+        generation_number,
+        identifier,
+        token,
+        settings.image_pyramid_lease_seconds,
+        reference,
     ):
         return None
-    token = uuid.uuid4()
-    generation.status = "building"
-    generation.error_code = None
-    generation.lease_token = token
-    generation.lease_expires_at = now + timedelta(
-        seconds=settings.image_pyramid_lease_seconds
-    )
-    generation.attempts += 1
-    from app.services import image_pyramid_objects as objects
-
-    await objects.allocate(db, asset, generation, token)
-    await db.flush()
     return token
 
 
@@ -454,36 +343,12 @@ async def publish_generation(
     inventory: dict,
     gate_revision: int,
 ) -> bool:
-    asset = (
-        await db.execute(
-            select(ImagePyramidAsset)
-            .where(ImagePyramidAsset.id == asset_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    generation = (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(
-                ImagePyramidGeneration.asset_id == asset_id,
-                ImagePyramidGeneration.generation == generation_number,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if (
-        asset is None
-        or generation is None
-        or generation.status != "building"
-        or generation.lease_token != lease_token
-        or generation.lease_expires_at is None
-        or generation.lease_expires_at <= utcnow()
-        or generation.output_id != output_id
-        or asset.building_generation != generation_number
-    ):
+    selected = await pyramid_data.lock_publication(
+        db, asset_id, generation_number, lease_token, output_id
+    )
+    if selected is None:
         return False
+    asset, generation = selected
     from app.services import image_pyramid_objects as objects
 
     authority = await originals.delegated(db, generation.auth_ref)
@@ -499,45 +364,30 @@ async def publish_generation(
         or source_fingerprint != "sha256:" + owner.source.sha256
     ):
         raise ImagePyramidError("source_changed")
-    generation.source_fingerprint = source_fingerprint
-    generation.status = "ready"
-    generation.lease_token = None
-    generation.lease_expires_at = None
-    generation.width = width
-    generation.height = height
-    generation.max_level = max_level
-    generation.format = PYRAMID_FORMAT
-    generation.manifest_key = manifest_storage_key
-    generation.manifest_digest = manifest_digest
-    generation.overview_key = overview_storage_key
-    generation.overview_width = overview_width
-    generation.overview_height = overview_height
-    generation.overview_digest = overview_digest
-    generation.tile_count = tile_count
-    generation.retained_bytes = retained_bytes
-    generation.error_code = None
-    await objects.publish(
-        db, asset, generation, output_id, lease_token, inventory, gate_revision
+    facts = {
+        "source_fingerprint": source_fingerprint,
+        "width": width,
+        "height": height,
+        "max_level": max_level,
+        "manifest_key": manifest_storage_key,
+        "manifest_digest": manifest_digest,
+        "overview_key": overview_storage_key,
+        "overview_width": overview_width,
+        "overview_height": overview_height,
+        "overview_digest": overview_digest,
+        "tile_count": tile_count,
+        "retained_bytes": retained_bytes,
+    }
+    return await objects.publish(
+        db,
+        asset,
+        replace(generation, format=PYRAMID_FORMAT, **facts),
+        output_id,
+        lease_token,
+        facts,
+        inventory,
+        gate_revision,
     )
-    asset.active_generation = generation_number
-    if asset.building_generation == generation_number:
-        asset.building_generation = None
-    await db.flush()
-    receipt = await db.scalar(
-        text(
-            "SELECT yoao_assets_v1.publish_image_pyramid_thumbnail("
-            "CAST(:asset_id AS uuid), CAST(:generation AS integer), "
-            "CAST(:output_id AS uuid))"
-        ),
-        {
-            "asset_id": asset_id,
-            "generation": generation_number,
-            "output_id": output_id,
-        },
-    )
-    if not isinstance(receipt, dict) or receipt.get("applied") is not True:
-        raise ImagePyramidError("thumbnail_publication_rejected")
-    return True
 
 
 async def fail_generation(
@@ -548,52 +398,12 @@ async def fail_generation(
     lease_token: uuid.UUID | None,
     error_code: str,
 ) -> None:
-    asset = (
-        await db.execute(
-            select(ImagePyramidAsset)
-            .where(ImagePyramidAsset.id == asset_id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    generation = (
-        await db.execute(
-            select(ImagePyramidGeneration)
-            .where(
-                ImagePyramidGeneration.asset_id == asset_id,
-                ImagePyramidGeneration.generation == generation_number,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one_or_none()
-    if generation is None:
-        return
-    if (
-        lease_token is None
-        and error_code == "lease_expired"
-        and (
-            generation.status != "building"
-            or generation.lease_expires_at is None
-            or generation.lease_expires_at > utcnow()
-        )
-    ):
-        return
-    if lease_token is not None and generation.lease_token != lease_token:
-        return
-    if generation.status != "ready":
-        generation.status = "failed"
-        generation.error_code = error_code[:64]
-        generation.lease_token = None
-        generation.lease_expires_at = None
-    if asset is not None and asset.building_generation == generation_number:
-        asset.building_generation = None
-    await db.flush()
+    await pyramid_data.fail(db, asset_id, generation_number, lease_token, error_code)
 
 
 async def task_pyramid_assets(
     db: AsyncSession, tasks: list[Task]
-) -> dict[uuid.UUID, tuple[ImagePyramidAsset, ImagePyramidGeneration | None]]:
+) -> dict[uuid.UUID, tuple[AssetFacts, GenerationFacts | None]]:
     if not tasks:
         return {}
     from app.services.original_sources import resolve_task_relation
@@ -617,113 +427,60 @@ async def task_pyramid_assets(
     item_ids = {
         identifier for kind, identifier in owners.values() if kind == "dataset_item"
     }
-    direct_task_ids = {
-        identifier for kind, identifier in owners.values() if kind == "task"
+    task_ids = {identifier for kind, identifier in owners.values() if kind == "task"}
+    profile = settings.image_pyramid_profile_version
+    selected = {}
+    for item_batch, task_batch in _owner_batches(item_ids, task_ids):
+        pairs = await pyramid_data.summaries(db, item_batch, task_batch, profile)
+        for asset, generation in pairs:
+            key = (
+                ("dataset_item", asset.dataset_item_id)
+                if asset.dataset_item_id
+                else ("task", asset.task_id)
+            )
+            selected[key] = (asset, generation)
+    return {
+        task_id: selected[owner]
+        for task_id, owner in owners.items()
+        if owner in selected
     }
-    owner_filters = []
-    if item_ids:
-        owner_filters.append(ImagePyramidAsset.dataset_item_id.in_(item_ids))
-    if direct_task_ids:
-        owner_filters.append(ImagePyramidAsset.task_id.in_(direct_task_ids))
-    if not owner_filters:
-        return {}
-    assets = list(
-        (
-            await db.execute(
-                select(ImagePyramidAsset).where(
-                    or_(*owner_filters),
-                    ImagePyramidAsset.profile_version
-                    == settings.image_pyramid_profile_version,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not assets:
-        return {}
-    asset_ids = [asset.id for asset in assets]
-    generations = list(
-        (
-            await db.execute(
-                select(ImagePyramidGeneration)
-                .where(ImagePyramidGeneration.asset_id.in_(asset_ids))
-                .order_by(
-                    ImagePyramidGeneration.asset_id,
-                    ImagePyramidGeneration.generation.desc(),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    by_asset: dict[uuid.UUID, list[ImagePyramidGeneration]] = {}
-    for generation in generations:
-        by_asset.setdefault(generation.asset_id, []).append(generation)
-    owner_assets: dict[tuple[str, uuid.UUID], ImagePyramidAsset] = {}
-    for asset in assets:
-        if asset.dataset_item_id:
-            owner_assets[("dataset_item", asset.dataset_item_id)] = asset
-        elif asset.task_id:
-            owner_assets[("task", asset.task_id)] = asset
 
-    result: dict[
-        uuid.UUID, tuple[ImagePyramidAsset, ImagePyramidGeneration | None]
-    ] = {}
-    for task in tasks:
-        owner_key = owners[task.id]
-        asset = owner_assets.get(owner_key)
-        if asset is None:
-            continue
-        candidates = by_asset.get(asset.id, [])
-        selected = next(
-            (
-                row
-                for row in candidates
-                if asset.active_generation is not None
-                and row.generation == asset.active_generation
-                and row.status == "ready"
-            ),
-            None,
-        )
-        if selected is None and asset.building_generation is not None:
-            selected = next(
-                (
-                    row
-                    for row in candidates
-                    if row.generation == asset.building_generation
-                ),
-                None,
-            )
-        if selected is None and candidates:
-            selected = candidates[0]
-        result[task.id] = (asset, selected)
-    return result
+
+def _owner_batches(item_ids, task_ids):
+    from itertools import islice
+
+    items, tasks = iter(item_ids), iter(task_ids)
+    while (item_batch := list(islice(items, 5000))) or (
+        task_batch := list(islice(tasks, 5000))
+    ):
+        if item_batch:
+            task_batch = list(islice(tasks, 5000))
+        yield item_batch, task_batch
 
 
 async def get_active_generation_for_task(
     db: AsyncSession, task: Task
-) -> tuple[ImagePyramidOwner, ImagePyramidAsset | None, ImagePyramidGeneration | None]:
+) -> tuple[ImagePyramidOwner, AssetFacts | None, GenerationFacts | None]:
     owner = await owner_for_task(db, task)
     asset = await get_asset_for_owner(db, owner)
     if asset is None:
         return owner, None, None
     generation = None
     if asset.active_generation is not None:
-        generation = await db.get(
-            ImagePyramidGeneration, (asset.id, asset.active_generation)
+        generation = await pyramid_data.read_generation(
+            db, asset.id, asset.active_generation
         )
     return owner, asset, generation
 
 
-def manifest_etag(generation: ImagePyramidGeneration) -> str:
+def manifest_etag(generation: GenerationFacts) -> str:
     digest = (generation.manifest_digest or "missing").replace("sha256:", "")
     return f'"pyramid-{generation.generation}-{digest}"'
 
 
 def source_matches_generation(
     owner: ImagePyramidOwner,
-    generation: ImagePyramidGeneration,
+    generation: GenerationFacts,
     storage: StorageService = storage_service,
 ) -> bool:
     return (
@@ -734,7 +491,7 @@ def source_matches_generation(
     )
 
 
-def native_generation(generation: ImagePyramidGeneration | None) -> bool:
+def native_generation(generation: GenerationFacts | None) -> bool:
     """A generation admitted and published by the Images owner.
 
     The owner records the work generation that admitted a pyramid attempt.  The
@@ -833,7 +590,7 @@ async def owner_asset_references(
 
 
 def pyramid_summary(
-    generation: ImagePyramidGeneration | None,
+    generation: GenerationFacts | None,
     *,
     width: int | None,
     height: int | None,

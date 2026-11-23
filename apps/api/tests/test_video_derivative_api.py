@@ -215,7 +215,10 @@ async def _publish(
             result.update(generation_mode="transcode", diagnostics=diagnostics or {})
     inventory = _inventory(output, result, payload)
     revision = await storage_access.check(db, LEGACY_LOCATION_ID)
-    await core.publish(db, output, world.authority, token, result, inventory, revision)
+    output = await core.publish(
+        db, output, world.authority, token, result, inventory, revision
+    )
+    await db.refresh(world.item)
     await db.commit()
     return output
 
@@ -397,7 +400,7 @@ async def test_ready_frame_receipt_and_force_retry_keep_old_physical_owner(
     )
     assert retried.status_code == 200, retried.text
     assert retried.json()["frames"][0]["output_id"] != str(output.id)
-    await db_session.refresh(output)
+    output = await db_session.get(Output, output.id, populate_existing=True)
     assert output.state == "ready" and output.inventory == previous
 
 
@@ -477,7 +480,7 @@ async def test_physical_integrity_failures_create_fresh_attempt_without_touching
     assert response.status_code == 202, response.text
     assert response.json()["output_id"] != str(output.id)
     assert response.json()["status"] == "pending"
-    await db_session.refresh(output)
+    output = await db_session.get(Output, output.id, populate_existing=True)
     assert output.state == "ready"
     assert len(world.dispatched) == 1 and len(world.dispatched[0]) == 1
 
@@ -649,5 +652,5 @@ async def test_corrupt_active_metadata_reuses_building_attempt_and_preserves_act
     await db_session.refresh(world.item)
     assert world.item.video_building_output_id == building
     assert world.item.video_output_id == active.id
-    await db_session.refresh(active)
+    active = await db_session.get(Output, active.id, populate_existing=True)
     assert active.state == "ready"

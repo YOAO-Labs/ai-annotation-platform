@@ -8,6 +8,7 @@ and competing row locks use the real database and production contract helpers.
 from types import SimpleNamespace
 import asyncio
 import time
+import os
 import uuid
 
 from fastapi import HTTPException, Request
@@ -270,7 +271,9 @@ async def test_overlapping_reads_reuse_a_committed_slot_instead_of_reporting_bus
         item = await setup.get(DatasetItem, state.item_id)
         authority = await video_authority(setup, item)
         ready_id = (await owned_output(setup, item, kind)).id
-        generation = await core.row(setup, Output, state.generation_id)
+        generation = await objects.read_attempt(
+            setup, state.item_id, "metadata", state.generation_id
+        )
         spec = (
             core.frame_spec(generation, 0, 512, "webp")
             if kind == "frame"
@@ -626,3 +629,78 @@ async def test_seed_retirement_drains_a_reader_allocated_after_its_initial_snaps
     finally:
         if permit is not None:
             await permit.__aexit__(None, None, None)
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data PostgreSQL verifier",
+)
+@pytest.mark.parametrize("grant_path", ["lan", "worktree"])
+async def test_ordinary_video_login_keeps_current_and_historical_receipts_without_table_rights(
+    committed_video, test_engine, tmp_path, grant_path
+):
+    from tests.test_asset_storage_cleanup_runtime import _sqlstate
+    from tests.test_workspace_runtime_acl_native import _runtime
+
+    state = committed_video
+    async with _runtime(test_engine, tmp_path, grant_path) as (engine, role, _):
+        maker = async_sessionmaker(engine, expire_on_commit=False)
+        async with maker() as db:
+            assert await db.scalar(text("SELECT session_user")) == role
+            for table in (
+                "video_chunks",
+                "video_frame_cache",
+                "video_frame_indices",
+                "video_derivative_outputs",
+            ):
+                assert not await db.scalar(
+                    text(
+                        "SELECT has_table_privilege(current_user,:relation,"
+                        "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                        "has_any_column_privilege(current_user,:relation,"
+                        "'SELECT,INSERT,UPDATE,REFERENCES')"
+                    ),
+                    {"relation": "public." + table},
+                ), table
+                with pytest.raises(DBAPIError) as denied:
+                    async with db.begin_nested():
+                        await db.execute(
+                            text(f"SELECT id FROM public.{table} FOR UPDATE NOWAIT")
+                        )
+                assert _sqlstate(denied.value) == "42501", table
+            assert not await db.scalar(
+                text(
+                    "SELECT has_function_privilege(current_user,"
+                    "'yoao_assets_v1.claim_video_media(uuid,uuid,integer,text[])','EXECUTE')"
+                )
+            )
+            ready = await objects.get_output(db, state.generation_id, lock=True)
+            assert ready.state == "ready"
+            assert not hasattr(ready, "auth_ref")
+            output, enqueue = await core.prepare(
+                db, state.item_id, state.authority, "metadata", force=True
+            )
+            assert enqueue and output.id != ready.id and output.state == "building"
+            assert await objects.get_output(db, output.id) is None
+            assert (
+                await core.item_row(db, state.item_id)
+            ).video_building_output_id == output.id
+            async with state.factory() as observer:
+                assert await observer.get(Output, output.id) is None
+            await db.rollback()
+            item = await core.item_row(db, state.item_id)
+            assert (
+                item.video_output_id == ready.id
+                and item.video_building_output_id is None
+            )
+            assert (
+                await objects.read_attempt(db, item.id, "metadata", output.id) is None
+            )
+            await db.rollback()
+
+        async with state.factory() as holder, maker() as db:
+            await holder.get(Output, state.generation_id, with_for_update=True)
+            with pytest.raises(DBAPIError) as busy:
+                await objects.get_output(db, state.generation_id, lock=True)
+            assert _sqlstate(busy.value) == "55P03"
+            await db.rollback()

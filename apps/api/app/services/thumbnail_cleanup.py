@@ -1,50 +1,17 @@
 """Collect only unreferenced, settled thumbnail owners at their saved targets."""
 
 from contextlib import contextmanager
-from datetime import timedelta
 from types import SimpleNamespace
 import uuid
 
 from botocore.exceptions import ClientError
-from sqlalchemy import String, cast, exists, func, or_, select
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_source import DatasetSourcePreview
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.task import Task
-from app.db.models.thumbnail_output import ThumbnailOutput as Output
 from app.services import object_removal_accounting as removal
 from app.services import original_sources, storage_access, thumbnail_outputs as outputs
 from app.services.content_snapshot import ContentError
-
-
-def unreferenced(identifier):
-    return (
-        ~exists().where(DatasetItem.thumbnail_output_id == identifier)
-        & ~exists().where(Task.thumbnail_output_id == identifier)
-        & ~exists().where(DatasetSourcePreview.thumbnail_output_id == identifier)
-    )
-
-
-async def in_use(db, identifier, except_id=None):
-    statement = select(
-        exists().where(StorageOperation.purpose == outputs.purpose(identifier))
-    )
-    if except_id is not None:
-        statement = select(
-            exists().where(
-                StorageOperation.purpose == outputs.purpose(identifier),
-                StorageOperation.id != except_id,
-            )
-        )
-    return bool(await db.scalar(statement))
-
-
-async def eligible(db, identifier, *, except_id=None):
-    return bool(await db.scalar(select(unreferenced(identifier)))) and not await in_use(
-        db, identifier, except_id
-    )
 
 
 def absent(exc):
@@ -156,7 +123,7 @@ async def retire_fixture(db, control, identifier):
     def retire(target, output, fixture):
         return remove(target, output, fixture=fixture)
 
-    await _retire_output(db, control, "thumbnail", identifier, Output, retire)
+    await _retire_output(db, control, "thumbnail", identifier, retire)
 
 
 async def reconcile(db, *, limit=100, grace_seconds=3600):
@@ -169,80 +136,38 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
         raise ContentError("thumbnail_gc_invalid")
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     current_time = outputs.now()
-    cutoff = current_time - timedelta(seconds=grace_seconds)
     removed = 0
     async with factory() as current:
         identifiers = list(
             await current.scalars(
-                select(Output.id)
-                .where(
-                    Output.state.in_(["ready", "retiring", "failed"]),
-                    func.yoao_assets_v1.fixture_media_ordinary_gc(
-                        "thumbnail", Output.id, 0
-                    ),
-                    Output.uncertain_write.is_(False),
-                    ~exists().where(
-                        StorageOperation.purpose
-                        == "thumbnail_" + func.replace(cast(Output.id, String), "-", "")
-                    ),
-                    Output.next_check_at <= current_time,
-                    or_(Output.state == "retiring", Output.updated_at <= cutoff),
-                    unreferenced(Output.id),
-                )
-                .order_by(Output.next_check_at, Output.id)
-                .limit(limit)
+                text(
+                    "SELECT id FROM yoao_assets_v1.legacy_thumbnail_gc_candidates("
+                    ":limit, :now, :grace)"
+                ),
+                {"limit": limit, "now": current_time, "grace": grace_seconds},
             )
         )
         await current.commit()
         for identifier in identifiers:
             try:
+                params = {"id": identifier, "now": current_time, "grace": grace_seconds}
                 async with original_sources._reads(current, True):
-                    output = await current.get(
-                        Output,
-                        identifier,
-                        populate_existing=True,
-                        with_for_update={"nowait": True},
+                    claim = await current.scalar(
+                        text(
+                            "SELECT yoao_assets_v1.legacy_thumbnail_gc_start("
+                            ":id, :now, :grace)"
+                        ),
+                        params,
                     )
-                if (
-                    output is None
-                    or output.state == "deleted"
-                    or output.writer_until > current_time
-                    or not await eligible(current, identifier)
-                ):
+                if claim is None:
                     await current.rollback()
                     continue
-                if output.uncertain_write:
-                    await current.rollback()
-                    continue
-                if output.sha256 is None:
-                    if output.state == "failed":
-                        output.state = "deleted"
-                        await current.commit()
-                    else:
-                        await current.rollback()
-                    continue
-                if output.state == "ready":
-                    output.state, output.retired_at = "retiring", current_time
-                    output.next_check_at = current_time + timedelta(
-                        seconds=grace_seconds
-                    )
+                if claim["action"] == "checkpoint":
                     await current.commit()
                     continue
-                if (
-                    output.state != "retiring"
-                    or output.retired_at is None
-                    or output.retired_at > cutoff
-                ):
-                    await current.rollback()
-                    continue
+                output = outputs._facts(claim["output"])
                 saved = outputs.owner(output)
-                expected = (
-                    output.storage_ref,
-                    output.sha256,
-                    output.size_bytes,
-                    output.etag,
-                    output.version_id,
-                )
+                params["receipt"] = outputs._receipt(output)
                 revision = await storage_access.check(current, saved.location_id)
                 await current.commit()
                 recorder = removal.recorder(
@@ -257,27 +182,16 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                     nonlocal output, target, owned_permit
                     owned_permit = permit
                     async with original_sources._reads(current, True):
-                        output = await current.get(
-                            Output,
-                            identifier,
-                            populate_existing=True,
-                            with_for_update={"nowait": True},
+                        admitted_output = await current.scalar(
+                            text(
+                                "SELECT yoao_assets_v1.legacy_thumbnail_gc_admit("
+                                ":id, :receipt, :permit, :now, :grace)"
+                            ).bindparams(bindparam("receipt", type_=JSONB)),
+                            {**params, "permit": permit.id},
                         )
-                    if (
-                        output is None
-                        or output.state != "retiring"
-                        or output.uncertain_write
-                        or (
-                            output.storage_ref,
-                            output.sha256,
-                            output.size_bytes,
-                            output.etag,
-                            output.version_id,
-                        )
-                        != expected
-                        or not await eligible(current, identifier, except_id=permit.id)
-                    ):
+                    if admitted_output is None:
                         raise ContentError("thumbnail_output_changed")
+                    output = outputs._facts(admitted_output)
                     target = await outputs.media_cache_storage.target_for_ref(
                         current, saved.ref, require_enabled=False
                     )
@@ -312,27 +226,15 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 if failure is not None:
                     raise failure
                 async with original_sources._reads(current, True):
-                    output = await current.get(
-                        Output,
-                        identifier,
-                        populate_existing=True,
-                        with_for_update={"nowait": True},
+                    finished = await current.scalar(
+                        text(
+                            "SELECT yoao_assets_v1.legacy_thumbnail_gc_finish("
+                            ":id, :receipt, :now, :grace)"
+                        ).bindparams(bindparam("receipt", type_=JSONB)),
+                        params,
                     )
-                if (
-                    output is None
-                    or output.state != "retiring"
-                    or not await eligible(current, identifier)
-                    or (
-                        output.storage_ref,
-                        output.sha256,
-                        output.size_bytes,
-                        output.etag,
-                        output.version_id,
-                    )
-                    != expected
-                ):
+                if not finished:
                     raise ContentError("thumbnail_output_changed")
-                output.state = "deleted"
                 await current.commit()
                 removed += count
             except (

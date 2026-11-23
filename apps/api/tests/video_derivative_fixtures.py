@@ -78,10 +78,14 @@ def inventory(output, result, payload=None):
     }
 
 
-async def publish_result(db, output, authority, result, receipts):
+async def publish_result(db, output, authority, result, receipts, *, item=None):
     token = output.lease_token or await objects.claim(db, output)
     revision = await storage_access.check(db, LEGACY_LOCATION_ID)
-    await core.publish(db, output, authority, token, result, receipts, revision)
+    output = await core.publish(
+        db, output, authority, token, result, receipts, revision
+    )
+    if item is not None:
+        await db.refresh(item)
     await db.commit()
     return output
 
@@ -143,7 +147,7 @@ async def owned_metadata(
     if playback:
         payload["playback.mp4"] = b"owned browser playback"
     return await publish_result(
-        db, output, authority, result, inventory(output, result, payload)
+        db, output, authority, result, inventory(output, result, payload), item=item
     )
 
 
