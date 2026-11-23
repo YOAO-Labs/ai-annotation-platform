@@ -2,8 +2,8 @@
 
 Run only from this worktree's explicitly provisioned disposable test mode with
 ``AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE=1``. Before running the peer test,
-prepare its own locked environment from the checkout root:
-``uv sync --locked --project apps/training-executor``.
+prepare the locked executor ``handoff`` group in ``.artifacts/training-handoff-venv``
+as shown in the testing guide.
 The API uses its normal ``get_db`` factory; executor peers use the production
 Supervisor's journal, claim, fence and publication code with a controlled
 runtime identity and tiny CPU child. These checks do not qualify a model,
@@ -90,7 +90,7 @@ pytestmark = pytest.mark.skipif(
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _API_ROOT = _REPO_ROOT / "apps" / "api"
 _PEER_SCRIPT = _API_ROOT / "tests" / "fixtures" / "training_executor_handoff_peer.py"
-_PEER_PYTHON = _REPO_ROOT / "apps" / "training-executor" / ".venv" / "bin" / "python"
+_PEER_PYTHON = _REPO_ROOT / ".artifacts" / "training-handoff-venv" / "bin" / "python"
 _TOKEN = "local-handoff-executor-test-credential-" + "x" * 40
 _GPU = "GPU-11111111-2222-3333-4444-555555555555"
 _IMAGE = "sha256:" + "1" * 64
@@ -235,8 +235,9 @@ def _spawn_peer(
 ) -> subprocess.Popen[bytes]:
     if not _PEER_PYTHON.is_file():
         pytest.fail(
-            "Prepare this checkout's isolated Training Executor environment with "
-            "`uv sync --locked --project apps/training-executor` before running the peer test"
+            "Prepare the isolated handoff environment from the checkout root: "
+            'UV_PROJECT_ENVIRONMENT="$PWD/.artifacts/training-handoff-venv" '
+            "uv sync --locked --project apps/training-executor --only-group handoff"
         )
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     env = {
