@@ -14,16 +14,22 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.core.security import create_access_token
+from app.db.models.active_learning import ActiveLearningAttempt
 from app.db.models.learning_policy import LearningTrigger
 from app.db.models.training_run import TrainingRun
 from app.deps import get_db
-from app.schemas.active_learning import DecisionCreate
 from app.schemas.training_run import TrainingRunCreate
-from app.services import training_runs, training_studies
+from app.services import (
+    active_learning_originals,
+    training_claims,
+    training_runs,
+    training_studies,
+)
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_datasets import bind_training_authority
-from tests.active_learning_fixtures import complete, create, decide_with_ports, seed
-from tests.factory import create_user
+from app.workers.active_learning import run_round
+from tests.active_learning_fixtures import complete, current_round, seed
+from tests.factory import create_api_key, create_user
 from tests.test_training_recipes import recipe_body
 from tests.test_training_runs import GPU, TOKEN, executor_claim, ready_dataset
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
@@ -272,13 +278,16 @@ async def test_cancelled_trigger_is_rejected_at_executor_claim(
             project_id=project.id,
             creator_id=owner.id,
             dataset_id=dataset.id,
+            initialization_model_id=None,
             auto_trigger_id=trigger_id,
             request_digest=content_digest(body.request_payload()),
             name=body.name,
             config=config,
             config_digest=content_digest(config),
+            origin=None,
             authorization={"api_key_id": None},
         )
+        assert await training_claims.policy_claim_allowed(db, run)
     async with owner_factory.begin() as seed_db:
         trigger = await seed_db.get(LearningTrigger, trigger_id)
         trigger.status = "cancelled"
@@ -305,26 +314,64 @@ async def test_active_feedback_replay_via_real_login(
     test_engine, learning_login, monkeypatch
 ):
     client, _ = learning_login
-    async with async_sessionmaker(
-        test_engine, expire_on_commit=False
-    ).begin() as seed_db:
+    owner_factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with owner_factory() as seed_db:
         owner, headers = await new_manager(seed_db)
-    async with async_sessionmaker(test_engine, expire_on_commit=False)() as seed_db:
         world = await seed(seed_db, owner, monkeypatch)
-        round, attempt, _ = await create(seed_db, owner, world)
-        report = await complete(seed_db, round, attempt)
-        selected = next(
-            row["ordinal"] for row in report["ranking"] if row["recommended"]
-        )
-        await decide_with_ports(
-            seed_db,
-            world.project,
-            owner,
-            round.id,
-            DecisionCreate(request_id=uuid4(), action="accept", ordinals=[selected]),
+        key, token = await create_api_key(
+            seed_db, owner.id, "Selection", sorted(active_learning_originals.SCOPES)
         )
         await seed_db.commit()
-    path = f"/api/v1/projects/{world.project.id}/active-learning-rounds/{round.id}/feedback"
+    selection_headers = {"Authorization": f"Bearer {token}"}
+    root = f"/api/v1/projects/{world.project.id}/active-learning-rounds"
+    selection = world.selection.model_dump(mode="json")
+    preview = await client.post(
+        root + ":preview", headers=selection_headers, json=selection
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["candidate_count"] == len(world.tasks)
+    assert {
+        (bucket, object_key)
+        for operation, bucket, object_key in world.originals.calls
+        if operation == "get"
+    } == {(replica.bucket, replica.object_key) for replica in world.replicas.values()}
+
+    published = []
+    monkeypatch.setattr(
+        run_round, "apply_async", lambda **values: published.append(values)
+    )
+    created = await client.post(
+        root,
+        headers=selection_headers,
+        json={
+            **selection,
+            "request_id": str(uuid4()),
+            "name": "Human selection",
+            "preview_digest": preview.json()["preview_digest"],
+        },
+    )
+    assert created.status_code == 202, created.text
+    round_id = UUID(created.json()["id"])
+    attempt_id = UUID(created.json()["current_attempt_id"])
+    assert [message["args"] for message in published] == [[str(attempt_id)]]
+    async with owner_factory() as seed_db:
+        round = await current_round(seed_db, round_id)
+        assert round.spec["original_contract"] == 1
+        assert round.authorization["api_key_id"] == str(key.id)
+        attempt = await seed_db.get(ActiveLearningAttempt, attempt_id)
+        assert attempt is not None
+        report = await complete(seed_db, round, attempt)
+        await seed_db.commit()
+    selected = next(row["ordinal"] for row in report["ranking"] if row["recommended"])
+    decision = await client.post(
+        f"{root}/{round_id}/decisions",
+        headers=selection_headers,
+        json={"request_id": str(uuid4()), "action": "accept", "ordinals": [selected]},
+    )
+    assert decision.status_code == 200 and decision.json()["accepted_batch_id"], (
+        decision.text
+    )
+    path = f"{root}/{round_id}/feedback"
     body = {"request_id": str(uuid4())}
     first = await client.post(path, headers=headers, json=body)
     assert first.status_code == 200, first.text
