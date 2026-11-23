@@ -3,19 +3,11 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select, tuple_
-from sqlalchemy.orm import aliased, defer
+from sqlalchemy.orm import aliased
 
 from app.db.models.project import Project
-from app.db.models.project_task_dataset import (
-    ProjectTaskDataset,
-    TaskDatasetVersionMembership,
-)
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.services.project_task_dataset import (
-    ensure_membership,
-    lock_project,
-    recognized_task_expression,
-)
+from app.services import training_dataset_data as data
+from app.services.project_task_dataset import lock_project
 from app.services.workspace_read_relations import project_facts
 
 
@@ -38,38 +30,27 @@ async def backfill_batch(db, project_id, *, mode, batch_size=25, after=None):
     if mode == "apply":
         await lock_project(db, project_id)
 
+    if db.autoflush:
+        await db.flush()
+    version = data.dataset_lineage_row
+    metadata = version.c
+    stream = data.stream_rows(project_id)
     statement = (
         select(
-            TrainingDatasetVersion,
-            recognized_task_expression().label("recognized_task"),
-            TaskDatasetVersionMembership,
-            ProjectTaskDataset,
+            metadata.id,
+            metadata.created_at,
+            metadata.recognized_task,
+            metadata.task_dataset_id,
+            stream.c.task,
         )
-        .outerjoin(
-            TaskDatasetVersionMembership,
-            TaskDatasetVersionMembership.version_id == TrainingDatasetVersion.id,
-        )
-        .outerjoin(
-            ProjectTaskDataset,
-            ProjectTaskDataset.id == TaskDatasetVersionMembership.task_dataset_id,
-        )
-        .options(
-            defer(TrainingDatasetVersion.snapshot),
-            defer(TrainingDatasetVersion.manifest),
-            defer(TrainingDatasetVersion.preparation_report),
-            defer(TrainingDatasetVersion.class_count),
-        )
-        .where(TrainingDatasetVersion.project_id == project_id)
+        .select_from(version.outerjoin(stream, stream.c.id == metadata.task_dataset_id))
+        .where(metadata.project_id == project_id)
     )
     if after is not None:
-        statement = statement.where(
-            tuple_(TrainingDatasetVersion.created_at, TrainingDatasetVersion.id) > after
-        )
+        statement = statement.where(tuple_(metadata.created_at, metadata.id) > after)
     rows = (
         await db.execute(
-            statement.order_by(
-                TrainingDatasetVersion.created_at, TrainingDatasetVersion.id
-            ).limit(batch_size)
+            statement.order_by(metadata.created_at, metadata.id).limit(batch_size)
         )
     ).all()
     report = {
@@ -81,8 +62,8 @@ async def backfill_batch(db, project_id, *, mode, batch_size=25, after=None):
         "invalid_associations": 0,
         "findings": [],
     }
-    for version, task, membership, stream in rows:
-        if task is None:
+    for version in rows:
+        if version.recognized_task is None:
             report["unrecognized"] += 1
             report["findings"].append(
                 {
@@ -91,11 +72,11 @@ async def backfill_batch(db, project_id, *, mode, batch_size=25, after=None):
                     "reason": "Frozen task/geometry/bridge contract is not recognized; unchanged.",
                 }
             )
-            if membership:
+            if version.task_dataset_id:
                 report["invalid_associations"] += 1
             continue
-        if membership:
-            if stream.project_id != version.project_id or stream.task != task:
+        if version.task_dataset_id:
+            if version.task != version.recognized_task:
                 report["invalid_associations"] += 1
                 report["findings"].append(
                     {
@@ -108,9 +89,7 @@ async def backfill_batch(db, project_id, *, mode, batch_size=25, after=None):
                 report["already_associated"] += 1
             continue
         if mode == "apply":
-            await db.refresh(version, attribute_names=["snapshot"])
-            membership = await ensure_membership(db, version, project_locked=True)
-            db.expire(version, ["snapshot"])
+            membership = await data.ensure_membership(db, project_id, version.id)
             report["associated"] += 1
             report["findings"].append(
                 {
@@ -129,33 +108,20 @@ async def backfill_batch(db, project_id, *, mode, batch_size=25, after=None):
                     "reason": "Recognized frozen version has no membership.",
                 }
             )
-    cursor = (rows[-1][0].created_at, rows[-1][0].id) if rows else after
+    cursor = (rows[-1].created_at, rows[-1].id) if rows else after
     return report, cursor
 
 
 async def verify_high_water(db, project_id):
     """Report invalid counters without repairing them or reducing issued ordinals."""
-    rows = (
-        await db.execute(
-            select(
-                ProjectTaskDataset.id,
-                ProjectTaskDataset.next_ordinal,
-                func.max(TaskDatasetVersionMembership.ordinal),
-            )
-            .outerjoin(
-                TaskDatasetVersionMembership,
-                TaskDatasetVersionMembership.task_dataset_id == ProjectTaskDataset.id,
-            )
-            .where(ProjectTaskDataset.project_id == project_id)
-            .group_by(ProjectTaskDataset.id)
-        )
-    ).all()
+    source = func.yoao_learning_v1.training_dataset_high_water_violations(
+        project_id
+    ).table_valued("task_dataset_id")
     return [
         {
             "task_dataset_id": str(stream_id),
             "code": "task_dataset_high_water_invalid",
             "reason": "next_ordinal must exceed every retained ordinal; unchanged.",
         }
-        for stream_id, next_ordinal, maximum in rows
-        if next_ordinal <= (maximum or 0)
+        for stream_id in await db.scalars(select(source.c.task_dataset_id))
     ]
