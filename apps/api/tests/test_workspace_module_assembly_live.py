@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import ExitStack, asynccontextmanager, contextmanager
+from contextlib import ExitStack, asynccontextmanager, closing, contextmanager
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -206,7 +206,27 @@ async def _seed_users(test_engine):
     return maker, actors
 
 
-async def _assert_restricted_api_consumer(test_engine) -> None:
+async def _assert_guide_publication_privilege(db, profile) -> None:
+    assert await db.scalar(
+        text(
+            "SELECT pg_catalog.has_function_privilege(current_user, "
+            "'yoao_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb)'"
+            "::regprocedure, 'EXECUTE')"
+        )
+    ) is (profile == "default")
+    if profile == "strict":
+        with pytest.raises(DBAPIError) as denied:
+            async with db.begin_nested():
+                await db.execute(
+                    text(
+                        "SELECT yoao_workspace_configuration_v1.guide_assets_step("
+                        "NULL::jsonb, NULL::text, NULL::jsonb)"
+                    )
+                )
+        assert denied.value.orig.sqlstate == "42501"
+
+
+async def _assert_restricted_api_consumer(test_engine, profile) -> None:
     url = make_url(
         _role_url("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL", "identity_api_consumer")
     )
@@ -260,6 +280,7 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
                 )
                 is False
             )
+            await _assert_guide_publication_privilege(db, profile)
         for statement in (
             "SELECT id FROM public.users LIMIT 1",
             "SELECT id FROM public.projects LIMIT 1",
@@ -378,11 +399,77 @@ async def _assert_committed_membership_and_transfer(db, project_id) -> None:
     ).one() == (0, 1)
 
 
+async def _guide_state(db, project_id):
+    return (
+        await db.execute(
+            text(
+                "SELECT jsonb_build_object("
+                "'annotation_guide', project.annotation_guide, "
+                "'guide_assets', project.guide_assets, "
+                "'guide_assets_revision', project.guide_assets_revision, "
+                "'updated_at', project.updated_at, "
+                "'references', ARRAY(SELECT upload_id FROM public.project_guide_assets "
+                "WHERE project_id=:id ORDER BY upload_id), "
+                "'receipts', ARRAY(SELECT operation_id "
+                "FROM public.workspace_configuration_operation_receipts "
+                "WHERE target_id=:id ORDER BY operation_id)) AS publication, "
+                "COALESCE((SELECT jsonb_agg(to_jsonb(upload) ORDER BY upload.id) "
+                "FROM public.guide_asset_uploads AS upload "
+                "WHERE upload.project_id=:id), '[]'::jsonb) AS uploads "
+                "FROM public.projects AS project WHERE project.id=:id"
+            ),
+            {"id": project_id},
+        )
+    ).one()
+
+
+def _guide_versions(s3, bucket, prefix):
+    for page in s3.get_paginator("list_object_versions").paginate(
+        Bucket=bucket, Prefix=prefix
+    ):
+        yield from page.get("Versions", ())
+        yield from page.get("DeleteMarkers", ())
+
+
+async def _assert_pending_guide_object(db, s3, bucket, prefix, upload, actor_id) -> str:
+    key = f"{prefix}{upload['id']}"
+    assert upload["state"] == "pending" and upload["retired_at"] is None
+    assert upload["owner_id"] == str(actor_id)
+    assert upload["sha256"] == hashlib.sha256(GUIDE_FILE).hexdigest()
+    assert upload["size_bytes"] == len(GUIDE_FILE)
+    assert upload["storage_ref"]["bucket"] == bucket
+    assert upload["storage_ref"]["object_key"] == key
+
+    (version,) = _guide_versions(s3, bucket, prefix)
+    assert version["Key"] == key and version.get("Size") == len(GUIDE_FILE)
+    version_id = version["VersionId"]
+    assert version_id not in {None, "", "null"}
+    with closing(
+        s3.get_object(Bucket=bucket, Key=key, VersionId=version_id)["Body"]
+    ) as body:
+        assert body.read() == GUIDE_FILE
+
+    accounting = (
+        await db.execute(
+            text(
+                "SELECT object_key, physical_outcome, physical_size_bytes, "
+                "evidence->>'returned_version', (evidence->>'full_readback')::boolean "
+                "FROM public.storage_usage_mutations "
+                "WHERE producer='guide_asset_uploads' AND owner_id=:id"
+            ),
+            {"id": uuid.UUID(upload["id"])},
+        )
+    ).one()
+    assert accounting == (key, "written", len(GUIDE_FILE), version_id, True)
+    return key
+
+
 @asynccontextmanager
 async def _restored_database_with_acl_and_proofs(
     test_engine,
     tmp_path,
     *,
+    profile,
     project_id,
     deleted_project_id,
     dataset_id,
@@ -393,6 +480,8 @@ async def _restored_database_with_acl_and_proofs(
     clone = f"aap_workspace_module_restore_{uuid.uuid4().hex[:10]}_test"
     ownership = f"workspace-module-restore:{uuid.uuid4()}"
     assert len(clone) <= 63 and re.fullmatch(r"[a-zA-Z0-9_]+", clone)
+    async with test_engine.connect() as source:
+        guide_state = await _guide_state(source, project_id)
     snapshot = tmp_path / "workspace-module.dump"
     snapshot.touch(mode=0o600, exist_ok=True)
     snapshot.write_bytes(
@@ -450,6 +539,7 @@ async def _restored_database_with_acl_and_proofs(
         async with restored.connect() as db:
             assert await db.scalar(text("SELECT current_user")) == "owner"
             await _assert_committed_membership_and_transfer(db, project_id)
+            assert await _guide_state(db, project_id) == guide_state
             source_proofs = (
                 await db.execute(
                     text(
@@ -523,6 +613,7 @@ async def _restored_database_with_acl_and_proofs(
                 )
                 is not None
             )
+            await _assert_guide_publication_privilege(db, profile)
             with pytest.raises(DBAPIError):
                 await db.execute(text("SELECT id FROM public.projects LIMIT 1"))
         yield clone
@@ -632,13 +723,15 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
     _verify_postgres(test_engine.url)
     buckets, owner_s3, api_s3_credentials = workspace_guide_storage
     guide_bucket = buckets["MINIO_BUCKET"]
-    await _assert_restricted_api_consumer(test_engine)
+    profile = os.environ["AAP_MODULE_DATA_WORKSPACE_CONSUMER_PROFILE"]
+    assert profile in {"strict", "default"}
+    await _assert_restricted_api_consumer(test_engine, profile)
     maker, actors = await _seed_users(test_engine)
     api_secret = secrets.token_urlsafe(32)
     probe_token = secrets.token_urlsafe(32)
     backend_id = uuid.uuid4()
     project_id = native_project_id = dataset_id = unlink_operation_id = None
-    guide_key = None
+    guide_prefix = None
     stack = None
     try:
         with _backend_endpoint("127.0.0.1") as (backend_origin, probe_calls):
@@ -926,30 +1019,74 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 assert native_project.status_code == 200, native_project.text
                 native_project_id = uuid.UUID(native_project.json()["id"])
 
+                guide_prefix = f"projects/{project_id}/guide/"
+                content_path = f"/api/v1/projects/{project_id}/guide-assets/content"
+                async with maker() as db:
+                    before_guide = await _guide_state(db, project_id)
+                assert (
+                    before_guide.uploads == before_guide.publication["references"] == []
+                )
                 guide_upload = await client.post(
                     f"/api/v1/projects/{project_id}/guide-assets/upload",
                     params={"file_name": "assembly-guide.png"},
                     headers={**headers["successor"], "Content-Type": "image/png"},
                     content=GUIDE_FILE,
                 )
-                assert guide_upload.status_code == 200, guide_upload.text
-                guide_key = guide_upload.json()["key"]
-                assert guide_key.startswith(f"projects/{project_id}/guide/")
-                assert guide_upload.json()["size"] == len(GUIDE_FILE)
-                guide_content = await client.get(
-                    f"/api/v1/projects/{project_id}/guide-assets/content",
+                if profile == "strict":
+                    assert guide_upload.status_code == 503, guide_upload.text
+                    assert guide_upload.json() == {
+                        "detail": {"code": "guide_asset_storage_unavailable"}
+                    }
+                    async with maker() as db:
+                        after_guide = await _guide_state(db, project_id)
+                        assert after_guide.publication == before_guide.publication
+                        (pending,) = after_guide.uploads
+                        guide_key = await _assert_pending_guide_object(
+                            db,
+                            owner_s3,
+                            guide_bucket,
+                            guide_prefix,
+                            pending,
+                            actors["successor"].id,
+                        )
+                else:
+                    assert guide_upload.status_code == 200, guide_upload.text
+                    guide_key = guide_upload.json()["key"]
+                    assert guide_key.startswith(guide_prefix)
+                    assert guide_upload.json()["size"] == len(GUIDE_FILE)
+                    guide_content = await client.get(
+                        content_path,
+                        params={"key": guide_key},
+                        headers=headers["successor"],
+                    )
+                    assert guide_content.status_code == 200, guide_content.text
+                    assert guide_content.content == GUIDE_FILE
+                    guide_delete = await client.delete(
+                        f"/api/v1/projects/{project_id}/guide-assets",
+                        params={"key": guide_key},
+                        headers=headers["successor"],
+                    )
+                    assert guide_delete.status_code == 200, guide_delete.text
+                    assert guide_delete.json() == {"deleted": guide_key}
+
+                missing_guide = await client.get(
+                    content_path,
                     params={"key": guide_key},
                     headers=headers["successor"],
                 )
-                assert guide_content.status_code == 200, guide_content.text
-                assert guide_content.content == GUIDE_FILE
-                guide_delete = await client.delete(
-                    f"/api/v1/projects/{project_id}/guide-assets",
-                    params={"key": guide_key},
-                    headers=headers["successor"],
+                assert missing_guide.status_code == 404, missing_guide.text
+                assert missing_guide.json() == {
+                    "detail": {"code": "guide_asset_missing"}
+                }
+                record_property(
+                    "workspace_guide_publication",
+                    {
+                        "profile": profile,
+                        "upload_status": guide_upload.status_code,
+                        "strict_sqlstate": "42501" if profile == "strict" else None,
+                        "unpublished_pending_object": profile == "strict",
+                    },
                 )
-                assert guide_delete.status_code == 200, guide_delete.text
-                assert guide_delete.json() == {"deleted": guide_key}
 
                 dataset_id = await _seed_native_dataset_link(
                     maker,
@@ -1124,6 +1261,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 async with _restored_database_with_acl_and_proofs(
                     test_engine,
                     tmp_path,
+                    profile=profile,
                     project_id=project_id,
                     deleted_project_id=native_project_id,
                     dataset_id=dataset_id,
@@ -1147,6 +1285,17 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                                 actors["successor"].id
                             )
                             assert "Automobile" in restored_project.json()["classes"]
+                            restored_guide = await restored_client.get(
+                                content_path,
+                                params={"key": guide_key},
+                                headers=headers["successor"],
+                            )
+                            assert restored_guide.status_code == 404, (
+                                restored_guide.text
+                            )
+                            assert restored_guide.json() == {
+                                "detail": {"code": "guide_asset_missing"}
+                            }
                             restored_access = await restored_client.get(
                                 f"/api/v1/projects/{project_id}/access",
                                 headers=headers["successor"],
@@ -1211,5 +1360,12 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
     finally:
         if stack is not None:
             await stack.stop()
-        if guide_key:
-            _cleanup_objects(owner_s3, guide_bucket, [guide_key])
+        if guide_prefix:
+            _cleanup_objects(
+                owner_s3,
+                guide_bucket,
+                {
+                    item["Key"]
+                    for item in _guide_versions(owner_s3, guide_bucket, guide_prefix)
+                },
+            )
