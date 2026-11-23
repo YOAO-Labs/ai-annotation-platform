@@ -13,28 +13,18 @@ import json
 import logging
 import threading
 import time
+from types import SimpleNamespace
 import uuid
 
 from botocore.config import Config
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import text
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageLocation,
-)
-from app.db.models.dataset_source import DatasetSource
-from app.db.models.original_cache import (
-    OriginalCacheEntry as Entry,
-    OriginalCacheReadLease as ReadLease,
-)
-from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.original_cache import OriginalCacheEntry as Entry
 from app.services import content_snapshot as snapshots
 from app.services import media_cache_storage as saved_storage
 from app.services import media_cache_accounting
 from app.services import key_removal_accounting as removal
-from app.services import storage_access
+from app.services import storage_access, storage_registry_data
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -43,7 +33,6 @@ from app.services.storage import StorageService
 
 log = logging.getLogger(__name__)
 WRITE_SECONDS = 120
-READ_SECONDS = 60
 CHECK_SECONDS = 60
 RECOVERY_DAYS = 7
 DEFAULT_TTL_SECONDS = 86400
@@ -98,47 +87,17 @@ class Scope:
 
 async def scope(db, source_id, asset_id, *, lock=False, check_maintenance=True):
     """Internal policy ceiling; this deliberately does not replace actor checks."""
-    source = await db.get(DatasetSource, source_id, populate_existing=True)
-    asset = await db.get(DatasetAsset, asset_id, populate_existing=True)
-    if not source or not asset:
-        return None
-    item = await db.get(DatasetItem, asset.dataset_item_id, populate_existing=True)
-    location = await db.get(
-        StorageLocation,
-        source.location_id,
-        populate_existing=True,
-        with_for_update={"nowait": True} if lock else False,
-    )
-    if lock:
-        source = await db.get(
-            DatasetSource,
-            source_id,
-            populate_existing=True,
-            with_for_update={"nowait": True},
+    facts = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.original_cache_scope(:source, :asset, :lock)"
+            ),
+            {"source": source_id, "asset": asset_id, "lock": lock},
         )
-        if source is None:
-            return None
-    if (
-        not item
-        or item.dataset_id != source.dataset_id
-        or not source.enabled
-        or source.unregistered_at
-        or source.ownership_mode != "reference"
-        or source.cache_policy != "on_demand"
-        or not location
-        or not location.enabled
-        or source.location_id != location.id
-        or location.kind not in {"filesystem", "s3", "sftp", "agent"}
-        or location.config.get("cache_policy") != "on_demand"
-        or asset.verification_state != "verified"
-        or asset.checksum_algorithm != "sha256"
-        or asset.media_type != "image"
-        or not asset.size_bytes
-        or asset.size_bytes > snapshots.MAX_BYTES
-    ):
+    ).one_or_none()
+    if facts is None or facts.size_bytes > snapshots.MAX_BYTES:
         return None
-    quota = location.config.get("original_cache_quota_bytes", 0)
-    ttl = location.config.get("original_cache_ttl_seconds", DEFAULT_TTL_SECONDS)
+    quota, ttl = facts.cache_quota, facts.cache_ttl
     if (
         type(quota) is not int
         or not 0 < quota <= 2**50
@@ -147,15 +106,15 @@ async def scope(db, source_id, asset_id, *, lock=False, check_maintenance=True):
     ):
         return None
     return Scope(
-        location.id,
-        asset.checksum_value,
-        asset.size_bytes,
-        source.config_revision,
-        source.policy_revision,
-        location.config_revision,
+        facts.location_id,
+        facts.sha256,
+        facts.size_bytes,
+        facts.source_revision,
+        facts.policy_revision,
+        facts.location_revision,
         quota,
         ttl,
-        await storage_access.check(db, location.id, lock=lock)
+        await storage_access.check(db, facts.location_id, lock=lock)
         if check_maintenance
         else 1,
     )
@@ -173,15 +132,8 @@ async def budget_lock(db, location_id):
 async def usage(db, location_id):
     rows = (
         await db.execute(
-            select(
-                Entry.state,
-                func.sum(Entry.size_bytes),
-                func.count(),
-                func.count().filter(Entry.error_code.is_not(None)),
-                func.count().filter(Entry.uncertain_write.is_(True)),
-            )
-            .where(Entry.scope_location_id == location_id)
-            .group_by(Entry.state)
+            text("SELECT * FROM yoao_assets_v1.original_cache_usage(:location)"),
+            {"location": location_id},
         )
     ).all()
     return {
@@ -218,33 +170,19 @@ async def usage_snapshot(db, location):
 
 async def request_cleanup(db, location, *, recorded_before, limit):
     """Seal a bounded set in the caller's authorization transaction; never delete I/O."""
-    candidates = list(
-        await db.scalars(
-            select(Entry)
-            .where(
-                Entry.scope_location_id == location.id,
-                Entry.state == "ready",
-                Entry.verified_at <= recorded_before,
-            )
-            .order_by(Entry.last_accessed_at, Entry.id)
-            .limit(limit)
-            .with_for_update(skip_locked=True)
+    retired, leased, remaining = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.retire_original_cache_page(:location, :before, :checked, :limit)"
+            ),
+            {
+                "location": location.id,
+                "before": recorded_before,
+                "checked": now(),
+                "limit": limit,
+            },
         )
-    )
-    retired, leased = 0, 0
-    for record in candidates:
-        if await readers(db, record.id):
-            leased += 1
-            continue
-        record.state, record.next_check_at = "deleting", now()
-        await detach(db, record)
-        retired += 1
-    await db.flush()
-    remaining = await db.scalar(
-        select(func.count())
-        .select_from(Entry)
-        .where(Entry.scope_location_id == location.id, Entry.state == "ready")
-    )
+    ).one()
     return {
         "retired_count": retired,
         "skipped_leased_count": leased,
@@ -256,9 +194,8 @@ async def request_cleanup(db, location, *, recorded_before, limit):
 async def charged_bytes(db, location_id):
     return int(
         await db.scalar(
-            select(func.coalesce(func.sum(Entry.size_bytes), 0)).where(
-                Entry.scope_location_id == location_id
-            )
+            text("SELECT yoao_assets_v1.original_cache_charge(:location)"),
+            {"location": location_id},
         )
     )
 
@@ -285,7 +222,7 @@ def _saved_owner(record):
 async def _legacy_target(db, record, *, require_enabled=True):
     if record.location_id != LEGACY_LOCATION_ID or record.binding_generation != 1:
         raise saved_storage.MediaCacheStorageError()
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    location = await storage_registry_data.get_location(db, LEGACY_LOCATION_ID)
     target = replace(
         await saved_storage.target_for(db, location, require_enabled=require_enabled),
         bucket=record.bucket,
@@ -419,12 +356,11 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
         if await scope(db, source_id, asset_id) != configured:
             return None, "configuration_changed"
         existing = await db.scalar(
-            select(Entry).where(
-                Entry.asset_id == asset_id, Entry.state.in_(["uploading", "ready"])
-            )
+            text("SELECT yoao_assets_v1.original_cache_current_state(:asset)"),
+            {"asset": asset_id},
         )
         if existing:
-            return None, "exists" if existing.state == "ready" else "filling"
+            return None, "exists" if existing == "ready" else "filling"
         if configured.size > configured.quota:
             return None, "quota_too_small"
         if (
@@ -464,7 +400,35 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
         record.storage_identity = owner.ref["storage_identity"]
         record._maintenance_revision = configured.maintenance_revision
         await prepare_target(db, record)
-        db.add(record)
+        record.created_at = await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.reserve_original_cache_generation(CAST(:request AS jsonb))"
+            ),
+            {
+                "request": json.dumps(
+                    {
+                        field: getattr(record, field)
+                        for field in (
+                            "id",
+                            "scope_location_id",
+                            "source_id",
+                            "asset_id",
+                            "sha256",
+                            "size_bytes",
+                            "source_revision",
+                            "policy_revision",
+                            "location_revision",
+                            "storage_ref",
+                            "last_accessed_at",
+                            "expires_at",
+                            "writer_until",
+                            "retain_until",
+                        )
+                    },
+                    default=str,
+                )
+            },
+        )
         await db.commit()
         return record, "reserved"
 
@@ -571,30 +535,26 @@ async def bound_destination(db, record):
         return False
 
 
-async def detach(db, record):
-    await db.execute(
-        delete(DatasetAssetLocation).where(
-            DatasetAssetLocation.asset_id == record.asset_id,
-            DatasetAssetLocation.location_id == record.location_id,
-            DatasetAssetLocation.bucket == record.bucket,
-            DatasetAssetLocation.object_key == object_key(record),
-            DatasetAssetLocation.role == "original_cache",
+async def _cache_entry(db, identity, *, lock="read"):
+    row = (
+        (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.original_cache_entry_facts(:entry, :lock)"
+                ),
+                {"entry": identity, "lock": lock},
+            )
         )
+        .mappings()
+        .one_or_none()
     )
+    return SimpleNamespace(**row) if row is not None else None
 
 
 async def readers(db, identity):
-    return bool(
-        await db.scalar(
-            select(
-                select(ReadLease.id)
-                .where(ReadLease.entry_id == identity, ReadLease.expires_at > now())
-                .exists()
-                | select(StorageOperation.id)
-                .where(StorageOperation.purpose == read_purpose(identity))
-                .exists()
-            )
-        )
+    return await db.scalar(
+        text("SELECT yoao_assets_v1.original_cache_has_readers(:entry, :checked)"),
+        {"entry": identity, "checked": now()},
     )
 
 
@@ -604,18 +564,14 @@ def read_purpose(identity):
 
 async def retire(factory, identity, *, uncertain=None):
     async with factory() as db:
-        record = await db.scalar(
-            select(Entry).where(Entry.id == identity).with_for_update()
-        )
-        if record is None:
+        checked = now()
+        if not await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.retire_original_cache_generation(:entry, :checked, :checked, :uncertain)"
+            ),
+            {"entry": identity, "checked": checked, "uncertain": uncertain},
+        ):
             return False
-        if await readers(db, identity):
-            return False
-        record.state = "deleting"
-        if uncertain is not None:
-            record.uncertain_write = uncertain
-        record.next_check_at = now()
-        await detach(db, record)
         await db.commit()
         return True
 
@@ -624,9 +580,7 @@ async def publish(factory, record, storage):
     async with factory() as db:
         await db.execute(text("SET LOCAL lock_timeout = '1s'"))
         configured = await scope(db, record.source_id, record.asset_id, lock=True)
-        current = await db.scalar(
-            select(Entry).where(Entry.id == record.id).with_for_update()
-        )
+        current = await _cache_entry(db, record.id, lock="update")
         target_valid = await bound_destination(db, current) if current else False
         if (
             not current
@@ -640,29 +594,13 @@ async def publish(factory, record, storage):
             return False
         if await charged_bytes(db, configured.location_id) > configured.quota:
             return False
-        locator = await db.get(
-            DatasetAssetLocation, (record.asset_id, record.location_id, record.bucket)
-        )
-        if locator is not None:
+        if not await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.publish_original_cache_generation(:entry, :checked)"
+            ),
+            {"entry": current.id, "checked": now()},
+        ):
             return False
-        checked = now()
-        db.add(
-            DatasetAssetLocation(
-                asset_id=record.asset_id,
-                location_id=record.location_id,
-                bucket=record.bucket,
-                object_key=object_key(record),
-                role="original_cache",
-                reference_state="present",
-                verified_at=checked,
-            )
-        )
-        current.state = "ready"
-        current.uncertain_write = False
-        current.verified_at = checked
-        current.next_check_at = min(
-            current.expires_at, checked + timedelta(seconds=CHECK_SECONDS)
-        )
         await storage_access.check(
             db,
             record.scope_location_id,
@@ -807,26 +745,24 @@ def _read_facts(record):
 
 
 async def _current_read(db, record, facts, lease_id, configured, route):
-    current = await db.get(Entry, record.id)
-    lease = await db.get(ReadLease, lease_id)
+    current = await _cache_entry(db, record.id)
     if (
         not current
         or current.state != "ready"
         or current.expires_at <= now()
         or _read_facts(current) != facts
-        or not lease
-        or lease.expires_at <= now()
+        or not await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.original_cache_lease_current(:entry, :lease, :checked)"
+            ),
+            {"entry": record.id, "lease": lease_id, "checked": now()},
+        )
         or await scope(db, record.source_id, record.asset_id) != configured
     ):
         return False
-    locator = await db.get(
-        DatasetAssetLocation, (record.asset_id, record.location_id, record.bucket)
-    )
-    if (
-        not locator
-        or locator.role != "original_cache"
-        or locator.object_key != object_key(record)
-        or locator.reference_state != "present"
+    if not await db.scalar(
+        text("SELECT yoao_assets_v1.original_cache_locator_current(:entry)"),
+        {"entry": record.id},
     ):
         return False
     if route is not None:
@@ -883,29 +819,28 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             configured = await scope(db, source_id, asset_id)
             if configured is None:
                 return None
-            record = await db.scalar(
-                select(Entry)
-                .where(
-                    Entry.asset_id == asset_id,
-                    Entry.source_id == source_id,
-                    Entry.state == "ready",
+            row = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT * FROM yoao_assets_v1.lock_original_cache_read(:source, :asset)"
+                        ),
+                        {"source": source_id, "asset": asset_id},
+                    )
                 )
-                .with_for_update()
+                .mappings()
+                .one_or_none()
             )
+            record = SimpleNamespace(**row) if row is not None else None
             if (
                 not record
                 or record.expires_at <= now()
                 or not matches(record, configured)
             ):
                 return None
-            locator = await db.get(
-                DatasetAssetLocation, (asset_id, record.location_id, record.bucket)
-            )
-            if (
-                not locator
-                or locator.role != "original_cache"
-                or locator.object_key != object_key(record)
-                or locator.reference_state != "present"
+            if not await db.scalar(
+                text("SELECT yoao_assets_v1.original_cache_locator_current(:entry)"),
+                {"entry": record.id},
             ):
                 return None
             try:
@@ -914,15 +849,13 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                 return None
             facts = _read_facts(record)
             identity = record.id
-            checked = now()
-            db.add(
-                ReadLease(
-                    id=lease_id,
-                    entry_id=identity,
-                    expires_at=checked + timedelta(seconds=READ_SECONDS),
-                )
-            )
-            record.last_accessed_at = checked
+            if not await db.scalar(
+                text(
+                    "SELECT yoao_assets_v1.begin_original_cache_read(:entry, :lease, :checked)"
+                ),
+                {"entry": identity, "lease": lease_id, "checked": now()},
+            ):
+                return None
             await db.commit()
         try:
             async with factory() as permit_db:
@@ -989,7 +922,12 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
         if identity and settled.is_set():
             try:
                 async with factory() as db:
-                    await db.execute(delete(ReadLease).where(ReadLease.id == lease_id))
+                    await db.execute(
+                        text(
+                            "SELECT yoao_assets_v1.end_original_cache_read(:entry, :lease)"
+                        ),
+                        {"entry": identity, "lease": lease_id},
+                    )
                     await db.commit()
                 if damaged:
                     await retire(factory, identity)
@@ -1003,39 +941,26 @@ async def evict_lru(factory, location_id):
     """Seal one unleased ready generation. Deletion never runs under quota locks."""
     async with factory() as db:
         await budget_lock(db, location_id)
-        leased = select(ReadLease.entry_id).where(ReadLease.expires_at > now())
-        record = await db.scalar(
-            select(Entry)
-            .where(
-                Entry.scope_location_id == location_id,
-                Entry.state == "ready",
-                Entry.id.not_in(leased),
-            )
-            .order_by(Entry.last_accessed_at, Entry.id)
-            .with_for_update(skip_locked=True)
-            .limit(1)
+        identity = await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.evict_original_cache_generation(:location, :checked)"
+            ),
+            {"location": location_id, "checked": now()},
         )
-        if not record:
+        if identity is None:
             return None
-        if await readers(db, record.id):
-            return None
-        record.state, record.next_check_at = "deleting", now()
-        await detach(db, record)
         await db.commit()
-        return record.id
+        return identity
 
 
 async def purge(factory, identity):
     async with factory() as db:
-        record = await db.scalar(
-            select(Entry).where(Entry.id == identity).with_for_update(skip_locked=True)
-        )
+        record = await _cache_entry(db, identity, lock="skip")
         if not record or record.next_check_at > now() or await readers(db, identity):
             return "skipped"
         await db.execute(
-            delete(ReadLease).where(
-                ReadLease.entry_id == identity, ReadLease.expires_at <= now()
-            )
+            text("SELECT yoao_assets_v1.expire_original_cache_reads(:entry, :checked)"),
+            {"entry": identity, "checked": now()},
         )
         if record.state == "uploading" and record.writer_until > now():
             return "skipped"
@@ -1049,20 +974,34 @@ async def purge(factory, identity):
                 and matches(record, configured)
                 and total <= configured.quota
             ):
-                record.next_check_at = min(
-                    record.expires_at, now() + timedelta(seconds=CHECK_SECONDS)
+                await db.execute(
+                    text(
+                        "SELECT yoao_assets_v1.reschedule_original_cache_check(:entry, :checked)"
+                    ),
+                    {"entry": identity, "checked": now()},
                 )
                 await db.commit()
                 return "skipped"
-        record.state = "deleting"
-        await detach(db, record)
-        record.next_check_at = now() + timedelta(seconds=CHECK_SECONDS)
+        checked = now()
+        if not await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.retire_original_cache_generation(:entry, :checked, :next, NULL)"
+            ),
+            {
+                "entry": identity,
+                "checked": checked,
+                "next": checked + timedelta(seconds=CHECK_SECONDS),
+            },
+        ):
+            return "skipped"
         try:
             await prepare_target(db, record, require_enabled=False)
             matched = True
         except saved_storage.MediaCacheStorageError:
             matched = False
-        record.error_code = None if matched else "storage_identity_changed"
+        await _record_cleanup_error(
+            db, identity, None if matched else "storage_identity_changed"
+        )
         await db.commit()
         if not matched:
             return "deferred"
@@ -1110,38 +1049,44 @@ async def purge(factory, identity):
         if not isinstance(failure, Exception):
             raise failure
         async with factory() as db:
-            current = await db.get(Entry, identity)
-            if current:
-                current.error_code = (
-                    "storage_identity_changed"
-                    if isinstance(failure, saved_storage.MediaCacheStorageError)
-                    else "storage_cleanup_failed"
-                )
-                await db.commit()
+            await _record_cleanup_error(
+                db,
+                identity,
+                "storage_identity_changed"
+                if isinstance(failure, saved_storage.MediaCacheStorageError)
+                else "storage_cleanup_failed",
+            )
+            await db.commit()
         log.warning("Original cache deletion deferred entry=%s", identity)
         return "deferred"
     async with factory() as db:
-        current = await db.scalar(
-            select(Entry).where(Entry.id == identity).with_for_update()
+        removed = await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.finish_original_cache_cleanup(:entry, :checked)"
+            ),
+            {"entry": identity, "checked": now()},
         )
-        if current:
-            if current.uncertain_write and current.retain_until > now():
-                current.error_code = None
-                await db.commit()
-                return "retained"
-            await db.delete(current)
-            await db.commit()
-    return "removed"
+        await db.commit()
+    return "removed" if removed else "retained"
+
+
+async def _record_cleanup_error(db, identity, error):
+    await db.execute(
+        text(
+            "SELECT yoao_assets_v1.record_original_cache_cleanup_error(:entry, :error)"
+        ),
+        {"entry": identity, "error": error},
+    )
 
 
 async def maintain(factory, *, limit=50):
     async with factory() as db:
         ids = list(
             await db.scalars(
-                select(Entry.id)
-                .where(Entry.next_check_at <= now())
-                .order_by(Entry.next_check_at, Entry.last_accessed_at, Entry.id)
-                .limit(limit)
+                text(
+                    "SELECT * FROM yoao_assets_v1.due_original_cache_checks(:checked, :limit)"
+                ),
+                {"checked": now(), "limit": limit},
             )
         )
     counts = {"removed": 0, "retained": 0, "deferred": 0, "skipped": 0}

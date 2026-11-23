@@ -14,15 +14,14 @@ from urllib.parse import urlsplit
 import uuid
 
 from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.task_original import TaskOriginal
 from app.services import managed_original_creation as creation
-from app.services import annotations_storage, storage_access
+from app.services import annotations_storage, original_source_data, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.labeling_core_read_relations import task_dataset_item_link_row
 from app.services.managed_original_retirement import managed_storage_identity
 
 FACTS = (
@@ -185,27 +184,11 @@ async def _persist(db, values):
     """Never acquire the caller's Task, Project, User or maintenance locks."""
     async with storage_access.engine(db).begin() as connection:
         await connection.execute(text("SET LOCAL lock_timeout = '1s'"))
-        table = TaskOriginal.__table__
-        existing = (
-            (await connection.execute(select(table).where(table.c.id == values["id"])))
-            .mappings()
-            .one_or_none()
+        existing = await original_source_data.persist_task_source(
+            connection, values["id"]
         )
         if existing is None:
-            await connection.execute(
-                insert(table).values(**values).on_conflict_do_nothing()
-            )
-            existing = (
-                (
-                    await connection.execute(
-                        select(table).where(table.c.id == values["id"])
-                    )
-                )
-                .mappings()
-                .one_or_none()
-            )
-            if existing is None:
-                _reject("creation_conflict")
+            _reject("creation_conflict")
         if not same(existing, values) or existing["storage_ref"] != values.get(
             "storage_ref"
         ):
@@ -262,8 +245,8 @@ async def publish(db, task, allocation, created, *, actor_id):
             )
         )
         or await db.scalar(
-            select(TaskDatasetItemLink.id)
-            .where(TaskDatasetItemLink.task_id == task.id)
+            select(task_dataset_item_link_row.id)
+            .where(task_dataset_item_link_row.task_id == task.id)
             .limit(1)
         )
         is not None

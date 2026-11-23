@@ -9,17 +9,18 @@ import uuid
 from fastapi import HTTPException
 import numpy as np
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 
 from app.db.enums import PlatformRole
-from app.services.assets_dataset_data import dataset_metadata
-from app.db.models.project import Project
 from app.services import comment_attachment_authority as credentials
+from app.services.assets_dataset_data import dataset_metadata
 from app.services import original_content_access as access
 from app.services import original_sources, storage_access
 from yoao_assets_catalog.axis_convention import R_NORM
 from yoao_workspace_contract.access import ProjectCapability
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.labeling_spatial_quality import quality_record, spatial_quality_data
 from app.services.mask_qc.service import canonical_digest
 from app.services.original_binary_response import close_stage
 from app.services import managed_original_reader as reader
@@ -239,15 +240,20 @@ async def guard(db, context, *, lock=False):
         if lock
         else await jobs.get_job(db, context.job_id, populate_existing=True)
     )
-    run = (
-        await db.execute(
-            text(
-                "SELECT * FROM yoao_labeling_v1.point_quality_original_run("
-                "CAST(:id AS uuid), :lock)"
-            ),
-            {"id": context.run_id, "lock": lock},
-        )
-    ).one_or_none()
+    if lock:
+        if db.autoflush:
+            await db.flush()
+        run = (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_labeling_v1.lock_point_cloud_original_run(:id)"
+                ),
+                {"id": context.run_id},
+            )
+        ).one_or_none()
+    else:
+        value = await spatial_quality_data(db, "get_point_run", run_id=context.run_id)
+        run = quality_record(value["row"]) if value.get("row") is not None else None
     if (
         job
         and (job.status == "cancelled" or (job.payload or {}).get("cancel_requested"))
@@ -488,42 +494,68 @@ async def publication(db, run, context, observed):
     current, _job = await guard(db, context, lock=True)
     task_ids = [uuid.UUID(v) for v in context.scope["task_ids"]]
     scene_ids = [uuid.UUID(v) for v in context.scope["scene_ids"]]
+    scope = {"tasks": task_ids, "scenes": scene_ids}
     await lock_task_rows_for_core_read_share(db, task_ids)
     await db.execute(
-        text("SELECT yoao_assets_v1.lock_point_quality_scenes(CAST(:ids AS uuid[]))"),
-        {"ids": scene_ids},
+        text(
+            "SELECT yoao_assets_v1.lock_point_cloud_original_scenes(CAST(:scenes AS uuid[]))"
+        ),
+        scope,
+    )
+    await db.execute(
+        text("""SELECT yoao_labeling_v1.lock_point_cloud_original_labels(
+            CAST(:tasks AS uuid[]), CAST(:scenes AS uuid[]))"""),
+        scope,
     )
     await db.execute(
         text(
-            "SELECT yoao_labeling_v1.lock_point_quality_annotation_geometry(CAST(:id AS uuid))"
+            "SELECT yoao_assets_v1.lock_point_cloud_original_poses(CAST(:scenes AS uuid[]))"
         ),
-        {"id": context.run_id},
-    )
-    await db.execute(
-        text("SELECT yoao_assets_v1.lock_point_quality_poses(CAST(:ids AS uuid[]))"),
-        {"ids": scene_ids},
+        scope,
     )
     item_ids = set(
         await db.scalars(
             select(task_row.dataset_item_id).where(task_row.id.in_(task_ids))
         )
     )
-    item_ids.update(
+    links = list(
         await db.scalars(
-            select(task_dataset_item_link_row.dataset_item_id).where(
+            select(task_dataset_item_link_row.id).where(
                 task_dataset_item_link_row.task_id.in_(task_ids)
             )
         )
     )
+    if links:
+        item_ids.update(
+            await db.scalars(
+                text("""SELECT dataset_item_id
+                FROM yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(
+                    CAST(:links AS uuid[]), :size)"""),
+                {"links": links, "size": len(links)},
+            )
+        )
     await db.execute(
         text(
-            "SELECT yoao_assets_v1.lock_point_quality_item_datasets(CAST(:ids AS uuid[]))"
+            "SELECT yoao_assets_v1.lock_point_cloud_original_items(CAST(:items AS uuid[]))"
         ),
-        {"ids": sorted(item_id for item_id in item_ids if item_id)},
+        {"items": sorted(v for v in item_ids if v)},
     )
-    project = await access._row(db, Project, context.project_id, lock=True)
+    try:
+        project = (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_workspace_v1.lock_point_cloud_original_configuration(:id)"
+                ),
+                {"id": context.project_id},
+            )
+        ).one_or_none()
+    except DBAPIError as exc:
+        if credentials._busy(exc):
+            raise HTTPException(409, {"code": "content_busy"}) from None
+        raise HTTPException(503, {"code": "content_unavailable"}) from None
     if (
-        canonical_digest(current.source_snapshot) != context.source_digest
+        project is None
+        or canonical_digest(current.source_snapshot) != context.source_digest
         or current.scope_json != context.scope
         or point_cloud_quality_config_digest(
             load_point_cloud_quality_config(current.config_snapshot)

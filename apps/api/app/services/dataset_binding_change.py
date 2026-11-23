@@ -66,40 +66,12 @@ async def candidates(db, *, limit, offset):
 
 
 async def history(db):
-    from app.db.models.dataset_asset import DatasetAssetLocation
-    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
-    from app.db.models.managed_original_creation import ManagedOriginalCreation
-    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from sqlalchemy import text
 
-    models = {
-        "asset_locations": DatasetAssetLocation,
-        "creation_allocations": ManagedOriginalCreation,
-        "auxiliary_originals": DatasetAuxiliaryOriginal,
-        "retirements": ManagedOriginalRetirement,
-    }
-    return dict(
-        (
-            await db.execute(
-                select(
-                    *(
-                        select(func.count())
-                        .select_from(model)
-                        .where(model.owner_kind.in_(("dataset", "dataset_auxiliary")))
-                        .scalar_subquery()
-                        .label(name)
-                        if name == "creation_allocations"
-                        else select(func.count())
-                        .select_from(model)
-                        .scalar_subquery()
-                        .label(name)
-                        for name, model in models.items()
-                    )
-                )
-            )
-        )
-        .mappings()
-        .one()
+    result = await db.execute(
+        text("SELECT * FROM yoao_assets_v1.dataset_original_binding_history()")
     )
+    return dict(result.mappings().one())
 
 
 async def _binding(db, *, lock=False):
