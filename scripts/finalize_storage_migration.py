@@ -1,18 +1,18 @@
 """Bind a real native source fence to an application's final migration evidence.
 
-Run as a trusted deployment operator with the existing application database
-environment. API and Worker processes never receive Docker authority or this
-command's native credentials. Read publication uses sealed, exact-version
-evidence without changing saved business locators or new-write Bindings.
+Run with STORAGE_MIGRATION_CONTROL_DATABASE_URL for the dedicated control LOGIN.
+API and Worker processes never receive its database or native credentials.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -95,15 +95,66 @@ def parser():
     return command
 
 
+def control_session_factory():
+    from sqlalchemy import text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    try:
+        url = make_url(os.environ.get("STORAGE_MIGRATION_CONTROL_DATABASE_URL", ""))
+    except ArgumentError:
+        raise FenceError("storage_migration_control_database_required") from None
+    if url.drivername != "postgresql+asyncpg" or not url.username or not url.database:
+        raise FenceError("storage_migration_control_database_required")
+    qualified_role = text(
+        """
+        SELECT pg_catalog.has_function_privilege(
+                   pg_catalog.to_regprocedure(
+                       'yoao_assets_v1.bump_migration_window_finalization_revision(uuid,integer)'
+                   ), 'EXECUTE'
+               )
+           AND pg_catalog.has_column_privilege(
+                   'public.storage_migration_read_publications', 'state', 'INSERT'
+               )
+           AND NOT pg_catalog.has_table_privilege(
+                   'public.storage_migration_read_publications', 'TRIGGER'
+               )
+        FROM pg_catalog.pg_roles AS role
+        WHERE role.rolname = CURRENT_USER AND CURRENT_USER = SESSION_USER
+          AND role.rolcanlogin AND NOT (
+              role.rolsuper OR role.rolinherit OR role.rolcreatedb
+              OR role.rolcreaterole OR role.rolreplication OR role.rolbypassrls
+          )
+          AND NOT EXISTS (
+              SELECT FROM pg_catalog.pg_auth_members AS membership
+              WHERE membership.roleid = role.oid OR membership.member = role.oid
+          )
+        """
+    )
+
+    @asynccontextmanager
+    async def session():
+        engine = create_async_engine(url, hide_parameters=True)
+        try:
+            async with AsyncSession(engine, expire_on_commit=False) as db:
+                if await db.scalar(qualified_role) is not True:
+                    raise FenceError("storage_migration_control_role_required")
+                yield db
+        finally:
+            await engine.dispose()
+
+    return session
+
+
 def application():
     from app.services import storage_migration_finalizations as service
     from app.services.prediction_inputs import settled_io
     from app.services.storage_migration_finalization_evidence import (
         build_final_evidence,
     )
-    from app.workers._db import task_session
 
-    return service, task_session, settled_io, build_final_evidence
+    return service, control_session_factory(), settled_io, build_final_evidence
 
 
 def read_application():

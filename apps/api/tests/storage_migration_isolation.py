@@ -1,16 +1,4 @@
-"""Owned-schema isolation for durable storage-migration ledger tests.
-
-The source Gate ledger is global: any committed ``storage_operations`` row at the
-legacy location is real registered access, so a test must never rely on the
-shared public schema being drained.  These fixtures clone the structure (and its
-guard triggers) of the tables the migration control plane touches into a
-disposable schema whose name is unique per test; the whole namespace is dropped
-afterwards.  Unresolved facts in the public schema stay untouched - they are
-simply not part of the window under test.
-
-Fixture names deliberately mirror ``tests/conftest.py`` so a module can shadow
-the public-schema versions by importing them.
-"""
+"""Isolate committed storage-migration ledgers in an owned, fully migrated database."""
 
 import os
 import uuid
@@ -18,145 +6,15 @@ import uuid
 import httpx
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.base import Base
-
-TABLES = (
-    "users",
-    "api_keys",
-    "async_jobs",
-    "notifications",
-    "audit_logs",
-    "storage_connections",
-    "storage_locations",
-    "storage_bindings",
-    "storage_maintenance_gates",
-    "storage_operations",
-    "storage_usage_mutations",
-    "storage_migration_inventories",
-    "storage_migration_copies",
-    "storage_migration_copy_attempts",
-    "storage_migration_copy_deltas",
-    "storage_migration_windows",
-    "storage_migration_finalizations",
-    "storage_migration_read_publications",
-    "storage_migration_read_routes",
-    "storage_migration_cutovers",
-    "managed_original_reclaim_claims",
-    "managed_original_reclaim_attempts",
-)
-
-
-def _checked(names):
-    missing = [name for name in TABLES if name not in names]
-    if missing:
-        raise AssertionError(f"Isolated schema tables are missing: {missing}")
-    return tuple(sorted(set(TABLES) | (set(Base.metadata.tables) & names)))
-
-
-async def _clone(source, schema):
-    async with source.begin() as connection:
-        present = set(
-            await connection.scalars(
-                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-            )
-        )
-        tables = _checked(present)
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        for name in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{name}" '
-                    f'(LIKE public."{name}" INCLUDING ALL)'
-                )
-            )
-        triggers = list(
-            await connection.execute(
-                text(
-                    "SELECT relation.relname, pg_get_triggerdef(trigger.oid), "
-                    "pg_get_functiondef(trigger.tgfoid) "
-                    "FROM pg_trigger AS trigger "
-                    "JOIN pg_class AS relation ON relation.oid = trigger.tgrelid "
-                    "JOIN pg_namespace AS namespace "
-                    "ON namespace.oid = relation.relnamespace "
-                    "WHERE NOT trigger.tgisinternal "
-                    "AND namespace.nspname = 'public'"
-                )
-            )
-        )
-        foreign_keys = list(
-            await connection.execute(
-                text(
-                    "SELECT child.relname, parent.relname, con.conname, "
-                    "pg_get_constraintdef(con.oid) "
-                    "FROM pg_constraint AS con "
-                    "JOIN pg_class AS child ON child.oid = con.conrelid "
-                    "JOIN pg_class AS parent ON parent.oid = con.confrelid "
-                    "JOIN pg_namespace AS ns ON ns.oid = child.relnamespace "
-                    "WHERE con.contype = 'f' AND ns.nspname = 'public' "
-                    "AND con.conparentid = 0"
-                )
-            )
-        )
-    async with source.begin() as connection:
-        await connection.execute(text(f'SET LOCAL search_path = "{schema}", public'))
-        for child, parent, name, definition in foreign_keys:
-            if child not in tables:
-                continue
-            if parent not in tables:
-                raise AssertionError(
-                    f"Isolated foreign key escapes schema: {child}.{name}"
-                )
-            definition = definition.replace(
-                "REFERENCES public.", f'REFERENCES "{schema}".'
-            )
-            await connection.exec_driver_sql(
-                f'ALTER TABLE "{schema}"."{child}" ADD CONSTRAINT "{name}" {definition}'
-            )
-        functions = []
-        for relation, _, definition in triggers:
-            if relation in tables and definition not in functions:
-                functions.append(definition)
-        for definition in functions:
-            if definition.startswith("CREATE OR REPLACE FUNCTION public."):
-                definition = definition.replace(
-                    "CREATE OR REPLACE FUNCTION public.",
-                    "CREATE OR REPLACE FUNCTION ",
-                    1,
-                )
-                definition = definition.replace("public.", f'"{schema}".')
-            await connection.exec_driver_sql(definition)
-        for relation, definition, _ in triggers:
-            if relation in tables:
-                await connection.exec_driver_sql(
-                    definition.replace(" ON public.", " ON ")
-                    .replace(
-                        "EXECUTE FUNCTION public.", f'EXECUTE FUNCTION "{schema}".'
-                    )
-                    .replace(
-                        "EXECUTE PROCEDURE public.", f'EXECUTE PROCEDURE "{schema}".'
-                    )
-                )
+from tests.managed_image_inference_fixtures import managed_database
 
 
 @pytest.fixture
-async def migration_engine(test_engine):
-    """A disposable schema with the migration control-plane structure."""
-    schema = "storage_migration_test_" + uuid.uuid4().hex
-    engine = None
-    try:
-        await _clone(test_engine, schema)
-        engine = create_async_engine(
-            test_engine.url,
-            connect_args={"server_settings": {"search_path": schema + ",public"}},
-        )
+async def migration_engine(test_db_url):
+    async with managed_database(test_db_url) as engine:
         yield engine
-    finally:
-        if engine is not None:
-            await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
 
 native_reclaim_only = pytest.mark.skipif(

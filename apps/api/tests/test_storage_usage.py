@@ -322,7 +322,7 @@ async def test_in_flight_cancel_discards_page(ready, monkeypatch):
     job, _ = await svc.start(db, actor)
     await db.commit()
     inventory = await svc.locked(db)
-    inventory.status = "running"
+    await svc.claim(db, inventory)
     generation = inventory.generation
     await db.commit()
     original_to_thread = worker.asyncio.to_thread
@@ -557,7 +557,7 @@ async def test_process_loss_signal_fences_old_delivery_and_recovers_checkpoint(r
     db, actor = ready
     job, _ = await svc.start(db, actor)
     await db.commit()
-    inventory = await svc.locked(db)
+    inventory = await db.get(Inventory, "platform", populate_existing=True)
     inventory.status, job.status = "running", "running"
     inventory.checkpoint = {
         "count": 2,
@@ -570,6 +570,7 @@ async def test_process_loss_signal_fences_old_delivery_and_recovers_checkpoint(r
     await db.commit()
     await svc.signal_interrupted(db, job.id, old_task, cancelled=False)
     await db.commit()
+    await db.refresh(inventory)
     assert inventory.status == "pending" and job.status == "running"
     assert inventory.checkpoint["token"] == "resume"
     assert job.celery_task_id != old_task and inventory.generation > generation
@@ -588,17 +589,17 @@ async def test_completed_response_reads_snapshots_after_terminal_inventory_state
     db, actor = ready
     job, _ = await svc.start(db, actor)
     await db.commit()
-    original_get = db.get
+    original_execute = db.execute
     raced = False
 
-    async def completed_between_queries(model, identity, **kwargs):
+    async def completed_between_queries(statement, *args, **kwargs):
         nonlocal raced
-        if model is Inventory and not raced:
+        if "usage_inventory_status()" in str(statement) and not raced:
             raced = True
             await run_all(db, job)
-        return await original_get(model, identity, **kwargs)
+        return await original_execute(statement, *args, **kwargs)
 
-    monkeypatch.setattr(db, "get", completed_between_queries)
+    monkeypatch.setattr(db, "execute", completed_between_queries)
     response = await svc.read_usage(db)
     assert response.inventory_status == "completed"
     assert response.measured_bucket_count == response.bucket_count == 9

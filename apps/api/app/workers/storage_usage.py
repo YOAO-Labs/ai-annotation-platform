@@ -1,7 +1,7 @@
 """Bounded, fenced S3 inventory chunks with a durable dispatch lease."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import lru_cache
 import logging
 import time
@@ -13,11 +13,6 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.config import settings
-from app.db.models.async_job import AsyncJob
-from app.db.models.storage_usage import (
-    StorageUsageInventory as Inventory,
-    StorageUsageSnapshot as Snapshot,
-)
 from app.services import async_job as jobs, storage_usage as svc
 from app.services import storage_usage_categories as categories
 from app.services import storage_usage_accounting as accounting
@@ -120,13 +115,12 @@ async def process_page(db, job_id, task_id, generation):
         )
         await db.commit()
         return False
-    target = inventory.scope[inventory.bucket_index]
+    bucket_index = inventory.bucket_index
+    target = inventory.scope[bucket_index]
     checkpoint = dict(inventory.checkpoint)
-    row = await db.get(Snapshot, target["key"], populate_existing=True)
-    row.attempt_status = "running"
     page_started = await db.scalar(select(func.clock_timestamp()))
     checkpoint.setdefault("started_at", page_started.isoformat())
-    inventory.checkpoint = checkpoint
+    await svc.begin_page(db, inventory, checkpoint)
     await db.commit()
     error, page, page_categories = None, None, None
     if checkpoint.get("pages", 0) >= svc.MAX_PAGES:
@@ -147,11 +141,10 @@ async def process_page(db, job_id, task_id, generation):
                 await db.rollback()
                 error = "object_classification_failed"
     inventory = await svc.fenced(db, job_id, task_id, generation)
-    if inventory is None:
+    if inventory is None or inventory.bucket_index != bucket_index:
         await db.rollback()
         return False
     await svc.authority(db, inventory)
-    row = await db.get(Snapshot, target["key"], populate_existing=True)
     page_completed = await db.scalar(select(func.clock_timestamp()))
     accepted_page = None
     if not error and page is not None and "objects" in page:
@@ -171,9 +164,10 @@ async def process_page(db, job_id, task_id, generation):
                 )
         except Exception:
             error = "invalid_inventory_page"
+    measured_at = started_at = category_totals = None
+    terminal = not error and not page["token"]
     if error:
-        row.attempt_status, row.error_code = "failed", error
-        inventory.failed_count += 1
+        await accounting.discard_staging(db, job_id, target["key"])
     else:
         checkpoint = {
             "count": checkpoint.get("count", 0) + page["count"],
@@ -192,46 +186,41 @@ async def process_page(db, job_id, task_id, generation):
                 page_categories,
             ),
         }
-        if not page["token"]:
-            from datetime import datetime
-
+        if terminal:
+            started_at = datetime.fromisoformat(checkpoint["started_at"])
             measured_at = await db.scalar(select(func.clock_timestamp()))
             if checkpoint["objects_complete"]:
                 await accounting.complete_bucket(
                     db,
-                    row,
+                    target["key"],
                     job_id,
-                    datetime.fromisoformat(checkpoint["started_at"]),
+                    started_at,
                     measured_at,
                 )
-            row.object_count, row.total_size_bytes = (
+            category_totals = categories.stamp(
+                checkpoint["category_totals"],
                 checkpoint["count"],
                 checkpoint["bytes"],
+                measured_at,
             )
-            row.measurement_started_at = datetime.fromisoformat(
-                checkpoint["started_at"]
-            )
-            row.measured_at = measured_at
-            row.category_totals = categories.stamp(
-                checkpoint["category_totals"],
-                row.object_count,
-                row.total_size_bytes,
-                row.measured_at,
-            )
-            row.attempt_status, row.error_code = "completed", None
-            inventory.success_count += 1
         accepted_page = (inventory.bucket_index, checkpoint["pages"])
-    if error or not page["token"]:
-        if error:
-            await accounting.discard_staging(db, job_id, target["key"])
-        inventory.bucket_index += 1
-        checkpoint = {}
-    inventory.checkpoint = checkpoint
-    inventory.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-    job = await db.get(AsyncJob, job_id)
-    job.result = svc.result(inventory)
+    await svc.record_page(
+        db,
+        inventory,
+        checkpoint,
+        error=error,
+        terminal=terminal,
+        started=started_at,
+        measured=measured_at,
+        categories=category_totals,
+    )
+    job = await jobs.get_job(db, job_id)
+    next_bucket = bucket_index + int(bool(error) or terminal)
     await jobs.update_progress(
-        db, job_id, int(inventory.bucket_index * 100 / len(inventory.scope))
+        db,
+        job_id,
+        int(next_bucket * 100 / len(inventory.scope)),
+        result=svc.result(inventory, success=int(terminal), failure=int(bool(error))),
     )
     if accepted_page is not None:
         previous = job.progress_observation
@@ -256,7 +245,7 @@ async def process_page(db, job_id, task_id, generation):
 
 async def execute(db, job_id, task_id):
     inventory = await svc.locked(db)
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await jobs.get_job(db, job_id, populate_existing=True)
     if (
         not inventory
         or inventory.async_job_id != job_id
@@ -267,9 +256,8 @@ async def execute(db, job_id, task_id):
     ):
         await db.rollback()
         return
-    inventory.status = "running"
     generation = inventory.generation
-    inventory.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
+    await svc.claim(db, inventory)
     await jobs.mark_running(db, job_id)
     await db.commit()
     try:
@@ -281,10 +269,8 @@ async def execute(db, job_id, task_id):
                 break
         inventory = await svc.fenced(db, job_id, task_id, generation)
         if inventory:
-            inventory.status = "pending"
-            inventory.generation += 1
-            job = await db.get(AsyncJob, job_id)
-            job.celery_task_id = str(uuid.uuid4())
+            job = await jobs.get_job(db, job_id)
+            await svc.release_chunk(db, inventory, job)
             await dispatch(db, job)
     except Exception as exc:
         await db.rollback()
@@ -308,16 +294,11 @@ async def recover(db):
     due = await svc.start_due(db)
     if due is not None:
         await dispatch(db, due)
-    inventory = await db.scalar(
-        select(Inventory)
-        .where(Inventory.status.in_(svc.ACTIVE), Inventory.lease_until <= svc.now())
-        .with_for_update(skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
+    inventory = await svc.expired(db)
     if not inventory:
         return
     job = (
-        await db.get(AsyncJob, inventory.async_job_id, populate_existing=True)
+        await jobs.get_job(db, inventory.async_job_id, populate_existing=True)
         if inventory.async_job_id
         else None
     )
@@ -336,10 +317,9 @@ async def recover(db):
         await svc.finish(db, inventory, "failed", "worker_failed")
         await db.commit()
         return
-    inventory.status = "pending"
-    inventory.generation += 1
-    inventory.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-    job.celery_task_id = str(uuid.uuid4())
+    await svc.release_chunk(
+        db, inventory, job, lease=svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
+    )
     await dispatch(db, job)
 
 
