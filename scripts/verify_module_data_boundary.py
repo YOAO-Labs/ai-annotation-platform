@@ -6097,6 +6097,12 @@ WITH RECURSIVE scoped(oid) AS (
     FROM scoped
     JOIN pg_catalog.pg_class c ON c.oid = scoped.oid
     JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+), routines AS (
+    SELECT p.oid, n.oid AS schema_oid, n.nspname || '.' || p.proname || '(' ||
+        pg_catalog.replace(pg_catalog.oidvectortypes(p.proargtypes), ', ', ',') || ')' AS signature
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname ~ '^(aap_|yoao_)'
 )
 SELECT pg_catalog.jsonb_build_object(
     'login', session_user,
@@ -6126,13 +6132,15 @@ SELECT pg_catalog.jsonb_build_object(
             ELSE false END
         ORDER BY name),
     'unexpected_private_functions', ARRAY(
-        SELECT signature FROM unnest(ARRAY[{private_signatures}]) signature
-        WHERE pg_catalog.has_function_privilege(signature, 'EXECUTE')
+        SELECT expected.signature FROM unnest(ARRAY[{private_signatures}]) AS expected(signature)
+        LEFT JOIN routines USING (signature)
+        WHERE routines.oid IS NULL OR pg_catalog.has_function_privilege(routines.oid, 'EXECUTE')
         ORDER BY signature),
     'missing_business_functions', ARRAY(
-        SELECT signature FROM unnest(ARRAY[{ordinary_signatures}]) signature
-        WHERE NOT pg_catalog.has_function_privilege(signature, 'EXECUTE')
-           OR NOT pg_catalog.has_schema_privilege(pg_catalog.split_part(signature, '.', 1), 'USAGE')
+        SELECT expected.signature FROM unnest(ARRAY[{ordinary_signatures}]) AS expected(signature)
+        LEFT JOIN routines USING (signature)
+        WHERE routines.oid IS NULL OR NOT pg_catalog.has_function_privilege(routines.oid, 'EXECUTE')
+           OR NOT pg_catalog.has_schema_privilege(routines.schema_oid, 'USAGE')
         ORDER BY signature)
 )::text;
 """,
