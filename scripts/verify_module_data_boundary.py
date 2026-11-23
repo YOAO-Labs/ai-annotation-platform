@@ -2305,6 +2305,8 @@ _RECLAMATION_PROFILES = {
     "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete": "reclaim-version-delete",
 }
 
+_WORKSPACE_ASSEMBLY_TARGET = "tests/test_workspace_module_assembly_live.py"
+
 
 TEST_FILES = (
     "tests/test_video_frame_service.py",
@@ -2352,14 +2354,12 @@ TEST_FILES = (
     "tests/test_seed_parent_operator_native.py",
     "tests/test_workspace_seed_operator_live.py",
     "tests/test_workspace_seed_operator_native.py",
-    "tests/test_workspace_capacity_live.py",
     "tests/test_workspace_import_cli_live.py",
     "tests/test_workspace_worker_assembly_live.py",
     "tests/test_workspace_cross_frame_worker_live.py",
     "tests/test_workspace_video_tracker_worker_live.py",
     "tests/test_workspace_export_worker_live.py",
-    "tests/test_workspace_module_assembly_live.py",
-    "tests/test_workspace_module_healthcheck.py",
+    _WORKSPACE_ASSEMBLY_TARGET,
     "tests/test_workspace_consumer_profile_native.py",
     "tests/test_video_deletion_retirement_native.py",
     "tests/test_video_tracker_input_retention_roles.py",
@@ -2797,7 +2797,7 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         "--workspace-consumer-profile",
         choices=("strict", "default"),
         default="strict",
-        help="Workspace assembly/worker credentials: strict32 or existing default LAN capabilities",
+        help="Workspace consumer credentials: strict function-only or default LAN capabilities",
     )
     args = parser.parse_args(argv)
     guide_clone_file = "tests/test_guide_clone_api_login_native.py"
@@ -2812,7 +2812,7 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         or len(args.test_files) != 1
         or args.test_files[0].split("::", 1)[0]
         not in {
-            "tests/test_workspace_module_assembly_live.py",
+            _WORKSPACE_ASSEMBLY_TARGET,
             "tests/test_workspace_worker_assembly_live.py",
             guide_clone_file,
         }
@@ -2871,6 +2871,7 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_notifications_module_assembly_live.py": "notifications-restore",
     "tests/test_media_seed_identity_live.py": "media-seed",
     "tests/test_seed_parent_operator_live.py": "parent-seed",
+    _WORKSPACE_ASSEMBLY_TARGET: "workspace-assembly",
     "tests/test_workspace_seed_operator_live.py": "workspace-seed",
     "tests/test_workspace_import_cli_live.py": "workspace-import",
     "tests/test_workspace_video_tracker_worker_live.py": "workspace-video-tracker",
@@ -12073,10 +12074,7 @@ SELECT id FROM removed;
             or "tests/test_seed_parent_operator_live.py" in selected_test_paths
             or "tests/test_workspace_seed_operator_native.py" in selected_test_paths
             or "tests/test_workspace_seed_operator_live.py" in selected_test_paths
-            or (
-                "tests/test_workspace_module_assembly_live.py" in selected_test_paths
-                and os.environ.get("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") == "1"
-            )
+            or _WORKSPACE_ASSEMBLY_TARGET in selected_test_paths
             or (
                 "tests/test_workspace_worker_assembly_live.py" in selected_test_paths
                 and os.environ.get("AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE") == "1"
@@ -12101,10 +12099,6 @@ SELECT id FROM removed;
             or (
                 "tests/test_workspace_export_worker_live.py" in selected_test_paths
                 and os.environ.get("AAP_WORKSPACE_EXPORT_WORKER_LIVE") == "1"
-            )
-            or (
-                "tests/test_workspace_capacity_live.py" in selected_test_paths
-                and os.environ.get("AAP_WORKSPACE_CAPACITY_LIVE") == "1"
             )
         ):
             phase = "install-workspace-api-consumer-fence-last"
@@ -12826,8 +12820,6 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_notifications_socket_runtime_live.py",
             "tests/test_notifications_module_assembly_live.py",
             "tests/test_jobs_module_assembly_live.py",
-            "tests/test_workspace_module_assembly_live.py",
-            "tests/test_workspace_capacity_live.py",
             "tests/test_identity_e2e_live.py",
             "tests/test_identity_embedded_acl_live.py",
             "tests/test_worktree_identity_runtime_role_live.py",

@@ -1,4 +1,4 @@
-"""End-to-end acceptance for the privately assembled Workspace owner slice."""
+"""Cold HTTP acceptance of the in-process Workspace owners and persisted boundaries."""
 
 from __future__ import annotations
 
@@ -7,11 +7,13 @@ from collections.abc import AsyncIterator
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 import re
 import secrets
+import shutil
+import subprocess
 import threading
-import time
 from types import SimpleNamespace
 import uuid
 
@@ -29,7 +31,6 @@ from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServiceP
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.user import User
 from tests.factory import create_user
-from tests.native_signer_support import bridge_gateway
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_recovery import _postgres_tool
 from tests.test_module_data_roles import _role_url
@@ -45,9 +46,8 @@ from tests.workspace_module_quality_helpers import qualify_point_quality_promoti
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
-        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
-        or os.getenv("AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE") != "1",
-        reason="requires the explicitly enabled owned Workspace module assembly verifier",
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the disposable module-data boundary verifier",
     ),
 ]
 
@@ -89,6 +89,81 @@ def _backend_endpoint(host: str):
 def _token(user: User, secret: str) -> str:
     return create_access_token(
         str(user.id), user.role, secret=secret, expire_minutes=60
+    )
+
+
+async def _assert_public_pipeline_contract(client, project, headers, record_property):
+    node = shutil.which("node")
+    assert node, "the independent Workspace consumer requires Node.js"
+    pipeline = [{"stage": "17", "ml_backend_id": str(uuid.UUID(int=1))}]
+    canonical_pipeline = [{**pipeline[0], "stage": 17}]
+    path = f"/api/v1/projects/{project['id']}"
+    result = await asyncio.to_thread(
+        subprocess.run,
+        [
+            node,
+            "--input-type=module",
+            "-e",
+            """
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
+const {url, headers, body} = JSON.parse(input);
+const response = await fetch(url, {
+  method: 'PATCH',
+  headers: {...headers, 'Content-Type': 'application/json'},
+  body: JSON.stringify(body),
+  redirect: 'error',
+});
+process.stdout.write(JSON.stringify({
+  status: response.status, body: await response.json(), node_version: process.version,
+}));
+""",
+        ],
+        input=json.dumps(
+            {
+                "url": str(client.base_url.join(path)),
+                "headers": headers,
+                "body": {"preannotate_pipeline": pipeline},
+            }
+        ),
+        env={"PATH": os.environ.get("PATH", "")},
+        text=True,
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    saved = json.loads(result.stdout)
+    assert saved["status"] == 200, saved
+    assert saved["body"]["preannotate_pipeline"] == canonical_pipeline
+
+    invalid = await client.patch(
+        path,
+        headers=headers,
+        json={
+            "name": "Invalid pipeline must roll back this name",
+            "preannotate_pipeline": [
+                *pipeline,
+                {"stage": 18, "ml_backend_id": str(uuid.UUID(int=2))},
+            ],
+        },
+    )
+    assert invalid.status_code == 422, invalid.text
+    assert invalid.json()["detail"] == (
+        "preannotate_pipeline 须恰有一个源阶段 (parent_stage=None)"
+    )
+    unchanged = await client.get(path, headers=headers)
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["name"] == project["name"]
+    assert unchanged.json()["preannotate_pipeline"] == canonical_pipeline
+    record_property(
+        "workspace_pipeline_contract_consumer",
+        {
+            "producer": "node",
+            "node_version": saved["node_version"],
+            "saved_status": saved["status"],
+            "rejected_status": invalid.status_code,
+        },
     )
 
 
@@ -178,7 +253,9 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
                 await db.scalar(
                     text(
                         "SELECT pg_catalog.has_table_privilege(current_user, "
-                        "'public.projects', 'SELECT,UPDATE')"
+                        "'public.projects', 'SELECT,UPDATE') OR "
+                        "pg_catalog.has_table_privilege(current_user, "
+                        "'yoao_workspace_v1.project_facts', 'UPDATE')"
                     )
                 )
                 is False
@@ -188,12 +265,23 @@ async def _assert_restricted_api_consumer(test_engine) -> None:
             "SELECT id FROM public.projects LIMIT 1",
             "SELECT id FROM public.project_members LIMIT 1",
             "SELECT id FROM public.project_templates LIMIT 1",
+            "SELECT operation_id FROM public.workspace_membership_operation_receipts LIMIT 1",
+            "SELECT operation_id FROM public.workspace_configuration_operation_receipts LIMIT 1",
+            "SELECT operation_id FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
+            "SELECT auth_token FROM public.ml_backend_registry LIMIT 1",
             "UPDATE public.projects SET name=name WHERE false",
-            "UPDATE yoao_workspace_v1.project_facts SET name=name WHERE false",
         ):
             async with engine.connect() as db:
-                with pytest.raises(DBAPIError):
+                with pytest.raises(DBAPIError) as denied:
                     await db.execute(text(statement))
+                assert denied.value.orig.sqlstate == "42501"
+        async with engine.connect() as db:
+            with pytest.raises(DBAPIError):
+                await db.execute(
+                    text(
+                        "UPDATE yoao_workspace_v1.project_facts SET name=name WHERE false"
+                    )
+                )
     finally:
         await engine.dispose()
 
@@ -239,6 +327,55 @@ async def _seed_backend(test_engine, backend_id, backend_url):
         db.add(pool)
         await db.flush()
         db.add(MLBackendPoolMember(pool_id=pool.id, registry_id=registry.id))
+
+
+async def _project_create_state(maker, actor_id) -> tuple:
+    async with maker() as db:
+        return (
+            await db.execute(
+                text(
+                    "SELECT (SELECT count(*) FROM public.projects WHERE owner_id=:id), "
+                    "(SELECT count(*) FROM public.workspace_configuration_operation_receipts "
+                    "WHERE actor_id=:id AND operation='create_project'), "
+                    "(SELECT count(*) FROM public.workspace_configuration_operation_attempts), "
+                    "(SELECT count(*) FROM public.workspace_configuration_operation_states)"
+                ),
+                {"id": actor_id},
+            )
+        ).one()
+
+
+async def _assert_committed_membership_and_transfer(db, project_id) -> None:
+    counts = (
+        await db.execute(
+            text(
+                "SELECT receipt.operation, count(*), count(audit.id), "
+                "count(DISTINCT receipt.audit_id) "
+                "FROM public.workspace_membership_operation_receipts AS receipt "
+                "LEFT JOIN public.audit_logs AS audit ON audit.id=receipt.audit_id "
+                "WHERE receipt.project_id=:id GROUP BY receipt.operation"
+            ),
+            {"id": project_id},
+        )
+    ).all()
+    assert {
+        operation: (receipts, audits, distinct)
+        for operation, receipts, audits, distinct in counts
+    } == {
+        "add_member": (2, 2, 2),
+        "change_role": (1, 1, 1),
+        "remove_member": (2, 2, 2),
+    }
+    assert (
+        await db.execute(
+            text(
+                "SELECT (SELECT count(*) FROM public.project_members WHERE project_id=:id), "
+                "(SELECT count(*) FROM public.workspace_owner_transfer_operation_receipts "
+                "WHERE project_id=:id)"
+            ),
+            {"id": project_id},
+        )
+    ).one() == (0, 1)
 
 
 @asynccontextmanager
@@ -312,6 +449,7 @@ async def _restored_database_with_acl_and_proofs(
         )
         async with restored.connect() as db:
             assert await db.scalar(text("SELECT current_user")) == "owner"
+            await _assert_committed_membership_and_transfer(db, project_id)
             source_proofs = (
                 await db.execute(
                     text(
@@ -447,23 +585,44 @@ async def _restored_database_with_acl_and_proofs(
 
 @pytest.fixture
 async def workspace_guide_storage(test_engine, monkeypatch):
-    resources, bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    resources, _bucket, owner_s3 = await assert_workspace_identity(test_engine)
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     from verify_module_data_boundary import (
         _cleanup_storage_scope,
         _create_api_bootstrap_storage_scope,
         _destroy_cleanup_storage_scope,
+        _expect_s3_denied,
+        _restricted_s3_client,
     )
 
     with ExitStack() as cleanup:
         cleanup.callback(owner_s3.close)
-        scope = _cleanup_storage_scope(
-            SimpleNamespace(settings=settings, resources=resources, s3=owner_s3)
-        )
+        backend = SimpleNamespace(settings=settings, resources=resources, s3=owner_s3)
+        scope = _cleanup_storage_scope(backend)
         cleanup.callback(_destroy_cleanup_storage_scope, scope)
         scope["buckets"] = resources["buckets"]
         _create_api_bootstrap_storage_scope(scope, workspace_guides=True)
-        yield bucket, owner_s3, (scope["access_key"], scope["secret_key"])
+        source_bucket = scope["buckets"]["MINIO_DATASETS_BUCKET"]
+        source_key = f"workspace-assembly-probe/{uuid.uuid4()}"
+        restricted = _restricted_s3_client(backend, scope)
+        cleanup.callback(restricted.close)
+        cleanup.callback(_cleanup_objects, owner_s3, source_bucket, [source_key])
+        version = owner_s3.put_object(
+            Bucket=source_bucket, Key=source_key, Body=b"owner-only source"
+        )["VersionId"]
+        _expect_s3_denied(
+            "Workspace API direct original read",
+            lambda: restricted.get_object(
+                Bucket=source_bucket, Key=source_key, VersionId=version
+            ),
+        )
+        _expect_s3_denied(
+            "Workspace API direct original write",
+            lambda: restricted.put_object(
+                Bucket=source_bucket, Key=source_key, Body=b"forbidden"
+            ),
+        )
+        yield scope["buckets"], owner_s3, (scope["access_key"], scope["secret_key"])
 
 
 async def test_workspace_module_assembly_public_api_native_boundaries_and_restore(
@@ -471,28 +630,29 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
-    guide_bucket, owner_s3, api_s3_credentials = workspace_guide_storage
+    buckets, owner_s3, api_s3_credentials = workspace_guide_storage
+    guide_bucket = buckets["MINIO_BUCKET"]
     await _assert_restricted_api_consumer(test_engine)
     maker, actors = await _seed_users(test_engine)
     api_secret = secrets.token_urlsafe(32)
-    control_token, probe_token = [secrets.token_urlsafe(32) for _ in range(2)]
+    probe_token = secrets.token_urlsafe(32)
     backend_id = uuid.uuid4()
     project_id = native_project_id = dataset_id = unlink_operation_id = None
     guide_key = None
     stack = None
     try:
-        with _backend_endpoint(bridge_gateway()) as (backend_origin, probe_calls):
+        with _backend_endpoint("127.0.0.1") as (backend_origin, probe_calls):
             await _seed_backend(test_engine, backend_id, backend_origin)
             stack = WorkspaceModuleStack(
                 test_engine,
                 tmp_path,
+                buckets=buckets,
                 api_s3_credentials=api_s3_credentials,
                 api_secret=api_secret,
-                control_token=control_token,
                 inference_token=probe_token,
             )
             await stack.start()
-            record_property("workspace_module_services", stack.inspection_evidence)
+            record_property("workspace_module_processes", stack.inspection_evidence)
             async with httpx.AsyncClient(
                 base_url=stack.api_origin,
                 trust_env=False,
@@ -538,13 +698,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     and row["name"] == template_name + " updated"
                     for row in listed_templates.json()
                 )
-                await stack.stop_service("workspace-template-query")
-                missing_templates = await client.get(
-                    "/api/v1/project-templates?scope=private",
-                    headers=headers["owner"],
-                )
-                assert missing_templates.status_code == 503, missing_templates.text
-                await stack.start_service("workspace-template-query")
 
                 created_project = await client.post(
                     "/api/v1/projects",
@@ -580,31 +733,8 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 )
                 assert concurrent_reads[1].json()["id"] == str(project_id)
                 assert concurrent_reads[2].json()["access_kind"] == "owner"
-
-                gate = asyncio.Semaphore(4)
-                latencies = []
-
-                async def read_under_load():
-                    async with gate:
-                        started = time.monotonic()
-                        response = await client.get(
-                            f"/api/v1/projects/{project_id}", headers=headers["owner"]
-                        )
-                        latencies.append(time.monotonic() - started)
-                        assert response.status_code == 200, response.text
-                        assert response.json()["id"] == str(project_id)
-
-                started = time.monotonic()
-                await asyncio.gather(*(read_under_load() for _ in range(16)))
-                record_property(
-                    "workspace_module_local_capacity",
-                    {
-                        "requests": 16,
-                        "concurrency": 4,
-                        "seconds": round(time.monotonic() - started, 3),
-                        "observed_p95_seconds": round(sorted(latencies)[-1], 3),
-                        "scope": "bounded local correctness sample, not production capacity",
-                    },
+                await _assert_public_pipeline_contract(
+                    client, project, headers["super_admin"], record_property
                 )
 
                 renamed = await client.post(
@@ -631,13 +761,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 )
                 assert listed_members.status_code == 200, listed_members.text
                 assert any(row["id"] == str(member_id) for row in listed_members.json())
-                await stack.stop_service("workspace-directory-query")
-                missing_members = await client.get(
-                    f"/api/v1/projects/{project_id}/members",
-                    headers=headers["owner"],
-                )
-                assert missing_members.status_code == 503, missing_members.text
-                await stack.start_service("workspace-directory-query")
                 member_access = await client.get(
                     f"/api/v1/projects/{project_id}/access",
                     headers=headers["member"],
@@ -695,6 +818,19 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     headers=headers["owner"],
                 )
                 assert removed.status_code == 204, removed.text
+                revoked_reads = await asyncio.gather(
+                    *(
+                        client.get(
+                            f"/api/v1/projects/{project_id}{suffix}",
+                            headers=headers["revoked"],
+                        )
+                        for suffix in ("", "/access")
+                    )
+                )
+                assert [response.status_code for response in revoked_reads] == [
+                    404,
+                    404,
+                ]
                 revoked_change = await client.patch(
                     f"/api/v1/projects/{project_id}/members/{revoked_id}/role",
                     headers=headers["owner"],
@@ -719,32 +855,31 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 )
                 assert transferred.status_code == 200, transferred.text
                 assert transferred.json()["owner_id"] == str(actors["successor"].id)
-                await stack.stop_service("workspace-owner-transfer")
-                failed_transfer = await client.post(
+                denied_transfer = await client.post(
                     f"/api/v1/projects/{project_id}/transfer",
-                    headers=headers["super_admin"],
+                    headers=headers["owner"],
                     json={"new_owner_id": str(actors["owner"].id)},
                 )
-                assert failed_transfer.status_code == 503, failed_transfer.text
+                assert denied_transfer.status_code == 403, denied_transfer.text
                 successor_read = await client.get(
                     f"/api/v1/projects/{project_id}",
                     headers=headers["successor"],
                 )
                 assert successor_read.status_code == 200, successor_read.text
                 assert successor_read.json()["owner_id"] == str(actors["successor"].id)
-                await stack.start_service("workspace-owner-transfer")
 
+                probe_project_data = {
+                    "name": "Workspace backend probe project",
+                    "type_label": "Image",
+                    "type_key": "image-det",
+                    "classes": ["Probe"],
+                    "ai_enabled": True,
+                    "ml_backend_id": str(backend_id),
+                }
                 probe_project = await client.post(
                     "/api/v1/projects",
                     headers=headers["owner"],
-                    json={
-                        "name": "Workspace backend probe project",
-                        "type_label": "Image",
-                        "type_key": "image-det",
-                        "classes": ["Probe"],
-                        "ai_enabled": True,
-                        "ml_backend_id": str(backend_id),
-                    },
+                    json=probe_project_data,
                 )
                 assert probe_project.status_code == 200, probe_project.text
                 assert probe_calls and probe_calls[0][1:] == (
@@ -752,6 +887,31 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     "no-cache",
                 )
                 assert probe_calls[0][0].endswith("/setup")
+
+                before_probe_loss = await _project_create_state(
+                    maker, actors["owner"].id
+                )
+                assert before_probe_loss[2:] == (0, 0)
+                await stack.stop_probe()
+                failed_create = await client.post(
+                    "/api/v1/projects",
+                    headers=headers["owner"],
+                    json={**probe_project_data, "name": "Unavailable Inference probe"},
+                )
+                assert failed_create.status_code == 503, failed_create.text
+                assert len(probe_calls) == 1
+                assert (
+                    await _project_create_state(maker, actors["owner"].id)
+                    == before_probe_loss
+                )
+                await stack.start_probe()
+                recovered_create = await client.post(
+                    "/api/v1/projects",
+                    headers=headers["owner"],
+                    json={**probe_project_data, "name": "Recovered Inference probe"},
+                )
+                assert recovered_create.status_code == 200, recovered_create.text
+                assert probe_calls[1:] == probe_calls[:1]
 
                 native_project = await client.post(
                     "/api/v1/projects",
@@ -791,120 +951,11 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 assert guide_delete.status_code == 200, guide_delete.text
                 assert guide_delete.json() == {"deleted": guide_key}
 
-                from yoao_workspace.configuration_contract import configuration_request
-
-                replay_operation_id = uuid.uuid4()
-                replay_name = f"Workspace direct replay {uuid.uuid4().hex[:8]}"
-                replay_request = configuration_request(
-                    operation="create_template",
-                    actor_id=actors["owner"].id,
-                    target_id=None,
-                    payload={
-                        "name": replay_name,
-                        "type_label": "Image",
-                        "type_key": "image-det",
-                        "scope": "private",
-                    },
-                    operation_id=replay_operation_id,
-                )
-                command_body = replay_request.model_dump(mode="json", by_alias=True)
-                config_origin = stack.service_origin("workspace-configuration")
-                async with httpx.AsyncClient(
-                    trust_env=False, timeout=20
-                ) as owner_client:
-                    rejected = await owner_client.post(
-                        config_origin + "/v1/workspace/configuration/execute",
-                        headers={"Authorization": "Bearer invalid-control-token"},
-                        json=command_body,
-                    )
-                    assert rejected.status_code == 401, rejected.text
-                    accepted = await owner_client.post(
-                        config_origin + "/v1/workspace/configuration/execute",
-                        headers={"Authorization": f"Bearer {control_token}"},
-                        json=command_body,
-                    )
-                    assert accepted.status_code == 200, accepted.text
-                    first_reply = accepted.json()
-                await stack.restart_service("workspace-configuration")
-                async with httpx.AsyncClient(
-                    trust_env=False, timeout=20
-                ) as owner_client:
-                    replayed = await owner_client.post(
-                        stack.service_origin("workspace-configuration")
-                        + "/v1/workspace/configuration/execute",
-                        headers={"Authorization": f"Bearer {control_token}"},
-                        json=command_body,
-                    )
-                assert replayed.status_code == 200, replayed.text
-                assert replayed.json() == first_reply
-
-                async with maker() as db:
-                    template_count = await db.scalar(
-                        text("SELECT count(*) FROM public.project_templates")
-                    )
-                    member_count = await db.scalar(
-                        text(
-                            "SELECT count(*) FROM public.project_members "
-                            "WHERE project_id=:project_id"
-                        ),
-                        {"project_id": project_id},
-                    )
-                await stack.stop_service("workspace-configuration")
-                failed_template = await client.post(
-                    "/api/v1/project-templates",
-                    headers=headers["owner"],
-                    json={
-                        "name": f"No fallback {uuid.uuid4().hex[:8]}",
-                        "type_label": "Image",
-                        "type_key": "image-det",
-                        "scope": "private",
-                    },
-                )
-                assert failed_template.status_code == 503, failed_template.text
-                async with maker() as db:
-                    assert (
-                        await db.scalar(
-                            text("SELECT count(*) FROM public.project_templates")
-                        )
-                        == template_count
-                    )
-                await stack.start_service("workspace-configuration")
-
-                await stack.stop_service("workspace-project-query")
-                missing_query = await client.get(
-                    f"/api/v1/projects/{project_id}", headers=headers["successor"]
-                )
-                assert missing_query.status_code == 503, missing_query.text
-                await stack.start_service("workspace-project-query")
-
-                await stack.stop_service("workspace-membership")
-                failed_member = await client.post(
-                    f"/api/v1/projects/{project_id}/members",
-                    headers=headers["successor"],
-                    json={"user_id": str(actors["member"].id), "role": "annotator"},
-                )
-                assert failed_member.status_code == 503, failed_member.text
-                async with maker() as db:
-                    assert (
-                        await db.scalar(
-                            text(
-                                "SELECT count(*) FROM public.project_members "
-                                "WHERE project_id=:project_id"
-                            ),
-                            {"project_id": project_id},
-                        )
-                        == member_count
-                    )
-                await stack.start_service("workspace-membership")
-
                 dataset_id = await _seed_native_dataset_link(
                     maker,
                     owner_id=actors["owner"].id,
                     project_id=native_project_id,
                 )
-
-                for service in _WORKSPACE_STOP_ORDER:
-                    await stack.stop_service(service)
 
                 record_property(
                     "workspace_module_quality_promotion",
@@ -946,7 +997,8 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     f"/api/v1/projects/{native_project_id}/access",
                     headers=headers["owner"],
                 )
-                assert access.status_code == 503, access.text
+                assert access.status_code == 200, access.text
+                assert access.json()["access_kind"] == "owner"
                 maintenance = await client.post(
                     f"/api/v1/projects/{native_project_id}/cleanup-orphans",
                     headers=headers["owner"],
@@ -1030,6 +1082,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     )
 
                 async with maker() as db:
+                    await _assert_committed_membership_and_transfer(db, project_id)
                     assert (
                         await db.scalar(
                             text(
@@ -1067,7 +1120,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                         == 0
                     )
 
-                record_property("workspace_module_services", stack.inspection_evidence)
                 await stack.stop()
                 async with _restored_database_with_acl_and_proofs(
                     test_engine,
@@ -1110,16 +1162,16 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                             assert rejected_token.status_code == 401, (
                                 rejected_token.text
                             )
-                            restored_receipt = await restored_client.post(
-                                stack.service_origin("workspace-configuration")
-                                + "/v1/workspace/configuration/execute",
-                                headers={"Authorization": f"Bearer {control_token}"},
-                                json=command_body,
+                            restored_template = await restored_client.get(
+                                f"/api/v1/project-templates/{template_id}",
+                                headers=headers["owner"],
                             )
-                            assert restored_receipt.status_code == 200, (
-                                restored_receipt.text
+                            assert restored_template.status_code == 200, (
+                                restored_template.text
                             )
-                            assert restored_receipt.json() == first_reply
+                            assert restored_template.json()["name"] == (
+                                template_name + " updated"
+                            )
                             blocked_delete = await restored_client.delete(
                                 f"/api/v1/projects/{legacy_video['project_id']}",
                                 headers={
@@ -1135,7 +1187,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                                 "video_execution_not_retired"
                             )
                         record_property(
-                            "workspace_module_restored_services",
+                            "workspace_module_restored_processes",
                             stack.inspection_evidence,
                         )
                         record_property(
@@ -1144,30 +1196,20 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                                 (tmp_path / "workspace-module.dump").read_bytes()
                             ).hexdigest(),
                         )
-                    except Exception:
-                        record_property(
-                            "workspace_module_restored_diagnostics",
-                            stack.capture_diagnostics(),
-                        )
+                    except BaseException:
+                        if diagnostics := stack.capture_diagnostics():
+                            record_property(
+                                "workspace_module_restored_diagnostics", diagnostics
+                            )
                         raise
                     finally:
                         await stack.stop()
-    except Exception:
-        if stack is not None:
-            record_property("workspace_module_diagnostics", stack.capture_diagnostics())
+    except BaseException:
+        if stack is not None and (diagnostics := stack.capture_diagnostics()):
+            record_property("workspace_module_diagnostics", diagnostics)
         raise
     finally:
         if stack is not None:
             await stack.stop()
         if guide_key:
             _cleanup_objects(owner_s3, guide_bucket, [guide_key])
-
-
-_WORKSPACE_STOP_ORDER = (
-    "workspace-membership",
-    "workspace-owner-transfer",
-    "workspace-configuration",
-    "workspace-template-query",
-    "workspace-project-query",
-    "workspace-directory-query",
-)
