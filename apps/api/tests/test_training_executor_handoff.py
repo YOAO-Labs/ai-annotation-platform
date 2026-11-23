@@ -167,6 +167,14 @@ class Peer:
         raise AssertionError(f"executor peer did not emit {event_name!r}")
 
 
+def _peer_environment() -> dict[str, str]:
+    return {
+        name: os.environ[name]
+        for name in ("PATH", "HOME", "TMPDIR")
+        if name in os.environ
+    }
+
+
 class OwnedProcesses:
     """Track only this test's process groups and intentionally orphaned child PIDs."""
 
@@ -183,16 +191,23 @@ class OwnedProcesses:
         self.child_groups[pid] = started_at
 
     def kill_child(self, pid: int) -> bool:
-        import psutil
-
-        try:
-            child = psutil.Process(pid)
-            if child.create_time() != self.child_groups[pid] or os.getpgid(pid) != pid:
-                return False
-            os.killpg(pid, signal.SIGKILL)
-            return True
-        except (ProcessLookupError, psutil.NoSuchProcess):
-            return False
+        outcome = subprocess.run(
+            [
+                str(_PEER_PYTHON),
+                "-I",
+                str(_PEER_SCRIPT),
+                "retire-child",
+                str(pid),
+                str(self.child_groups[pid]),
+            ],
+            cwd=_PEER_PYTHON.parent,
+            env=_peer_environment(),
+            capture_output=True,
+            check=True,
+            timeout=5,
+        ).stdout
+        assert outcome in (b"stopped\n", b"absent\n")
+        return outcome == b"stopped\n"
 
     def terminate_peer(self, peer: Peer, *, sig: int = signal.SIGTERM) -> None:
         process = peer.process
@@ -240,11 +255,7 @@ def _spawn_peer(
             "uv sync --locked --project apps/training-executor --only-group handoff"
         )
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    env = {
-        name: os.environ[name]
-        for name in ("PATH", "HOME", "TMPDIR")
-        if name in os.environ
-    }
+    env = _peer_environment()
     env.update(
         TRAINING_API_URL=world.internal_api,
         TRAINING_EXECUTOR_TOKEN=world.executor_token,

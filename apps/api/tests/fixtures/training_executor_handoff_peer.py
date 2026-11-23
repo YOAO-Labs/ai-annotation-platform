@@ -11,6 +11,7 @@ import fcntl
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
@@ -443,14 +444,31 @@ def _recover_and_claim(supervisor, worker):
     lock.close()
 
 
+def _retire_child(pid: int, started_at: float) -> bool:
+    import psutil
+
+    try:
+        child = psutil.Process(pid)
+        if child.create_time() != started_at or os.getpgid(pid) != pid:
+            return False
+        os.killpg(pid, signal.SIGKILL)
+        return True
+    except (ProcessLookupError, psutil.NoSuchProcess):
+        return False
+
+
 def main() -> int:
     if os.name != "posix":
         raise RuntimeError(
             "the real executor flock/process-group acceptance requires POSIX"
         )
+    mode = sys.argv[1]
+    if mode == "retire-child":
+        stopped = _retire_child(int(sys.argv[2]), float(sys.argv[3]))
+        print("stopped" if stopped else "absent")
+        return 0
     worker = _load_runtime()
     supervisor = _supervisor(worker)
-    mode = sys.argv[1]
     try:
         if mode == "hold":
             _hold(
