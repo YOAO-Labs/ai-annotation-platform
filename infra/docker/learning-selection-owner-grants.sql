@@ -28,7 +28,7 @@ GRANT DELETE ON TABLE public.learning_policies TO :"learning_owner";
 GRANT SELECT (id, project_id, snapshot, snapshot_digest, manifest), UPDATE (status)
     ON TABLE public.training_dataset_versions TO :"learning_owner";
 GRANT SELECT (id, project_id, auto_trigger_id, study_id, dataset_id, request_id, config_digest,
-    status, authorization) ON TABLE public.training_runs TO :"learning_owner";
+    status, "authorization") ON TABLE public.training_runs TO :"learning_owner";
 GRANT EXECUTE ON FUNCTION yoao_learning_v1.active_learning_original_history(),
     yoao_learning_v1.active_learning_original_decisions(),
     yoao_learning_v1.active_learning_pool_item_count(uuid[]),
