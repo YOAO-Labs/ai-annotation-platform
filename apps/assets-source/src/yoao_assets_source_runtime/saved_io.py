@@ -110,7 +110,11 @@ class Registry:
                 for part in pair
             )
             or mode not in valid_modes
-            or access not in valid_modes[mode]
+            or (
+                (mode, access) != ("download", "write")
+                if pair == ("migration", "copy_get")
+                else access not in valid_modes[mode]
+            )
             or (access == "cutover" and pair != ("migration", "probe_cutover_target"))
             or not asyncio.iscoroutinefunction(handler)
             or pair in self.actions

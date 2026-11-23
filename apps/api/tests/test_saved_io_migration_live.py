@@ -146,7 +146,7 @@ async def _copy_attempt(db, actor, copy_id):
 
 
 def _hold_verified_body(
-    db_url, endpoint, bucket, origin, token, job_id, task_id, row, ready
+    db_url, endpoint, bucket, origin, tokens, job_id, task_id, row, ready
 ):
     """A separate worker PID starts the real Source read, then stops consuming it."""
     settings.connector_host_allowlist = [urlsplit(endpoint).hostname]
@@ -173,28 +173,29 @@ def _hold_verified_body(
                     )
                 await copies.acquired(db, job_id, task_id, tuple(ids.values()))
                 source_id, target_id = ids[LEGACY_LOCATION_ID].id, ids[target].id
-                client = SavedIOClient(origin, token)
+                subject = {
+                    "copy_id": str(attempt.copy_id),
+                    "attempt_id": str(attempt.id),
+                    "operation_id": str(target_id),
+                    "task_id": task_id,
+                    "phase": "verify",
+                    "location_revision": attempt.scope["target"]["location"],
+                    "connection_revision": attempt.scope["target"]["connection"],
+                    "object_id": row["id"],
+                    "obligation": hashlib.sha256(
+                        row["target_key"].encode()
+                    ).hexdigest(),
+                    "version": row["receipt"]["version_id"],
+                }
+                for scope in ("read", "cleanup"):
+                    client = SavedIOClient(origin, tokens[scope])
+                    with pytest.raises(SavedIOError) as denied:
+                        with client.download("migration", "copy_get", subject):
+                            pytest.fail("non-copy bearer admitted a valid copy proof")
+                    assert denied.value.status_code in {401, 403, 404}
+                client = SavedIOClient(origin, tokens["write"])
                 transfer = response.enter_context(
-                    client.download(
-                        "migration",
-                        "copy_get",
-                        {
-                            "copy_id": str(attempt.copy_id),
-                            "attempt_id": str(attempt.id),
-                            "operation_id": str(target_id),
-                            "task_id": task_id,
-                            "phase": "verify",
-                            "location_revision": attempt.scope["target"]["location"],
-                            "connection_revision": attempt.scope["target"][
-                                "connection"
-                            ],
-                            "object_id": row["id"],
-                            "obligation": hashlib.sha256(
-                                row["target_key"].encode()
-                            ).hexdigest(),
-                            "version": row["receipt"]["version_id"],
-                        },
-                    )
+                    client.download("migration", "copy_get", subject)
                 )
                 assert transfer.length == len(_BYTES)
                 ready.send((attempt.id, source_id, target_id))
@@ -226,7 +227,7 @@ async def _restart_during_worker_recovery(
             provider.storage_origin,
             source_bucket,
             provider.origin,
-            provider.tokens["write"],
+            provider.tokens,
             job_id,
             task_id,
             row,
@@ -457,6 +458,11 @@ async def _read_and_sign(runtime, provider, output, row, publication_id):
                         reader.command, "migration", "retained_head", subject | forged
                     )
                 req = subject | {"range": "bytes=1-4", "condition": "match"}
+                writer = SavedIOClient(provider.origin, provider.tokens["write"])
+                with pytest.raises(SavedIOError) as denied:
+                    with writer.download("migration", "retained_get", req):
+                        pytest.fail("copy bearer admitted a retained artifact")
+                assert denied.value.status_code in {401, 403, 404}
                 with reader.download("migration", "retained_get", req) as result:
                     assert result.metadata["VersionId"] == route.target_version_id
                     assert result.metadata["ContentRange"] == f"bytes 1-4/{len(_BYTES)}"
