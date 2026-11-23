@@ -2814,11 +2814,13 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         not in {
             _WORKSPACE_ASSEMBLY_TARGET,
             "tests/test_workspace_worker_assembly_live.py",
+            "tests/test_m2b_business_live.py",
+            "tests/test_m2b_private_access_live.py",
             guide_clone_file,
         }
     ):
         parser.error(
-            "The default Workspace profile requires one explicit module assembly, worker assembly, or guide clone target"
+            "The default profile requires one explicit Workspace or M2b acceptance target"
         )
     return args
 
