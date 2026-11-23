@@ -709,6 +709,7 @@ async def test_real_login_observes_and_reads_without_private_storage_access(
         async with AsyncSession(engine) as db:
             yield db
 
+    remote = role == "identity_api_consumer"
     try:
         async with AsyncSession(engine) as db:
             assert await db.scalar(text("SELECT current_user")) == role
@@ -760,7 +761,6 @@ async def test_real_login_observes_and_reads_without_private_storage_access(
             await db.rollback()
 
         app_module.dependency_overrides[get_db] = runtime_db
-        remote = role == "identity_api_consumer"
         async with (
             AsyncExitStack() as stack,
             httpx.AsyncClient(
@@ -838,3 +838,10 @@ async def test_real_login_observes_and_reads_without_private_storage_access(
                     AuditLog.action.in_([states.ACTION, states.RECOVERED_ACTION]),
                 )
             )
+            if remote:
+                await connection.execute(
+                    delete(AuditLog).where(
+                        AuditLog.actor_id.in_([user.id for user in actors]),
+                        AuditLog.action == "auth.login",
+                    )
+                )
