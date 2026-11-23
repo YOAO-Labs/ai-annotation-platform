@@ -27,12 +27,14 @@ DECLARE
     retired boolean := false;
     prior_attempt boolean := false;
     build boolean;
+    execution jsonb;
     v public.training_dataset_versions%ROWTYPE;
     r public.training_runs%ROWTYPE;
     a public.training_attempts%ROWTYPE;
     p public.training_previews%ROWTYPE;
     e public.sample_evaluation_runs%ROWTYPE;
     ea public.sample_evaluation_attempts%ROWTYPE;
+    la public.active_learning_attempts%ROWTYPE;
     l public.active_learning_rounds%ROWTYPE;
     d public.training_storage_deletions%ROWTYPE;
 BEGIN
@@ -53,11 +55,12 @@ BEGIN
         ELSIF build AND p_action IN ('upload','head','download') THEN
             IF p_attempt IS DISTINCT FROM v.attempt_id OR v.status <> 'running'
                OR v.async_job_id IS NULL THEN RETURN NULL; END IF;
+            execution := jsonb_build_array(v.attempt_id,v.async_job_id,v.snapshot_digest);
             IF p_member='archive' THEN
                 object_key := (ref->>'prefix') || 'attempts/' || p_attempt::text || '/dataset.zip';
                 IF p_action='upload' AND (p_evidence->>'size_bytes')::bigint > 24::bigint*1024^3 THEN RETURN NULL; END IF;
             ELSE
-                IF p_member !~ '^(media|mask):[0-9a-f-]{36}$' THEN RETURN NULL; END IF;
+                IF p_member !~ '^(media|mask):[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN RETURN NULL; END IF;
                 entity := split_part(p_member, ':', 2)::uuid;
                 SELECT value INTO entry FROM jsonb_array_elements(v.snapshot->'samples')
                   WHERE value->>'task_id'=entity::text;
@@ -83,7 +86,7 @@ BEGIN
                 digest := v.package_sha256;
                 object_size := v.size_bytes;
             ELSE
-                IF p_member !~ '^(media|mask):[0-9a-f-]{36}$' THEN RETURN NULL; END IF;
+                IF p_member !~ '^(media|mask):[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN RETURN NULL; END IF;
                 entity := split_part(p_member, ':', 2)::uuid;
                 SELECT value INTO entry FROM jsonb_array_elements(v.manifest->'samples')
                   WHERE value->>'task_id'=entity::text;
@@ -106,17 +109,20 @@ BEGIN
         SELECT * INTO r FROM public.training_runs WHERE id=p_owner;
         SELECT * INTO a FROM public.training_attempts WHERE id=p_attempt AND run_id=p_owner;
         ref := r.storage_ref;
-        IF a.id IS NULL OR p_member !~ '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$' THEN RETURN NULL; END IF;
+        IF a.id IS NULL OR p_member !~ '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$'
+           OR position('..' IN p_member)>0 THEN RETURN NULL; END IF;
         object_key := (ref->>'prefix') || 'attempts/' || a.id::text || '/' || p_member;
         metadata := jsonb_build_object('attempt-id',a.id);
         IF p_action='sign_upload' OR p_purpose='training_artifact_verify' THEN
             IF NOT ((p_action='sign_upload' AND p_purpose='training_upload_urls')
                     OR (p_purpose='training_artifact_verify' AND p_action IN ('head','download'))) THEN RETURN NULL; END IF;
             IF r.current_attempt_id IS DISTINCT FROM a.id OR a.lease_digest IS NULL
+               OR a.boot_id::text IS DISTINCT FROM p_evidence->>'boot'
                OR a.status NOT IN ('preparing','training','evaluating','uploading','lost','cancelling')
                OR NOT EXISTS (SELECT FROM public.training_resource_leases lease
                    WHERE lease.resource_id=a.resource_id AND lease.attempt_id=a.id
                      AND lease.boot_id=a.boot_id AND lease.executor_id=a.executor_id) THEN RETURN NULL; END IF;
+            execution := jsonb_build_array(a.id,a.boot_id,a.claim_id);
             entry := a.upload_inventory->p_member;
         ELSIF p_action IN ('head','download','sign_download')
           AND p_purpose IN ('training_artifact_download','training_assignment','training_model_url',
@@ -146,10 +152,12 @@ BEGIN
                 IF NOT ((p_action='sign_upload' AND p_purpose='training_preview_upload_urls' AND p.put_expires_at > now())
                     OR (p_action IN ('head','download') AND p_purpose='training_preview_verify')) THEN RETURN NULL; END IF;
                 IF p.status <> 'running' OR p.lease_digest IS NULL
+                  OR p.boot_id::text IS DISTINCT FROM p_evidence->>'boot'
                   OR NOT EXISTS (SELECT FROM public.training_preview_resource_leases lease
                     WHERE lease.resource_id=p.resource_id AND lease.preview_id=p.id
                       AND lease.boot_id=p.boot_id AND lease.executor_id=p.executor_id) THEN RETURN NULL; END IF;
                 entry := p.upload_inventory->p_member;
+                execution := jsonb_build_array(p.id,p.boot_id,p.claim_id);
             ELSIF p_action IN ('head','download') AND p.status='succeeded' THEN
                 entry := p.artifacts->p_member;
                 IF (entry->>'key') IS DISTINCT FROM object_key THEN RETURN NULL; END IF;
@@ -183,6 +191,7 @@ BEGIN
                 IF e.current_attempt_id IS DISTINCT FROM ea.id OR ea.generation<>e.generation
                    OR e.status NOT IN ('running','cancelling') OR ea.claim_id IS NULL THEN RETURN NULL; END IF;
                 IF p_action='upload' AND (p_evidence->>'size_bytes')::bigint > 8*1024^2 THEN RETURN NULL; END IF;
+                execution := jsonb_build_array(ea.id,ea.generation,ea.claim_id);
             ELSIF p_purpose='sample_evaluation_read' AND p_action IN ('head','download') THEN
                 IF ea.status NOT IN ('succeeded','failed','cancelled')
                    OR (ea.report->>'key') IS DISTINCT FROM object_key
@@ -198,12 +207,12 @@ BEGIN
            OR p_action NOT IN ('upload','head','download') THEN RETURN NULL; END IF;
         entry := l.spec->'samples'->(p_member::integer);
         IF entry->>'ordinal' IS DISTINCT FROM p_member THEN RETURN NULL; END IF;
-        IF p_action='upload' AND (l.current_attempt_id IS DISTINCT FROM p_attempt
-            OR l.status <> 'running' OR NOT EXISTS (
-              SELECT FROM public.active_learning_attempts attempt
-                WHERE attempt.id=p_attempt AND attempt.round_id=l.id
-                  AND attempt.generation=l.generation AND attempt.claim_id IS NOT NULL AND attempt.status='running'))
-            THEN RETURN NULL; END IF;
+        SELECT * INTO la FROM public.active_learning_attempts attempt
+            WHERE attempt.id=p_attempt AND attempt.round_id=l.id;
+        IF l.current_attempt_id IS DISTINCT FROM p_attempt OR l.status <> 'running'
+           OR la.id IS NULL OR la.generation<>l.generation
+           OR la.claim_id IS NULL OR la.status<>'running' THEN RETURN NULL; END IF;
+        execution := jsonb_build_array(la.id,la.generation,la.claim_id);
         object_key := (ref->>'prefix') || 'media/' || p_member || '.png';
         digest := entry->>'derived_sha256';
         metadata := jsonb_build_object('round-id',l.id,'ordinal',p_member,
@@ -234,7 +243,7 @@ BEGIN
     END IF;
     IF NOT retired AND (p_scope IN ('run','learning') OR p_scope='preview') AND digest IS NULL THEN RETURN NULL; END IF;
     RETURN jsonb_build_object('ref',ref,'key',object_key,'sha256',digest,'size_bytes',object_size,
-        'meta',metadata,'prior_attempt',prior_attempt);
+        'meta',metadata,'prior_attempt',prior_attempt,'execution',execution);
 END
 $scope$;
 -- aap-statement-break

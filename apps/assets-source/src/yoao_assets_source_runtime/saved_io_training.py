@@ -52,12 +52,14 @@ def _arguments(subject, action):
             "scope",
             "owner",
             "attempt",
+            "boot",
             "member",
             "evidence",
         }:
             raise ValueError
         permit, owner = UUID(subject["permit"]), UUID(subject["owner"])
         attempt = UUID(subject["attempt"]) if subject["attempt"] is not None else None
+        boot = UUID(subject["boot"]) if subject["boot"] is not None else None
         scope, member, evidence = (
             subject["scope"],
             subject["member"],
@@ -101,7 +103,18 @@ def _arguments(subject, action):
             raise ValueError
     except (KeyError, AttributeError, TypeError, ValueError):
         raise _denied() from None
-    return permit, scope, owner, attempt, member, action, evidence
+    return (
+        permit,
+        scope,
+        owner,
+        attempt,
+        member,
+        action,
+        {
+            **evidence,
+            "boot": str(boot) if boot is not None else None,
+        },
+    )
 
 
 async def _capture(context, args):

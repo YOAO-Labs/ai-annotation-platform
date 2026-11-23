@@ -368,6 +368,7 @@ async def test_training_attached_archive_publication_and_retirement(
             "owner": str(version_id),
             "attempt": str(attempt),
             "member": "archive",
+            "boot": None,
             "evidence": {},
         }
         counterfeit = await storage_access.acquire(
@@ -527,6 +528,22 @@ async def test_training_attached_executor_put_and_finish(
                 grant["url"], content=raw, headers=grant["headers"]
             )
             assert duplicate.status_code == 412
+        admitted = await storage_access.acquire(
+            db, location.id, "training_artifact_verify"
+        )
+        async with admitted:
+            await _head_denied(
+                saved_io_client("read"),
+                {
+                    "permit": str(admitted.id),
+                    "scope": "run",
+                    "owner": str(run_id),
+                    "attempt": str(attempt_id),
+                    "boot": str(uuid4()),
+                    "member": spec.name,
+                    "evidence": {},
+                },
+            )
         finished = await training_runs.finish(
             db,
             attempt_id,

@@ -610,6 +610,7 @@ async def uploads(db, preview_id, body, *, training_authority: TrainingAuthority
         owner,
         "training_preview_upload_urls",
         lambda transport: _upload_urls(transport, owner, preview, inventory),
+        source_boot=body.boot_id,
     )
 
 
@@ -788,7 +789,9 @@ async def finish(db, preview_id, body, *, training_authority: TrainingAuthorityP
                     image = read_image(preview, output, artifacts, transport=transport)
                     storage_access.close_registered(image)
 
-            await storage_io.run(db, owner, "training_preview_verify", verify)
+            await storage_io.run(
+                db, owner, "training_preview_verify", verify, source_boot=body.boot_id
+            )
         except HTTPException:
             raise
         except Exception as exc:

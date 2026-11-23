@@ -1004,6 +1004,7 @@ async def authorize_upload(db, attempt_id, body):
         owner,
         "training_upload_urls",
         lambda transport: _upload_urls(transport, owner, attempt, inventory),
+        source_boot=body.boot_id,
     )
 
 
@@ -1173,6 +1174,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 lambda transport: verify_artifact(
                     key, spec, attempt.id, bucket=owner.bucket, transport=transport
                 ),
+                source_boot=body.boot_id,
             )
         except Exception as exc:
             if status == "succeeded":
@@ -1192,6 +1194,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                     lambda transport: verify_summary(
                         run, attempt, artifacts[name], transport=transport
                     ),
+                    source_boot=body.boot_id,
                 )
             except (ValueError, KeyError, TypeError) as exc:
                 if status == "succeeded":
@@ -1216,6 +1219,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 lambda transport: verify_native_artifact(
                     run, attempt, artifacts, transport=transport
                 ),
+                source_boot=body.boot_id,
             )
         except (ValueError, KeyError, TypeError) as exc:
             raise HTTPException(
@@ -1230,6 +1234,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
                 lambda transport: verify_input_artifact(
                     run, attempt, artifacts, transport=transport
                 ),
+                source_boot=body.boot_id,
             )
         except (ValueError, KeyError, TypeError, OSError) as exc:
             raise HTTPException(

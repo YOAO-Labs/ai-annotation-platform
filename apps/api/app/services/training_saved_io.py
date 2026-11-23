@@ -72,6 +72,7 @@ class TrainingSavedIO:
     owner: object
     permit: object
     attempt: UUID | None = None
+    boot: UUID | None = None
     deletion: UUID | None = None
     read_key: str | None = None
     accounting: object = None
@@ -128,6 +129,7 @@ class TrainingSavedIO:
             "scope": scope,
             "owner": owner_id,
             "attempt": str(attempt) if attempt is not None else None,
+            "boot": str(self.boot) if self.boot is not None else None,
             "member": member,
             "evidence": evidence or {},
         }
