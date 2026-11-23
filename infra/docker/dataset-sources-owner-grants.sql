@@ -183,9 +183,6 @@ ALTER FUNCTION yoao_assets_v1.lock_directory_reference_bindings(uuid[], uuid[], 
 ALTER FUNCTION yoao_assets_v1.lock_directory_reference_location(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.lock_directory_reference_replica_primary(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.lock_managed_item_asset_slot(uuid, text) OWNER TO :"assets_owner";
-ALTER FUNCTION yoao_assets_v1.lock_point_quality_item_datasets(uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION yoao_assets_v1.lock_point_quality_poses(uuid[]) OWNER TO :"assets_owner";
-ALTER FUNCTION yoao_assets_v1.lock_point_quality_scenes(uuid[]) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.next_dataset_scan_directory(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.next_directory_registration_entry(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.note_directory_registration_dispatch_failure(uuid, uuid, text) OWNER TO :"assets_owner";
@@ -220,7 +217,6 @@ REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
 
 GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.lock_point_quality_annotation_geometry(uuid) OWNER TO :"labeling_owner";
-ALTER FUNCTION yoao_labeling_v1.point_quality_original_run(uuid, boolean) OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.directory_job_visible(uuid, text, uuid, text, uuid),

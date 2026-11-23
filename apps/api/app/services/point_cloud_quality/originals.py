@@ -494,24 +494,23 @@ async def publication(db, run, context, observed):
     current, _job = await guard(db, context, lock=True)
     task_ids = [uuid.UUID(v) for v in context.scope["task_ids"]]
     scene_ids = [uuid.UUID(v) for v in context.scope["scene_ids"]]
-    scope = {"tasks": task_ids, "scenes": scene_ids}
+    scene_params = {"scenes": scene_ids}
     await lock_task_rows_for_core_read_share(db, task_ids)
     await db.execute(
         text(
             "SELECT yoao_assets_v1.lock_point_cloud_original_scenes(CAST(:scenes AS uuid[]))"
         ),
-        scope,
+        scene_params,
     )
     await db.execute(
-        text("""SELECT yoao_labeling_v1.lock_point_cloud_original_labels(
-            CAST(:tasks AS uuid[]), CAST(:scenes AS uuid[]))"""),
-        scope,
+        text("SELECT yoao_labeling_v1.lock_point_quality_annotation_geometry(:run)"),
+        {"run": context.run_id},
     )
     await db.execute(
         text(
             "SELECT yoao_assets_v1.lock_point_cloud_original_poses(CAST(:scenes AS uuid[]))"
         ),
-        scope,
+        scene_params,
     )
     item_ids = set(
         await db.scalars(

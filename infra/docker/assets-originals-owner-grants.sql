@@ -116,7 +116,6 @@ REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
 
 GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.original_reclaim_task_evidence(text) OWNER TO :"labeling_owner";
-ALTER FUNCTION yoao_labeling_v1.lock_point_cloud_original_labels(uuid[],uuid[]) OWNER TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.lock_point_cloud_original_run(uuid) OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 

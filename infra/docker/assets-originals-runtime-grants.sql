@@ -83,7 +83,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.lock_point_cloud_original_scenes(uuid[]),
     yoao_assets_v1.lock_point_cloud_original_poses(uuid[]),
     yoao_assets_v1.lock_point_cloud_original_items(uuid[]),
-    yoao_labeling_v1.lock_point_cloud_original_labels(uuid[],uuid[]),
     yoao_labeling_v1.lock_point_cloud_original_run(uuid),
     yoao_workspace_v1.lock_point_cloud_original_configuration(uuid)
 TO :"application_role";

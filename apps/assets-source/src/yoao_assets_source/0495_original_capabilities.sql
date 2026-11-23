@@ -2249,18 +2249,6 @@ BEGIN
 END;
 $function$;
 -- aap-statement-break
-CREATE FUNCTION yoao_labeling_v1.lock_point_cloud_original_labels(p_tasks uuid[],p_scenes uuid[])
-RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, pg_temp
-AS $function$
-BEGIN
-    PERFORM a.id FROM public.annotations a WHERE a.task_id = ANY(p_tasks) ORDER BY a.id FOR SHARE NOWAIT;
-    PERFORM t.id FROM public.scene_tracks t WHERE t.scene_id = ANY(p_scenes) ORDER BY t.id FOR SHARE NOWAIT;
-    PERFORM i.id FROM public.scene_track_intervals i WHERE i.scene_track_id IN (
-        SELECT t.id FROM public.scene_tracks t WHERE t.scene_id = ANY(p_scenes)
-    ) ORDER BY i.id FOR SHARE NOWAIT;
-END;
-$function$;
--- aap-statement-break
 CREATE FUNCTION yoao_labeling_v1.lock_point_cloud_original_run(p_run uuid)
 RETURNS TABLE(id uuid,project_id uuid,async_job_id uuid,requested_by_id uuid,status text,source_snapshot_digest text,
     config_digest text,scope_json jsonb,source_snapshot jsonb,config_snapshot jsonb)
@@ -2282,7 +2270,6 @@ REVOKE ALL ON FUNCTION
     yoao_assets_v1.lock_point_cloud_original_scenes(uuid[]),
     yoao_assets_v1.lock_point_cloud_original_poses(uuid[]),
     yoao_assets_v1.lock_point_cloud_original_items(uuid[]),
-    yoao_labeling_v1.lock_point_cloud_original_labels(uuid[],uuid[]),
     yoao_labeling_v1.lock_point_cloud_original_run(uuid),
     yoao_workspace_v1.lock_point_cloud_original_configuration(uuid)
 FROM PUBLIC;
