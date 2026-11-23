@@ -374,6 +374,8 @@ services:
                 "NOTIFICATION_PUBLISH_HOST",
                 "NOTIFICATION_PUBLISH_PORT",
             }
+        else:
+            self._assert_app_login(service, env)
 
 
 def notification_publish_database_url(dsn: str, reference_url: URL) -> URL:

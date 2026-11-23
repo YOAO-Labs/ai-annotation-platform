@@ -161,6 +161,11 @@ async def _run_hosted_notification_relay(test_engine, publisher_url, database_na
 
 
 async def _assert_consumer_is_restricted(test_engine, actor):
+    from scripts.verify_module_data_boundary import (
+        IDENTITY_AVATAR_FUNCTIONS,
+        IDENTITY_ISSUER_FACT_FUNCTIONS,
+    )
+
     url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"])
     assert (url.host, url.port, url.database) == (
         test_engine.url.host,
@@ -177,9 +182,11 @@ async def _assert_consumer_is_restricted(test_engine, actor):
             "UPDATE public.users SET name=name WHERE id=:id",
         ):
             async with engine.connect() as connection:
-                with pytest.raises(DBAPIError):
+                with pytest.raises(DBAPIError) as denied:
                     await connection.execute(text(query), {"id": actor})
+                assert denied.value.orig.sqlstate == "42501"
         async with engine.connect() as connection:
+            assert await connection.scalar(text("SELECT current_user")) == url.username
             assert (
                 await connection.scalar(
                     text(
@@ -191,22 +198,17 @@ async def _assert_consumer_is_restricted(test_engine, actor):
             )
             functions = await connection.scalars(
                 text(
-                    "SELECT p.proname || '(' || replace(oidvectortypes(p.proargtypes), ', ', ',') || ')' "
+                    "SELECT n.nspname || '.' || p.proname || '(' || "
+                    "replace(oidvectortypes(p.proargtypes), ', ', ',') || ')' "
                     "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
                     "WHERE n.nspname ~ '^(yoao|aap)_identity(_[a-z0-9]+)*_v[0-9]+$' "
                     "AND has_function_privilege(current_user,p.oid,'EXECUTE')"
                 )
             )
-            assert set(functions) == {
-                "check_accepted_api_key(uuid,uuid,text[])",
-                "get_credential_generation(uuid)",
-                "is_jti_revoked(uuid)",
-                "lock_accounts_key_share(uuid[],boolean)",
-                "lock_accounts_share(uuid[],boolean)",
-                "lock_accounts_update(uuid[],boolean)",
-                "read_accepted_api_key_facts(uuid,uuid)",
-                "read_actor_facts(uuid)",
-            }
+            expected = set(IDENTITY_ISSUER_FACT_FUNCTIONS)
+            if os.environ.get("AAP_MODULE_DATA_IDENTITY_AVATAR_RUNTIME") == "1":
+                expected.update(IDENTITY_AVATAR_FUNCTIONS)
+            assert set(functions) == expected
     finally:
         await engine.dispose()
 
@@ -993,6 +995,8 @@ async def test_embedded_identity_with_isolated_mail_on_cold_api(
             "SELECT yoao_identity_recovery_v1.claim_mail('{}'::jsonb)",
             "SELECT yoao_identity_mail_v2.claim_mail('{}'::jsonb)",
             "SELECT yoao_settings_v1.mail_delivery_policy('{}'::jsonb)",
+            "SELECT yoao_settings_v1.claim_smtp_test()",
+            "SELECT yoao_settings_v1.finish_smtp_test(NULL,NULL,NULL,NULL,NULL,NULL)",
         ):
             async with restricted.connect() as connection:
                 with pytest.raises(DBAPIError) as denied:

@@ -1264,6 +1264,10 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 sort_keys=True,
                             ),
                         )
+                        record_property(
+                            "notifications_container_assembly",
+                            json.dumps(stack.inspection_evidence),
+                        )
                     except Exception:
                         diagnostics_captured = True
                         if stack is not None:
@@ -1475,6 +1479,9 @@ async def test_notifications_hosted_beat_recovers_after_redis_acl_outage(
                                 == (completed[operation_id])
                             )
                 record_property("notifications_hosted_beat_redis_recovered", "true")
+                record_property(
+                    "notifications_container_assembly", json.dumps(evidence)
+                )
             except Exception:
                 with suppress(Exception):
                     record_property("runtime_diagnostics", stack.capture_diagnostics())

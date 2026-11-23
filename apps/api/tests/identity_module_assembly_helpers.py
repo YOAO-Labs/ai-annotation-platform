@@ -1228,6 +1228,16 @@ class IdentityModuleStack:
             }
         self._inspection_evidence = evidence
 
+    def _assert_app_login(self, service: str, env: dict) -> None:
+        if env.get("DATABASE_URL") != self._api_database_url.render_as_string(
+            hide_password=False
+        ) or any(
+            env.get(name) for name in ("MIGRATION_DATABASE_URL", "TEST_DATABASE_URL")
+        ):
+            raise RuntimeError(
+                f"{service} does not use only the verifier application LOGIN"
+            )
+
     def _assert_service_runtime(
         self,
         service: str,
@@ -1287,6 +1297,7 @@ class IdentityModuleStack:
                 if env.get(name, "") != selected:
                     raise RuntimeError("Identity scoped issuer credentials differ")
         elif service == "identity-api":
+            self._assert_app_login(service, env)
             if env.get("OPENBLAS_NUM_THREADS") != "1":
                 raise RuntimeError(
                     "API native thread budget differs from its CPU limit"
