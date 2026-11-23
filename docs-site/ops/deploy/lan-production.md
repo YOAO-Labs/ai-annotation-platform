@@ -141,7 +141,7 @@ Labeling 类目查询只向普通运行角色开放三个类目查询函数，�
 迁移后须重应用此 profile，而不是给应用角色补私表权限或迁移 owner 凭据。
 来源写入的生命周期和来源保护状态通过有限事务投影读取，行锁仍由原调用方事务持有。
 
-`celery-worker-maintenance` 专门消费 `maintenance` 队列，沿用下面限定维护对象的运行角色权限，不挂载迁移账号 secret。
+`celery-worker-maintenance` 专门消费 `maintenance` 队列，不挂载迁移账号 secret。Insights 效率视图的并发刷新通过无参 `yoao_insights_v1.refresh_user_perf_daily()` 执行；普通登录不能直接读写该视图或在 Insights schema 创建对象。
 
 迁移与普通授权完成后，在同一数据库追加 Jobs 恢复授权。以下命令以实际迁移 LOGIN 连接已核对的实例（`PGHOST`／认证文件需由操作者指定）：
 
@@ -156,7 +156,7 @@ psql -X -U anno_prod_owner -d annotation_production \
 
 默认 `ASSETS_VIDEO_EXECUTOR=celery` 需要窄视频执行 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)安装后设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。需要 Native 图片写入时也安装独立 image LOGIN，配置 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`；普通非 Native 图片路径不因此要求新的 DSN。API／Beat 不挂载这些凭据，不向应用 LOGIN 增补执行函数。
 
-**运行角色并非纯 DML 账号**：现有月分区任务需要 CREATE/DROP 子分区，PostgreSQL 的统计刷新需要视图所有权和数据库 TEMPORARY 权限。因此它拥有上述限定维护对象及 `public` schema CREATE 权限；其余业务对象仍由迁移角色所有。迁移角色单向继承运行角色，运行角色不能反过来成为迁移角色，也没有集群管理权限。
+Audit 分区维护通过固定能力执行，不需要让运行角色拥有审计表或继承迁移角色。数据库的 `TEMPORARY` 权限不等于业务 schema 的 `CREATE` 权限。
 
 启动常驻服务：
 

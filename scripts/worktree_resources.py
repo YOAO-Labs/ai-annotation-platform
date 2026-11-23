@@ -437,6 +437,7 @@ BEGIN
 END;
 $identity_private_acl$;
 """
+ASSETS_EXECUTION_LANES = ("video", "image")
 VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
     "yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
@@ -2237,6 +2238,16 @@ class LocalResources:
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
                 await connection.exec_driver_sql(self.private_runtime_acl("inference"))
                 await connection.exec_driver_sql(self.private_runtime_acl("assets"))
+                await connection.exec_driver_sql(
+                    self.private_runtime_acl("storage_fault")
+                )
+                await connection.exec_driver_sql(self.private_runtime_acl("insights"))
+                await connection.exec_driver_sql(
+                    f"GRANT USAGE ON SCHEMA yoao_insights_v1 TO {role}"
+                )
+                await connection.exec_driver_sql(
+                    f"GRANT EXECUTE ON FUNCTION {', '.join(INSIGHTS_RUNTIME_CAPABILITIES)} TO {role}"
+                )
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("

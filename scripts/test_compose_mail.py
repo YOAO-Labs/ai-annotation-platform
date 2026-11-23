@@ -166,6 +166,9 @@ class ComposeMailTests(unittest.TestCase):
                     self.assertFalse(
                         service.get("environment", {}).get("SMTP_PASSWORD_FILE")
                     )
+                    self.assertFalse(
+                        service.get("environment", {}).get("SMTP_PASSWORD")
+                    )
                     self.assertNotIn(
                         str(app_password),
                         [v.get("source") for v in service.get("volumes", [])],

@@ -7,16 +7,11 @@ import json
 import logging
 import uuid
 
-from sqlalchemy import func, select, text, update
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from fastapi import HTTPException
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.dataset_source import DatasetSource, DatasetSourceItem
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_fault import StorageFaultState as State
-from app.db.models.storage_maintenance import StorageMaintenanceGate
-from app.services import storage_access, storage_location
+from app.services import storage_access
 from app.services.storage_fault_events import append_observation
 
 log = logging.getLogger(__name__)

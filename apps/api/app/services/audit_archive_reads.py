@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 import uuid
 
 from fastapi import HTTPException
-from jose import JWTError
 
 from app.core import token_blacklist
 from app.db.enums import UserRole
