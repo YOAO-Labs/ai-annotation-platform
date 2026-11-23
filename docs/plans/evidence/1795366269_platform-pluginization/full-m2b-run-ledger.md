@@ -17,22 +17,26 @@
 后续定向回执不覆盖上表的首次失败：
 
 - **Mask GC 保留档**：`mask-gc-operator-cold.json` 与同名 JUnit 的两项用例均通过，零跳过。实际 Compose 中非 root GC 恢复原 claim，三轮删除 3／3／1 项，保留 1001 项；另验证一次性 operator 重启与权限拒绝。此内核不提供最终 cgroup `memory.peak`，故无实测峰值，不能据此通过独立容量基准。
+- **整套授权安装后的专项**：`labeling-class-e99a` 的 14 项、`mask-gc-e99a` 的 2 项、`m2b-auth-embedded-e99` 的 1 项均通过，零跳过。三轮均核对 `bo0509` 的 651 个函数体并回收环境。分别验证嵌入的类目读取与调用方回滚／带数据恢复、已安装 GC 进程与清理 LOGIN、默认内嵌签发配合独立邮件。内嵌签发通过不代表远程 issuer 已通过。
 - **Audit operator**：`audit-cold-source-receipt.json` 与同名 JUnit：1 项通过，零跳过。实际 Compose CLI 在上传后失去进程，继任者接管，整库还原后保留归档及分区退役事实；镜像 `sha256:e582ed36f86c0af42f9bec7cbb21ad911aaecd2b06063e8794561c51f37de0c3` 绑定 22 个源码输入。该轮早于新 owner 授权，不以其代替新账号恢复。
 - **独立媒体探针**：`media-probe-cold.json` 仅证实健康检查。后续 `media-probe-authenticated-restart.json` 在发布的 `docker-compose.modules.yml` 真正调用 `/v1/metadata` 和 `/v1/frames`：对同一段 128×96 MPEG-4，重启前后均读出 2 秒、6 fps、12 帧；两次错误 token 均返回 401。容器以 `10001:10001` 运行，验收项目和自有镜像均已退役。未把独立探针当作视频 worker 的必选依赖。
 - **媒体控制、视频与图片执行器**：隔离 `bo0509` 数据库实装媒体窄授权，从 `docker-compose.assets-media.yml` 启动独立控制端和执行器。`media-a6cc142d3f-canonical-compose-gateway` 的视频用例用打包的 FFmpeg／ffprobe 生成并读回实际媒体；`media-2c4b684e59-canonical-image-restart` 的 libvips 用例生成缩略图和 1024×1024 金字塔。`media-c0f7a005ab-canonical-compose-policies` 中三个独立 worker 用例验证过期租约、来源替换及解除关联；同批失败用例仍保留。`media-655e15207f-canonical-response-loss` 的单项重试通过：控制端响应丢失后重启，从同一操作回执和同一缩略图任务发布可验证的 WebP，禁用账号返回 401。以上是媒体专项，不将通用门禁或早先失败批次改记为通过。
+- **独立恢复／执行联验**：`audit-owner-e99a-attested` 与 `m2b-auth-notifications-restore-e99` 分别 1 项、零跳过。前者以当前 `bo0509` owner 授权冷启 Audit CLI，验证进程丢失后的孤儿归档接管与整库还原；后者冷启独立 Notifications publisher 并验证带历史的整库恢复。`media-655e15207f-published-integrated` 在完整前置授权下 6 项全部通过，覆盖上述视频、缩略图、金字塔、响应丢失、租约和权限拒绝；`media-compose-cleanup.json` 记录了专项资源的退役。
 - **Audit Summary 实验档**：`audit-summary-experiment-cold.json` 记录 `3d75a3d45` 上用发布的 `docker-compose.experiments.yml` 冷启 `audit-summary-experiment`；真实健康响应报告协议 1，`mixed.request.json` 的汇总响应与预期完全匹配。它不替代 Audit 核心写入与归档恢复测试。
 - **新建数据库**：`schema-all-private-owner-502.json` 保留首次完整模块 owner 迁移；`native-schema-508-ddl.json` 在 `55e7cb4108` 上用全新 PostgreSQL 16 从空库迁至 `bo0508`，包括已登记 Source 的固定能力。`native-schema-508-ddl-reset-cli.json` 另验证普通连接不可达时，重置 CLI 只用显式迁移身份删除目标数据集和其中一项，并保留无关用户。两项均不是运行账号或连接器字节路径的证明。
 - **带导入租约的最终迁移链**：`native-schema-509-lease.json` 记录 `4daf9631f1` 上全新 PostgreSQL 16 迁至 `bo0509`。`acl-509-owner-leases.json` 在独立的 `0267` 基线升级前后核对了 651 个冻结函数体，并通过临时存储预置；随后装配 owner 时发现已经删除的七参数 Labeling 函数，事务失败，未使用该回执声称授权或业务通过。
 - **三个真实普通 LOGIN 和发布安装器**：`native-grants-509-learning.json` 在 `f3a12a5a83`、全新 PostgreSQL 16／`bo0509` 上实跑 `module-data-grants.sql`、两个 LAN profile 和工作树启动器。每种登录先获旧 `users.id` 列权限，再重放发布授权。逐个真实连接枚举私表、分区、外表、物化视图、列和序列，均为 **0**；显式读取 `public.users.id` 均返回 `42501`。工作树用启动器实际生成的 `…_test_app`，未用 `legacy_runtime` 冒充。Source 专用 LOGIN 通过 41 个固定能力的启动校验，租约 Importer installer 也成功；临时容器已删除。此证据不等于全部旧授权类型、业务或存储 I/O 已通过。
 - **非空、剥离权限的整库恢复**：`native-grants-509-stripped-restore.json` 保留首次失败：旧枚举漏掉应用 schema，恢复后 PostgreSQL 默认的 PUBLIC `EXECUTE` 触发 cleanup 角色拒启。`native-grants-509-quarantined-restore.json` 在 `a25688abd6` 上用 `pg_dump -Fc`，另建无 PUBLIC 连接的新库，实跑 `pg_restore --no-owner --no-privileges` 后重装同版 owner 及窄授权。三个实际 LOGIN 均从公开视图读回同一用户 UUID 和邮箱；私有关系有效权限为 0，直接读取均为 `42501`。Source 41 项启动资格与导入器 installer 通过，临时 PostgreSQL 已删除。此回执不代替单个业务的恢复或连接器字节校验。
+- **凭据权限更新后的恢复**：`native-grants-509-restored-credential-boundary.json` 在 `6deac6e026` 重新验证非空备份剥离权限后的 `bo0509` 部署。安装器包含 Inference 旧凭据函数的否定检查；三个实际登录均读回原用户，私有关系权限仍为 0、直接查询仍为 `42501`，临时库已删除。此项不代替私有服务对实际后端的认证。
 - **旧授权重放与普通账号业务**：`native-grants-509-stale-jobs-oid.json` 在 `c4c5184669` 为三个实际 LOGIN 逐一注入直接与 PUBLIC 旧授权；先实测旧关系／函数可读，再两次重装该档授权。私表、列、分区子表（含跨 schema）、物化视图、外表、序列及新建对象均不再暴露；直接改表和切换到仍有授权的无关角色均得到 `42501`。同一普通登录仍能创建持久 Jobs 并经公开接口读回各自的同一 UUID，无关账号原有授权保留。此回执验证的是普通角色切换，而非全套 HTTP 业务。
 - **Audit 未来分区**：`flow-audit-trigger-clone-pg16.json` 在隔离 PostgreSQL 16 实测，已有月份可维护，但缺少复制不可变触发器所需的函数权限时，新建月份返回 `42501`。`18a8d6351b` 只向 `audit_code` 授权该触发器函数，真实创建 `2098-04` 分区并复制两个行级保护触发器；普通及维护 LOGIN 仍无该函数执行权，未给 Audit 增授 Users 引用权限。
 - **保留的站点 Agent**：`site-agent-tls-e99a.junit.xml` 的三项用例均通过：真实 TLS 配对写入私有身份文件、独立 CLI 进程丢失确认后重启并重放同一结果、拒绝无效证书及重定向。HTTPS 对端是协议夹具；这不是本轮双站点或自定义 SFTP 的端到端证据。
+- **保留的 GPU 插件**：`retained-model-overlays-e99a3945.json` 在同一隔离 GPU 上按发布 Compose 配置和审核的 OCI digest 实启五档，重建后目录仍在，缺失、错误或已撤销的 bearer 均被拒。ONNXTools 重建前后都用 CUDA 检出汽车，RapidOCR 都读出 `HELLO`／`123`。YOLO、Grounded-SAM2、SAM3 无已批准的可用权重，仅证明冷启、认证与重建；现有审核 YOLO 制品的旧生命周期模块也未通过当前维护 runner。未替换权重、降低审核要求或据此开放训练与发布。
 - **默认业务**：`hosted-business.json` 首次停在资源准备；`native-grant-hosted-business.json` 已进入独立插件及服务启动，因 Inference 就绪探针未通过而中止。两者都是失败回执，不是业务通过。
 
-## 完整 M2b 仍需独立回执
+## 验收口径与剩余门禁
 
-- **普通角色三档**：在最终迁移的隔离库，重放各 profile 的实际安装，再分别用 LAN 内嵌、LAN 远程 issuer 的 API consumer、工作树实际生成的运行 LOGIN 登录。枚举私有普通表、分区父表与实际子分区、物化视图、外表、列和序列；同时检查所有权、PUBLIC 与可切换角色。不以有 schema 权限、只数显式 grant、owner 测试或测试专用替代角色取代有效权限验证。恢复副本按同样顺序重放授权并复核。
+- **普通角色三档：已实测通过。** 上述回执分别覆盖全新安装、重放旧有效授权、跨角色切换、持久 Jobs 业务与非空恢复。生成的工作树 LOGIN 不是测试替代身份。保留这些证据的边界：它们不证明所有 HTTP 工作流，也不替代各私有服务的授权与恢复。
 - **默认业务冷启动与恢复**：用真实 API／worker／Beat、Broker 与对象存储验证登录、建项目、导入、标注、审核、通知及插件预标注。按恢复账本核对提交、进程丢失后的再领取、原操作 ID 和不确定确认；另取数据库恢复证据，不以全部服务健康代替业务结果。
 - **保留的私有运行档**：按进程清单使用准确的 overlay／profile、固定镜像及窄登录。分别取实际冷启、凭据拒绝，以及该 owner 的恢复／重放回执；既有历史工件和只读配置解析不计为这些新档通过。
 - **自定义 S3／SFTP**：验证既有 Source 的新受限 I/O 能力、真实字节与原保存身份，保留内建 MinIO、受控目录、站点 Agent 路径。负例至少覆盖停 Source 不回退、当前绑定变化不改历史目标、失联恢复复用原记录、unrelated 函数与操作 token 被拒；检查 API／普通 worker 不持有连接器密文、解密密钥或 Source 私有 SQL 身份。SFTP 使用实际核验的主机公钥，不将 S3 或内建存储的结果推及 SFTP。
