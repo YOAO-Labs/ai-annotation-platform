@@ -74,6 +74,8 @@ Web 只用派发回执报告已受理，用实际作业状态报告排队和执�
 
 现有 `PredictionInputLease` 独立于业务删除，保存固定 import 位置和精确对象清单。对象责任和随机写入标记在 PUT 前独立提交；目标桶必须启用版本控制，条件创建后完整核对内容、非 null 的不可变 VersionId 及存储元信息中的 lease／写入标记，才可交给模型。签名 URL 固定已核验版本，相同 SHA 不足以证明对象属于本次写入。每次尝试的 UUID／SHA 路径避免后端按去 query 的 URL 缓存旧内容。原件和输入副本的许可覆盖真实读取／上传／关闭，任意中断都排空物理工作；未知关闭保留操作账本，不能靠 TTL 解除。应用不自动启用桶版本控制。
 
+Assets 的输入租约命令只接受一份责任或一个相对对象键。发布在原独立事务中比较已保存的 planned 记录，仅将同一次写入确认到精确 ETag／VersionId。最终写入沿用调用方事务锁定租约并检查 Gate；回收继续检查实际物理许可和清单，不把元数据到期视为已关闭或已删除。
+
 最终托管来源 receipt 绑定当前会话及事务，先于 overwrite 删除取得；`PredictionService` 只从该凭证写入受保护的 `original_input`，引用的普通与原生资格保持独立。失败保存原来源，重试刷新请求授权和 Task 版本但不重采来源；历史缺证明的图片消息明确拒绝。旧无固定位置或清单的临时租约保留为 `legacy_unpinned`，维护任务不猜测位置或盲删整个前缀。离线恢复只重映射操作位置，冻结来源、对象事实和首次期限保持。
 
 ## 模型目录与执行快照
@@ -81,6 +83,10 @@ Web 只用派发回执报告已受理，用实际作业状态报告排队和执�
 协议词表、内置能力声明和项目训练版本分别有独立所有者。`model_catalog` 服务把它们投影为只读目录，包含具体规格、类别来源、部署和每种操作的可用原因；它不会注册、安装、发布或预热。项目成员使用项目范围接口，私有训练版本不会进入全局 `/ml-capabilities/instances`。
 
 `prediction_execution_snapshots` 保存不可变的规范阶段配置、摘要及 schema 版本。`async_jobs.execution_snapshot_id` 和 `failed_predictions.execution_snapshot_id` 都引用该记录，失败记录不会因为原始作业过期而丢失管线。后台清理只删除无任何作业或失败引用的过期快照，已放弃但可恢复的失败也保留引用。
+
+普通 API／worker 只能调用 Inference 的快照创建、按项目读取与过期清理能力；清理在同一事务中由 Jobs 和 Labeling 各自判断原作业或失败项引用。不会因为原作业已清除而重新解析当前发布，也不会改变既有快照摘要。
+
+重试派发仍归 Jobs。下游阶段再次失败时，Labeling 在完成该 attempt 的事务中记录 `last_pipeline_errors`，诊断不参与原 request／terminal 摘要，旧 attempt 重放不会改写失败记录。
 
 每个受控阶段冻结确切版本、部署、registry、权重／类别／项目绑定摘要及发布代次。检测别名 `project-release`、分割别名 `project-release:segment` 只在新提交时解析；相同幂等键在查到原作业后复用原快照。内置阶段冻结已声明的具体规格和参数默认值；已有权重核验时，`builtin_model_ref` 在实际借出的模型上检查权重、类别和加载器身份。未核验的旧声明仅保证配置冻结，不宣称物理权重已验证。
 
@@ -107,6 +113,8 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 批量与工作台后台执行、两个失败重试入口共用 `ReferencePredictionJob`。普通引用凭证继续只允许普通几何；受控实例分割整图根阶段另由 `reference_native_predictions` 为每条最终结果签发内部凭证。先校验整组载荷，任何一条模型、运行时、尺寸、类别、RLE 或阶段来源不合格，均不进入首个对象 PUT。凭证绑定 owner、当前会话与非嵌套事务、Task/Project 及完整写入内容，关闭或过期的原图快照不能继续写入。
 
 最终检查锁定冻结模型部署与实际路由成员，复核当前项目类别和原图身份；不持锁等待模型或原件网络 I/O。原生实例索引保留运输层的身份，不因删父对象而要求重新连续编号。向量子结果必须来自实际执行的几何阶段，父链可以经过未持久化的 intermediate 或透传属性阶段；变换须满足整图坐标契约，不从缺失父身份猜测归属。已有 lineage 不保存已丢弃祖先的几何，因此这里不重新计算其完整裁剪映射。
+
+最终资格由 Learning 按版本、部署、发布顺序取得 `FOR SHARE NOWAIT` 围栏，再由 Inference 锁定服务池、项目启用关系、成员与 Registry。整段视频准入和最终检查同样使用 Inference 的 Registry 声明和启用关系锁，不读取凭据；锁归原事务，争用不会降级为旧快照。
 
 服务端保留字段 `PredictionMeta.extra.reference_native` 保存生成时冻结配置、内容身份及最终候选摘要；普通写入剥离客户端同名字段。它是当前服务写入边界的记录，不是对任意数据库篡改的密码学证明。采纳先核验当前权限和严格原图，再比对最终候选、稳定模型/阶段元信息与保存的记录，并读取 RLE 复查当前 Mask gate。证明包含历史所需事实，不依赖已清理的 AsyncJob/执行快照或仍在线的模型；驳回和重试替代记录不改变生成时身份。交互与批量修复继续使用各自的资格，不能混用。
 
@@ -254,6 +262,8 @@ if params:
 `PreannotateRequest.pipeline_stages`（定义于 `apps/inference/src/yoao_inference/preannotate.py`）把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
 
 命名预标编排的保存、读取、apply 与本页描述的执行流水线属于相邻层次：结构仍共用 `yoao_inference.pipeline.validate_saved_pipeline`，便携命令由 `yoao_inference.pipeline_manager.PipelineManager` 持有，API 路由经 `services/inference_pipelines.py` 选择事务或独立 owner。六个公开路由的 DTO 不变；这些命令不会改变本页所述 `PreannotateRequest` 或 worker 执行合同。
+
+应用已有编排时，API 先经同一 Inference 可见性查询读取源编排并核验项目模型作用域，再交给 apply 命令复核源和目标访问。普通 API 不直接读取私有编排行。
 
 项目编排的裁剪 OCR 子阶段从所选识别模型的 `supported_inputs`、`supported_variants`、`variant_combinations` 和 `params` 建立配置，独立于整图模型。请求使用 `roi.mode=crop`、`write.target=attributes`；`parent_class_filter` 按父对象类别名称筛选，不下发父模型的 `class_filter` 索引。派发端仍按所选模型校验能力并冻结变体。
 

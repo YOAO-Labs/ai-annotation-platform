@@ -877,7 +877,13 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
         db_session, project.id, {"stages": [], "execution_scope": "bulk"}
     )
     old = datetime.now(timezone.utc) - timedelta(days=31)
-    snapshot.created_at = orphan.created_at = old
+    await db_session.execute(
+        text(
+            "UPDATE public.prediction_execution_snapshots SET created_at = :old "
+            "WHERE id IN (:snapshot_id, :orphan_id)"
+        ),
+        {"old": old, "snapshot_id": snapshot.id, "orphan_id": orphan.id},
+    )
     job = AsyncJob(
         kind="batch_predict",
         project_id=project.id,
