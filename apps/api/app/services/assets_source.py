@@ -41,6 +41,7 @@ from yoao_assets_source_runtime.image_admission import ImageAdmission
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.task_batch import TaskBatch
+from app.services import managed_original_creation
 from app.services.dataset_source_deletion_data import DatasetSourceDeletionData
 from app.services.dataset_upload_data import DatasetUploadData
 from app.services.assets_images import image_gateway, image_policy
@@ -469,6 +470,7 @@ class AssetsSourceGateway:
 
     async def init_upload(self, request: UploadInitRequest) -> UploadInitResult:
         try:
+            await managed_original_creation.bootstrap(self._db)
             result = await self._local_workflow().init_upload(request)
         except SourceFailure as exc:
             _raise_failure(exc, operation="upload-init")
@@ -541,6 +543,7 @@ class AssetsSourceGateway:
         self, command: IngestCommand, source: BinaryIO
     ) -> IngestReceipt:
         try:
+            await managed_original_creation.bootstrap(self._db)
             result = await self._local_ingest_workflow().upload_zip(command, source)
         except IngestFailure as exc:
             _raise_ingest_failure(exc, kind="zip")
@@ -552,6 +555,7 @@ class AssetsSourceGateway:
 
     async def ingest_scan(self, command: IngestCommand) -> IngestReceipt:
         try:
+            await managed_original_creation.bootstrap(self._db)
             result = await self._local_ingest_workflow().scan(command)
         except IngestFailure as exc:
             _raise_ingest_failure(exc, kind="scan")
