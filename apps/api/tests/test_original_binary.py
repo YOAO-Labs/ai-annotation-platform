@@ -4,16 +4,19 @@ import asyncio
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta, timezone
 import hashlib
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 import pytest
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
+from yoao_identity.contract import Principal
 
+from app.api.v1 import originals as originals_api
 from app.config import settings
 from app.core import token_blacklist
 from app.core.security import create_access_token, decode_access_token, hash_password
@@ -27,6 +30,7 @@ from app.db.models.storage_maintenance import (
 )
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.middleware.request_id import request_id_var
 from app.services import comment_attachment_authority as credentials
 from app.services import (
     managed_original_creation as creation,
@@ -38,10 +42,11 @@ from app.services import (
 )
 from app.services import storage_access, task_originals
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.reference_keys import reference_key
 from app.services.storage import storage_service
 from tests.factory import create_project
+from tests.managed_image_inference_fixtures import managed_database
 from tests.test_managed_original_reader import Provider
 from tests.test_original_sources import add_link
 from tests.test_task_originals import (
@@ -135,12 +140,49 @@ async def world(original_db, original_client, test_engine, monkeypatch):
         assert all(body.closed for body in provider.bodies)
 
 
+def _principal(actor, *, token, key_id=None, scopes=None):
+    name = getattr(actor, "name", "Binary")
+    email = getattr(actor, "email", "binary@example.test")
+    if key_id is not None:
+        return Principal(
+            actor_id=actor.id,
+            name=name,
+            email=email,
+            role=actor.role,
+            is_active=True,
+            credential_type="api_key",
+            credential_id=(
+                key_id if isinstance(key_id, uuid.UUID) else uuid.UUID(str(key_id))
+            ),
+            generation=None,
+            scopes=list(scopes or ()),
+            expires_at=None,
+        )
+    claims = decode_access_token(token)
+    jti = claims.get("jti")
+    return Principal(
+        actor_id=actor.id,
+        name=name,
+        email=email,
+        role=actor.role,
+        is_active=True,
+        credential_type="jwt",
+        credential_id=uuid.UUID(jti) if jti else uuid.uuid4(),
+        generation=claims.get("gen", 0),
+        scopes=None,
+        expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc),
+    )
+
+
 def request(actor, *, token=None, key_id=None, scopes=None):
     token = token or create_access_token(
         str(actor.id), actor.role, timedelta(minutes=10)
     )
     value = Request(
         {"type": "http", "headers": [(b"authorization", ("Bearer " + token).encode())]}
+    )
+    value.state.identity_principal = _principal(
+        actor, token=token, key_id=key_id, scopes=scopes
     )
     value.state.api_key_id = str(key_id) if key_id is not None else None
     value.state.api_key_scopes = list(scopes) if scopes is not None else None
@@ -626,3 +668,376 @@ async def test_unknown_physical_close_keeps_independent_operation(world):
     assert getattr(error.value, "storage_operation_unsettled", False)
     assert await operations(world) == 1
     assert world.provider.calls and all(body.closed for body in world.provider.bodies)
+
+
+def _route_request(actor, *, path: str, route_template: str):
+    token = create_access_token(str(actor.id), actor.role, timedelta(minutes=10))
+
+    async def receive():
+        await asyncio.Event().wait()
+        return {"type": "http.disconnect"}
+
+    req = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": [(b"authorization", ("Bearer " + token).encode())],
+            "route": SimpleNamespace(path=route_template, path_format=route_template),
+        },
+        receive=receive,
+    )
+    req.state.identity_principal = _principal(actor, token=token)
+    req.state.api_key_id = None
+    req.state.api_key_scopes = None
+    return req, token
+
+
+async def _wait_for_blocker(engine, holder_pid, pending):
+    async with asyncio.timeout(2):
+        async with engine.connect() as observer:
+            while not await observer.scalar(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname=current_database() "
+                    "AND :holder=ANY(pg_blocking_pids(pid))"
+                ),
+                {"holder": holder_pid},
+            ):
+                if pending.done():
+                    await pending
+                await asyncio.sleep(0.01)
+
+
+@pytest.fixture
+async def native_world(test_engine, original_client, monkeypatch):
+    async with managed_database(test_engine.url) as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            users = [
+                User(
+                    id=uuid.uuid4(),
+                    email=uuid.uuid4().hex + "@example.test",
+                    name="Binary",
+                    password_hash="unused",
+                    role=role,
+                    is_active=True,
+                )
+                for role in ("project_admin", "employee", "employee")
+            ]
+            db.add_all(users)
+            await db.flush()
+            manager, actor, stranger = users
+            project = await create_project(db, owner_id=manager.id)
+            dataset = Dataset(
+                id=uuid.uuid4(),
+                display_id="bin-" + uuid.uuid4().hex[:12],
+                name="Binary originals",
+                created_by=manager.id,
+            )
+            member = ProjectMember(
+                project_id=project.id, user_id=actor.id, role="annotator"
+            )
+            db.add_all([dataset, member])
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            provider = Provider()
+            provider.meta.endpoint_url = (
+                f"{'https' if settings.minio_use_ssl else 'http'}://"
+                f"{settings.minio_endpoint}"
+            )
+            monkeypatch.setattr(reader, "create_client", lambda **_: provider)
+            monkeypatch.setattr(
+                token_blacklist, "is_blacklisted", AsyncMock(return_value=False)
+            )
+            monkeypatch.setattr(
+                token_blacklist, "get_user_generation", AsyncMock(return_value=0)
+            )
+            value = SimpleNamespace(
+                db=db,
+                client=original_client,
+                provider=provider,
+                manager=manager,
+                actor=actor,
+                stranger=stranger,
+                project=project,
+                dataset=dataset,
+                member=member,
+                stages=[],
+            )
+            capture = protocol.capture_download
+
+            async def recorded(spec, **options):
+                stage = await capture(spec, **options)
+                value.stages.append(stage)
+                return stage
+
+            monkeypatch.setattr(protocol, "capture_download", recorded)
+            try:
+                yield value
+            finally:
+                for stage in value.stages:
+                    stage.close()
+                await db.rollback()
+                assert all(body.closed for body in provider.bodies)
+
+
+async def test_identity_waits_for_short_dataset_item_update_and_succeeds(
+    native_world, caplog
+):
+    world = native_world
+    task, item, asset = await managed(world, file_type="image")
+    item_id, expected_content_id, expected_sha = (
+        item.id,
+        asset.id,
+        asset.checksum_value,
+    )
+    resource = service.Resource(kind="task", task_id=task.id)
+    req, _ = _route_request(
+        world.actor,
+        path=f"/api/v1/files/tasks/{task.id}/original-identity",
+        route_template="/api/v1/files/tasks/{task_id}/original-identity",
+    )
+    caplog.set_level(logging.WARNING, logger="app.api.v1.originals")
+    rid_token = request_id_var.set("req-short-item-update")
+    try:
+        async with async_sessionmaker(
+            world.db.bind, expire_on_commit=False
+        )() as holder:
+            await holder.execute(
+                update(DatasetItem).where(DatasetItem.id == item_id).values(width=640)
+            )
+            holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+            pending = asyncio.create_task(
+                originals_api._identity(
+                    resource, req, world.db, world.actor, Response()
+                )
+            )
+            try:
+                await _wait_for_blocker(world.db.bind, holder_pid, pending)
+                await holder.commit()
+                identity = await pending
+            finally:
+                await holder.rollback()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+        assert identity["content_id"] == expected_content_id
+        assert identity["sha256"] == expected_sha
+        assert caplog.records == []
+    finally:
+        request_id_var.reset(rid_token)
+
+
+async def test_identity_long_dataset_item_lock_over_1s_returns_storage_original_busy_and_logs(
+    native_world, caplog
+):
+    world = native_world
+    task, item, _ = await managed(world, file_type="image")
+    item_id, item_path = item.id, item.file_path
+    resource = service.Resource(kind="task", task_id=task.id)
+    req, bearer = _route_request(
+        world.actor,
+        path=f"/api/v1/files/tasks/{task.id}/original-identity",
+        route_template="/api/v1/files/tasks/{task_id}/original-identity",
+    )
+    caplog.set_level(logging.WARNING, logger="app.api.v1.originals")
+    rid_token = request_id_var.set("req-long-item-lock")
+    try:
+        async with async_sessionmaker(
+            world.db.bind, expire_on_commit=False
+        )() as holder:
+            await holder.execute(
+                update(DatasetItem).where(DatasetItem.id == item_id).values(width=800)
+            )
+            try:
+                with pytest.raises(HTTPException) as error:
+                    await originals_api._identity(
+                        resource, req, world.db, world.actor, Response()
+                    )
+            finally:
+                await holder.rollback()
+        assert error.value.status_code == 409
+        assert error.value.detail == {"code": "storage_original_busy"}
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        assert record.levelname == "WARNING"
+        assert record.route == "/api/v1/files/tasks/{task_id}/original-identity"
+        assert record.request_id == "req-long-item-lock"
+        assert record.status_code == 409
+        assert record.code == "storage_original_busy"
+        assert record.reason is None
+        assert record.resource_kind == "task"
+        assert record.task_id == str(task.id)
+        message = record.getMessage()
+        assert bearer not in message
+        assert item_path not in message
+        assert "saved-binary-originals" not in message
+    finally:
+        request_id_var.reset(rid_token)
+
+
+async def test_identity_real_file_path_drift_after_wait_still_returns_content_binding_changed(
+    native_world, caplog
+):
+    world = native_world
+    task, item, _ = await managed(world, file_type="image")
+    item_id = item.id
+    drifted_path = "binary/drifted-" + uuid.uuid4().hex
+    resource = service.Resource(kind="task", task_id=task.id)
+    req, bearer = _route_request(
+        world.actor,
+        path=f"/api/v1/files/tasks/{task.id}/original-identity",
+        route_template="/api/v1/files/tasks/{task_id}/original-identity",
+    )
+    caplog.set_level(logging.WARNING, logger="app.api.v1.originals")
+    rid_token = request_id_var.set("req-drift-after-wait")
+    try:
+        async with async_sessionmaker(
+            world.db.bind, expire_on_commit=False
+        )() as holder:
+            await holder.execute(
+                update(DatasetItem)
+                .where(DatasetItem.id == item_id)
+                .values(file_path=drifted_path)
+            )
+            holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+            pending = asyncio.create_task(
+                originals_api._identity(
+                    resource, req, world.db, world.actor, Response()
+                )
+            )
+            try:
+                await _wait_for_blocker(world.db.bind, holder_pid, pending)
+                await holder.commit()
+                with pytest.raises(HTTPException) as error:
+                    await pending
+            finally:
+                await holder.rollback()
+                if not pending.done():
+                    pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
+        assert error.value.status_code == 409
+        assert error.value.detail == {"code": "content_binding_changed"}
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        assert record.code == "content_binding_changed"
+        assert record.request_id == "req-drift-after-wait"
+        assert drifted_path not in record.getMessage()
+        assert bearer not in record.getMessage()
+    finally:
+        request_id_var.reset(rid_token)
+
+
+async def test_download_conflict_logs_expected_and_actual_digest_prefixes_and_skips_non_409(
+    native_world, caplog
+):
+    world = native_world
+    task, item, asset = await managed(world, file_type="image")
+    wrong_content_id = uuid.uuid4()
+    wrong_sha = "f" * 64
+    resource = service.Resource(kind="task", task_id=task.id)
+    req, bearer = _route_request(
+        world.actor,
+        path=f"/api/v1/files/tasks/{task.id}/original",
+        route_template="/api/v1/files/tasks/{task_id}/original",
+    )
+    caplog.set_level(logging.WARNING, logger="app.api.v1.originals")
+    rid_token = request_id_var.set("req-download-drift")
+    try:
+        with pytest.raises(HTTPException) as error:
+            await originals_api._download(
+                resource, req, world.db, world.actor, wrong_content_id, wrong_sha
+            )
+        assert error.value.status_code == 409
+        assert error.value.detail == {"code": "content_binding_changed"}
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        assert record.levelname == "WARNING"
+        assert record.route == "/api/v1/files/tasks/{task_id}/original"
+        assert record.request_id == "req-download-drift"
+        assert record.status_code == 409
+        assert record.code == "content_binding_changed"
+        assert record.resource_kind == "task"
+        assert record.task_id == str(task.id)
+        assert record.item_id == str(item.id)
+        assert record.expected_content_id == str(wrong_content_id)
+        assert record.expected_sha256_prefix == wrong_sha[:12]
+        assert record.actual_content_id == str(asset.id)
+        assert record.actual_sha256_prefix == asset.checksum_value[:12]
+        message = record.getMessage()
+        assert bearer not in message
+        assert item.file_path not in message
+        assert asset.checksum_value not in message
+        assert wrong_sha not in message
+
+        caplog.clear()
+        corrupted = b"X" * len(RAW)
+        world.provider.actual = corrupted
+        corrupted_sha = hashlib.sha256(corrupted).hexdigest()
+        with pytest.raises(HTTPException) as mismatch:
+            await originals_api._download(
+                resource, req, world.db, world.actor, asset.id, asset.checksum_value
+            )
+        assert mismatch.value.status_code == 409
+        assert mismatch.value.detail == {"code": "content_mismatch"}
+        assert len(caplog.records) == 1
+        mismatch_record = caplog.records[0]
+        assert mismatch_record.code == "content_mismatch"
+        assert mismatch_record.expected_content_id == str(asset.id)
+        assert mismatch_record.expected_sha256_prefix == asset.checksum_value[:12]
+        assert mismatch_record.actual_content_id == str(asset.id)
+        assert mismatch_record.actual_sha256_prefix == corrupted_sha[:12]
+        assert corrupted_sha not in mismatch_record.getMessage()
+        assert bearer not in mismatch_record.getMessage()
+
+        caplog.clear()
+        stranger_req, _ = _route_request(
+            world.stranger,
+            path=f"/api/v1/files/tasks/{task.id}/original-identity",
+            route_template="/api/v1/files/tasks/{task_id}/original-identity",
+        )
+        with pytest.raises(HTTPException) as denied:
+            await originals_api._identity(
+                resource, stranger_req, world.db, world.stranger, Response()
+            )
+        assert denied.value.status_code in {403, 404}
+        assert caplog.records == []
+    finally:
+        request_id_var.reset(rid_token)
+
+
+async def test_identity_logs_reason_field_on_409_without_credentials(
+    monkeypatch, caplog
+):
+    task_id = uuid.uuid4()
+    resource = service.Resource(kind="task", task_id=task_id)
+    actor = SimpleNamespace(id=uuid.uuid4(), role="employee")
+    req, bearer = _route_request(
+        actor,
+        path=f"/api/v1/files/tasks/{task_id}/original-identity",
+        route_template="/api/v1/files/tasks/{task_id}/original-identity",
+    )
+    monkeypatch.setattr(
+        originals_api.svc,
+        "public_identity",
+        AsyncMock(side_effect=HTTPException(409, {"reason": "project_busy"})),
+    )
+    caplog.set_level(logging.WARNING, logger="app.api.v1.originals")
+    rid_token = request_id_var.set("req-reason-409")
+    try:
+        with pytest.raises(HTTPException) as error:
+            await originals_api._identity(resource, req, None, actor, Response())
+        assert error.value.status_code == 409
+        assert error.value.detail == {"reason": "project_busy"}
+        assert len(caplog.records) == 1
+        record = caplog.records[0]
+        assert record.route == "/api/v1/files/tasks/{task_id}/original-identity"
+        assert record.request_id == "req-reason-409"
+        assert record.status_code == 409
+        assert record.code is None
+        assert record.reason == "project_busy"
+        assert record.resource_kind == "task"
+        assert record.task_id == str(task_id)
+        assert bearer not in record.getMessage()
+    finally:
+        request_id_var.reset(rid_token)

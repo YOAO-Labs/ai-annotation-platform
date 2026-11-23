@@ -287,7 +287,7 @@ app.add_middleware(
     allow_headers=["*"]
     if settings.environment != "production"
     else settings.cors_allow_headers,
-    expose_headers=["Idempotency-Key"],
+    expose_headers=["Idempotency-Key", "X-Request-ID"],
 )
 
 app.add_middleware(UploadBodyLimitMiddleware)

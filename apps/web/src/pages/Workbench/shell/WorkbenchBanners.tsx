@@ -9,6 +9,7 @@ interface WorkbenchBannersProps {
   mode: "annotate" | "review";
   task: TaskResponse | undefined;
   contentBlockedReason?: string | null;
+  contentBlockedDetail?: string | null;
   onRetryContent?: () => unknown;
   lockError: string | null;
   lockConflict?: TaskLockConflictDetail | null;
@@ -32,6 +33,7 @@ export function WorkbenchBanners({
   mode,
   task,
   contentBlockedReason,
+  contentBlockedDetail,
   onRetryContent,
   lockError,
   lockConflict,
@@ -48,8 +50,15 @@ export function WorkbenchBanners({
     <>
       {contentBlockedReason && (
         <div role="status" className={`${BANNER_BASE} bg-status-caution-soft text-foreground`}>
-          <Icon name="warning" size={13} />
-          <span className="flex-1">{contentBlockedReason}</span>
+          <Icon name="warning" size={13} className="flex-shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div>{contentBlockedReason}</div>
+            {contentBlockedDetail && (
+              <div className="mt-0.5 break-all text-xs text-muted-foreground">
+                {contentBlockedDetail}
+              </div>
+            )}
+          </div>
           <Button size="sm" onClick={onRetryContent}>
             重读原图
           </Button>

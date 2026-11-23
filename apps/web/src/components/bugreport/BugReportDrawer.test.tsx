@@ -99,6 +99,7 @@ describe("BugReportDrawer", () => {
       .__videoFrameClockDiagnostics;
     delete (window as unknown as { __rasterMaskComputeDiagnostics?: unknown })
       .__rasterMaskComputeDiagnostics;
+    delete (window as unknown as { __originalReadDiagnostics?: unknown }).__originalReadDiagnostics;
   });
 
   it("adds pasted clipboard screenshots and allows removing them", async () => {
@@ -578,5 +579,55 @@ describe("BugReportDrawer", () => {
       click.mockRestore();
       vi.unstubAllGlobals();
     }
+  });
+
+  it("attaches sanitized original read diagnostics to submitted bug reports", async () => {
+    const { recordOriginalReadError, recordOriginalManualRetrySuccess } =
+      await import("@/utils/originalReadDiagnostics");
+    const taskId = "11111111-1111-1111-1111-111111111111";
+    const contentId = "44444444-4444-4444-4444-444444444444";
+    recordOriginalReadError({
+      attempt: 0,
+      resourceKind: "task",
+      requestPath: `/files/tasks/${taskId}/original-identity`,
+      status: 409,
+      code: "storage_original_busy",
+      reason: null,
+      requestId: "req-bug-409",
+    });
+    recordOriginalManualRetrySuccess({
+      attempt: 1,
+      resourceKind: "task",
+      requestPath: `/files/tasks/${taskId}/original-identity`,
+      contentId,
+      sha256: "c".repeat(64),
+    });
+
+    render(<BugReportDrawer open onClose={() => {}} />);
+    await screen.findByText("暂无反馈");
+    fireEvent.click(screen.getByText("提交新反馈"));
+    fireEvent.change(screen.getByPlaceholderText("发生了什么问题？"), {
+      target: { value: "首次打开 409" },
+    });
+    fireEvent.change(await screen.findByPlaceholderText("详细描述问题..."), {
+      target: { value: "点击重读原图后恢复" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "提交反馈" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    const payload = mocks.create.mock.calls[0][0];
+    expect(payload.description).toContain("### Original Read Diagnostics");
+    expect(payload.description).toContain("storage_original_busy");
+    expect(payload.description).toContain("req-bug-409");
+    expect(payload.description).toContain(contentId);
+    expect(payload.description).toContain("cccccccccccc");
+    expect(payload.description).not.toContain(taskId);
+    expect(payload.recent_console_errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          msg: "[original-read-diagnostics]",
+        }),
+      ]),
+    );
   });
 });

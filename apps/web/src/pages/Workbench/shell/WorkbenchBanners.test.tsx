@@ -130,4 +130,23 @@ describe("WorkbenchBanners", () => {
     fireEvent.click(screen.getByText("接受退回开始重做"));
     expect(onAcceptRejection).toHaveBeenCalledTimes(1);
   });
+
+  it("renders content blocked banner with secondary code/request_id receipt and retry button", () => {
+    const onRetryContent = vi.fn();
+    render(
+      <WorkbenchBanners
+        {...baseProps}
+        contentBlockedReason="原件记录正在被其他操作占用，请稍后重读原图"
+        contentBlockedDetail="错误码：storage_original_busy · 请求回执：req-banner-409"
+        onRetryContent={onRetryContent}
+      />,
+    );
+
+    expect(screen.getByText("原件记录正在被其他操作占用，请稍后重读原图")).toBeTruthy();
+    expect(
+      screen.getByText("错误码：storage_original_busy · 请求回执：req-banner-409"),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByText("重读原图"));
+    expect(onRetryContent).toHaveBeenCalledTimes(1);
+  });
 });

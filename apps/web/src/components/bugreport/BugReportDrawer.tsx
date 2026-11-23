@@ -44,6 +44,11 @@ import {
   getRasterResourceDiagnosticsSnapshot,
   rasterResourceDiagnosticsConsoleEntry,
 } from "@/utils/rasterResourceDiagnostics";
+import {
+  appendOriginalReadDiagnostics,
+  getOriginalReadDiagnosticsSnapshot,
+  originalReadDiagnosticsConsoleEntry,
+} from "@/utils/originalReadDiagnostics";
 import { readWorkbenchPerfSnapshot } from "@/pages/Workbench/stage/shared/useWorkbenchPerf";
 import {
   captureBugReportOwner,
@@ -343,15 +348,21 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
     const rasterResourceDiagnostics = getRasterResourceDiagnosticsSnapshot();
     const rasterResourceDiagnosticsEntry =
       rasterResourceDiagnosticsConsoleEntry(rasterResourceDiagnostics);
-    const description = appendRasterResourceDiagnostics(
-      appendImageTileDiagnostics(
-        appendRasterMaskComputeDiagnostics(
-          appendVideoWorkbenchDiagnostics(trimmedDescription, videoDiagnostics),
-          rasterMaskDiagnostics,
+    const originalReadDiagnostics = getOriginalReadDiagnosticsSnapshot();
+    const originalReadDiagnosticsEntry =
+      originalReadDiagnosticsConsoleEntry(originalReadDiagnostics);
+    const description = appendOriginalReadDiagnostics(
+      appendRasterResourceDiagnostics(
+        appendImageTileDiagnostics(
+          appendRasterMaskComputeDiagnostics(
+            appendVideoWorkbenchDiagnostics(trimmedDescription, videoDiagnostics),
+            rasterMaskDiagnostics,
+          ),
+          imageTileDiagnostics,
         ),
-        imageTileDiagnostics,
+        rasterResourceDiagnostics,
       ),
-      rasterResourceDiagnostics,
+      originalReadDiagnostics,
     );
     if (codePointLength(description) > MAX_DESCRIPTION_LENGTH) {
       pushToast({
@@ -394,6 +405,9 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
       if (imageTileDiagnosticsEntry) recentConsoleErrors.unshift(imageTileDiagnosticsEntry);
       if (rasterResourceDiagnosticsEntry) {
         recentConsoleErrors.unshift(rasterResourceDiagnosticsEntry);
+      }
+      if (originalReadDiagnosticsEntry) {
+        recentConsoleErrors.unshift(originalReadDiagnosticsEntry);
       }
       const perf = readWorkbenchPerfSnapshot();
       if (perf.longTaskCount > 0) {

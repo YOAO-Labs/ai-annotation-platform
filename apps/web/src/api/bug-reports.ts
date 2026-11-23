@@ -9,7 +9,13 @@ export interface BugReportPayload {
   viewport?: string;
   project_id?: string;
   task_id?: string;
-  recent_api_calls?: Array<{ method: string; url: string; status: number; ms: number }>;
+  recent_api_calls?: Array<{
+    method: string;
+    url: string;
+    status: number;
+    ms: number;
+    requestId?: string;
+  }>;
   recent_console_errors?: Array<{ msg: string; stack?: string }>;
   screenshot_url?: string | null;
   attachments?: BugAttachment[];

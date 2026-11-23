@@ -40,6 +40,7 @@
 
 ### Changed
 
+- 原件身份与完整下载在返回 HTTP 409 时记录脱敏结构化警告日志，并在任务解析阶段复用既有 1 秒有界 `DatasetItem FOR SHARE` 等待（保留所有冲突与绑定漂移保护，不引入原件身份自动重试）；前端透出 `x-request-id` 与并发占用业务码，在「重读原图」横幅次级文案展示错误码与请求回执，并将脱敏读取诊断与手动重读后的原件摘要纳入反馈采集。
 - 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。新拓扑已在隔离部署验证；旧安装不会自动切换，升级前须核对[进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)与[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)。
 - 普通 API／worker 改用固定 owner 能力和公开读视图；重放安装授权会撤销旧私表和序列权限。已登记自定义 S3／SFTP 的物理 I/O 由既有私有 Assets Source 处理，独立导入器不再持有连接器解密密钥或 SSH 文件。内建 MinIO、受控目录、站点 Agent 和既有保存目标不迁移。
 - 推理服务直连接入指南现在区分本机自检、私网监听、全局服务池启用和项目预测；强制路由部署另列实例绑定步骤。手动注册不等于安装插件。

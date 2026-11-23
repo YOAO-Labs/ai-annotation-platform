@@ -79,7 +79,9 @@ async def _source(db, resource, actor):
                     db, resource.task_id, resource.link_id, lock=True
                 )
                 if resource.kind == "camera"
-                else original_sources.resolve_task(db, resource.task_id, lock=True)
+                else original_sources.resolve_task(
+                    db, resource.task_id, lock=True, wait_for_item=True
+                )
             )
     if source.bucket is None:
         raise ContentError("reference_requires_verified_content")
@@ -117,7 +119,11 @@ async def authorize_original(
     if (
         expected_content_id is not None and source.content_id != expected_content_id
     ) or (expected_sha256 is not None and source.sha256 != expected_sha256):
-        raise ContentError("content_binding_changed")
+        error = ContentError("content_binding_changed")
+        error.actual_content_id = source.content_id
+        error.actual_sha256 = source.sha256
+        error.actual_item_id = source.item_id
+        raise error
     await db.commit()
     access.check_clock(proof, key)
     return AuthorizedOriginal(resource, proof, source, key)
@@ -140,7 +146,11 @@ async def recheck_original(db, context, *, captured=False):
                 ),
             )
     if current != expected:
-        raise ContentError("content_binding_changed")
+        error = ContentError("content_binding_changed")
+        error.actual_content_id = current.content_id
+        error.actual_sha256 = current.sha256
+        error.actual_item_id = current.item_id
+        raise error
     await original_sources.recheck_read_route(db, current)
     await db.commit()
     access.check_clock(context.proof, key)
@@ -235,7 +245,15 @@ async def capture_authorized(db, context, capture):
             stage = await capture(spec, **options)
         await recheck_original(db, context)
         return stage
-    except BaseException:
+    except BaseException as exc:
+        if isinstance(exc, ContentError):
+            if (
+                getattr(exc, "actual_content_id", None) is None
+                and getattr(exc, "actual_sha256", None) is not None
+            ):
+                exc.actual_content_id = source.content_id
+            if getattr(exc, "actual_item_id", None) is None:
+                exc.actual_item_id = source.item_id
         if stage is not None:
             await close_stage(stage)
         raise

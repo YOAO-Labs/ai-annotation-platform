@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
+import {
+  recordOriginalManualRetrySuccess,
+  recordOriginalReadError,
+} from "@/utils/originalReadDiagnostics";
 
 const pendingPreviews = new Set<() => void>();
 let activePreviews = 0;
@@ -72,11 +76,65 @@ function imageBlob(path: string, signal: AbortSignal): Promise<Blob> {
   });
 }
 
+export interface VerifiedContentErrorReceipt {
+  status: number | null;
+  code: string | null;
+  reason: string | null;
+  requestId: string | null;
+}
+
+export function extractVerifiedContentErrorReceipt(
+  error: unknown,
+): VerifiedContentErrorReceipt | null {
+  if (!(error instanceof ApiError)) return null;
+  const code = error.code ?? null;
+  const reason = error.reason ?? null;
+  const requestId = error.requestId ?? null;
+  if (!code && !reason && !requestId) return null;
+  return {
+    status: error.status,
+    code,
+    reason,
+    requestId,
+  };
+}
+
+export function formatVerifiedContentErrorReceipt(
+  receipt: VerifiedContentErrorReceipt | null | undefined,
+): string | null {
+  if (!receipt) return null;
+  const parts: string[] = [];
+  const businessCode = receipt.code ?? receipt.reason;
+  if (businessCode) parts.push(`错误码：${businessCode}`);
+  if (receipt.requestId) parts.push(`请求回执：${receipt.requestId}`);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function sha256FromPath(path: string): string | null {
+  try {
+    const value = new URL(path, "https://original.invalid").searchParams.get("sha256");
+    return value && /^[0-9a-f]{64}$/i.test(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function verifiedContentError(error: unknown): string {
-  const code =
+  const detail =
     error instanceof ApiError && error.detailRaw && typeof error.detailRaw === "object"
-      ? String((error.detailRaw as { code?: unknown }).code ?? "")
-      : "";
+      ? (error.detailRaw as { code?: unknown; reason?: unknown })
+      : null;
+  const code = typeof detail?.code === "string" ? detail.code : "";
+  const reason = typeof detail?.reason === "string" ? detail.reason : "";
+  if (code === "content_busy") return "原图访问暂时繁忙，请稍后重读原图";
+  if (code === "storage_original_busy") return "原件记录正在被其他操作占用，请稍后重读原图";
+  if (code === "storage_maintenance_busy") return "存储位置正在执行维护操作，请稍后重读原图";
+  if (code === "account_busy" || reason === "account_busy")
+    return "当前账号正在处理其他并发操作，请稍后重读原图";
+  if (code === "project_busy" || reason === "project_busy")
+    return "当前项目正在处理其他并发操作，请稍后重读原图";
+  if (code === "membership_busy" || reason === "membership_busy")
+    return "项目成员权限正在变更，请稍后重读原图";
   if (code === "dataset_archived") return "数据集已归档；请由创建者或超级管理员恢复后再执行此操作";
   if (code === "dataset_lifecycle_changed")
     return "数据集生命周期已变化，请刷新并在当前权限下创建新操作";
@@ -164,6 +222,7 @@ export function useVerifiedImage(path: string | null) {
     epoch: number;
     url?: string;
     error?: string;
+    errorReceipt?: VerifiedContentErrorReceipt | null;
   } | null>(null);
   useEffect(() => {
     if (!path || !userId || !usable) return;
@@ -198,14 +257,38 @@ export function useVerifiedImage(path: string | null) {
         image = new Image();
         image.src = url;
         await image.decode();
-        if (current()) setResult({ owner, epoch, url });
-        else {
+        if (current()) {
+          if (attempt > 0) {
+            recordOriginalManualRetrySuccess({
+              attempt,
+              resourceKind: "verified_content",
+              requestPath: path,
+              sha256: sha256FromPath(path),
+            });
+          }
+          setResult({ owner, epoch, url });
+        } else {
           URL.revokeObjectURL(url);
           url = undefined;
         }
       })
       .catch((error) => {
-        if (current()) setResult({ owner, epoch, error: verifiedContentError(error) });
+        if (current()) {
+          const errorReceipt = extractVerifiedContentErrorReceipt(error);
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            recordOriginalReadError({
+              attempt,
+              resourceKind: "verified_content",
+              requestPath:
+                error instanceof ApiError && error.requestPath ? error.requestPath : path,
+              status: error instanceof ApiError ? error.status : null,
+              code: errorReceipt?.code ?? null,
+              reason: errorReceipt?.reason ?? null,
+              requestId: errorReceipt?.requestId ?? null,
+            });
+          }
+          setResult({ owner, epoch, error: verifiedContentError(error), errorReceipt });
+        }
         if (url) URL.revokeObjectURL(url);
         url = undefined;
       });
@@ -216,13 +299,14 @@ export function useVerifiedImage(path: string | null) {
       if (image) image.src = "";
       if (url) URL.revokeObjectURL(url);
     };
-  }, [owner, path, sessionId, usable, userId]);
+  }, [attempt, owner, path, sessionId, usable, userId]);
   const owned = result?.owner === owner && result.epoch === generation.current ? result : null;
   const url =
     path && token && localStorage.getItem("token") === token ? (owned?.url ?? null) : null;
   return {
     url,
     error: owned?.error ?? null,
+    errorReceipt: owned?.errorReceipt ?? null,
     ready: !!url,
     retry: useCallback(() => setAttempt((n) => n + 1), []),
   };

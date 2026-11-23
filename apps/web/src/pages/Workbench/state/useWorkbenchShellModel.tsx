@@ -789,6 +789,7 @@ export function useWorkbenchShellModel({
       source: workbenchImageSource,
       retry: retryWorkbenchImagePyramid,
       contentBlockedReason,
+      contentBlockedDetail,
     },
   } = useWorkbenchTaskImage({
     task,
@@ -5498,6 +5499,7 @@ export function useWorkbenchShellModel({
       mode,
       task,
       contentBlockedReason,
+      contentBlockedDetail,
       onRetryContent: retryWorkbenchImagePyramid,
       lockError,
       lockConflict,

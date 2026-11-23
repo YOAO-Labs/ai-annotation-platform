@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
 import { ApiError } from "@/api/client";
-import { useVerifiedImage } from "@/hooks/useVerifiedImage";
+import { formatVerifiedContentErrorReceipt, useVerifiedImage } from "@/hooks/useVerifiedImage";
 import { useOriginalImage } from "@/hooks/useOriginalImage";
 import { originalOwnerKey } from "@/api/originals";
 import type { TaskResponse } from "@/types";
@@ -197,6 +197,7 @@ export function useWorkbenchImageSource(
   refresh: () => Promise<void>;
   retry: (() => Promise<void>) | undefined;
   contentBlockedReason?: string | null;
+  contentBlockedDetail?: string | null;
   contentPending?: boolean;
 } {
   const userId = useAuthStore((state) => state.user?.id);
@@ -422,6 +423,16 @@ export function useWorkbenchImageSource(
             ? (verified.error ?? "正在核验并读取原图，请稍候")
             : needsOriginal && !original.ready
               ? (original.error ?? "正在核验并读取原图，请稍候")
+              : null,
+    contentBlockedDetail:
+      incomingTask?.file_type === "image" && !retainedTask
+        ? null
+        : pendingAdmission
+          ? null
+          : reference && !verified.ready && verified.error
+            ? formatVerifiedContentErrorReceipt(verified.errorReceipt)
+            : needsOriginal && !original.ready && original.error
+              ? formatVerifiedContentErrorReceipt(original.errorReceipt)
               : null,
     retry:
       reference || needsOriginal

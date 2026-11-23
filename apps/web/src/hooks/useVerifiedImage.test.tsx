@@ -2,8 +2,17 @@ import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
-import { useVerifiedImage, verifiedContentError } from "./useVerifiedImage";
+import {
+  extractVerifiedContentErrorReceipt,
+  formatVerifiedContentErrorReceipt,
+  useVerifiedImage,
+  verifiedContentError,
+} from "./useVerifiedImage";
 import { useSessionGuard } from "./useSessionGuard";
+import {
+  clearOriginalReadDiagnostics,
+  getOriginalReadDiagnosticsSnapshot,
+} from "@/utils/originalReadDiagnostics";
 
 vi.mock("@/api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/client")>();
@@ -26,7 +35,52 @@ it.each([
   expect(verifiedContentError(new ApiError(409, "failure", { code }))).toContain(expected);
 });
 
+it.each([
+  [{ code: "content_busy" }, "原图访问暂时繁忙"],
+  [{ code: "storage_original_busy" }, "原件记录正在被其他操作占用"],
+  [{ code: "storage_maintenance_busy" }, "存储位置正在执行维护操作"],
+  [{ reason: "account_busy" }, "当前账号正在处理其他并发操作"],
+  [{ reason: "project_busy" }, "当前项目正在处理其他并发操作"],
+  [{ reason: "membership_busy" }, "项目成员权限正在变更"],
+])("distinguishes busy 409 %j from content_binding_changed", (detail, expected) => {
+  const busyText = verifiedContentError(new ApiError(409, "Conflict", detail));
+  const driftText = verifiedContentError(
+    new ApiError(409, "Conflict", { code: "content_binding_changed" }),
+  );
+  expect(busyText).toContain(expected);
+  expect(busyText).not.toContain("来源图片已变化");
+  expect(driftText).toContain("来源图片已变化");
+});
+
+it("extracts and formats error receipt with business code or reason and x-request-id", () => {
+  const fromCode = extractVerifiedContentErrorReceipt(
+    new ApiError(
+      409,
+      "Conflict",
+      { code: "storage_original_busy" },
+      { "x-request-id": "req-abc-123" },
+    ),
+  );
+  expect(fromCode).toEqual({
+    status: 409,
+    code: "storage_original_busy",
+    reason: null,
+    requestId: "req-abc-123",
+  });
+  expect(formatVerifiedContentErrorReceipt(fromCode)).toBe(
+    "错误码：storage_original_busy · 请求回执：req-abc-123",
+  );
+
+  const fromReason = extractVerifiedContentErrorReceipt(
+    new ApiError(409, "Conflict", { reason: "project_busy" }, { "x-request-id": "req-proj-9" }),
+  );
+  expect(formatVerifiedContentErrorReceipt(fromReason)).toBe(
+    "错误码：project_busy · 请求回执：req-proj-9",
+  );
+});
+
 beforeEach(() => {
+  clearOriginalReadDiagnostics();
   vi.mocked(apiClient.silentGetBlob)
     .mockReset()
     .mockResolvedValue(new Blob(["image"]));
@@ -182,5 +236,55 @@ describe("verified original ownership", () => {
     expect(next()).toBe(true);
     unmount();
     expect(next()).toBe(false);
+  });
+
+  it("exposes errorReceipt and records sanitized diagnostics across 409 and manual retry", async () => {
+    const sha = "a".repeat(64);
+    const taskId = "11111111-1111-1111-1111-111111111111";
+    const path = `/files/tasks/${taskId}/content?sha256=${sha}`;
+    vi.mocked(apiClient.silentGetBlob)
+      .mockRejectedValueOnce(
+        new ApiError(
+          409,
+          "Conflict",
+          { code: "storage_original_busy" },
+          { "x-request-id": "req-verified-409" },
+          path,
+        ),
+      )
+      .mockResolvedValueOnce(new Blob(["recovered"]));
+    const { result } = renderHook(() => useVerifiedImage(path));
+    await waitFor(() => expect(result.current.error).toContain("原件记录正在被其他操作占用"));
+    expect(result.current.errorReceipt).toEqual({
+      status: 409,
+      code: "storage_original_busy",
+      reason: null,
+      requestId: "req-verified-409",
+    });
+
+    act(() => result.current.retry());
+    await waitFor(() => expect(decodes).toHaveLength(1));
+    await act(async () => decodes[0]());
+    expect(result.current.ready).toBe(true);
+    expect(result.current.errorReceipt).toBeNull();
+
+    const snapshot = getOriginalReadDiagnosticsSnapshot();
+    expect(snapshot?.events).toEqual([
+      expect.objectContaining({
+        kind: "error",
+        attempt: 0,
+        manualRetry: false,
+        requestPath: "/api/v1/files/tasks/{task_id}/content",
+        status: 409,
+        code: "storage_original_busy",
+        requestId: "req-verified-409",
+      }),
+      expect.objectContaining({
+        kind: "manual_retry_recovered",
+        attempt: 1,
+        requestPath: "/api/v1/files/tasks/{task_id}/content",
+        sha256Prefix: sha.slice(0, 12),
+      }),
+    ]);
   });
 });

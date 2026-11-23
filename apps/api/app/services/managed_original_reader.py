@@ -268,8 +268,11 @@ def _copy_verified(body, temporary, spec, max_bytes, check):
         digest.update(chunk)
     if size != spec.size_bytes:
         _reject()
-    if digest.hexdigest() != spec.sha256:
-        _reject("content_mismatch")
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != spec.sha256:
+        error = ContentError("content_mismatch")
+        error.actual_sha256 = actual_sha256
+        raise error
 
 
 def _capture_registered(open_download, temporary, spec, max_bytes, check):
