@@ -60,8 +60,8 @@ def api_redis_acl_commands() -> tuple[str, ...]:
     return _API_REDIS_ACL_COMMANDS
 
 
-def kombu_fanout_channel_pattern(redis_url: str | URL) -> str:
-    """Match Kombu Redis's default `/{db}.` fanout topic prefix."""
+def kombu_fanout_channel_patterns(redis_url: str | URL) -> tuple[str, ...]:
+    """Allow broker fanout and Redis's exact PSUBSCRIBE patterns for Celery."""
 
     url = make_url(redis_url)
     database = url.database or "0"
@@ -71,7 +71,8 @@ def kombu_fanout_channel_pattern(redis_url: str | URL) -> str:
         or url.query.get("global_keyprefix")
     ):
         raise ValueError("API Redis URL has an unsupported Kombu fanout prefix")
-    return f"&/{database}.*"
+    prefix = f"&/{database}."
+    return prefix + "*", prefix + "celery.pidbox", prefix + "celeryev/worker.*"
 
 
 def _verify_kombu_api_redis(host_url: str) -> None:
@@ -449,7 +450,7 @@ async def api_redis_url(actor_ids: tuple[UUID, ...]) -> AsyncIterator[str]:
             "resetkeys",
             "~*",
             "resetchannels",
-            kombu_fanout_channel_pattern(base_url),
+            *kombu_fanout_channel_patterns(base_url),
             *api_redis_acl_commands(),
         )
         client = redis.from_url(host_url, decode_responses=False)

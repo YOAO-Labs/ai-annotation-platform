@@ -10,7 +10,7 @@ import pytest
 from tests.test_notifications_module_assembly_live import _feedback_issue
 from tests.notifications_module_acceptance_helpers import (
     api_redis_acl_commands,
-    kombu_fanout_channel_pattern,
+    kombu_fanout_channel_patterns,
     notification_publish_database_url,
 )
 
@@ -141,19 +141,17 @@ def test_api_redis_acl_keeps_cache_and_queue_with_scoped_fanout_only():
     assert "+publish" not in commands
 
 
-@pytest.mark.parametrize(("database", "expected"), [(None, "&/0.*"), ("12", "&/12.*")])
-def test_kombu_fanout_acl_matches_the_selected_redis_database(database, expected):
-    assert (
-        kombu_fanout_channel_pattern(
-            URL.create("redis", host="redis", port=6379, database=database)
-        )
-        == expected
-    )
+@pytest.mark.parametrize("database", [None, "12"])
+def test_kombu_fanout_acl_matches_the_selected_redis_database(database):
+    prefix = f"&/{database or '0'}."
+    assert kombu_fanout_channel_patterns(
+        URL.create("redis", host="redis", port=6379, database=database)
+    ) == (prefix + "*", prefix + "celery.pidbox", prefix + "celeryev/worker.*")
 
 
 def test_kombu_fanout_acl_rejects_unsupported_channel_prefixes():
     with pytest.raises(ValueError, match="unsupported Kombu fanout prefix"):
-        kombu_fanout_channel_pattern(
+        kombu_fanout_channel_patterns(
             URL.create(
                 "redis",
                 host="redis",
