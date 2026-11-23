@@ -220,11 +220,17 @@ async def execute_registration(run_id, task_id, node_id):
                         }:
                             raise
                         if code in svc.PATH_ERRORS:
-                            location, source, _, _ = await svc.fenced(
+                            location, source, current, _ = await svc.fenced(
                                 db, run_id, task_id, fence
                             )
                             await svc.ensure_source_available(
-                                db, location, source, work["node_id"]
+                                db,
+                                location,
+                                source,
+                                work["node_id"],
+                                actor_id=work["actor_id"],
+                                api_key_id=work["api_key_id"],
+                                key_proof=current.snapshot.get("key_proof"),
                             )
                         await svc.record(
                             db,

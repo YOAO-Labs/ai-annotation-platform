@@ -1,11 +1,11 @@
-"""Exact, bounded S3 reads for persistent references; never writes the source."""
+"""Storage client for built-in and explicitly scoped local S3 operations."""
 
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import ipaddress
 import re
-from urllib.parse import unquote_plus, urlsplit
+from urllib.parse import urlsplit
 
 import boto3
 from botocore.config import Config
@@ -20,8 +20,6 @@ from app.services import connector_guard
 from app.services.storage_access import close_registered, mark_unsettled
 from app.services.filesystem_storage import FilesystemStorageError as StorageError
 
-PAGE_SIZE = 200
-
 
 def directory_prefix(base, relative=""):
     for value in (base, relative):
@@ -30,18 +28,6 @@ def directory_prefix(base, relative=""):
     return (base + ("/" if base and not base.endswith("/") else "")) + (
         relative + ("/" if relative and not relative.endswith("/") else "")
     )
-
-
-def decode_key(value):
-    if not isinstance(value, str) or re.search(r"%(?![0-9a-fA-F]{2})", value):
-        raise StorageError("s3_invalid_listing")
-    try:
-        result = unquote_plus(value, encoding="utf-8", errors="strict")
-    except UnicodeError:
-        raise StorageError("s3_invalid_listing") from None
-    if "\x00" in result or len(result.encode()) > 1024:
-        raise StorageError("s3_invalid_key")
-    return result
 
 
 def observation(response, bucket, key):
@@ -67,10 +53,6 @@ def observation(response, bucket, key):
         .isoformat(),
         "version_id": response.get("VersionId"),
     }
-
-
-def matches(actual, expected):
-    return all(actual.get(key) == value for key, value in expected.items())
 
 
 def read_observation(response, bucket, key):
@@ -125,15 +107,6 @@ def configured_endpoint(config):
 class _S3ClientAccess:
     config: dict
     allowlist: tuple[str, ...]
-
-    @property
-    def anchor(self):
-        return {
-            "kind": "s3",
-            "endpoint": self.endpoint,
-            "bucket": self.config["bucket"],
-            "prefix": directory_prefix(self.config.get("base_prefix", "")),
-        }
 
     @property
     def endpoint(self):
@@ -227,134 +200,6 @@ class S3Access(_S3ClientAccess):
             raise StorageError("connection_unavailable") from None
         with self._client(endpoint, secret, read_timeout=read_timeout) as client:
             yield client
-
-    def list_page(self, relative, cursor=None, *, directories=False):
-        prefix = directory_prefix(self.config.get("base_prefix", ""), relative)
-        kwargs = {
-            "Bucket": self.config["bucket"],
-            "Prefix": prefix,
-            "MaxKeys": PAGE_SIZE,
-            "EncodingType": "url",
-        }
-        if cursor is not None:
-            if not isinstance(cursor, str) or not cursor or len(cursor) > 4096:
-                raise StorageError("s3_invalid_cursor")
-            kwargs["ContinuationToken"] = cursor
-        if directories:
-            kwargs["Delimiter"] = "/"
-        with self.client() as client:
-            response = client.list_objects_v2(**kwargs)
-        if response.get("EncodingType") != "url":
-            raise StorageError("s3_invalid_listing")
-        next_cursor = (
-            response.get("NextContinuationToken")
-            if response.get("IsTruncated")
-            else None
-        )
-        if response.get("IsTruncated") and (
-            not isinstance(next_cursor, str)
-            or not next_cursor
-            or next_cursor == cursor
-            or len(next_cursor) > 4096
-        ):
-            raise StorageError("s3_invalid_cursor")
-        entries = []
-        for obj in response.get("Contents", []):
-            key = decode_key(obj.get("Key"))
-            if not key.startswith(prefix):
-                raise StorageError("s3_prefix_mismatch")
-            if key.endswith("/"):
-                continue
-            observed = observation(
-                {**obj, "ContentLength": obj.get("Size")}, self.config["bucket"], key
-            )
-            observed.pop("version_id")
-            entries.append({"name": key[len(prefix) :], **observed})
-        names = []
-        for obj in response.get("CommonPrefixes", []):
-            key = decode_key(obj.get("Prefix"))
-            if not key.startswith(prefix) or not key.endswith("/"):
-                raise StorageError("s3_prefix_mismatch")
-            names.append(key[len(prefix) :])
-        if len(entries) + len(names) > PAGE_SIZE:
-            raise StorageError("s3_invalid_listing")
-        return {
-            "entries": entries,
-            "directories": names,
-            "next_cursor": next_cursor,
-            "listed_count": len(response.get("Contents", [])) + len(names),
-        }
-
-    @contextmanager
-    def content_file(self, base, path, *, expected=None, **kwargs):
-        if (
-            kwargs.get("expected_anchor") is not None
-            and kwargs["expected_anchor"] != self.anchor
-        ):
-            raise StorageError("configuration_changed")
-        key = directory_prefix(self.config.get("base_prefix", ""), base) + path
-        if "\x00" in key or len(key.encode()) > 1024:
-            raise StorageError("s3_invalid_key")
-        bucket = self.config["bucket"]
-        if not path or (
-            expected
-            and (expected.get("key") != key or expected.get("bucket") != bucket)
-        ):
-            raise StorageError("content_binding_changed")
-        params = {"Bucket": bucket, "Key": key}
-        if expected and expected.get("version_id") not in {None, "null"}:
-            params["VersionId"] = expected["version_id"]
-        if expected and expected.get("etag"):
-            params["IfMatch"] = expected["etag"]
-        with self.client() as client:
-            before = read_observation(client.head_object(**params), bucket, key)
-            if expected and not matches(before, expected):
-                raise StorageError("source_changed")
-            params["IfMatch"] = before["etag"]
-            if before["version_id"] not in {None, "null"}:
-                params["VersionId"] = before["version_id"]
-            require_conditions(client, params)
-            response = client.get_object(**params)
-            body = response["Body"]
-            try:
-                if read_observation(response, bucket, key) != before:
-                    raise StorageError("source_changed")
-                yield body, before
-                if (
-                    read_observation(client.head_object(**params), bucket, key)
-                    != before
-                ):
-                    raise StorageError("source_changed")
-            finally:
-                close_registered(body)
-
-    def probe(self, sample_file=None):
-        capabilities = {
-            name: "unsupported" for name in ("range", "write", "delete", "presign")
-        }
-        capabilities.update(list="unknown", read="unknown", conditional_read="unknown")
-        try:
-            self.list_page("")
-            capabilities["list"] = "verified"
-            if sample_file is not None:
-                with self.content_file("", sample_file) as (body, _):
-                    body.read(16)
-                capabilities.update(read="verified", conditional_read="verified")
-            return {
-                "ok": True,
-                "code": "ok",
-                "capabilities": capabilities,
-                "anchor": self.anchor,
-            }
-        except (StorageError, connector_guard.ConnectorHostDenied) as exc:
-            if getattr(exc, "storage_operation_unsettled", False):
-                raise
-            return {
-                "ok": False,
-                "code": getattr(exc, "code", "connector_host_denied"),
-                "capabilities": capabilities,
-                "anchor": self.anchor,
-            }
 
 
 @dataclass(frozen=True, repr=False)

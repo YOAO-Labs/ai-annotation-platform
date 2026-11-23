@@ -109,30 +109,22 @@ async def execute_scan(run_id, task_id, node_id):
                             expected_revision=work["maintenance_revision"],
                         )
                         manifest = receipt.result["result"]
-                    elif work.get("kind") == "s3":
-                        manifest = await storage_access.run(
+                    elif work["kind"] in {"s3", "sftp"}:
+                        manifest = await work["config"].command(
                             db,
-                            work["location_id"],
                             "scan",
-                            work["access"].list_page,
-                            work["path"],
-                            work["cursor"],
-                            expected_revision=work["maintenance_revision"],
+                            maintenance_revision=work["maintenance_revision"],
                             node_id=node_id,
+                            timeout=5 if work["kind"] == "sftp" else None,
+                            **work["source_io"],
                         )
                     else:
-                        scan_directory = (
-                            work["config"].scan_directory
-                            if work.get("kind") == "sftp"
-                            else lambda *args, **kwargs: fs.scan_directory(
-                                work["config"], *args, **kwargs
-                            )
-                        )
                         manifest = await storage_access.run(
                             db,
                             work["location_id"],
                             "scan",
-                            scan_directory,
+                            fs.scan_directory,
+                            work["config"],
                             work["path"],
                             expected_anchor=work["anchor"],
                             expected_identity=work["identity"],

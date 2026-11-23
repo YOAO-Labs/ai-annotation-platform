@@ -123,12 +123,13 @@ def location_out(location, actor, connection, maintenance):
         location.kind == "s3" and connection is not None
     )
     if location.kind == "sftp" and connection is not None:
-        from app.services.source_readers.sftp import qualified_root
+        from app.services.reference_storage import sftp_location_anchor
+        from yoao_assets_source.reference_protocol import ReferenceError
 
         try:
-            qualified_root(connection.config)
+            sftp_location_anchor(connection.config)
             reference = True
-        except fs.FilesystemStorageError:
+        except ReferenceError:
             pass
     actions = ["read"]
     if location.enabled and reference and maintenance["state"] == "active":
@@ -324,10 +325,29 @@ async def node_anchor(db, location, node_id):
     return (prior.result or {}).get("anchor") if prior else None
 
 
-async def browse(db, location, *, path, limit, cursor, maintenance_revision=None):
+async def browse(
+    db,
+    location,
+    *,
+    path,
+    limit,
+    cursor,
+    maintenance_revision=None,
+    actor_id=None,
+    api_key_id=None,
+    key_proof=None,
+):
     if location.kind == "s3":
         return await browse_s3(
-            db, location, path, cursor, maintenance_revision=maintenance_revision
+            db,
+            location,
+            path,
+            cursor,
+            limit=limit,
+            maintenance_revision=maintenance_revision,
+            actor_id=actor_id,
+            api_key_id=api_key_id,
+            key_proof=key_proof,
         )
     require_reference_backend(location)
     maintenance_revision = await storage_access.check(
@@ -354,6 +374,7 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
                 or data.get("maintenance_revision", 1) != maintenance_revision
                 or data["path_digest"] != path_digest
                 or data["node"] != node
+                or (location.kind == "sftp" and data.get("actor") != str(actor_id))
             ):
                 raise ValueError()
         except (JWTError, ValueError, KeyError, TypeError):
@@ -385,12 +406,27 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)
-        browse_directory = access.browse_directory
+        result = await access.command(
+            db,
+            "browse",
+            {
+                "path": path,
+                "limit": limit,
+                "after": data["after"] if data else None,
+                "snapshot": data["snapshot"] if data else None,
+            },
+            actor_id=actor_id,
+            key_id=api_key_id,
+            key_proof=key_proof,
+            maintenance_revision=maintenance_revision,
+            node_id=node,
+        )
+        names, more, snapshot = result["names"], result["has_more"], result["snapshot"]
     else:
         from functools import partial
 
         browse_directory = partial(fs.browse_directory, location.config)
-    if location.kind != "agent":
+    if location.kind == "filesystem":
         names, more, snapshot = await _registered_io(
             db,
             location.id,
@@ -415,6 +451,7 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
                 "revision": location.config_revision,
                 "node": node,
                 "path_digest": path_digest,
+                **({"actor": str(actor_id)} if location.kind == "sftp" else {}),
                 "after": names[-1],
                 "snapshot": snapshot,
             },
@@ -437,7 +474,16 @@ async def browse(db, location, *, path, limit, cursor, maintenance_revision=None
 
 
 async def perform_probe(
-    db, location, node_id, sample_file, *, maintenance_revision=None
+    db,
+    location,
+    node_id,
+    sample_file,
+    *,
+    maintenance_revision=None,
+    actor_id=None,
+    api_key_id=None,
+    key_proof=None,
+    source_request=None,
 ):
     require_reference_backend(location)
     revision = await storage_access.check(
@@ -463,13 +509,14 @@ async def perform_probe(
         from app.services.reference_storage import configuration
 
         access = await configuration(db, location)
-        result = await _registered_io(
+        result = await access.command(
             db,
-            location.id,
             "probe",
-            access.probe,
-            sample_file,
-            expected_revision=revision,
+            source_request if source_request is not None else {"path": sample_file},
+            actor_id=actor_id,
+            key_id=api_key_id,
+            key_proof=key_proof,
+            maintenance_revision=revision,
             node_id=node_id,
             timeout=3,
         )
@@ -495,7 +542,18 @@ async def perform_probe(
     return {**result, "maintenance_revision": revision}
 
 
-async def browse_s3(db, location, path, cursor, *, maintenance_revision=None):
+async def browse_s3(
+    db,
+    location,
+    path,
+    cursor,
+    *,
+    limit,
+    maintenance_revision,
+    actor_id,
+    api_key_id,
+    key_proof,
+):
     from app.services.reference_storage import configuration
 
     require_reference_backend(location)
@@ -517,20 +575,20 @@ async def browse_s3(db, location, path, cursor, *, maintenance_revision=None):
                 or data["revision"] != location.config_revision
                 or data.get("maintenance_revision", 1) != maintenance_revision
                 or data["path"] != path
+                or data.get("actor") != str(actor_id)
             ):
                 raise ValueError()
             token = data["token"]
         except (JWTError, ValueError, KeyError, TypeError):
             raise HTTPException(409, "Directory cursor is invalid or stale") from None
-    page = await _registered_io(
+    page = await access.command(
         db,
-        location.id,
         "browse",
-        access.list_page,
-        path,
-        token,
-        directories=True,
-        expected_revision=maintenance_revision,
+        {"path": path, "cursor": token, "limit": limit},
+        actor_id=actor_id,
+        key_id=api_key_id,
+        key_proof=key_proof,
+        maintenance_revision=maintenance_revision,
         node_id=api_node_id(),
     )
     await storage_access.check(db, location.id, expected_revision=maintenance_revision)
@@ -543,6 +601,7 @@ async def browse_s3(db, location, path, cursor, *, maintenance_revision=None):
                 "location": str(location.id),
                 "revision": location.config_revision,
                 "path": path,
+                "actor": str(actor_id),
                 "token": page["next_cursor"],
             },
             settings.secret_key,

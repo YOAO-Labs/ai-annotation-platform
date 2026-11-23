@@ -10,7 +10,7 @@ from PIL import Image
 import pytest
 from sqlalchemy import func, select
 
-from app.config import settings, SftpReferenceRoot
+from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
@@ -21,12 +21,17 @@ from app.services import (
     dataset_scans as scans,
     dataset_content as content,
     storage_location as locations,
-    connector_guard,
 )
 from app.services.content_snapshot import ContentError
 from app.services.dataset_references import register_entry, reference_snapshot
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.source_readers import sftp as backend
+from tests.reference_provider_fixture import use_provider
+from yoao_assets_source.reference_protocol import (
+    ReferenceError,
+    SftpReferenceRoot,
+    qualified_sftp_root,
+)
+from yoao_assets_source_runtime import reference_readers as backend
 
 
 def wire_attributes(info, filename=None):
@@ -87,11 +92,6 @@ async def sftp_world(db_session, super_admin, monkeypatch, tmp_path):
     def client(self):
         yield memory
 
-    async def allowed(*args):
-        pass
-
-    monkeypatch.setattr(backend.SftpAccess, "client", client)
-    monkeypatch.setattr(connector_guard, "assert_connection_target_allowed", allowed)
     actor = super_admin[0]
     connection = StorageConnection(
         name=f"sftp-{uuid.uuid4()}",
@@ -109,9 +109,21 @@ async def sftp_world(db_session, super_admin, monkeypatch, tmp_path):
     db_session.add_all([connection, dataset])
     await db_session.flush()
     location = await locations.register_connection(db_session, connection)
+    monkeypatch.setattr(backend.SftpReader, "_client", client)
+    use_provider(
+        monkeypatch,
+        location.id,
+        lambda: backend.SftpReader(
+            {}, (), "test", settings.storage_sftp_roots["test"].model_dump()
+        ),
+    )
     for node in ["worker:content@test", locations.api_node_id()]:
         result = await locations.perform_probe(
-            db_session, location, node, "collection/ 图片 +%2F.png"
+            db_session,
+            location,
+            node,
+            "collection/ 图片 +%2F.png",
+            actor_id=actor.id,
         )
         assert result["ok"], result
         from datetime import datetime, timezone
@@ -272,17 +284,19 @@ async def test_qualification_requires_exact_account_and_jail_root(sftp_world):
         {"base_path": "/data"},
         {"port": 2222},
     ]:
-        with pytest.raises(FilesystemStorageError, match="sftp_root_not_qualified"):
-            backend.qualified_root({**config, **override})
+        with pytest.raises(ReferenceError, match="sftp_root_not_qualified"):
+            qualified_sftp_root(
+                {**config, **override},
+                {"test": settings.storage_sftp_roots["test"].model_dump()},
+            )
 
 
 @pytest.mark.parametrize(
     "path", ["/etc/passwd", "../secret", "a/../b", "a//b", "a\\b", "a\x00b"]
 )
 async def test_unsafe_relative_paths_rejected(sftp_world, path):
-    root, memory, *_ = sftp_world
-    access = backend.SftpAccess({}, b"sealed", (), "test", {})
-    with pytest.raises(FilesystemStorageError):
+    access = backend.SftpReader({}, (), "test", {})
+    with pytest.raises(ReferenceError):
         with access.content_file("collection", path):
             pass
 
@@ -298,7 +312,7 @@ async def test_single_directory_budget_and_symlink_open_fail_closed(
     with pytest.raises(FilesystemStorageError, match="symlink_rejected"):
         with access.content_file("collection", "link.png"):
             pass
-    monkeypatch.setattr(backend, "MAX_ENTRIES", 1)
+    monkeypatch.setattr(backend, "MAX_DIRECTORY_ENTRIES", 1)
     with pytest.raises(FilesystemStorageError, match="directory_too_large"):
         access.scan_directory("collection", expected_anchor=access.anchor)
 
@@ -414,7 +428,11 @@ async def test_new_api_node_cannot_rebind_old_reference_to_new_qualification(
     monkeypatch.setattr(settings, "storage_sftp_roots", {"test": profile})
     monkeypatch.setattr(locations, "api_node_id", lambda: "api:new-node")
     proof = await locations.perform_probe(
-        db_session, location, "api:new-node", "collection/ 图片 +%2F.png"
+        db_session,
+        location,
+        "api:new-node",
+        "collection/ 图片 +%2F.png",
+        actor_id=actor.id,
     )
     assert proof["ok"]
     await locations.store_probe(
@@ -472,11 +490,8 @@ def test_ssh_uses_validated_socket_and_independent_pinned_host_keys(monkeypatch)
 
     monkeypatch.setattr(backend.paramiko, "SSHClient", Client)
     monkeypatch.setattr(backend.socket, "socket", lambda *args: sock)
-    monkeypatch.setattr(
-        connector_guard, "resolve_allowed_ips", lambda *args: ["10.2.3.4"]
-    )
-    monkeypatch.setattr(backend, "decrypt_secret", lambda value: {"password": "test"})
-    with backend.SftpAccess({}, b"sealed", (), "test", root).client():
+    monkeypatch.setattr(backend, "resolve_allowed_ips", lambda *args: ["10.2.3.4"])
+    with backend.SftpReader({"password": "test"}, (), "test", root)._client():
         pass
     assert calls == [
         ("socket", ("10.2.3.4", 22)),
@@ -500,10 +515,7 @@ def test_bad_private_key_is_a_connection_failure(monkeypatch, encrypted):
         "username": "reader",
         "host_key": f"{key.get_name()} {key.get_base64()}",
     }
-    monkeypatch.setattr(
-        connector_guard, "resolve_allowed_ips", lambda *args: ["10.2.3.4"]
-    )
-    monkeypatch.setattr(backend, "decrypt_secret", lambda value: secret)
-    result = backend.SftpAccess({}, b"sealed", (), "test", root).probe()
+    monkeypatch.setattr(backend, "resolve_allowed_ips", lambda *args: ["10.2.3.4"])
+    result = backend.probe(backend.SftpReader(secret, (), "test", root), "", None, None)
     assert not result["ok"]
     assert result["code"] == "connection_unavailable"

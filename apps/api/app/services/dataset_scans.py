@@ -490,6 +490,7 @@ async def next_directory(db, run_id, task_id, fence):
             work["_fault_observation"] = await scan_fault_observation(
                 db, location, source, run, job, work
             )
+            work["source_io"] = source_scan_proof(run, job, pages=work["pages"])
         return work
     entry = await data.next_directory(db, run, job)
     if entry.outcome == "stale":
@@ -529,10 +530,29 @@ async def next_directory(db, run_id, task_id, fence):
             "user_id": str(job.user_id),
         }
 
+    if location.kind == "sftp":
+        work["source_io"] = source_scan_proof(run, job, path_digest=entry.path_digest)
+
     work["_fault_observation"] = await scan_fault_observation(
         db, location, source, run, job, work
     )
     return work
+
+
+def source_scan_proof(run, job, **member):
+    return {
+        "actor_id": job.user_id,
+        "key_id": run.snapshot.get("api_key_id"),
+        "key_proof": run.snapshot.get("key_proof"),
+        "request": {
+            "run_id": str(run.id),
+            "job_id": str(job.id),
+            "task_id": job.celery_task_id,
+            "generation": run.generation,
+            "lease_token": str(run.lease_token),
+            **member,
+        },
+    }
 
 
 async def scan_fault_observation(db, location, source, run, job, work):

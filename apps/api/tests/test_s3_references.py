@@ -12,20 +12,27 @@ from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from PIL import Image
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+from app.db.models.dataset_asset import (
+    DatasetAsset,
+    DatasetAssetLocation,
+    StorageLocation,
+)
 from app.db.models.dataset_source import DatasetScanEntry, DatasetScanRun
 from app.db.models.storage_connection import StorageConnection
 from app.schemas.dataset_source import DatasetSourceCreate
 from app.services import dataset_scans as scans, dataset_content as content
-from app.services import storage_location as locations, connector_guard
+from app.services import storage_location as locations
 from app.services.content_snapshot import ContentError
 from app.services.dataset_references import register_entry, reference_snapshot
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.source_readers import s3 as backend
+from tests.reference_provider_fixture import use_provider
+from yoao_assets_source.connectors import s3_socket
+from yoao_assets_source.connectors.host_guard import ConnectorHostDenied
+from yoao_assets_source_runtime import reference_readers as backend
 from tests.test_dataset_registration import start, drain, begin_confirmed
 
 
@@ -97,11 +104,6 @@ async def s3_world(db_session, super_admin, monkeypatch):
     def client(self):
         yield memory
 
-    async def allowed(*args):
-        return None
-
-    monkeypatch.setattr(backend.S3Access, "client", client)
-    monkeypatch.setattr(connector_guard, "assert_connection_target_allowed", allowed)
     actor = super_admin[0]
     connection = StorageConnection(
         name=f"s3-{uuid.uuid4()}",
@@ -123,9 +125,17 @@ async def s3_world(db_session, super_admin, monkeypatch):
     db_session.add_all([connection, dataset])
     await db_session.flush()
     location = await locations.register_connection(db_session, connection)
+    monkeypatch.setattr(backend.S3Reader, "_client", client)
+    use_provider(
+        monkeypatch, location.id, lambda: backend.S3Reader(connection.config, {}, ())
+    )
     for node in ["worker:content@test", locations.api_node_id()]:
         result = await locations.perform_probe(
-            db_session, location, node, "collection/a//图片 +%2F.png"
+            db_session,
+            location,
+            node,
+            "collection/a//图片 +%2F.png",
+            actor_id=actor.id,
         )
         assert result["ok"], result
         await locations.store_probe(
@@ -157,7 +167,7 @@ async def scan(db, world):
         await db.commit()
         if work is None:
             break
-        page = work["access"].list_page(work["path"], work["cursor"])
+        page = work["config"].list_page(work["path"], work["cursor"])
         await scans.apply_directory(db, run.id, job.celery_task_id, fence, work, page)
         await db.commit()
     return run
@@ -223,7 +233,7 @@ async def test_pagination_cancel_resume_preserves_committed_page(
     fence = await scans.claim(db_session, run.id, old_task_id, "content@test")
     await db_session.commit()
     work = await scans.next_directory(db_session, run.id, old_task_id, fence)
-    page = work["access"].list_page(work["path"], work["cursor"])
+    page = work["config"].list_page(work["path"], work["cursor"])
     await scans.apply_directory(db_session, run.id, old_task_id, fence, work, page)
     await db_session.commit()
     await scans.cancel_job(db_session, job.id, actor)
@@ -239,7 +249,7 @@ async def test_pagination_cancel_resume_preserves_committed_page(
     fence = await scans.claim(db_session, run.id, job.celery_task_id, "content@test")
     work = await scans.next_directory(db_session, run.id, job.celery_task_id, fence)
     assert work["cursor"] == "1+%2F"
-    page = work["access"].list_page(work["path"], work["cursor"])
+    page = work["config"].list_page(work["path"], work["cursor"])
     await scans.apply_directory(
         db_session, run.id, job.celery_task_id, fence, work, page
     )
@@ -315,7 +325,11 @@ async def test_credential_revision_change_during_read_cannot_publish_receipt(
 
     async def rotated(*args, **kwargs):
         snapshot = await real_capture(*args, **kwargs)
-        location.config_revision += 1
+        await db_session.execute(
+            update(StorageLocation)
+            .where(StorageLocation.id == location.id)
+            .values(config_revision=location.config_revision + 1)
+        )
         await db_session.commit()
         return snapshot
 
@@ -359,10 +373,14 @@ async def test_non_full_response_is_not_a_verified_original(
 
 
 async def test_ignored_conditions_fail_sample_probe(db_session, s3_world):
-    memory, _, _, location, _ = s3_world
+    memory, actor, _, location, _ = s3_world
     memory.ignore_condition = True
     result = await locations.perform_probe(
-        db_session, location, locations.api_node_id(), "collection/a//图片 +%2F.png"
+        db_session,
+        location,
+        locations.api_node_id(),
+        "collection/a//图片 +%2F.png",
+        actor_id=actor.id,
     )
     assert not result["ok"] and result["code"] == "s3_conditions_not_supported"
 
@@ -377,7 +395,7 @@ async def test_scan_rejects_repeated_continuation_token(
     job = await db_session.get(AsyncJob, run.async_job_id)
     fence = await scans.claim(db_session, run.id, job.celery_task_id, "content@test")
     work = await scans.next_directory(db_session, run.id, job.celery_task_id, fence)
-    page = work["access"].list_page(work["path"], work["cursor"])
+    page = work["config"].list_page(work["path"], work["cursor"])
     await scans.apply_directory(
         db_session, run.id, job.celery_task_id, fence, work, page
     )
@@ -390,22 +408,24 @@ async def test_scan_rejects_repeated_continuation_token(
 
 
 def test_client_guards_actual_destination_and_disables_proxy(monkeypatch):
-    monkeypatch.setattr(
-        backend,
-        "decrypt_secret",
-        lambda value: {"access_key": "test", "secret_key": "test"},
-    )
-    monkeypatch.setattr(connector_guard, "assert_host_allowed", lambda *args: None)
-    access = backend.S3Access(
-        {"endpoint": "http://10.1.1.1:9000", "bucket": "external"}, b"sealed", ()
-    )
-    with access.client() as client:
+    from contextlib import closing
+
+    monkeypatch.setattr(s3_socket, "resolve_allowed_ips", lambda *args: ["10.1.1.1"])
+    with closing(
+        s3_socket.open_pinned_s3(
+            {"endpoint": "http://10.1.1.1:9000", "bucket": "external"},
+            {"access_key": "test", "secret_key": "test"},
+            (),
+            connect_timeout=2,
+            read_timeout=2,
+        )
+    ) as client:
         assert client.meta.config.proxies == {}
         client.meta.events.emit(
             "before-send.s3.GetObject",
             request=SimpleNamespace(url="http://10.1.1.1:9000/external/a//../b"),
         )
-        with pytest.raises(FilesystemStorageError, match="s3_redirect_denied"):
+        with pytest.raises(ConnectorHostDenied):
             client.meta.events.emit(
                 "before-send.s3.GetObject",
                 request=SimpleNamespace(url="http://10.1.1.2:9000/external/key"),
@@ -416,8 +436,8 @@ def test_client_guards_actual_destination_and_disables_proxy(monkeypatch):
     "key", ["root/a//b", "root/./b", "root/a\\b", "root/ 中文 +%2F "]
 )
 def test_encoded_key_is_decoded_exactly_once(key):
-    assert backend.decode_key(quote(key, safe="")) == key
-    assert backend.decode_key(quote_plus(key, safe="")) == key
+    assert backend._s3_key(quote(key, safe="")) == key
+    assert backend._s3_key(quote_plus(key, safe="")) == key
 
 
 async def test_ignored_conditions_cannot_start_or_bypass_preflight(

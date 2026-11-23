@@ -11,8 +11,8 @@ import pytest
 from app.config import settings
 from yoao_assets_source.connectors import probe as probe_module
 from app.services import filesystem_storage as fs, storage_access
-from app.services.source_readers import s3 as s3_reference
-from app.services.source_readers import sftp as sftp_reference
+from yoao_assets_source.reference_protocol import ReferenceError
+from yoao_assets_source_runtime import reference_readers as backend
 from yoao_assets_source.connectors.s3 import S3CompatibleSource
 from yoao_assets_source.connectors.sftp import SftpSource
 from tests.test_s3_references import MemoryS3
@@ -78,23 +78,15 @@ def test_s3_reference_propagates_only_close_uncertainty(monkeypatch, failure):
             if failure == "body":
                 raise fs.FilesystemStorageError("close_failed")
 
-    monkeypatch.setattr(s3_reference, "allowed_endpoint", lambda *args: None)
-    monkeypatch.setattr(
-        s3_reference,
-        "decrypt_secret",
-        lambda value: {"access_key": "test", "secret_key": "test"},
-    )
-    monkeypatch.setattr(s3_reference.boto3, "client", lambda *args, **kwargs: Client())
-    access = s3_reference.S3Access(
+    monkeypatch.setattr(backend, "open_pinned_s3", lambda *args, **kwargs: Client())
+    access = backend.S3Reader(
         {"endpoint": "http://example.test", "bucket": "data", "base_prefix": "root"},
-        b"sealed",
+        {"access_key": "test", "secret_key": "test"},
         (),
     )
-    with pytest.raises((ValueError, fs.FilesystemStorageError)) as error:
-        access.probe("collection/a//图片 +%2F.png")
-    assert bool(getattr(error.value, "storage_operation_unsettled", False)) == (
-        failure != "read"
-    )
+    with pytest.raises(ValueError) as error:
+        backend.probe(access, "", "collection/a//图片 +%2F.png", None)
+    assert bool(getattr(error.value, "unsettled", False)) == (failure != "read")
     assert "client" in closed
     if failure == "body":
         assert "body" in closed
@@ -146,23 +138,14 @@ def test_sftp_reference_client_closes_other_handles_and_preserves_marker(
         def open_sftp(self):
             return Sftp("sftp")
 
-    monkeypatch.setattr(sftp_reference.paramiko, "SSHClient", lambda: SSH("ssh"))
-    monkeypatch.setattr(sftp_reference.socket, "socket", lambda *args: Socket("socket"))
-    monkeypatch.setattr(
-        sftp_reference.connector_guard,
-        "resolve_allowed_ips",
-        lambda *args: ["10.1.1.1"],
-    )
-    monkeypatch.setattr(
-        sftp_reference, "decrypt_secret", lambda value: {"password": "test"}
-    )
-    with pytest.raises((OSError, fs.FilesystemStorageError)) as error:
-        with sftp_reference.SftpAccess({}, b"sealed", (), "test", root).client():
+    monkeypatch.setattr(backend.paramiko, "SSHClient", lambda: SSH("ssh"))
+    monkeypatch.setattr(backend.socket, "socket", lambda *args: Socket("socket"))
+    monkeypatch.setattr(backend, "resolve_allowed_ips", lambda *args: ["10.1.1.1"])
+    with pytest.raises(ReferenceError) as error:
+        with backend.SftpReader({"password": "test"}, (), "test", root)._client():
             if failure == "read":
                 raise OSError("ordinary read failure")
-    assert bool(getattr(error.value, "storage_operation_unsettled", False)) == (
-        failure != "read"
-    )
+    assert error.value.unsettled == (failure != "read")
     assert calls == ["sftp", "ssh", "socket"]
 
 
@@ -184,11 +167,11 @@ def test_sftp_probe_does_not_swallow_failed_body_close(tmp_path, monkeypatch):
     def client(self):
         yield Memory(tmp_path)
 
-    monkeypatch.setattr(sftp_reference.SftpAccess, "client", client)
-    access = sftp_reference.SftpAccess({}, b"sealed", (), "test", {})
-    with pytest.raises(fs.FilesystemStorageError) as error:
-        access.probe("sample.bin")
-    unsettled(error)
+    monkeypatch.setattr(backend.SftpReader, "_client", client)
+    access = backend.SftpReader({"password": "test"}, (), "test", {})
+    with pytest.raises(ReferenceError) as error:
+        backend.probe(access, "", "sample.bin", None)
+    assert error.value.unsettled
 
 
 def test_copy_adapter_closes_real_s3_client_and_failed_sftp_constructor(monkeypatch):

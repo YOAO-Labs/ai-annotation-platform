@@ -141,6 +141,9 @@ async def start_preflight(db, scan_id, actor, *, api_key_id=None, worker_node=No
             source,
             scan.id,
             locations.api_node_id(),
+            actor_id=actor.id,
+            api_key_id=api_key_id,
+            key_proof=key_proof,
             guard=probe_authority,
         )
         location, source, scan, _ = await scans.run_context(db, scan_id)
@@ -206,7 +209,7 @@ async def claim(db, run_id, task_id, node_id):
         or job.status != "pending"
     ):
         return None
-    await validate(db, location, source, run)
+    actor = await validate(db, location, source, run)
     if node_id != run.snapshot["node_id"]:
         raise fs.FilesystemStorageError("wrong_execution_node")
     node = f"worker:{node_id}"
@@ -225,7 +228,15 @@ async def claim(db, run_id, task_id, node_id):
         await validate(db, current_location, current_source, current_run)
 
     result = await probe_candidates(
-        db, location, source, run.scan_run_id, node, guard=probe_authority
+        db,
+        location,
+        source,
+        run.scan_run_id,
+        node,
+        actor_id=actor.id,
+        api_key_id=run.snapshot.get("api_key_id"),
+        key_proof=run.snapshot.get("key_proof"),
+        guard=probe_authority,
     )
     location, source, run, job = await context(db, run_id)
     if (
@@ -340,7 +351,18 @@ async def other_active(db, run):
         raise HTTPException(409, "Another registration is active for this source")
 
 
-async def probe_candidates(db, location, source, scan_id, node, *, guard=None):
+async def probe_candidates(
+    db,
+    location,
+    source,
+    scan_id,
+    node,
+    *,
+    actor_id,
+    api_key_id,
+    key_proof,
+    guard=None,
+):
     async def settled(result):
         if location.kind == "agent":
             if guard is None:
@@ -355,7 +377,19 @@ async def probe_candidates(db, location, source, scan_id, node, *, guard=None):
             }
         return result
 
-    root = await locations.perform_probe(db, location, node, None)
+    registered = location.kind in {"s3", "sftp"}
+    authorization = dict(actor_id=actor_id, api_key_id=api_key_id, key_proof=key_proof)
+    request = (
+        {"source_id": str(source.id), "run_id": str(scan_id)} if registered else None
+    )
+    root = await locations.perform_probe(
+        db,
+        location,
+        node,
+        None,
+        source_request=request,
+        **authorization,
+    )
     root = await settled(root)
     if not root["ok"]:
         return root
@@ -364,9 +398,13 @@ async def probe_candidates(db, location, source, scan_id, node, *, guard=None):
             db,
             location,
             node,
-            reference_storage.sample_path(
-                location, source.config["relative_path"], path
-            ),
+            None
+            if registered
+            else "/".join(filter(None, (source.config["relative_path"], path))),
+            source_request={**request, "path_digest": scans.path_digest(path)}
+            if registered
+            else None,
+            **authorization,
         )
         probe = await settled(probe)
         if location.kind == "s3" and probe["code"] == "s3_conditions_not_supported":
@@ -377,20 +415,20 @@ async def probe_candidates(db, location, source, scan_id, node, *, guard=None):
 
 
 def check_source_directory(config, path, anchor):
-    from app.services.source_readers.s3 import S3Access
-    from app.services.source_readers.sftp import SftpAccess
-
-    if isinstance(config, S3Access):
-        config.list_page(path)
-        return
-    if isinstance(config, SftpAccess):
-        config.scan_directory(path, expected_anchor=anchor)
-        return
     with fs.location_directory(config, path, expected_anchor=anchor):
         return
 
 
-async def ensure_source_available(db, location, source, node):
+async def ensure_source_available(
+    db,
+    location,
+    source,
+    node,
+    *,
+    actor_id,
+    api_key_id,
+    key_proof,
+):
     config, relative = (
         await reference_storage.configuration(db, location),
         source.config["relative_path"],
@@ -419,6 +457,19 @@ async def ensure_source_available(db, location, source, node):
         await agent_transport.acknowledge(db, receipt, accepted=True)
         return
     try:
+        if isinstance(config, reference_storage.RegisteredReference):
+            await config.command(
+                db,
+                "directory",
+                {"source_id": str(source.id)},
+                actor_id=actor_id,
+                key_id=api_key_id,
+                key_proof=key_proof,
+                maintenance_revision=revision,
+                node_id=node,
+                timeout=3,
+            )
+            return
         await storage_access.run(
             db,
             location_id,
@@ -431,7 +482,9 @@ async def ensure_source_available(db, location, source, node):
             node_id=node,
             timeout=3,
         )
-    except (TimeoutError, fs.FilesystemStorageError):
+    except (TimeoutError, fs.FilesystemStorageError) as exc:
+        if storage_access.failure_unsettled(exc):
+            raise
         raise fs.FilesystemStorageError("source_unavailable") from None
 
 
@@ -506,7 +559,18 @@ async def confirm(
                 raise HTTPException(409, detail={"code": "no_ready_images"})
             break
         scan_id, digest, sha = run.scan_run_id, sample.path_digest, sample.sha256
-        proof = await locations.perform_probe(db, location, node_id, None)
+        proof = await locations.perform_probe(
+            db,
+            location,
+            node_id,
+            None,
+            actor_id=actor.id,
+            api_key_id=api_key_id,
+            key_proof=key_proof,
+            source_request={"source_id": str(source.id), "run_id": str(scan_id)}
+            if location.kind in {"s3", "sftp"}
+            else None,
+        )
         await authorize(db)
         await locations.store_probe(db, location, node_id, proof, await scans.now(db))
         if not proof["ok"]:
@@ -541,7 +605,15 @@ async def confirm(
             location, source, run, _ = await context(db, run_id)
             await authorize(db)
             if exc.code in PATH_ERRORS:
-                await ensure_source_available(db, location, source, node_id)
+                await ensure_source_available(
+                    db,
+                    location,
+                    source,
+                    node_id,
+                    actor_id=actor.id,
+                    api_key_id=api_key_id,
+                    key_proof=key_proof,
+                )
                 _, _, run, _ = await context(db, run_id)
                 await authorize(db)
             if run.phase != "preflight" or run.status != "completed":
