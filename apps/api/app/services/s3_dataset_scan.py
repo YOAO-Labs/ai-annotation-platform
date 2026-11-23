@@ -32,7 +32,7 @@ async def next_page(db, location, source, run, job):
         "kind": "s3",
         "location_id": location.id,
         "maintenance_revision": run.snapshot.get("maintenance_revision", 1),
-        "access": access,
+        "config": access,
         "path": source.config["relative_path"],
         "cursor": checkpoint.get("cursor"),
         "pages": checkpoint.get("pages", 0),

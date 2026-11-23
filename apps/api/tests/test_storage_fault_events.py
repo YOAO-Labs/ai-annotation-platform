@@ -22,8 +22,10 @@ from app.services import directory_previews, filesystem_storage as fs
 from app.services import storage_fault_events as events
 from app.services.audit import AuditService
 from app.services.content_snapshot import ContentError
-from app.services.source_readers import s3 as s3_reference
-from app.services.source_readers import sftp as sftp_reference
+from app.services.reference_storage import error as reference_failure
+from yoao_assets_source.reference_protocol import ReferenceError
+from yoao_assets_source.saved_io import SavedIOError
+from yoao_assets_source_runtime import reference_readers as backend
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_workspace_project_authority_locking import _api_url
 
@@ -227,15 +229,11 @@ async def test_actual_provider_rejection_is_classified_without_disclosing_creden
 ):
     location, source, run = world[4:7]
     client = Mock()
-    monkeypatch.setattr(s3_reference.boto3, "client", lambda *args, **kwargs: client)
-    monkeypatch.setattr(s3_reference, "allowed_endpoint", lambda *args: None)
-    monkeypatch.setattr(
-        s3_reference,
-        "decrypt_secret",
-        lambda _: {"access_key": "private", "secret_key": "private"},
-    )
-    access = s3_reference.S3Access(
-        {"endpoint": "http://127.0.0.1:9000", "bucket": "external"}, b"sealed", ()
+    monkeypatch.setattr(backend, "open_pinned_s3", lambda *args, **kwargs: client)
+    access = backend.S3Reader(
+        {"endpoint": "http://127.0.0.1:9000", "bucket": "external"},
+        {"access_key": "private", "secret_key": "private"},
+        (),
     )
     with pytest.raises(fs.FilesystemStorageError):
         async with events.observe(
@@ -245,10 +243,14 @@ async def test_actual_provider_rejection_is_classified_without_disclosing_creden
             source_id=source.id,
             run_id=run.id,
         ):
-            with access.client():
-                raise ClientError(
-                    {"Error": {"Code": code, "Message": "private-secret"}}, "GetObject"
-                )
+            try:
+                with access._client():
+                    raise ClientError(
+                        {"Error": {"Code": code, "Message": "private-secret"}},
+                        "GetObject",
+                    )
+            except ReferenceError as exc:
+                raise reference_failure(exc) from None
     saved = await rows(test_engine, location.id)
     assert saved[0]["detail_json"]["category"] == "access_denied"
     assert "private" not in str(saved)
@@ -400,42 +402,52 @@ def test_sftp_authentication_is_distinct_from_local_secret_failure(
     monkeypatch, failure
 ):
     import paramiko
-    from app.core.crypto import ConnectorCryptoError
+    from cryptography.fernet import Fernet
+    from types import SimpleNamespace
+
+    from yoao_assets_source_runtime.saved_io import Context
 
     key = paramiko.RSAKey.generate(1024)
     client, connection = Mock(), Mock()
     client.connect.side_effect = paramiko.AuthenticationException(
         "private provider response"
     )
-    monkeypatch.setattr(sftp_reference.paramiko, "SSHClient", lambda: client)
-    monkeypatch.setattr(sftp_reference.socket, "socket", lambda *args: connection)
-    monkeypatch.setattr(
-        sftp_reference.connector_guard,
-        "resolve_allowed_ips",
-        lambda *args: ["10.1.1.1"],
-    )
-    decrypt = Mock(return_value={"password": "private"})
+    monkeypatch.setattr(backend.paramiko, "SSHClient", lambda: client)
+    monkeypatch.setattr(backend.socket, "socket", lambda *args: connection)
+    monkeypatch.setattr(backend, "resolve_allowed_ips", lambda *args: ["10.1.1.1"])
     if failure == "decryption":
-        decrypt.side_effect = ConnectorCryptoError("private key material")
-    monkeypatch.setattr(sftp_reference, "decrypt_secret", decrypt)
-    access = sftp_reference.SftpAccess(
-        {},
-        b"sealed",
-        (),
-        "test",
-        {
-            "host": "10.1.1.1",
-            "port": 22,
-            "username": "reader",
-            "host_key": f"{key.get_name()} {key.get_base64()}",
-        },
-    )
-    with pytest.raises(fs.FilesystemStorageError) as caught:
-        with access.client():
-            pytest.fail("rejected authentication must not open SFTP")
-    assert caught.value.code == "connection_unavailable"
-    assert events.classify(caught.value) == (
+        context = Context(
+            SimpleNamespace(
+                config=SimpleNamespace(
+                    connector_encryption_key=Fernet.generate_key().decode("ascii")
+                )
+            )
+        )
+        with pytest.raises(SavedIOError) as caught:
+            context._credentials(
+                {"kind": "sftp", "config": {}, "ciphertext": b"invalid".hex()}
+            )
+        error = reference_failure(caught.value)
+        client.close.assert_not_called()
+    else:
+        access = backend.SftpReader(
+            {"password": "private"},
+            (),
+            "test",
+            {
+                "host": "10.1.1.1",
+                "port": 22,
+                "username": "reader",
+                "host_key": f"{key.get_name()} {key.get_base64()}",
+            },
+        )
+        with pytest.raises(ReferenceError) as caught:
+            with access._client():
+                pytest.fail("rejected authentication must not open SFTP")
+        error = reference_failure(caught.value)
+        client.close.assert_called_once()
+    assert error.code == "connection_unavailable"
+    assert events.classify(error) == (
         ("access_denied", "access_denied") if failure == "provider" else None
     )
-    assert "private" not in str(caught.value)
-    client.close.assert_called_once()
+    assert "private" not in str(error)

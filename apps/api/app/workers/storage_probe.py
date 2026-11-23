@@ -85,6 +85,9 @@ async def _probe(
                 f"worker:{expected_node}",
                 sample_file,
                 maintenance_revision=maintenance_revision,
+                actor_id=actor.id,
+                api_key_id=api_key_id,
+                key_proof=key_proof,
             )
             actor = await require_manager(db, actor.id)
             location = await get_visible(db, uuid.UUID(location_id), actor)
@@ -109,7 +112,14 @@ async def _probe(
             return result
     except ContentError as exc:
         return {"ok": False, "code": exc.code, "capabilities": {}}
-    except (FilesystemStorageError, HTTPException):
+    except FilesystemStorageError as exc:
+        code = (
+            "storage_operation_unsettled"
+            if storage_access.failure_unsettled(exc)
+            else exc.code
+        )
+        return {"ok": False, "code": code, "capabilities": {}}
+    except HTTPException:
         return {"ok": False, "code": "access_revoked", "capabilities": {}}
     finally:
         await engine.dispose()

@@ -935,9 +935,8 @@ async def directories(
     actor: User = Depends(manager),
 ):
     assert_request_scopes(request, "datasets:read")
-    proof = await key_authority(
-        db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
-    )
+    key_id = getattr(request.state, "api_key_id", None)
+    proof = await key_authority(db, actor, key_id, "datasets:read")
     actor = await require_manager(db, actor.id)
     location = await svc.get_visible(db, location_id, actor)
     revision = location.config_revision
@@ -952,6 +951,9 @@ async def directories(
             limit=limit,
             cursor=cursor,
             maintenance_revision=maintenance_revision,
+            actor_id=actor.id,
+            api_key_id=key_id,
+            key_proof=proof,
         )
     except (FilesystemStorageError, ContentError) as exc:
         raise filesystem_error(exc) from None
@@ -960,12 +962,7 @@ async def directories(
     location = await svc.get_visible(db, location_id, actor, lock=True)
     if location.config_revision != revision or not location.enabled:
         raise HTTPException(409, "Storage configuration revision changed")
-    if (
-        await key_authority(
-            db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
-        )
-        != proof
-    ):
+    if await key_authority(db, actor, key_id, "datasets:read") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     try:
         await storage_access.check(
@@ -1072,6 +1069,9 @@ async def probe(
                 node_id,
                 payload.sample_file,
                 maintenance_revision=maintenance_revision,
+                actor_id=actor_id,
+                api_key_id=key_id,
+                key_proof=key_proof,
             )
             if payload.node_id == "api" or location.kind == "agent"
             else await asyncio.wait_for(
@@ -1091,7 +1091,7 @@ async def probe(
         )
     except TimeoutError:
         result = {"ok": False, "code": "node_timeout", "capabilities": {}}
-    except ContentError as exc:
+    except (ContentError, FilesystemStorageError) as exc:
         raise filesystem_error(exc) from None
     if result.get("code") in {
         "storage_maintenance",

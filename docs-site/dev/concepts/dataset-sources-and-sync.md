@@ -115,17 +115,19 @@ Job 外键 `SET NULL`，数据集删除只清空来源关联，长期观测账�
 
 ## 外部 S3 与 SFTP 持续引用
 
+已登记位置的探测、浏览、扫描和读取由既有 Assets Source 进程执行。API／worker 只读取无密连接事实，独立提交绑定当前人员、位置代次及物理访问许可的短期单次证明，不提前提交调用方的业务事务。扫描证明还绑定当前运行、任务和目录检查点；原件读取证明绑定样本、Asset 及最新已接纳修订，不接受调用方传入物理定位。Source 在访问前后复核这些事实，仅在自身进程解封连接凭据。文件系统与站点 Agent 的执行归属不变。
+
 ### 外部 S3 持续引用
 
-严格引用使用 `sources/s3_reference.py`，旧 `sources/s3.py` 继续服务复制导入。`reference_storage.py` 解析现有连接器位置和加密凭据；`S3Access` 只在线程内解密、建立客户端，不进入 Celery 消息或持久快照。`Source/ScanEntry/Registration/Reference` 与 opaque `Item/Task` 身份复用已有模型，不新增平行资产表。S3 扫描在根 `ScanEntry.observed.checkpoint` 中逐页提交游标与结果，使用现有代次和租约；不套用 filesystem 的 inode 或整树二次目录摘要。
+严格引用使用 Source 的 `reference_readers`，与连接器一次性复制导入分离。`Source/ScanEntry/Registration/Reference` 与 opaque `Item/Task` 身份复用已有模型，不新增平行资产表。S3 扫描在根 `ScanEntry.observed.checkpoint` 中逐页提交游标与结果，使用现有代次和租约；不套用 filesystem 的 inode 或整树二次目录摘要。
 
 LIST 显式 URL 编码后严格解码一次，`ContinuationToken` 原样保存；完整 key 不裁剪、不折叠。HEAD/GET 使用原始 ETag 和固定版本，检查完整响应及 SHA；每次读都会验证错误条件被拒绝。读写权限及连接修订在 I/O 前后复查。既有 `Connection → Location` 更新锁序保留，读方在 Location 锁内只以 MVCC 读取 Connection，不等待反向 Connection 锁。SDK 内建超时、条件和版本参数负责协议访问；`before-send` 限定配置 endpoint，关闭代理避免中间层路径规范化。详见 [ADR 0098](/dev/adr/0098-strict-external-s3-references)。
 
 ### SFTP 持续引用
 
-`sources/sftp_reference.py` 复用来源、扫描、登记和严格内容服务；旧 `sources/sftp.py` 保留复制导入调用者。部署者用 `STORAGE_SFTP_ROOTS` 声明已核验的服务器只读 jail，精确绑定 `host/port/username/完整主机公钥`；连接 `base_path` 必须为 `/`。整个账号可读命名空间就是位置授权范围，来源子目录仅作过滤。普通协议无法证明 jail，这项声明必须来自实际部署核验。
+SFTP 严格引用复用来源、扫描、登记和严格内容服务。部署者用 `STORAGE_SFTP_ROOTS` 声明已核验的服务器只读 jail，精确绑定 `host/port/username/完整主机公钥`；连接 `base_path` 必须为 `/`。整个账号可读命名空间就是位置授权范围，来源子目录仅作过滤。普通协议无法证明 jail，这项声明必须来自实际部署核验。API 用同一声明投影可用性，实际登录和主机公钥检查在 Source 进程执行。
 
-严格客户端使用独立 `HostKeys` 与 `RejectPolicy`，在认证前检查固定公钥，不加载系统 `known_hosts`；连接到白名单解析后固定的 socket 地址，防止客户端再做一次 DNS 解析。凭据在线程内解密，连接/认证/通道均设短超时。目录逐项有界枚举，复用 BFS 租约与末次清单核对；没有虚构持久 SFTP 游标、inode 或版本身份。
+严格客户端使用独立 `HostKeys` 与 `RejectPolicy`，在认证前检查固定公钥，不加载系统 `known_hosts`；连接到白名单解析后固定的 socket 地址，防止客户端再做一次 DNS 解析。连接／认证／通道均设短超时。目录逐项有界枚举，复用 BFS 租约与末次清单核对；没有虚构持久 SFTP 游标、inode 或版本身份。
 
 `lstat` 链、句柄 `stat`、读取前后观测与完整 SHA 负责内容一致性；服务端 jail 才是根边界，这些客户端检查不能实现原子 `nofollow`。资格摘要形成扫描锚点，历史引用必须匹配原锚点。资格变更先禁用位置并提交修订、阻止旧 worker 发布，再协调 API 与 worker；只改一个进程的环境不是集群撤权。不同资格应新建位置，旧引用不自动重绑。取舍见 [ADR 0099](/dev/adr/0099-qualified-sftp-references)，部署见[只读 SFTP 引用](/ops/deploy/docker-compose#只读-sftp-引用)。
 

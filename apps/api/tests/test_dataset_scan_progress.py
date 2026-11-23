@@ -15,8 +15,9 @@ from app.db.models.dataset_source import DatasetScanEntry
 from app.db.models.storage_connection import StorageConnection
 from app.schemas.dataset_source import DatasetSourceCreate
 from app.services import dataset_scans as scans
-from app.services import connector_guard, storage_location as locations
-from app.services.source_readers import s3 as backend
+from app.services import storage_location as locations
+from tests.reference_provider_fixture import use_provider
+from yoao_assets_source_runtime import reference_readers as backend
 from app.workers import storage_usage
 from tests.test_dataset_scans import (
     begin,
@@ -138,7 +139,7 @@ async def test_s3_accepted_pages_advance_without_percentage_and_stale_page_rejec
     await db_session.flush()
     for sequence in (1, 2):
         work = await scans.next_directory(db_session, run.id, job.celery_task_id, fence)
-        page = work["access"].list_page(work["path"], work["cursor"])
+        page = work["config"].list_page(work["path"], work["cursor"])
         await scans.apply_directory(
             db_session, run.id, job.celery_task_id, fence, work, page
         )
@@ -163,16 +164,11 @@ async def test_actual_minio_scan_page_is_accepted_with_checkpoint_progress(
     key = prefix + "/one.png"
     client.put_object(Bucket=bucket, Key=key, Body=b"scan-progress")
 
-    async def local_target(_db, target):
-        assert target == endpoint
+    def scoped_client(config, *args, **kwargs):
+        assert config["endpoint"] == endpoint
+        return storage_usage._client()
 
-    def local_endpoint(target, _allowlist):
-        assert target == endpoint
-
-    monkeypatch.setattr(
-        connector_guard, "assert_connection_target_allowed", local_target
-    )
-    monkeypatch.setattr(backend, "allowed_endpoint", local_endpoint)
+    monkeypatch.setattr(backend, "open_pinned_s3", scoped_client)
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
     )
@@ -198,9 +194,16 @@ async def test_actual_minio_scan_page_is_accepted_with_checkpoint_progress(
     db_session.add_all([connection, dataset])
     await db_session.flush()
     location = await locations.register_connection(db_session, connection)
+    use_provider(
+        monkeypatch, location.id, lambda: backend.S3Reader(connection.config, {}, ())
+    )
     try:
         result = await locations.perform_probe(
-            db_session, location, "worker:progress@test", "one.png"
+            db_session,
+            location,
+            "worker:progress@test",
+            "one.png",
+            actor_id=actor.id,
         )
         assert result["ok"], result
         await locations.store_probe(
@@ -228,7 +231,7 @@ async def test_actual_minio_scan_page_is_accepted_with_checkpoint_progress(
         )
         await db_session.flush()
         work = await scans.next_directory(db_session, run.id, job.celery_task_id, fence)
-        page = work["access"].list_page(work["path"], work["cursor"])
+        page = work["config"].list_page(work["path"], work["cursor"])
         assert page["listed_count"] == 1
         await scans.apply_directory(
             db_session, run.id, job.celery_task_id, fence, work, page

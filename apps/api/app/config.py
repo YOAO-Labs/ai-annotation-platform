@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
     ValidationInfo,
     field_validator,
@@ -13,6 +11,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, NoDecode
 from sqlalchemy.engine import make_url
+from yoao_assets_source.reference_protocol import SftpReferenceRoot, validate_sftp_roots
 
 from yoao_inference.gpu.settings import (
     GPUArbiterMode,
@@ -100,29 +99,6 @@ _RETIRED_HOST_BINDINGS = (
 )
 
 
-class SftpReferenceRoot(BaseModel):
-    """Deployment attestation: this account's entire namespace is a read-only jail."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    host: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9_.:-]+$")
-    port: int = Field(default=22, strict=True, ge=1, le=65535)
-    username: str = Field(min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_.-]+$")
-    host_key: str = Field(min_length=20, max_length=4096)
-
-    @field_validator("host_key")
-    @classmethod
-    def _validate_host_key(cls, value):
-        import paramiko
-
-        try:
-            entry = paramiko.hostkeys.HostKeyEntry.from_line("qualified " + value)
-            if entry is None or entry.key is None or len(value.split()) != 2:
-                raise ValueError()
-        except Exception:
-            raise ValueError("Invalid pinned SFTP public host key") from None
-        return value
-
-
 class Settings(BaseSettings):
     app_name: str = "YOAO API"
     app_version: str = "0.26.2"
@@ -172,14 +148,7 @@ class Settings(BaseSettings):
     @field_validator("storage_sftp_roots")
     @classmethod
     def _validate_sftp_roots(cls, value):
-        import re
-
-        targets = [(root.host, root.port, root.username) for root in value.values()]
-        if len(targets) != len(set(targets)) or any(
-            not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", handle) for handle in value
-        ):
-            raise ValueError("Invalid or ambiguous SFTP reference roots")
-        return value
+        return validate_sftp_roots(value)
 
     @field_validator("storage_filesystem_roots")
     @classmethod

@@ -299,6 +299,16 @@ async def process(db, source_id, revision, token, node):
                 f"worker:{node}",
                 None,
                 maintenance_revision=row.snapshot.get("maintenance_revision", 1),
+                actor_id=actor.id,
+                api_key_id=row.api_key_id,
+                key_proof=row.key_proof,
+                source_request={
+                    "source_id": str(source.id),
+                    "schedule_revision": revision,
+                    "schedule_token": str(token),
+                }
+                if location.kind in {"s3", "sftp"}
+                else None,
             )
         except SiteAgentError as exc:
             failure = FilesystemStorageError(exc.code)

@@ -226,11 +226,33 @@ async def scan_snapshot(
                         "user_id": str(actor.id),
                     },
                 )
+            elif isinstance(config, reference_storage.RegisteredReference):
+                snapshot = await config.capture(
+                    db,
+                    "observation",
+                    {
+                        "run_id": str(run.id),
+                        "path_digest": path_digest,
+                        "verify": verify,
+                        "refresh": refresh_unverified,
+                        "registration_id": str(event_registration_id)
+                        if event_registration_id
+                        else None,
+                        "job_id": str(event_job_id) if event_job_id else None,
+                    },
+                    digest,
+                    actor_id=actor.id,
+                    key_id=api_key_id,
+                    key_proof=key_proof,
+                    maintenance_revision=run.snapshot.get("maintenance_revision", 1),
+                    node_id=node,
+                    on_acquired=reclaimed_guard,
+                )
             else:
                 snapshot = await snapshots.capture_from_location(
                     db,
                     location.id,
-                    lambda: reference_storage.content_file(
+                    lambda: fs.content_file(
                         config,
                         base,
                         path,
@@ -646,6 +668,32 @@ async def quality_snapshot(
                     "source_id": str(locator["source_id"]),
                 },
             )
+        elif isinstance(locator, dict) and isinstance(
+            locator["config"], reference_storage.RegisteredReference
+        ):
+            from app.services.managed_original_reclaim_fence import (
+                protect_observed_read,
+            )
+
+            async def remote_guard():
+                await validate()
+                await db.commit()
+                access.check_clock(None, key)
+                await protect_observed_read(db, locator["expected"], locator["anchor"])
+
+            snapshot = await locator["config"].capture(
+                db,
+                "original",
+                reference_storage.original_request(locator, None, "datasets:write"),
+                identity[1],
+                actor_id=actor_id,
+                key_id=api_key_id,
+                key_proof=key[0] if key else None,
+                maintenance_revision=locator["maintenance_revision"],
+                node_id=node_id or locations.api_node_id(),
+                on_acquired=remote_guard,
+                inspect_quality=True,
+            )
         elif isinstance(locator, dict):
             async with await storage_access.acquire(
                 db,
@@ -663,7 +711,7 @@ async def quality_snapshot(
 
                 await protect_observed_read(db, locator["expected"], locator["anchor"])
                 snapshot = await snapshots.capture_for_quality(
-                    lambda: reference_storage.content_file(
+                    lambda: fs.content_file(
                         locator["config"],
                         locator["base"],
                         locator["path"],

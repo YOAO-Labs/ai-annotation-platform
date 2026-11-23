@@ -1033,11 +1033,28 @@ async def reference_snapshot(
                                 **({"task_id": str(task_id)} if task_id else {}),
                             },
                         )
+                    elif isinstance(
+                        source_context["config"], reference_storage.RegisteredReference
+                    ):
+                        snapshot = await source_context["config"].capture(
+                            db,
+                            "original",
+                            reference_storage.original_request(
+                                source_context, task_id, scope
+                            ),
+                            context["sha256"],
+                            actor_id=actor.id,
+                            key_id=api_key_id,
+                            key_proof=proof,
+                            maintenance_revision=source_context["maintenance_revision"],
+                            node_id=node_id or locations.api_node_id(),
+                            on_acquired=admitted,
+                        )
                     else:
                         snapshot = await snapshots.capture_from_location(
                             db,
                             source_context["location_id"],
-                            lambda: reference_storage.content_file(
+                            lambda: fs.content_file(
                                 source_context["config"],
                                 source_context["base"],
                                 source_context["path"],
