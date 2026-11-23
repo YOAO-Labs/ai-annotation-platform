@@ -15,6 +15,9 @@ dependencies = [
   "psutil==7.0.0",
 ]
 
+[dependency-groups]
+handoff = ["httpx", "psutil", "yoao-training-contract"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

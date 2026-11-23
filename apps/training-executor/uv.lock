@@ -1462,6 +1462,13 @@ dependencies = [
     { name = "yoao-training-contract" },
 ]
 
+[package.dev-dependencies]
+handoff = [
+    { name = "httpx" },
+    { name = "psutil" },
+    { name = "yoao-training-contract" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
@@ -1473,5 +1480,12 @@ requires-dist = [
     { name = "torchvision", specifier = "==0.29.1", index = "https://download.pytorch.org/whl/cu132" },
     { name = "ultralytics", specifier = "==8.4.183" },
     { name = "yoao-task-contract", editable = "../_shared/task_contract" },
+    { name = "yoao-training-contract", editable = "../_shared/training_contract" },
+]
+
+[package.metadata.requires-dev]
+handoff = [
+    { name = "httpx" },
+    { name = "psutil" },
     { name = "yoao-training-contract", editable = "../_shared/training_contract" },
 ]

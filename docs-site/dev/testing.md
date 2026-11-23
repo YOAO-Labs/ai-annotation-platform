@@ -288,6 +288,20 @@ SDK 文档片段、HTTP 调用点、覆盖清单和生成目录与 monorepo 输�
    覆盖训练数据集版本冻结、实验任务租约 CAS、心跳续租、尝试级观测指标、受控模型发布（`trained_models`）以及审核驱动的主动学习回流。
 3. **真实链路验收**：按[本地开发](./tutorials/local-dev#在线学习与训练执行器联调-可选)准备独立环境、执行器和 COCO8 检测夹具，再通过界面完成训练、回流和人工发布。单元测试、夹具构建成功或模拟 API 页面测试均不能替代真实权重推理验收。
 
+真实 HTTP 交接、认领重放与租约恢复是显式选择的本地验收，不由普通 API 或执行器 CI 测试启动。准备模块边界验证器的一次性 PostgreSQL、MinIO 和 Node peer 前置条件后，在同一工作树仓库根运行：
+
+```bash
+UV_PROJECT_ENVIRONMENT="$PWD/.artifacts/training-handoff-venv" \
+  uv sync --locked --project apps/training-executor --only-group handoff
+AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE=1 \
+  apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --workspace-consumer-profile default \
+  --test-file tests/test_training_executor_handoff.py::test_live_executor_claim_replay_competition_cancel_and_finish_replay \
+  --output .artifacts/test-results/training-handoff.json
+```
+
+API 使用自己的运行环境，交接 peer 使用独立的 `.artifacts/training-handoff-venv` 和当前执行器源码；不继承 API 模块路径或数据库凭据，也不安装不需要的 CUDA 依赖。受控 CPU 子进程验证 HTTP 与租约恢复，不替代训练容器、GPU 或真实权重验收。
+
 ---
 
 ## 数据集、存储迁移与只读站点 Agent 测试
