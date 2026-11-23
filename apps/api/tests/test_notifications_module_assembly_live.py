@@ -1393,14 +1393,21 @@ async def test_notifications_hosted_beat_recovers_after_redis_acl_outage(
                                 )
                             )
                         await _run_terminal_in_api(stack, job_id, commit=True, delay=0)
-                        deactivation_id = uuid.uuid4()
                         await _request(
                             api,
                             "POST",
                             "/api/v1/auth/me/deactivation-request",
-                            headers={"Idempotency-Key": str(deactivation_id)},
                             json={"reason": "hosted notification outage"},
                         )
+                        async with seed() as db:
+                            deactivation_id = await db.scalar(
+                                text(
+                                    "SELECT request_id FROM public.identity_deactivation_requests "
+                                    "WHERE user_id=:actor AND state='pending'"
+                                ),
+                                {"actor": actor.id},
+                            )
+                        assert deactivation_id is not None
 
                         operation_ids = (job_id, deactivation_id)
                         for operation_id in operation_ids:
@@ -1463,13 +1470,14 @@ async def test_notifications_hosted_beat_recovers_after_redis_acl_outage(
                             completed[operation_id] = rows
 
                         await _run_terminal_in_api(stack, job_id, commit=True, delay=0)
-                        await _request(
+                        repeated = await _request(
                             api,
                             "POST",
                             "/api/v1/auth/me/deactivation-request",
-                            headers={"Idempotency-Key": str(deactivation_id)},
+                            expected=400,
                             json={"reason": "hosted notification outage"},
                         )
+                        assert repeated == {"detail": "已有进行中的注销申请"}
                         await _assert_no_published(observer)
                         await _assert_no_socket_delivery(socket)
                         assert len(completed[job_id]) == 1
