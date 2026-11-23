@@ -40,7 +40,7 @@
 
 ### Changed
 
-- 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。旧拆分安装先核对[进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)与[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)；完整 M2b 未验收，不切换日常环境。
+- 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。新拓扑已在隔离部署验证；旧安装不会自动切换，升级前须核对[进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)与[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)。
 - 普通 API／worker 改用固定 owner 能力和公开读视图；重放安装授权会撤销旧私表和序列权限。已登记自定义 S3／SFTP 的物理 I/O 由既有私有 Assets Source 处理，独立导入器不再持有连接器解密密钥或 SSH 文件。内建 MinIO、受控目录、站点 Agent 和既有保存目标不迁移。
 - 推理服务直连接入指南现在区分本机自检、私网监听、全局服务池启用和项目预测；强制路由部署另列实例绑定步骤。手动注册不等于安装插件。
 - `pnpm lint:comments` 禁止在自维护源码、测试和配置中新增解释性注释。原有约束归入 ADR，权宜实现有可追踪的 issue；冻结迁移和工具真正消费的输入保留，不能用删除旧注释换取新额度。贡献者可用 `/delete-comment` 复查。
@@ -83,6 +83,7 @@
 - 新安装无需先访问存储管理页即可上传首个数据集原件；补齐内建用途时不会改动已有绑定。
 - 测试已登记的 S3 连接时，`base_prefix` 有无末尾 `/` 都只列举所选目录。只获该目录授权的凭据不再误报不可用，也不会采样相邻同名前缀。
 - 连接器导入登记原件时遇到数据库锁冲突，不再把当前文件误记为读取失败；恢复后在原作业内继续，重复内容仍计入跳过。
+- 修复九用途迁移预览因函数所有者无法核对封存和历史切换记录而被拒的问题。升级时重放模块授权即可，不需要给普通账号或 Source 增加私表读权限。
 - 修复系统设置管理页读取设置来源与校验范围时返回 500 的问题；SMTP 密码仍不返回明文。
 - 修复受限运行账号创建或接纳主动学习选样时因直接锁定数据集私表而失败的问题；保留原件正在修改时的冲突提示。
 - 修复报告附件存储切换预览缺少原绑定用途而返回 500 的问题；切换仍只影响新上传。

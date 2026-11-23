@@ -152,7 +152,7 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 
 ### 部署收敛：进程清单 {#deployment-convergence}
 
-**源码拓扑已收敛，完整 M2b 尚未验收。** 下文的「默认」「保留」「退役」描述源码装配，不表示新档已冷启动、通过恢复或被日常环境采用。M2a 历史盘点为 44 份 Compose 文件、59 个去重服务键；Workspace 首切片后为 35／53。当前根目录为 **25 份 `docker-compose*.yml`、43 个不同服务键**；基础文件有 16 个键，连同两份生产定义并集为 21 个。按 `services` 一级键去重；同名覆盖、profile、`migrate` 的一次性执行和实际容器副本不另计。`docker-compose.hostvols.yml`、`docker-compose.ml.yml` 只覆盖卷；`docker-compose.inference-development.yml` 覆盖同一个 `inference`；`docker-compose.assets-native.yml` 只覆盖既有 Source、媒体控制和图片 worker，不是第四个执行通道或一个新服务。
+**M2b 已通过隔离环境验收；未切换日常或生产环境。** M2a 盘点为 44 份 Compose 文件、59 个去重服务键；Workspace 首批收敛后为 35／53。当前根目录为 **25 份 `docker-compose*.yml`、43 个不同服务键**；基础文件有 16 个键，连同两份生产定义并集为 21 个。按 `services` 一级键去重；同名覆盖、profile、`migrate` 的一次性执行和实际容器副本不另计。`docker-compose.hostvols.yml`、`docker-compose.ml.yml` 只覆盖卷；`docker-compose.inference-development.yml` 覆盖同一个 `inference`；`docker-compose.assets-native.yml` 只覆盖既有 Source、媒体控制和图片 worker，不是第四个执行通道或一个新服务。
 
 #### 默认宿主
 
@@ -197,7 +197,7 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 - **普通角色**：LAN 内嵌签发、LAN 远程 issuer 的 API 运行角色、工作树生成的运行角色，分别使用真实 LOGIN。三档安装器撤销旧的普通权限并安装固定能力；私表（含列、分区父子表、物化视图、外表）和序列不能通过直接授权、所有权、PUBLIC 或角色成员关系访问。允许的是公开投影和固定 owner 能力。迁移、分区维护、刷新和回收使用各自的身份，不给普通进程迁移或维护凭据。
 - **已登记的自定义 S3／SFTP**：由既有私有 `assets-source` 执行物理 I/O，不新增进程。普通调用方只传业务主体、保存版本／回执和所需的窄操作 token；连接器密钥、打开凭据的 SQL 能力和实际连接仅归 Source。接口不接受任意主机、桶或键；Source 不可用时不改用宽凭据或当前绑定。内建 MinIO、受控文件系统和站点 Agent 的原路径不变；它们的成功不能代替自定义连接器验证。[Source 安装与持久暂存](../../ops/deploy/docker-compose#source-registered-io)。
 - **运行门槛**：在新的隔离部署用真实登录、建项目、导入、标注、审核、持久通知恢复和插件预标注验证默认链路；保留独立服务须实际用选定 overlay 冷启，并核对拒绝、进程丢失后的恢复和同一持久回执。配置解析、包一致性和历史资格均不替代这些回执。恢复时必须查原业务账本确认，不将未知确认当作回滚后重发。
-- **已观察范围**：全新 PostgreSQL 16 与从业务备份恢复的隔离库均已实测：两种 LAN 普通登录及启动器生成的工作树登录对私表的查询返回 `42501`，公开视图仍能读回备份中的同一用户。重放旧授权后，列、跨 schema 子分区、物化视图、外表、序列及可切换角色也不能绕开拒绝。媒体执行器、独立通知 publisher 和 Audit CLI 的进程丢失／恢复有各自回执；其余默认业务、连接器与模型按仓库 `docs/plans/evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md` 逐项记录。**未授权 M2c 日常迁移；不据此放行发布或生产切换。**
+- **已验证范围**：默认档用真实 API、Celery、Inference 与独立 CPU 插件完成上传、预标注、人工标注、审核和持久通知。全新和非空恢复的 PostgreSQL 16 上，三种普通 LOGIN 均能使用公开接口，直接读私表均为 `42501`；列、跨 schema 分区、物化视图、外表、序列及可切换角色不能绕过拒绝。另行实测 Jobs 部分派发后的恢复、各保留服务的冷启，以及实际 S3 和固定主机公钥的 SFTP。各档回执与限制见仓库 `docs/plans/evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md`。**这不是模型权重资格、生产容量、发布或 M2c 日常迁移的放行。**
 
 ### 本次主线整合的验证范围
 

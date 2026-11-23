@@ -79,6 +79,8 @@ last_reviewed: 2026-10-28
 
 **登记的自定义 S3／SFTP**：切换前逐项盘点保存的版本、未结算的 I/O 和仍需历史访问的位置。为既有 `assets-source` 安装[窄 SQL 授权、作用域 token 和持久暂存](./deploy/docker-compose#source-registered-io)，不要改向内建 MinIO、受控目录或站点 Agent。不能把连接器秘密、开封函数或 Source 的数据库连接下放给普通 API／worker。仅在隔离副本上用原保存身份验证真实连接器字节、拒绝回退与原记录接续后，才能放行该部署，见[普通角色与 Source 边界](../dev/concepts/module-deployment#m2b-runtime-boundary)。
 
+使用九用途迁移预览时，旧库也须重放上面的模块 owner 安装器。目标探针需要由 Assets 的 NOLOGIN 函数所有者核对封存目标、发布窗口及修订、切换记录 ID；这些列不授权给 Source 的 LOGIN 或普通账号。运维探针通过仅说明目标能完成该用途的受限 I/O，不能据此宣布绑定已切换。
+
 **需要保留的 Recovery 邮件密文**：原来设置了独立 Recovery Fernet key 的，继续使用原 key。若旧内嵌 producer 曾自动由其有效 JWT 密钥派生，则在可信离线环境用已安装的 Identity 包一次性派生到新文件；`OLD_EFFECTIVE_JWT_FILE` 是只含旧有效 JWT key 的只读单行文件，`RECOVERY_FERNET_FILE` 是受限目录内尚不存在的目标：
 
 ```bash

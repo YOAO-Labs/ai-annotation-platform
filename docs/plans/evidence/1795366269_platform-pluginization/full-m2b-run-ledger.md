@@ -1,6 +1,6 @@
 # M2b 全量部署收敛：运行证据账本
 
-[进程清单与当前状态](../../../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)是唯一拓扑入口。这里只记录运行范围和待补证据，不覆盖[Workspace 首切片](./first-slice-run-ledger.md#m2b-workspace)的冻结结果，也不授权 M2c 或发布。
+[进程清单与当前状态](../../../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)是唯一拓扑入口。这里记录实际运行范围、失败与复验，不覆盖[Workspace 首切片](./first-slice-run-ledger.md#m2b-workspace)的冻结结果，也不授权 M2c 或发布。
 
 ## 本地基线回执
 
@@ -34,6 +34,8 @@
 - **最终授权上的私有 Inference**：`inference-split-strict-5bf2` 三项全部通过。在 `bo0509` 和发布的单个 Inference Compose 服务中，真实 Workspace 探测请求、健康观察、Registry 同步各用独立 bearer／LOGIN；停机不回退，提交确认丢失后查原回执，重启不重发。`inference-split-strict-5bf2.images.json` 记录源码、镜像与 Compose 摘要及三个容器的退役状态。这项证明私有控制面，不是插件预标注的业务回执。
 - **旧授权重放与普通账号业务**：`native-grants-509-stale-jobs-oid.json` 在 `c4c5184669` 为三个实际 LOGIN 逐一注入直接与 PUBLIC 旧授权；先实测旧关系／函数可读，再两次重装该档授权。私表、列、分区子表（含跨 schema）、物化视图、外表、序列及新建对象均不再暴露；直接改表和切换到仍有授权的无关角色均得到 `42501`。同一普通登录仍能创建持久 Jobs 并经公开接口读回各自的同一 UUID，无关账号原有授权保留。此回执验证的是普通角色切换，而非全套 HTTP 业务。
 - **最终原件锁与普通账号恢复**：`native-final-restored-replay-and-fence.json` 在 `6b003d75d9` 对非空恢复库重放上述三档旧授权，仍为零个可访问私有关系。两个真实普通连接可同时持有同一候选原件的共享锁；写方 `NOWAIT` 得到 `55P03`，反向争用映射为 `CandidateItemFenceBusy`，回滚后可以重试。`default-owners-f1b6-binding` 中的项目原件／轨迹和跨用途盘点两项通过；`learning-feedback-fence-6b00` 的真实登录主动学习反馈与重放用例单独通过。
+- **迁移预览的私有授权**：`native-cutover-definer-8205-installed-before-after.json` 在 PostgreSQL 16 旧安装器上实证：Source LOGIN 有函数执行权，但 NOLOGIN 函数所有者缺少封存目标、发布窗口 ID、两个修订及切换记录 ID 五列，调用仍报 `42501`。只补这五列后，无匹配的发布返回 NULL，普通登录调用同一函数仍为 `42501`。不向 Source 或普通账号开放任何私表，不因目标预览取得切换权限。
+- **正式安装器的恢复对照**：`native-cutover-definer-116d-restored.json` 在 `116d0d9027` 用非空备份另建隔离库，剥离 owner／权限后重装发布脚本。五列无需手工补授；Source 仍只由固定函数判定缺失主体，三个真实普通登录均保留原用户、私有关系有效权限为零，直接读取均报 `42501`。本轮 PostgreSQL 已退役。
 - **Labeling、Inference、Insights 的恢复与分权**：`strict-restores-6dea` 六项中四项通过（Labeling 非空恢复、普通 HTTP 保存视图范围、调用方事务内并发刷新、独立刷新 LOGIN 重放），两个新库因 40 秒内未跑完整迁移链而失败。`strict-inference-video-5bf2` 对这两项在新库定向复验，2 项全部通过：Inference 恢复原 Learning／Jobs 依赖答案；视频保留窗口、原发布及不可变回执，恢复副本不能冒充源库。`strict-restores-6dea-owned-retirement.json` 记录早先残留副本按 OID 和 marker、等连接关闭后退役；未强杀会话。
 - **自定义连接器引用原图**：`bytes-bc5b6cccbf-provider-reference-coverage.json` 中两个独立 PostgreSQL／Source 验收环境分别通过。S3 校验相邻前缀隔离、覆盖后仍读原版本；SFTP 走实际固定公钥，拒绝越界符号链接、错误公钥及来源漂移。两者均以登记样本读回相同 SHA，并拒绝重复使用单次许可。`bytes-bc5b6cccbf-provider-training-family` 验证已登记 S3 的训练归档发布／退休和执行器上传／完成；这两项没有测试 SFTP。
 - **已登记 S3 的保存对象**：`bytes-bc5b6cccbf-provider-output-family` 首轮通过头像精确回收、ZIP 分片与历史签发、导出媒体成员重放三项。报告附件与 Audit 归档另在 `bytes-0adc62d16e-repairs-output-repairs` 用真实存储通过。`bytes-92f0fa1faa-final-providers-media` 校验媒体完整往返、准确版本和拒绝。以上是 S3 各自的保存对象，不把它们记作 SFTP 写入。
@@ -54,7 +56,8 @@
 
 - **普通角色三档：已实测通过。** 上述回执分别覆盖全新安装、重放旧有效授权、跨角色切换、持久 Jobs 业务与非空恢复。生成的工作树 LOGIN 不是测试替代身份。保留这些证据的边界：它们不证明所有 HTTP 工作流，也不替代各私有服务的授权与恢复。
 - **默认业务已冷启动通过。** `flow-official-8b1280a1.qualification.json` 证明业务结果，`m2b-auth-overlays-final.json` 另证 Broker 故障恢复后不重复发布通知。非空数据库恢复、媒体和独立服务的进程丢失分别按上述专项回执判定，不能由服务健康代替。
-- **保留的私有运行档**：按进程清单使用准确的 overlay／profile、固定镜像及窄登录。分别取实际冷启、凭据拒绝，以及该 owner 的恢复／重放回执；既有历史工件和只读配置解析不计为这些新档通过。
-- **已登记 S3／SFTP 的独立矩阵**：`bytes-registered-providers-final.json` 的 12 项按实际传输分别取证。已通过 11 项，包括两个真实提供方、S3 的五类已保存输出、两项训练归档／执行器 I/O、媒体及连接绑定。`bytes-b6d0d3a482-scoped-prefix-binding` 使用只允许所选目录的 MinIO 权限，验证测试、浏览不采样相邻键，伪造、过期和错角色许可不能改动存储。迁移验证了目标版本的准确字节，但接管进程未返回回执，不能据此宣称切换成功。
+- **保留的私有运行档已冷启。** 签发与邮件、通知 publisher、Inference、Source、独立导入与清理、媒体和 Mask 服务、Audit、五个模型服务及训练执行器分别按上述实际制品取证。站点 Agent 另走出站 HTTPS。ONNXTools、RapidOCR 运行了真实模型；其余三档的冷启与认证不等于权重就绪，执行器恢复也不等于完成原生训练。
+- **已登记 S3／SFTP 矩阵：12/12，零跳过。** `bytes-registered-providers-final.json` 按用例保留 SHA、真实传输和对应 JUnit；并非所有场景都在两种协议各跑一遍。`bytes-b6d0d3a482-scoped-prefix-binding` 用只允许所选目录的 MinIO 权限，证明同名前缀不会越界、伪造／过期／错角色许可不改变存储。
+- **迁移中断、历史读取与运维预览**：`bytes-116d0d9027-migration-recovery-migration` 复制并核对 17,039,360 字节的准确版本；worker 与 Source 退出后从同一暂存恢复。用例按真实复制回执建立封存发布与窗口记录，随后经保留路由签名 HTTP GET 读回同一版本，源对象仍在且无删除标记。专用 operator 对九种用途的目标探测全部通过，普通读／写／清理 token 被拒。实测的是接管、读取及目标 I/O，未执行九项绑定切换。
 
-最终回执需绑定实际提交、Alembic head、Compose 文件链和 profile、镜像、数据库及业务／对象身份；失败和窄项重试单独留存。以上未完成前，**不标记完整 M2b 通过；M2c 未获授权**。
+**结论：M2b 按计划 §4 在隔离环境通过。** 这里保留逐项运行身份、首次失败及其定向复验，不把历史失败改记为成功。M2c 日常切换、发布、多卡容量及第三方模型权重资格须分别授权和验证。
