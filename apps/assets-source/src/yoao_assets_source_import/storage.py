@@ -1,40 +1,28 @@
-"""Conditional managed-original writes with version-pinned readback.
-
-The owner reserves the immutable locator before this class touches bytes. Every
-write uses one nonretrying client, ``If-None-Match: *`` completion and a full
-re-read of the returned version; a failed or unverified object is never
-published as a dataset item.
-"""
+"""Builtin S3 original writes with independent Source verification."""
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
 from dataclasses import dataclass
 import mimetypes
 from typing import Any, Awaitable, BinaryIO, Callable
 
 from yoao_assets_images.contract import ObjectIdentity
 from yoao_assets_source import managed_original
-from yoao_assets_source.connectors import (
-    SourceChangedError,
-    SourceNotFoundError,
-    SourcePathError,
-)
-from yoao_assets_source.connectors.crypto import (
-    ConnectorCryptoError,
-    ConnectorCryptoNotConfigured,
-    decrypt_secret,
-)
+from yoao_assets_source.connectors import SourceChangedError
 from yoao_assets_source.import_contract import ImportEntry
 from yoao_assets_source.import_verification_contract import ImportVerificationResult
 from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
     ManagedOriginalProof,
 )
+from yoao_assets_source.saved_io import SavedIOError
 
 from .config import ImportConfig
 from .verification import ExpectedOriginal
+
+
+_MAX_MULTIPART_BYTES = 64 * 1024 * 1024 * managed_original.MAX_PARTS
 
 
 class DestinationWriteError(OSError):
@@ -59,62 +47,8 @@ class DestinationStorage:
 
     def __init__(self, config: ImportConfig, *, client: Any | None = None) -> None:
         self.bucket = config.datasets_bucket
-        self._config = config
-        self._head_bytes = config.image_header_bytes
         self._io_timeout = config.s3_read_timeout_seconds
         self._client = client if client is not None else _create_client(config)
-
-    @contextmanager
-    def _client_scope(self, target: ManagedOriginalMaterial):
-        """Own connection-backed clients for exactly one physical operation."""
-        if target.destination is None:
-            if target.bucket != self.bucket:
-                raise DestinationWriteError("destination target is not configured")
-            yield self._client
-            return
-        client = self._build_client(target)
-        try:
-            yield client
-        except BaseException as exc:
-            try:
-                _close_client(client)
-            except DestinationWriteError:
-                try:
-                    exc.storage_operation_unsettled = True
-                except Exception:
-                    pass
-            raise
-        else:
-            _close_client(client)
-
-    def _build_client(self, target: ManagedOriginalMaterial) -> Any:
-        """Build a single-attempt client for exactly one connection-backed write."""
-        config = target.destination.get("config")
-        secret_enc = target.destination.get("secret_enc")
-        if not isinstance(config, dict) or not isinstance(secret_enc, str):
-            raise DestinationWriteError("destination credentials are malformed")
-        try:
-            secret = decrypt_secret(secret_enc, self._config.connector_encryption_key)
-            access_key = secret.get("access_key")
-            secret_key = secret.get("secret_key")
-            if (
-                not isinstance(access_key, str)
-                or not access_key
-                or not isinstance(secret_key, str)
-                or not secret_key
-            ):
-                raise DestinationWriteError("destination credentials are malformed")
-        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
-            raise DestinationWriteError(
-                "destination credentials are unavailable"
-            ) from None
-        return _create_client(
-            self._config,
-            endpoint_url=target.endpoint_url,
-            access_key=access_key,
-            secret_key=secret_key,
-            region=str(config.get("region") or self._config.s3_region),
-        )
 
     async def transfer(
         self,
@@ -130,37 +64,9 @@ class DestinationStorage:
         on_written: Callable[[Any], Awaitable[None]] | None = None,
         on_verify: Callable[[ExpectedOriginal], Awaitable[ImportVerificationResult]],
     ) -> TransferResult:
-        with self._client_scope(target) as client:
-            return await self._transfer_with(
-                client,
-                stream,
-                entry,
-                target=target,
-                byte_budget=byte_budget,
-                before_io=before_io,
-                on_bytes=on_bytes,
-                on_prepared=on_prepared,
-                on_writing=on_writing,
-                on_written=on_written,
-                on_verify=on_verify,
-            )
-
-    async def _transfer_with(
-        self,
-        client: Any,
-        stream: BinaryIO,
-        entry: ImportEntry,
-        *,
-        target: ManagedOriginalMaterial,
-        byte_budget: int,
-        before_io: Callable[[], None],
-        on_bytes: Callable[[int], None],
-        on_prepared: Callable[[Any], Awaitable[None]] | None = None,
-        on_writing: Callable[[], Awaitable[None]] | None = None,
-        on_written: Callable[[Any], Awaitable[None]] | None = None,
-        on_verify: Callable[[ExpectedOriginal], Awaitable[ImportVerificationResult]],
-    ) -> TransferResult:
-        """Prepare, conditionally complete and fully read back one original."""
+        """Prepare, conditionally complete and fully read back one builtin original."""
+        if target.connection_id is not None or target.bucket != self.bucket:
+            raise DestinationWriteError("destination target is not builtin")
         if entry.file_path != target.file_path:
             raise DestinationWriteError("destination target scope changed")
         content_type = (
@@ -171,27 +77,41 @@ class DestinationStorage:
             raise SourceChangedError(
                 "source object exceeds the remaining import budget"
             )
+        if entry.source.size > _MAX_MULTIPART_BYTES:
+            raise DestinationWriteError("object exceeds supported multipart size")
         counted = _CountingStream(stream, on_bytes=on_bytes)
         try:
             prepared = await _thread(
                 managed_original.prepare_stream,
-                client,
+                self._client,
                 target.bucket,
                 target.object_key,
                 counted,
                 content_type=content_type,
-                max_bytes=min(max_bytes, max(entry.source.size, 0)),
+                max_bytes=entry.source.size,
                 timeout_seconds=self._io_timeout,
                 _check=_deadline(before_io, self._io_timeout),
             )
-            if on_prepared is not None:
-                await on_prepared(prepared)
-            before_io()
-            if on_writing is not None:
-                await on_writing()
+            try:
+                if prepared.size_bytes != entry.source.size:
+                    raise SourceChangedError("source size changed after enumeration")
+                if on_prepared is not None:
+                    await on_prepared(prepared)
+                before_io()
+                if on_writing is not None:
+                    await on_writing()
+            except BaseException:
+                await _thread(
+                    managed_original.abort_prepared,
+                    self._client,
+                    target.bucket,
+                    target.object_key,
+                    prepared,
+                )
+                raise
             receipt = await _thread(
                 managed_original.complete,
-                client,
+                self._client,
                 target.bucket,
                 target.object_key,
                 prepared,
@@ -209,9 +129,10 @@ class DestinationStorage:
                 )
             )
         except managed_original.WriterError as exc:
+            if counted.failure is not None:
+                counted.failure.storage_operation_unsettled |= exc.outcome == "unknown"
+                raise counted.failure from None
             raise _writer_failure(exc) from None
-        if prepared.size_bytes != entry.source.size:
-            raise SourceChangedError("source size changed after enumeration")
         dimensions = (
             (verified.width, verified.height) if verified.width is not None else None
         )
@@ -255,9 +176,14 @@ class _CountingStream:
     def __init__(self, stream: BinaryIO, *, on_bytes: Callable[[int], None]) -> None:
         self._stream = stream
         self._on_bytes = on_bytes
+        self.failure: SavedIOError | None = None
 
     def read(self, size: int = -1) -> bytes:
-        chunk = self._stream.read(size)
+        try:
+            chunk = self._stream.read(size)
+        except SavedIOError as exc:
+            self.failure = exc
+            raise
         if isinstance(chunk, bytes) and chunk:
             self._on_bytes(len(chunk))
         return chunk
@@ -279,17 +205,19 @@ def _deadline(before_io: Callable[[], None], timeout: float):
 async def _thread(function, /, *args, **kwargs):
     """Keep one attempt alive past caller cancellation while it owns bytes."""
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    return await asyncio.shield(task)
-
-
-def _close_client(client: Any) -> None:
-    """A failed close is not proof that the client stopped owning bytes."""
     try:
-        client.close()
-    except BaseException:
-        error = DestinationWriteError("destination_close_failed")
-        error.storage_operation_unsettled = True
-        raise error from None
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except Exception:
+                break
+        if not task.cancelled():
+            task.exception()
+        raise
 
 
 def _object_identity_from_verified(
@@ -321,59 +249,16 @@ def _object_identity_from_verified(
         ) from None
 
 
-def _object_identity_from_write_response(
-    response: Any, *, byte_size: int
-) -> ObjectIdentity:
-    """Validate the exact object receipt returned by the successful S3 write."""
-    if not isinstance(response, dict):
-        raise DestinationWriteError("destination returned an invalid write receipt")
-    etag = response.get("ETag")
-    version_id = response.get("VersionId")
-    if not isinstance(etag, str):
-        raise DestinationWriteError("destination returned an invalid write receipt")
-    etag = etag.strip().strip('"')
-    if (
-        not etag
-        or len(etag) > 255
-        or any(ord(char) < 32 or ord(char) == 127 for char in etag)
-    ):
-        raise DestinationWriteError("destination returned an invalid write receipt")
-    if version_id is not None and (
-        not isinstance(version_id, str)
-        or not version_id
-        or len(version_id) > 255
-        or any(ord(char) < 32 or ord(char) == 127 for char in version_id)
-    ):
-        raise DestinationWriteError("destination returned an invalid write receipt")
-    try:
-        return ObjectIdentity(
-            etag=etag,
-            byte_size=byte_size,
-            version_id=version_id,
-        )
-    except (TypeError, ValueError):
-        raise DestinationWriteError(
-            "destination returned an invalid write receipt"
-        ) from None
-
-
-def _create_client(
-    config: ImportConfig,
-    *,
-    endpoint_url: str | None = None,
-    access_key: str | None = None,
-    secret_key: str | None = None,
-    region: str | None = None,
-) -> Any:
+def _create_client(config: ImportConfig) -> Any:
     import boto3
     from botocore.config import Config as BotoConfig
 
     return boto3.client(
         "s3",
-        endpoint_url=endpoint_url or config.s3_endpoint,
-        aws_access_key_id=access_key or config.s3_access_key,
-        aws_secret_access_key=secret_key or config.s3_secret_key,
-        region_name=region or config.s3_region,
+        endpoint_url=config.s3_endpoint,
+        aws_access_key_id=config.s3_access_key,
+        aws_secret_access_key=config.s3_secret_key,
+        region_name=config.s3_region,
         config=BotoConfig(
             connect_timeout=config.s3_connect_timeout_seconds,
             read_timeout=config.s3_read_timeout_seconds,
@@ -381,57 +266,3 @@ def _create_client(
             proxies={},
         ),
     )
-
-
-def _md5():
-    import hashlib
-
-    return hashlib.md5(usedforsecurity=False)
-
-
-def _empty_md5() -> str:
-    return _md5().hexdigest()
-
-
-def _multipart_part_bytes(size_limit: int, configured_part_bytes: int) -> int:
-    """Use enough bytes per part to stay below S3's 10,000-part ceiling."""
-    mib = 1024 * 1024
-    minimum_part = 5 * mib
-    maximum_part = 64 * mib
-    required = max(minimum_part, configured_part_bytes, (size_limit + 9_999) // 10_000)
-    rounded = ((required + mib - 1) // mib) * mib
-    if rounded > maximum_part:
-        raise DestinationWriteError("object exceeds supported multipart size")
-    return rounded
-
-
-async def _read_part(
-    stream: BinaryIO,
-    part_bytes: int,
-    *,
-    timeout: float,
-    before_io: Callable[[], None],
-    on_bytes: Callable[[int], None],
-) -> bytes:
-    """Aggregate legal short reads into a service-sized part or the final tail."""
-    data = bytearray()
-    while len(data) < part_bytes:
-        before_io()
-        requested = part_bytes - len(data)
-        try:
-            chunk = await asyncio.wait_for(
-                asyncio.to_thread(stream.read, requested), timeout=timeout
-            )
-        except (SourceChangedError, SourceNotFoundError, SourcePathError):
-            raise
-        except Exception as exc:
-            raise SourceReadError("source read failed") from exc
-        if not chunk:
-            break
-        if not isinstance(chunk, bytes):
-            raise SourceReadError("source returned a non-byte chunk")
-        if len(chunk) > requested:
-            raise SourceReadError("source returned more bytes than requested")
-        data.extend(chunk)
-        on_bytes(len(chunk))
-    return bytes(data)

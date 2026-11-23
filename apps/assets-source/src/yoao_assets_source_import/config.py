@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 import math
 import os
 from pathlib import Path
@@ -11,13 +10,9 @@ import re
 from typing import Mapping
 from urllib.parse import urlsplit, urlunsplit
 
-from cryptography.fernet import Fernet
 from yoao_assets_images.policy import ImagePolicy, image_policy_from_environment
 
-from yoao_assets_source.connectors.host_guard import (
-    ConnectorAllowlistInvalid,
-    normalize_allowlist,
-)
+from yoao_assets_source.saved_io import valid_token
 
 
 class ConfigurationError(ValueError):
@@ -90,7 +85,7 @@ def _origin(environment: Mapping[str, str], name: str) -> str:
             and parsed.path in {"", "/"}
             and not parsed.query
             and not parsed.fragment
-            and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+            and not any(ord(char) <= 32 or ord(char) == 127 for char in value)
         )
     except ValueError:
         valid = False
@@ -139,27 +134,13 @@ def _positive_float(
     return value
 
 
-def _host_allowlist(environment: Mapping[str, str]) -> list[str]:
-    raw = environment.get("CONNECTOR_HOST_ALLOWLIST", "").strip()
-    if not raw:
-        return []
-    if raw.startswith("["):
-        try:
-            entries = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ConfigurationError(
-                "CONNECTOR_HOST_ALLOWLIST is invalid JSON"
-            ) from exc
-        if not isinstance(entries, list) or any(
-            not isinstance(item, str) for item in entries
-        ):
-            raise ConfigurationError("CONNECTOR_HOST_ALLOWLIST must be a string list")
-    else:
-        entries = [item.strip() for item in raw.split(",") if item.strip()]
-    try:
-        return normalize_allowlist(entries)
-    except ConnectorAllowlistInvalid as exc:
-        raise ConfigurationError("CONNECTOR_HOST_ALLOWLIST is invalid") from exc
+def _required_token(environment: Mapping[str, str], name: str) -> str:
+    token = _required_secret(environment, name)
+    if not valid_token(token):
+        raise ConfigurationError(
+            f"{name} must contain 32–256 printable ASCII characters without spaces"
+        )
+    return token
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,14 +149,15 @@ class ImportConfig:
     driver_database_url: str
     verify_url: str
     verify_token: str = field(repr=False)
+    saved_io_url: str
+    saved_io_read_token: str = field(repr=False)
+    saved_io_write_token: str = field(repr=False)
+    saved_io_timeout_seconds: float
     s3_endpoint: str
     s3_region: str
-    s3_access_key: str
-    s3_secret_key: str
+    s3_access_key: str = field(repr=False)
+    s3_secret_key: str = field(repr=False)
     datasets_bucket: str
-    connector_encryption_key: str
-    connector_host_allowlist: list[str]
-    sftp_known_hosts_file: str | None
     lease_seconds: int
     heartbeat_seconds: float
     poll_seconds: float
@@ -185,9 +167,6 @@ class ImportConfig:
     sql_timeout_seconds: float
     s3_connect_timeout_seconds: float
     s3_read_timeout_seconds: float
-    sftp_timeout_seconds: float
-    part_bytes: int = 8 * 1024 * 1024
-    image_header_bytes: int = 256 * 1024
     image_policy: ImagePolicy = field(default_factory=ImagePolicy)
 
 
@@ -197,12 +176,12 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
     database_url, driver_database_url = _postgres_dsn(source)
     s3_endpoint = _origin(source, "ASSETS_IMPORT_S3_ENDPOINT")
     region = source.get("ASSETS_IMPORT_S3_REGION", "us-east-1").strip()
-    verify_token = _required_secret(source, "ASSETS_IMPORT_VERIFY_TOKEN")
-    if not verify_token.isascii() or len(verify_token) < 32 or any(
-        char.isspace() for char in verify_token
-    ):
+    verify_token = _required_token(source, "ASSETS_IMPORT_VERIFY_TOKEN")
+    read_token = _required_token(source, "ASSETS_IMPORT_SAVED_IO_READ_TOKEN")
+    write_token = _required_token(source, "ASSETS_IMPORT_SAVED_IO_WRITE_TOKEN")
+    if len({verify_token, read_token, write_token}) != 3:
         raise ConfigurationError(
-            "ASSETS_IMPORT_VERIFY_TOKEN must contain 32+ ASCII non-whitespace characters"
+            "Importer read, write and verification tokens must be distinct"
         )
     if not region:
         raise ConfigurationError("ASSETS_IMPORT_S3_REGION must not be empty")
@@ -221,17 +200,6 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
             "ASSETS_IMPORT_HEARTBEAT_SECONDS must be less than half the lease"
         )
 
-    known_hosts_file = source.get("ASSETS_IMPORT_SFTP_KNOWN_HOSTS", "").strip() or None
-    if known_hosts_file is not None and not Path(known_hosts_file).is_file():
-        raise ConfigurationError(
-            "ASSETS_IMPORT_SFTP_KNOWN_HOSTS must name a readable file"
-        )
-
-    encryption_key = _required_secret(source, "CONNECTOR_ENCRYPTION_KEY")
-    try:
-        Fernet(encryption_key.encode("ascii"))
-    except (ValueError, TypeError, UnicodeEncodeError) as exc:
-        raise ConfigurationError("CONNECTOR_ENCRYPTION_KEY is invalid") from exc
     pool_min_size = _positive_int(
         source, "ASSETS_IMPORT_POOL_MIN_SIZE", "1", minimum=1, maximum=8
     )
@@ -253,14 +221,17 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
         driver_database_url=driver_database_url,
         verify_url=_origin(source, "ASSETS_IMPORT_VERIFY_URL"),
         verify_token=verify_token,
+        saved_io_url=_origin(source, "ASSETS_IMPORT_SAVED_IO_URL"),
+        saved_io_read_token=read_token,
+        saved_io_write_token=write_token,
+        saved_io_timeout_seconds=_positive_float(
+            source, "ASSETS_IMPORT_SAVED_IO_TIMEOUT_SECONDS", "120", maximum=600
+        ),
         s3_endpoint=s3_endpoint,
         s3_region=region,
         s3_access_key=_required_secret(source, "ASSETS_IMPORT_S3_ACCESS_KEY"),
         s3_secret_key=_required_secret(source, "ASSETS_IMPORT_S3_SECRET_KEY"),
         datasets_bucket=_bucket(source, "ASSETS_IMPORT_DATASETS_BUCKET"),
-        connector_encryption_key=encryption_key,
-        connector_host_allowlist=_host_allowlist(source),
-        sftp_known_hosts_file=known_hosts_file,
         lease_seconds=lease_seconds,
         heartbeat_seconds=heartbeat_seconds,
         poll_seconds=_positive_float(
@@ -279,9 +250,6 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
         ),
         s3_read_timeout_seconds=_positive_float(
             source, "ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS", "120", maximum=600
-        ),
-        sftp_timeout_seconds=_positive_float(
-            source, "ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS", "10", maximum=120
         ),
         image_policy=image_policy,
     )

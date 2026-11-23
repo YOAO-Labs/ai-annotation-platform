@@ -15,10 +15,10 @@ from yoao_assets_source.import_verification_contract import ImportVerificationRe
 from yoao_assets_source.connectors import SourceChangedError
 from yoao_assets_source.import_contract import ImportEntry, ImportSourceObject
 from yoao_assets_source.managed_original_contract import ManagedOriginalMaterial
+from yoao_assets_source.saved_io import SavedIOError
 from yoao_assets_source_import.storage import (
     DestinationStorage,
     DestinationWriteError,
-    _multipart_part_bytes,
 )
 
 
@@ -160,15 +160,12 @@ class _Store:
 def _config():
     return SimpleNamespace(
         datasets_bucket="datasets",
-        part_bytes=8 * 1024 * 1024,
-        image_header_bytes=256 * 1024,
         s3_read_timeout_seconds=10,
         s3_connect_timeout_seconds=2,
         s3_endpoint="http://s3",
         s3_region="us-east-1",
         s3_access_key="key",
         s3_secret_key="secret",
-        connector_encryption_key="unused",
     )
 
 
@@ -273,15 +270,43 @@ async def test_streaming_aggregates_short_reads_hashes_and_reads_back_exactly() 
     )
 
 
-def test_part_size_accounts_for_s3_ten_thousand_part_limit() -> None:
-    byte_budget = 200 * 1024 * 1024 * 1024
-    part_size = _multipart_part_bytes(byte_budget, 8 * 1024 * 1024)
-    assert part_size > 8 * 1024 * 1024
-    assert (byte_budget + part_size - 1) // part_size <= 10_000
-    fixed_capacity = 64 * 1024 * 1024 * 10_000
-    assert _multipart_part_bytes(fixed_capacity, 8 * 1024 * 1024) == 64 * 1024 * 1024
-    with pytest.raises(DestinationWriteError, match="supported multipart size"):
-        _multipart_part_bytes(fixed_capacity + 1, 8 * 1024 * 1024)
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("size", "expected_part"),
+    [
+        (200 * 1024**3, 21 * 1024**2),
+        (64 * 1024**2 * 10_000, 64 * 1024**2),
+        (64 * 1024**2 * 10_000 + 1, None),
+    ],
+)
+async def test_actual_writer_enforces_the_multipart_limit(size, expected_part) -> None:
+    reads = []
+
+    class Interrupted:
+        def read(self, requested):
+            reads.append(requested)
+            raise SavedIOError("download_interrupted", unsettled=True)
+
+    store = _Store()
+    storage = DestinationStorage(_config(), client=store)
+    entry = _entry(size)
+    error = (
+        pytest.raises(SavedIOError, match="download_interrupted")
+        if expected_part is not None
+        else pytest.raises(DestinationWriteError, match="supported multipart size")
+    )
+    with error:
+        await storage.transfer(
+            Interrupted(),
+            entry,
+            target=_target(entry),
+            byte_budget=size,
+            before_io=lambda: None,
+            on_bytes=lambda amount: None,
+            on_verify=_verify_from_store(store, entry, b""),
+        )
+    assert reads == ([expected_part] if expected_part is not None else [])
+    assert not store.created and not store.objects
 
 
 @pytest.mark.asyncio

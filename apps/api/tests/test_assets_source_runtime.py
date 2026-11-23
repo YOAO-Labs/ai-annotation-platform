@@ -59,7 +59,15 @@ pytestmark = [
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _start_source(image, identity, environment, suffix=""):
+def _start_source(image, identity, environment, suffix="", *, known_hosts=None):
+    mount = (
+        [
+            "--mount",
+            f"type=bind,source={known_hosts},target=/run/secrets/assets_source_sftp_known_hosts,readonly",
+        ]
+        if known_hosts is not None
+        else []
+    )
     return _docker(
         "run",
         "-d",
@@ -90,18 +98,25 @@ def _start_source(image, identity, environment, suffix=""):
         "/tmp:rw,noexec,nosuid,size=256m",
         "--env-file",
         str(environment),
+        *mount,
         image,
     )
 
 
-def _source_origin(container, image, identity):
+def _source_origin(container, image, identity, *, known_hosts=None):
     observed = _inspect_docker(container)
     config = observed["Config"]
     assert observed["Id"] == container and config["Image"] == image
     assert config["User"] == "10003:10003"
     assert config["Labels"]["org.aap.acceptance-id"] == identity
     assert config["Labels"]["org.aap.acceptance"] == "module-data-boundary"
-    assert not observed["Mounts"]
+    if known_hosts is None:
+        assert not observed["Mounts"]
+    else:
+        [mount] = observed["Mounts"]
+        assert mount["Type"] == "bind" and not mount["RW"]
+        assert Path(mount["Source"]) == known_hosts
+        assert mount["Destination"] == "/run/secrets/assets_source_sftp_known_hosts"
     assert not any(
         value.startswith(("DATABASE_URL=", "MINIO_", "AWS_", "CELERY_", "REDIS_"))
         for value in config["Env"]
