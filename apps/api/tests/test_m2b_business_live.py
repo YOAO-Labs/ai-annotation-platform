@@ -115,6 +115,8 @@ async def _assert_default_login(default_engine):
             "SELECT auth_token FROM public.ml_backend_registry LIMIT 0",
             "SELECT * FROM yoao_jobs_v1.dispatch_intents LIMIT 0",
             "SELECT yoao_jobs_v1.claim_dispatches(NULL::jsonb)",
+            "SELECT yoao_inference_backend_endpoint_v1.open_execution_endpoint"
+            "(NULL::text, NULL::uuid, NULL::uuid, NULL::text)",
             "SELECT yoao_inference_health_observation_v1.open_health_observation_subject"
             "(NULL::text, NULL::uuid, NULL::uuid)",
         ):
