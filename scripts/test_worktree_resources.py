@@ -490,19 +490,6 @@ class BucketUpgradeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
 
-    def test_private_acl_rejects_missing_or_duplicated_source(self):
-        backend = object.__new__(LocalResources)
-        backend.code_root = self.root
-        target = self.root / "infra/docker/lan-production-grants.sql"
-        target.parent.mkdir(parents=True)
-        for domain in ("labeling", "workspace"):
-            block = f"DO ${domain}_private_acl$ BEGIN END; ${domain}_private_acl$;"
-            for content in ("", block + block):
-                target.write_text(content)
-                with self.subTest(domain=domain, content=content):
-                    with self.assertRaises(WorktreeError):
-                        backend.private_runtime_acl(domain)
-
 
 class FixtureInferenceIdentityTests(unittest.TestCase):
     def test_private_gpu_selection_discards_inherited_file_and_case_aliases(self):

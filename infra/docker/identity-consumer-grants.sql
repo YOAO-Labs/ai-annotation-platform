@@ -4,6 +4,13 @@ SELECT set_config('yoao.expected_database', :'expected_database', true);
 SELECT set_config('yoao.migration_role', :'migration_role', true);
 SELECT set_config('yoao.identity_owner', :'identity_owner', true);
 SELECT set_config('yoao.identity_consumer_role', :'consumer_role', true);
+SET LOCAL search_path = pg_catalog, pg_temp;
+\if :{?identity_avatar_runtime}
+\if :identity_avatar_runtime
+SELECT set_config('yoao.identity_avatar_runtime', 'on', true),
+       set_config('yoao.application_role', :'application_role', true);
+\endif
+\endif
 
 DO $guard$
 DECLARE
@@ -21,6 +28,10 @@ DECLARE
     ];
     v_relation record;
 BEGIN
+    IF current_setting('yoao.identity_avatar_runtime', true) = 'on'
+       AND current_setting('yoao.application_role') <> v_consumer::text THEN
+        RAISE EXCEPTION 'Ordinary Identity consumer must match application_role';
+    END IF;
     IF current_database() <> current_setting('yoao.expected_database')
        OR current_user <> current_setting('yoao.migration_role')
        OR v_identity=current_user
@@ -76,19 +87,57 @@ BEGIN
 END;
 $guard$;
 
+\if :{?identity_avatar_runtime}
+\if :identity_avatar_runtime
+\set platform_runtime :application_role
+\ir ordinary-runtime-revoke.sql
+REVOKE ALL ON DATABASE :"expected_database" FROM :"consumer_role";
+GRANT CONNECT, TEMPORARY ON DATABASE :"expected_database" TO :"consumer_role";
+\ir m2b-runtime-grants.sql
+\ir ordinary-runtime-verify.sql
+\endif
+\endif
+
 DO $revoke$
 DECLARE
     v_consumer name := current_setting('yoao.identity_consumer_role');
     v_schema record;
     v_relation record;
+    v_avatar_oid oid[];
     v_columns text;
+    v_function record;
 BEGIN
+    IF current_setting('yoao.identity_avatar_runtime', true) = 'on' THEN
+        v_avatar_oid := ARRAY[
+            'yoao_identity_v1.reserve_avatar_upload(uuid,text,jsonb,text,integer)'::regprocedure,
+            'yoao_identity_v1.confirm_avatar_upload_version(uuid,text,jsonb,text,integer,text)'::regprocedure,
+            'yoao_identity_v1.avatar_upload_pending_matches(uuid,text,jsonb,text,integer,text)'::regprocedure,
+            'yoao_identity_v1.read_ready_avatar_upload(text)'::regprocedure,
+            'yoao_identity_v1.list_avatar_retirements(integer)'::regprocedure,
+            'yoao_identity_v1.begin_avatar_retirement(text)'::regprocedure,
+            'yoao_identity_v1.finish_avatar_retirement(text,jsonb,text,integer,text)'::regprocedure,
+            'yoao_identity_v1.read_avatar_binding_history()'::regprocedure,
+            'yoao_identity_v1.avatar_saved_target_referenced(uuid)'::regprocedure
+        ]::oid[];
+        IF EXISTS (
+            SELECT FROM pg_catalog.pg_proc AS p
+            WHERE p.oid = ANY(v_avatar_oid)
+              AND (p.proowner <> current_setting('yoao.identity_owner')::regrole
+                   OR NOT pg_catalog.has_function_privilege(v_consumer,p.oid,'EXECUTE'))
+        ) THEN
+            RAISE EXCEPTION 'Ordinary avatar capabilities have unexpected ownership or grants';
+        END IF;
+        PERFORM set_config('yoao.identity_avatar_capabilities', v_avatar_oid::text, true);
+    ELSE
+        v_avatar_oid := '{}'::oid[];
+        PERFORM set_config('yoao.identity_avatar_capabilities', '{}', true);
+    END IF;
     FOR v_relation IN
         SELECT c.oid,n.nspname,c.relname
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','v','m','f') AND (
-            n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_identity(_|$)'
             OR (n.nspname='public' AND (
                 c.relname IN ('users','api_keys','groups','organizations',
                     'organization_members','user_invitations',
@@ -107,14 +156,19 @@ BEGIN
                 v_columns,v_relation.nspname,v_relation.relname,v_consumer);
         END IF;
     END LOOP;
+    FOR v_function IN
+        SELECT p.oid::regprocedure AS signature
+        FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+        WHERE n.nspname ~ '^(aap|yoao)_identity(_|$)' AND NOT p.oid = ANY(v_avatar_oid)
+          AND pg_catalog.has_function_privilege(v_consumer,p.oid,'EXECUTE')
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON ROUTINE %s FROM %I',v_function.signature,v_consumer);
+    END LOOP;
     FOR v_schema IN
         SELECT nspname FROM pg_catalog.pg_namespace
-        WHERE nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE nspname ~ '^(aap|yoao)_identity(_|$)'
     LOOP
-        EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',
-            v_schema.nspname,v_consumer);
-        EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA %I FROM %I',
-            v_schema.nspname,v_consumer);
+        EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA %I FROM %I', v_schema.nspname,v_consumer);
     END LOOP;
 END;
 $revoke$;
@@ -145,19 +199,19 @@ DECLARE
         'yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])'::regprocedure::oid,
         'yoao_identity_v1.is_jti_revoked(uuid)'::regprocedure::oid,
         'yoao_identity_v1.get_credential_generation(uuid)'::regprocedure::oid
-    ];
+    ] || current_setting('yoao.identity_avatar_capabilities')::oid[];
 BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE n.nspname ~ '^(aap|yoao)_identity(_|$)'
           AND pg_catalog.has_function_privilege(v_consumer,p.oid,'EXECUTE')
           AND NOT p.oid=ANY(v_allowed)
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','v','m','f') AND (
-            n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_identity(_|$)'
             OR (n.nspname='public' AND (
                 c.relname IN ('users','api_keys','groups','organizations',
                     'organization_members','user_invitations',

@@ -19,6 +19,7 @@ from yoao_identity.recovery_crypto import token_hash
 from yoao_identity.recovery_manager import RecoveryManager
 from yoao_identity.recovery_postgres import RecoveryPostgresData
 from yoao_identity_runtime.mail_worker import MailExecutor
+from tests.grant_script import read_psql_grant_script
 from tests.identity_recovery_live_helpers import SMTPInbox, cleanup, command, outbox
 from tests.test_identity_admission_live import _dsn, _world
 from tests.test_identity_admission_live import ROOT
@@ -267,7 +268,9 @@ async def test_legacy_runtime_grants_keep_embedded_recovery_and_mail_working(
                 "-v",
                 "asset_cleanup_role=yoao_asset_cleanup_client",
             ],
-            body=(ROOT / "infra/docker/lan-production-grants.sql").read_bytes(),
+            body=read_psql_grant_script(
+                ROOT / "infra/docker/lan-production-grants.sql"
+            ).encode(),
         )
         dsn = (
             make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])

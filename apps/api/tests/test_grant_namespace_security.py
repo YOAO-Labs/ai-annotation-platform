@@ -25,6 +25,7 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import settings
+from tests.grant_script import read_psql_grant_script
 
 ROOT = Path(__file__).resolve().parents[3]
 GRANTS = ROOT / "infra/docker"
@@ -147,7 +148,7 @@ async def _apply(migration_url: URL, script: str, variables: dict[str, str]):
     }
     return await _psql(
         migration_url,
-        sql=(GRANTS / script).read_text(),
+        sql=read_psql_grant_script(GRANTS / script),
         variables=variables,
         username=migration_url.username,
         password=migration_url.password,
