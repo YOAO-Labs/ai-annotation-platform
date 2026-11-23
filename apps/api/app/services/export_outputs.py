@@ -10,14 +10,12 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import partial
+from types import SimpleNamespace
 
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models.export_artifact import ExportArtifact
-from app.db.models.export_media_bundle import ExportMediaBundle
-from app.db.models.export_output import ExportOutput
-from app.db.models.storage_maintenance import StorageOperation
+from app.services import export_delivery_data as data
 from app.services import (
     export_execution_context,
     export_media_storage,
@@ -87,11 +85,7 @@ class OutputSnapshot:
 
 
 def _fact(row, name):
-    if name == "media_bundle_id" and not isinstance(
-        row, (ExportOutput, OutputSnapshot)
-    ):
-        return getattr(row, name, None)
-    return getattr(row, name)
+    return getattr(row, name, None) if name == "media_bundle_id" else getattr(row, name)
 
 
 def snapshot(row, *, fixture=False):
@@ -120,12 +114,7 @@ def read_purpose(identifier):
 
 
 async def _locked(db, identifier):
-    return await db.scalar(
-        select(ExportOutput)
-        .where(ExportOutput.id == identifier)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    return await data.zip_receipt(db, identifier, mode="update")
 
 
 async def _settled_thread(call, *args):
@@ -250,12 +239,7 @@ async def create(
     bundle = None
     if media_bundle_id is not None:
         media_bundle_id = _identifier(media_bundle_id)
-        bundle = await db.scalar(
-            select(ExportMediaBundle)
-            .where(ExportMediaBundle.id == media_bundle_id)
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True)
-        )
+        bundle = await data.media_fence(db, media_bundle_id, mode="update_nowait")
         if bundle is None or bundle.id != media_bundle_id:
             reject()
     native = (
@@ -296,7 +280,7 @@ async def create(
         expires=expires,
     )
     _creation_valid(bundle, **facts)
-    row = ExportOutput(
+    row = SimpleNamespace(
         id=identifier,
         project_id=project_id,
         job_id=job_id,
@@ -325,8 +309,8 @@ async def create(
             expected_key=export_storage.key_for(media, project_id, job_id, identifier),
         ).ref
     _creation_valid(bundle, **facts)
-    db.add(row)
-    await db.flush()
+    if not await data.reserve_zip(db, row):
+        reject()
     _creation_valid(bundle, **facts)
     receipt = snapshot(
         row,
@@ -349,7 +333,8 @@ def proof_writer(db, receipt):
                 reject()
             if row.upload_proof is not None:
                 reject("export_storage_invalid_receipt")
-            row.upload_proof = proof
+            if not await data.save_zip_proof(owned, receipt.id, proof):
+                reject("export_storage_invalid_receipt")
             await owned.commit()
 
     def save(proof):
@@ -422,9 +407,11 @@ async def publish(db, receipt, revision):
         expected_revision=revision,
         lock=True,
     )
-    row.state = "ready"
-    await db.flush()
-    return row
+    if not await data.publish_zip(db, receipt.id):
+        if row.expires_at <= now():
+            reject("export_storage_expired")
+        reject("export_storage_invalid_receipt")
+    return SimpleNamespace(**(dict(row._mapping) | {"state": "ready"}))
 
 
 def couple(artifact, row):
@@ -471,16 +458,6 @@ class CacheHit:
         return self.output.size_bytes
 
 
-async def _invalidate(db, artifact_id, output_id):
-    await db.execute(
-        delete(ExportArtifact).where(
-            ExportArtifact.id == artifact_id,
-            ExportArtifact.output_id == output_id,
-        )
-    )
-    await db.commit()
-
-
 async def verify_cache(db, artifact):
     """Use only a saved ready owner and retain uncertain/historical bytes."""
     if artifact.output_id is None:
@@ -490,7 +467,7 @@ async def verify_cache(db, artifact):
         artifact.cache_key,
         artifact.batch_id,
     )
-    row = await db.get(ExportOutput, artifact.output_id, populate_existing=True)
+    row = await data.zip_receipt(db, artifact.output_id)
     if row is None:
         reject("export_cache_output_mismatch")
     couple(artifact, row)
@@ -503,9 +480,7 @@ async def verify_cache(db, artifact):
         if await fixture_native_lifetime(db, receipt.job_id, receipt.project_id):
             return None
     else:
-        bundle = await db.get(
-            ExportMediaBundle, receipt.media_bundle_id, populate_existing=True
-        )
+        bundle = await data.media_fence(db, receipt.media_bundle_id)
         if bundle is None:
             reject("export_cache_output_mismatch")
         if bundle.fixture_run_id is not None:
@@ -559,7 +534,8 @@ async def verify_cache(db, artifact):
         await db.rollback()
         present = False
     if not present:
-        await _invalidate(db, artifact_id, receipt.id)
+        await data.invalidate_cache(db, artifact_id, receipt.id)
+        await db.commit()
         return None
     return CacheHit(artifact_id, cache_key, batch_id, receipt, revision, route)
 
@@ -603,7 +579,7 @@ async def _check_read(db, receipt, revision, route, *, lock=False):
 async def prepare_download(db, receipt, *, download_name, expected_revision=None):
     """Construct, sign and close an external client before final business locks."""
     if receipt.storage_ref["schema"] == 2 and receipt.upload_proof is None:
-        row = await db.get(ExportOutput, receipt.id, populate_existing=True)
+        row = await data.zip_receipt(db, receipt.id)
         if row is None or not same(row, receipt):
             reject()
         receipt = snapshot(row, fixture=receipt.fixture)
@@ -682,12 +658,7 @@ async def sign_cached(
     row = await _locked(db, hit.output.id)
     if row is None or row.state != "ready" or not same(row, hit.output):
         reject()
-    artifact = await db.scalar(
-        select(ExportArtifact)
-        .where(ExportArtifact.id == hit.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    artifact = await data.lock_cache(db, hit.id)
     if (
         artifact is None
         or artifact.cache_key != hit.cache_key
@@ -720,53 +691,16 @@ async def sign_cached(
     return url
 
 
-async def _has_read(db, receipt):
-    return (
-        await db.scalar(
-            select(StorageOperation.id)
-            .where(
-                StorageOperation.purpose == read_purpose(receipt.id),
-            )
-            .limit(1)
-        )
-        is not None
-    )
-
-
-async def _has_index(db, identifier):
-    return (
-        await db.scalar(
-            select(ExportArtifact.id)
-            .where(ExportArtifact.output_id == identifier)
-            .limit(1)
-        )
-        is not None
-    )
-
-
 async def _cleanup_locked(db, identifier):
     from app.services import export_media_retirement
 
-    bundle_id = await db.scalar(
-        select(ExportOutput.media_bundle_id).where(ExportOutput.id == identifier)
-    )
+    bundle_id = await data.zip_retirement_bundle(db, identifier)
     bundle = None
     if bundle_id is not None:
         bundle = await export_media_retirement.lock_owner(db, bundle_id)
         if bundle is None:
             return None, None
-    row = await db.scalar(
-        select(ExportOutput)
-        .where(
-            ExportOutput.id == identifier,
-            or_(
-                ExportOutput.media_bundle_id.is_not(None),
-                ExportOutput.expires_at <= func.clock_timestamp(),
-            ),
-        )
-        .with_for_update(skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
+    row = await data.zip_receipt(db, identifier, mode="retirement")
     return row, bundle
 
 
@@ -825,28 +759,10 @@ async def _cleanup_one(db, identifier, counters):
         await db.commit()
         return False
     receipt = snapshot(row)
-    row.last_attempted_at = now()
-    if await _has_read(db, receipt):
+    removed = await data.start_zip_retirement(db, identifier, now())
+    if removed is None:
         await db.commit()
         return False
-    removed = 0
-    if row.state == "pending":
-        if await _has_index(db, identifier):
-            await db.commit()
-            return False
-        row.state, row.retired_at = "retired", now()
-    elif row.state == "ready":
-        result = await db.execute(
-            delete(ExportArtifact)
-            .where(ExportArtifact.output_id == identifier)
-            .returning(ExportArtifact.id)
-        )
-        removed = len(result.all())
-        row.state, row.retired_at = "retired", now()
-    elif row.state != "retired" or await _has_index(db, identifier):
-        await db.commit()
-        return False
-    row.last_attempted_at = now()
     await db.commit()
     counters["removed"] += removed
     owner = export_storage.resolve(receipt)
@@ -910,8 +826,7 @@ async def _cleanup_one(db, identifier, counters):
             or (linked_ended and current_bundle.published_at is None)
         )
         and (current_bundle is None or linked_ended)
-        and not await _has_index(db, identifier)
-        and not await _has_read(db, receipt)
+        and await data.zip_retirement_unreferenced(db, identifier)
     ):
         if private and not await db.scalar(
             text("SELECT public.confirm_fixture_export_zip_absent(:output_id)"),
@@ -942,7 +857,9 @@ async def _cleanup_one(db, identifier, counters):
         ):
             await db.rollback()
             return False
-        await db.delete(current)
+        if not await data.remove_retired_zip(db, identifier, now()):
+            await db.rollback()
+            return False
         await db.commit()
         return True
     await db.commit()
@@ -952,65 +869,17 @@ async def _cleanup_one(db, identifier, counters):
 async def cleanup(db, *, limit=100):
     """Retire expired known outputs; legacy expiry drops database indices only."""
     current = now()
-    from app.services import export_media_retirement
-
     limit = max(1, min(limit, 100))
-    legacy_ids = (
-        select(ExportArtifact.id)
-        .where(
-            ExportArtifact.output_id.is_(None),
-            ExportArtifact.expires_at <= current,
-        )
-        .order_by(ExportArtifact.expires_at, ExportArtifact.id)
-        .limit(limit)
-    )
-    old = await db.execute(
-        delete(ExportArtifact)
-        .where(
-            ExportArtifact.id.in_(legacy_ids),
-            ExportArtifact.output_id.is_(None),
-        )
-        .returning(ExportArtifact.id)
-    )
+    removed = await data.purge_legacy_cache(db, current, limit)
     result = {
-        "removed": len(old.all()),
+        "removed": removed,
         "outputs_deleted": 0,
         "retained": 0,
         "failed": 0,
         "now": current.isoformat(),
     }
     await db.commit()
-    identifiers = list(
-        await db.scalars(
-            select(ExportOutput.id)
-            .where(
-                or_(
-                    (ExportOutput.state == "ready")
-                    & (ExportOutput.expires_at <= current),
-                    ExportOutput.state == "retired",
-                    (ExportOutput.state == "pending")
-                    & export_media_retirement.pending_zip_predicate(current),
-                ),
-                ~export_media_retirement.zip_operations_predicate(),
-                ~select(ExportMediaBundle.id)
-                .where(
-                    ExportMediaBundle.id == ExportOutput.media_bundle_id,
-                    ExportMediaBundle.fixture_run_id.is_not(None),
-                )
-                .exists(),
-                text(
-                    "NOT EXISTS (SELECT 1 FROM public.fixture_native_export_lifetime("
-                    "export_outputs.job_id, export_outputs.project_id))"
-                ),
-            )
-            .order_by(
-                ExportOutput.last_attempted_at.asc().nulls_first(),
-                ExportOutput.created_at,
-                ExportOutput.id,
-            )
-            .limit(limit)
-        )
-    )
+    identifiers = await data.zip_retirement_queue(db, current, limit)
     await db.commit()
     for identifier in identifiers:
         try:

@@ -8,15 +8,12 @@ from botocore.hooks import HierarchicalEmitter
 from fastapi import HTTPException
 import httpx
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
-from app.db.models.audit_log import AuditLog
 from app.db.models.dataset_asset import StorageLocation
-from app.db.models.notification import Notification
-from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_maintenance import (
     StorageMaintenanceGate as Gate,
     StorageOperation,
@@ -50,10 +47,6 @@ async def world(migration_engine, monkeypatch):
     monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
     maker = async_sessionmaker(migration_engine, expire_on_commit=False)
     async with maker() as db:
-        source_location = await db.get(StorageLocation, inventories.LEGACY_LOCATION_ID)
-        source_revision = (
-            source_location.config_revision if source_location is not None else 1
-        )
         actor = await create_user(
             db, "super_admin", f"window-tasks-{uuid.uuid4()}@test.local", "Window tasks"
         )
@@ -61,7 +54,7 @@ async def world(migration_engine, monkeypatch):
         if source is not None:
             source.state = "active"
         await db.commit()
-        inventory, connection, location, body = await seed(db, actor)
+        inventory, _, location, body = await seed(db, actor)
         parent, job, _ = await copies.start(db, actor, body)
         parent_id, job_id, task_id, actor_id = (
             parent.id,
@@ -69,61 +62,17 @@ async def world(migration_engine, monkeypatch):
             job.celery_task_id,
             actor.id,
         )
-        target_id, connection_id = location.id, connection.id
+        target_id = location.id
         await db.commit()
     async with maker() as db:
         assert await copy_worker.execute(db, job_id, task_id)
-    try:
-        yield SimpleNamespace(
-            maker=maker,
-            actor_id=actor_id,
-            parent_id=parent_id,
-            target_id=target_id,
-            source=inventory.source,
-        )
-    finally:
-        async with maker() as db:
-            await db.execute(
-                delete(StorageOperation).where(
-                    StorageOperation.location_id.in_(
-                        [inventories.LEGACY_LOCATION_ID, target_id]
-                    )
-                )
-            )
-            children = list(
-                await db.scalars(
-                    select(Copy.id)
-                    .where(Copy.target_location_id == target_id, Copy.id != parent_id)
-                    .order_by(Copy.generation.desc())
-                )
-            )
-            for identifier in children:
-                await db.execute(delete(Copy).where(Copy.id == identifier))
-            await db.execute(delete(AsyncJob).where(AsyncJob.user_id == actor_id))
-            await db.execute(delete(Window).where(Window.parent_copy_id == parent_id))
-            await db.execute(delete(Copy).where(Copy.id == parent_id))
-            await db.execute(
-                delete(Notification).where(Notification.user_id == actor_id)
-            )
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(delete(AuditLog).where(AuditLog.actor_id == actor_id))
-            await db.execute(delete(User).where(User.id == actor_id))
-            source_location = await db.get(
-                StorageLocation, inventories.LEGACY_LOCATION_ID
-            )
-            source_location.config_revision = source_revision
-            await db.execute(
-                delete(Gate).where(
-                    Gate.location_id.in_([inventories.LEGACY_LOCATION_ID, target_id])
-                )
-            )
-            await db.execute(
-                delete(StorageLocation).where(StorageLocation.id == target_id)
-            )
-            await db.execute(
-                delete(StorageConnection).where(StorageConnection.id == connection_id)
-            )
-            await db.commit()
+    yield SimpleNamespace(
+        maker=maker,
+        actor_id=actor_id,
+        parent_id=parent_id,
+        target_id=target_id,
+        source=inventory.source,
+    )
 
 
 async def stopped(world):

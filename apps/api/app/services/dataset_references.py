@@ -1,24 +1,18 @@
 """Register immutable business references and read without committing caller state."""
 
 from copy import deepcopy
+from dataclasses import dataclass
 import logging
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import text
 
-from app.db.models.dataset import DatasetItem, ProjectDataset
-from app.db.models.dataset_asset import DatasetAsset, StorageLocation
-from app.db.models.dataset_source import (
-    DatasetReference,
-    DatasetSource,
-    DatasetScanRun,
-    DatasetScanEntry,
-    DatasetSourceItem,
-    DatasetSourceRevision,
-)
+from app.db.models.dataset_source import DatasetScanRun
 from app.services import content_snapshot as snapshots
+from app.services import dataset_scan_data as scan_data
 from app.services import dataset_scans as scans
+from app.services import dataset_source_access as access
 from app.services import filesystem_storage as fs
 from app.services import reference_storage
 from app.services import storage_access, storage_fault_events
@@ -26,6 +20,7 @@ from app.services import storage_observation_rates as rates
 from app.services import storage_location as locations
 from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.reference_keys import reference_key
+from app.services.storage_registry_data import get_location
 
 log = logging.getLogger(__name__)
 
@@ -46,12 +41,14 @@ async def register_entry(
 ):
     from app.services.dataset_content import scan_snapshot, scan_context, key_authority
     from app.services.project_kind import dataset_has_scenes
+    from app.services import dataset_registration as registration
+    from app.services import dataset_registration_data as registration_data
+    from app.services import dataset_source_revisions as revisions
     from app.services import managed_original_creation as originals
     from app.services import directory_previews as previews
+    from app.services.original_source_data import asset_for_item
 
     async def dataset_guard(current_db):
-        from app.services import dataset_source_access as access
-
         scan = await access.require_run(current_db, DatasetScanRun, run_id, actor)
         current_source = await access.require_source(current_db, scan.source_id, actor)
         await scans.require_dataset_write(
@@ -62,8 +59,6 @@ async def register_entry(
         await dataset_guard(current_db)
         if before_apply is not None:
             await before_apply(current_db)
-
-    from app.services import dataset_source_access as access
 
     initial_scan = await access.require_run(db, DatasetScanRun, run_id, actor)
     initial_source = await access.require_source(db, initial_scan.source_id, actor)
@@ -108,13 +103,11 @@ async def register_entry(
     prepared_copy = None
     prepared_preview = None
     try:
-        unlocked_source = await db.get(
-            DatasetSource, initial_source.id, populate_existing=True
+        unlocked_source = await access.require_source(db, initial_source.id, actor)
+        unlocked_entry = await scan_data.observed_file(
+            db, run_id, path_digest, actor_id=actor.id, lock=False
         )
-        unlocked_entry = await db.get(
-            DatasetScanEntry, (run_id, path_digest), populate_existing=True
-        )
-        if unlocked_source is None or unlocked_entry is None:
+        if unlocked_entry is None:
             raise snapshots.ContentError("source_unavailable")
         preparation_facts = (
             unlocked_source.id,
@@ -190,15 +183,9 @@ async def register_entry(
     retired = []
     committing = False
     try:
-        mapping = await db.get(DatasetSourceItem, (source.id, path_digest))
-        observed_revision = await db.scalar(
-            select(DatasetSourceRevision)
-            .where(
-                DatasetSourceRevision.source_id == source.id,
-                DatasetSourceRevision.path_digest == path_digest,
-                DatasetSourceRevision.run_id == run.id,
-            )
-            .execution_options(populate_existing=True)
+        mapping = await registration_data.source_head(db, source.id, path_digest)
+        observed_revision = await registration_data.revision_for_observation(
+            db, source.id, run.id, path_digest
         )
         historical_replay = bool(
             revision_context is None
@@ -230,33 +217,24 @@ async def register_entry(
             }
         else:
             if revalidate:
-                previous = await db.get(
-                    DatasetSourceRevision,
-                    revision_context["before_revision_id"],
-                    populate_existing=True,
+                previous = await registration_data.revision_by_id(
+                    db, source.id, revision_context["before_revision_id"]
                 )
                 if (
                     previous is None
                     or previous.dataset_item_id is None
                     or previous.asset_id is None
-                    or (
-                        await db.get(
-                            DatasetSourceItem,
-                            (source.id, previous.path_digest),
-                            populate_existing=True,
-                        )
-                    )
-                    is None
                     or previous.content_sha256 != receipt["sha256"]
                     or previous.ownership_mode != source.ownership_mode
                 ):
                     raise HTTPException(409, detail={"code": "source_revision_changed"})
-                previous_mapping = await db.get(
-                    DatasetSourceItem,
-                    (source.id, previous.path_digest),
-                    populate_existing=True,
+                previous_mapping = await registration_data.source_head(
+                    db, source.id, previous.path_digest
                 )
-                if previous_mapping.current_revision_id != previous.id:
+                if (
+                    previous_mapping is None
+                    or previous_mapping.current_revision_id != previous.id
+                ):
                     raise HTTPException(409, detail={"code": "source_revision_changed"})
                 result = {
                     "item_id": previous.dataset_item_id,
@@ -294,11 +272,7 @@ async def register_entry(
                 )
             else:
                 result = await apply_reference(db, source, run, entry, dataset, actor)
-            asset = await db.scalar(
-                select(DatasetAsset).where(
-                    DatasetAsset.dataset_item_id == result["item_id"]
-                )
-            )
+            asset = await asset_for_item(db, result["item_id"])
             if revalidate and (
                 asset is None
                 or asset.id != previous.asset_id
@@ -308,8 +282,6 @@ async def register_entry(
                 or asset.verification_state != "verified"
             ):
                 raise snapshots.ContentError("content_binding_changed")
-            from app.services import dataset_source_revisions as revisions
-
             revision = await revisions.append(
                 db,
                 source,
@@ -322,14 +294,8 @@ async def register_entry(
             )
             relocating = bool(revision_context and revision_context.get("relocate"))
             if relocating:
-                from app.db.models.dataset_source import (
-                    DatasetSourcePreview,
-                    DatasetRegistrationRun,
-                    DatasetRegistrationEntry,
-                )
-
-                old_preview = await db.get(
-                    DatasetSourcePreview, (source.id, previous.path_digest)
+                old_preview = await previews.preview_for_path(
+                    db, source.id, previous.path_digest
                 )
                 if old_preview and old_preview.object_key:
                     if old_preview.thumbnail_output_id is not None:
@@ -338,55 +304,32 @@ async def register_entry(
                         )
                     else:
                         retired.append((old_preview.bucket, old_preview.object_key))
-                await db.delete(previous_mapping)
-                await db.flush()
-                registration_run = await db.get(
-                    DatasetRegistrationRun, revision_context["registration_id"]
+            mode = revision_context["mode"] if revision_context else "initial"
+            if not await db.scalar(
+                text(
+                    "SELECT yoao_assets_v1.publish_directory_reference_head("
+                    "CAST(:actor AS uuid), CAST(:source AS uuid), CAST(:revision AS uuid), "
+                    "CAST(:previous AS uuid), :mode)"
+                ),
+                {
+                    "actor": actor.id,
+                    "source": source.id,
+                    "revision": revision.id,
+                    "previous": mapping.current_revision_id if mapping else None,
+                    "mode": mode,
+                },
+            ):
+                raise HTTPException(409, detail={"code": "source_revision_changed"})
+            mapping = await registration_data.source_head(db, source.id, path_digest)
+            if relocating:
+                await registration.consume_relocation(
+                    db,
+                    revision.registration_id,
+                    path_digest,
+                    result["item_id"],
+                    revision.id,
                 )
-                registration_entry = await db.get(
-                    DatasetRegistrationEntry, (registration_run.id, path_digest)
-                )
-                from app.services import dataset_registration
-
-                dataset_registration.transition(
-                    registration_run,
-                    registration_entry,
-                    "registered",
-                    item_id=result["item_id"],
-                )
-                registration_run.counts = {
-                    **registration_run.counts,
-                    "estimated_new_count": max(
-                        0, registration_run.counts.get("estimated_new_count", 0) - 1
-                    ),
-                }
-            if mapping is None:
-                mapping = DatasetSourceItem(
-                    source_id=source.id, path_digest=path_digest
-                )
-                db.add(mapping)
-            mapping.current_revision_id = revision.id
-            mapping.run_id = run.id
-            mapping.dataset_item_id = result["item_id"]
-            mapping.asset_id = asset.id
-            mapping.content_sha256 = receipt["sha256"]
-            mapping.ownership_mode = source.ownership_mode
-            mapping.owns_item = revision.owns_item
             if revision_context:
-                item = await db.get(DatasetItem, result["item_id"])
-                if not revalidate:
-                    item.metadata_ = {
-                        **(item.metadata_ or {}),
-                        "source_revision_id": str(revision.id),
-                        "source_revision_number": revision.revision_number,
-                        "previous_source_item_id": str(
-                            (
-                                await db.get(
-                                    revisions.Revision, revision.previous_revision_id
-                                )
-                            ).item_id_at_accept
-                        ),
-                    }
                 from app.services.audit import AuditService
 
                 await AuditService.log(
@@ -398,7 +341,7 @@ async def register_entry(
                     if revalidate
                     else "dataset_source.accept_revision",
                     target_type="dataset_item",
-                    target_id=str(item.id),
+                    target_id=str(result["item_id"]),
                     detail={
                         "registration_id": str(revision.registration_id),
                         "revision_id": str(revision.id),
@@ -407,7 +350,6 @@ async def register_entry(
                     status_code=200 if revalidate else 201,
                 )
                 result.update(revisions.result_out(revision, created=result["created"]))
-            await db.flush()
 
         async def preview_fault_authority():
             await scans.validate_write_context(
@@ -605,6 +547,7 @@ async def apply_copy(
     requested_by=None,
     authority=None,
 ):
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.dataset import DatasetService
     from app.services.dataset_assets import find_verified_content
     from app.services import managed_original_creation as originals
@@ -644,105 +587,84 @@ async def apply_copy(
         storage_binding=originals.original_locator(allocation),
         storage_ref=originals.original_ref(allocation),
         logical_path=name,
+        directory_owned_media=True,
     )
     await originals.attach(db, item, creation.creation_id)
-    item.metadata_ = {**item.metadata_, "directory_owned_media": True}
-    await db.flush()
-    await service.create_tasks_for_items(dataset.id, [item.id])
+    await DatasetTaskCreationWorkflow(db).append_items(dataset.id, [item.id])
     return {"item_id": item.id, "created": True, "sha256": snapshot.sha256}
 
 
 async def apply_reference(db, source, run, entry, dataset, actor):
     """Apply one already locked and verified identity; the caller owns commit."""
-    from app.services.dataset import DatasetService
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.audit import AuditService
     from app.services.managed_original_reclaim_fence import protect_reference
 
     await protect_reference(db, run, entry)
 
-    path_digest = entry.path_digest
     receipt = entry.verified_content
-    existing = await db.scalar(
-        select(DatasetReference).where(
-            DatasetReference.source_id == source.id,
-            DatasetReference.path_digest == path_digest,
-            DatasetReference.run_id == run.id,
+    path_digest = entry.path_digest
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.publish_directory_reference("
+                "CAST(:actor AS uuid), CAST(:source AS uuid), CAST(:run AS uuid), "
+                ":digest, :sha, CAST(:size AS bigint))"
+            ),
+            {
+                "actor": actor.id,
+                "source": source.id,
+                "run": run.id,
+                "digest": path_digest,
+                "sha": receipt["sha256"],
+                "size": receipt["size_bytes"],
+            },
         )
-    )
-    if existing:
-        item = await db.get(DatasetItem, existing.dataset_item_id)
-        if item is None or item.file_path != reference_key(item.id, receipt["sha256"]):
-            raise snapshots.ContentError("reference_content_changed")
-        return {"item_id": item.id, "created": False, "sha256": receipt["sha256"]}
-    from app.services.project_access import get_workspace_project
-
-    project_ids = (
-        await db.scalars(
-            select(ProjectDataset.project_id).where(
-                ProjectDataset.dataset_id == dataset.id
-            )
-        )
-    ).all()
-    projects = [
-        await get_workspace_project(db, project_id=project_id)
-        for project_id in project_ids
-    ]
-    if any(
-        project is None or project.data_type != "image" or project.scene_mode
-        for project in projects
-    ):
-        raise HTTPException(409, detail={"code": "reference_requires_image_project"})
-    item_id = uuid.uuid4()
-    item = DatasetItem(
-        id=item_id,
-        dataset_id=dataset.id,
-        file_name=entry.relative_path.rsplit("/", 1)[-1][:500],
-        file_path=reference_key(item_id, receipt["sha256"]),
-        file_type="image",
-        file_size=receipt["size_bytes"],
-        width=receipt["width"],
-        height=receipt["height"],
-        metadata_={
-            "storage_mode": "reference",
-            "storage_relative_path": entry.relative_path,
-        },
-    )
-    db.add(item)
-    await db.flush()
-    db.add(
-        DatasetAsset(
-            id=uuid.uuid4(),
-            dataset_item_id=item.id,
-            media_type="image",
-            size_bytes=item.file_size,
-            checksum_algorithm="sha256",
-            checksum_value=receipt["sha256"],
-            verification_state="verified",
-        )
-    )
-    db.add(
-        DatasetReference(
-            dataset_item_id=item.id,
-            source_id=source.id,
-            run_id=run.id,
-            path_digest=path_digest,
-            source_revision=run.snapshot["source_revision"],
-            location_revision=run.snapshot["location_revision"],
-        )
-    )
-    dataset.file_count += 1
-    await db.flush()
-    await DatasetService(db).create_tasks_for_items(dataset.id, [item.id])
+    ).one()
+    if row.error_code == "reference_requires_image_project":
+        raise HTTPException(409, detail={"code": row.error_code})
+    if row.error_code == "access_revoked":
+        raise HTTPException(403, detail={"code": row.error_code})
+    if row.error_code:
+        raise snapshots.ContentError(row.error_code)
+    if not row.created:
+        return {"item_id": row.item_id, "created": False, "sha256": receipt["sha256"]}
+    await DatasetTaskCreationWorkflow(db).append_items(dataset.id, [row.item_id])
     await AuditService.log(
         db,
         actor=actor,
         action="dataset_reference.register",
         target_type="dataset_item",
-        target_id=str(item.id),
+        target_id=str(row.item_id),
         detail={"source_id": str(source.id), "path_digest": path_digest},
         status_code=201,
     )
-    return {"item_id": item.id, "created": True, "sha256": receipt["sha256"]}
+    return {"item_id": row.item_id, "created": True, "sha256": receipt["sha256"]}
+
+
+async def directory_reference_reclaim_facts(
+    db, item_id, *, run_id=None, path_digest=None
+):
+    if db.autoflush:
+        await db.flush()
+    return (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.directory_reference_reclaim_facts("
+                "CAST(:item AS uuid), CAST(:run AS uuid), :digest)"
+            ),
+            {"item": item_id, "run": run_id, "digest": path_digest},
+        )
+    ).one_or_none()
+
+
+@dataclass(frozen=True, slots=True)
+class _ReferenceState:
+    item_id: uuid.UUID
+    facts: object
+    location: object
+    maintenance_revision: int
+    source_locator: dict
 
 
 async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=None):
@@ -764,135 +686,100 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
             await task_access.assert_task_visible(db, task, actor.id)
     state = await _reference_binding_state(db, item_id, task=task if task_id else None)
     if task_id is None:
-        await scans.require_actor(db, actor.id, state[0])
+        await access.require_source(db, state.facts.source_id, actor)
     return state
 
 
 async def _reference_binding_state(db, item_id, *, task=None):
     """Validate one immutable binding; callers must authorize its exact content."""
-    ref = await db.get(DatasetReference, item_id, populate_existing=True)
-    item = await db.get(DatasetItem, item_id, populate_existing=True)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == item_id)
-        .execution_options(populate_existing=True)
-    )
-    if (
-        ref is None
-        or item is None
-        or asset is None
-        or asset.verification_state != "verified"
-    ):
+    if db.autoflush:
+        await db.flush()
+    facts = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.directory_reference_content("
+                "CAST(:item AS uuid))"
+            ),
+            {"item": item_id},
+        )
+    ).one_or_none()
+    if facts is None or facts.verification_state != "verified":
         raise snapshots.ContentError("content_unverified")
-    source = await db.get(DatasetSource, ref.source_id, populate_existing=True)
-    original_run = await db.get(DatasetScanRun, ref.run_id, populate_existing=True)
-    original_entry = await db.get(
-        DatasetScanEntry, (ref.run_id, ref.path_digest), populate_existing=True
-    )
     if (
-        original_run is None
-        or original_run.source_id != ref.source_id
-        or not original_run.complete
-        or original_entry is None
-        or not original_entry.verified_content
-        or ref.source_revision != original_run.snapshot["source_revision"]
-        or ref.location_revision != original_run.snapshot["location_revision"]
-        or original_entry.verified_content["sha256"] != asset.checksum_value
-        or original_entry.verified_content["size_bytes"] != asset.size_bytes
+        not facts.bound_run_matches
+        or facts.bound_source_revision != facts.bound_run_source_revision
+        or facts.bound_location_revision != facts.bound_run_location_revision
+        or facts.bound_sha256 != facts.sha256
+        or facts.bound_size != facts.size_bytes
     ):
         raise snapshots.ContentError("content_binding_changed")
-    accepted = await db.scalar(
-        select(DatasetSourceRevision)
-        .where(
-            DatasetSourceRevision.source_id == ref.source_id,
-            DatasetSourceRevision.dataset_item_id == item_id,
-            DatasetSourceRevision.asset_id == asset.id,
-            DatasetSourceRevision.ownership_mode == "reference",
-        )
-        .order_by(DatasetSourceRevision.acceptance_order.desc())
-        .limit(1)
-        .execution_options(populate_existing=True)
-    )
-    effective_run_id = accepted.run_id if accepted else ref.run_id
-    run = await db.get(DatasetScanRun, effective_run_id, populate_existing=True)
-    entry = await db.get(
-        DatasetScanEntry,
-        (effective_run_id, accepted.path_digest if accepted else ref.path_digest),
-        populate_existing=True,
-    )
     if (
-        source is None
-        or not source.enabled
-        or source.unregistered_at
-        or source.dataset_id != item.dataset_id
+        not facts.source_enabled
+        or facts.source_unregistered_at is not None
+        or facts.source_dataset_id != facts.dataset_id
     ):
         raise snapshots.ContentError("source_unavailable")
-    location = await db.get(StorageLocation, source.location_id, populate_existing=True)
+    location = await get_location(db, facts.location_id)
     if (
         location is None
         or not location.enabled
         or location.kind not in {"filesystem", "s3", "sftp", "agent"}
     ):
         raise snapshots.ContentError("location_unavailable")
-    if (
-        run is None
-        or run.source_id != source.id
-        or not run.complete
-        or entry is None
-        or not entry.verified_content
-    ):
+    if not facts.run_matches or not facts.content_receipt:
         raise snapshots.ContentError("content_unverified")
-    receipt = entry.verified_content
+    receipt = facts.content_receipt
     from app.services.source_selection import locator
 
+    source_locator = locator(facts.source_config)
+    run_locator = locator(facts.run_config)
     if (
-        locator(source.config) != locator(run.snapshot["config"])
-        or locator(run.snapshot["config"]) != locator(original_run.snapshot["config"])
-        or run.snapshot["anchor"] != original_run.snapshot["anchor"]
-        or (accepted is None and ref.source_revision != run.snapshot["source_revision"])
+        source_locator != run_locator
+        or run_locator != locator(facts.bound_config)
+        or facts.origin_anchor != facts.bound_anchor
         or (
-            accepted is None
-            and ref.location_revision != run.snapshot["location_revision"]
+            facts.accepted_revision_id is not None
+            and facts.accepted_sha256 != receipt["sha256"]
         )
-        or (accepted is not None and accepted.content_sha256 != receipt["sha256"])
-        or asset.checksum_algorithm != "sha256"
-        or asset.checksum_value != receipt["sha256"]
-        or asset.size_bytes != receipt["size_bytes"]
-        or item.file_path != reference_key(item.id, asset.checksum_value)
-        or (task is not None and task.file_path != item.file_path)
+        or facts.checksum_algorithm != "sha256"
+        or facts.sha256 != receipt["sha256"]
+        or facts.size_bytes != receipt["size_bytes"]
+        or facts.file_path != reference_key(item_id, facts.sha256)
+        or (task is not None and task.file_path != facts.file_path)
     ):
         raise snapshots.ContentError("content_binding_changed")
     maintenance_revision = await storage_access.check(db, location.id)
-    return source, location, run, entry, asset, accepted, item, maintenance_revision
+    return _ReferenceState(
+        item_id, facts, location, maintenance_revision, source_locator
+    )
 
 
 def _logical_context(state):
-    source, location, run, entry, asset, accepted, item, maintenance_revision = state
-    from app.services.source_selection import locator
+    facts, location = state.facts, state.location
 
     return deepcopy(
         dict(
-            source_id=source.id,
+            source_id=facts.source_id,
             location_id=location.id,
             location_kind=location.kind,
-            item_id=item.id,
-            asset_id=asset.id,
-            sha256=asset.checksum_value,
-            size=asset.size_bytes,
-            width=item.width,
-            height=item.height,
-            accepted_revision_id=accepted.id if accepted else None,
-            source_revision=source.config_revision,
+            item_id=state.item_id,
+            asset_id=facts.asset_id,
+            sha256=facts.sha256,
+            size=facts.size_bytes,
+            width=facts.width,
+            height=facts.height,
+            accepted_revision_id=facts.accepted_revision_id,
+            source_revision=facts.source_revision,
             location_revision=location.config_revision,
-            maintenance_revision=maintenance_revision,
-            policy_revision=source.policy_revision,
-            source_policy=source.cache_policy,
+            maintenance_revision=state.maintenance_revision,
+            policy_revision=facts.policy_revision,
+            source_policy=facts.source_policy,
             location_policy=location.config.get("cache_policy", "preview"),
-            run_id=run.id,
-            path_digest=entry.path_digest,
-            locator=locator(source.config),
-            origin_anchor=run.snapshot["anchor"],
-            content_receipt=entry.verified_content,
+            run_id=facts.run_id,
+            path_digest=facts.path_digest,
+            locator=state.source_locator,
+            origin_anchor=facts.origin_anchor,
+            content_receipt=facts.content_receipt,
         )
     )
 
@@ -920,15 +807,15 @@ async def reference_source_context(
 
 async def _physical_reference_context(db, state, *, node_id=None):
     """Qualify a binding already authorized by the original or replica owner."""
-    source, location, run, entry, asset, accepted, item, maintenance_revision = state
-    receipt = entry.verified_content
+    facts, location = state.facts, state.location
+    receipt = facts.content_receipt
     node = node_id or locations.api_node_id()
     anchor = await locations.node_anchor(db, location, node)
     if anchor is None:
         raise snapshots.ContentError(
             "worker_read_not_verified" if node_id else "api_read_not_verified"
         )
-    same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
+    same_host = facts.scan_host_id == fs.host_identity()
     expected = (
         receipt["observation"]
         if receipt["node_id"] == node or location.kind in {"s3", "sftp", "agent"}
@@ -937,20 +824,20 @@ async def _physical_reference_context(db, state, *, node_id=None):
     expected_source = (
         expected.get("source_identity")
         if receipt["node_id"] == node or location.kind == "agent"
-        else source.root_identity
+        else facts.root_identity
         if same_host
         else None
     )
     configured = await reference_storage.configuration(db, location)
     if location.kind in {"s3", "sftp", "agent"} and (
-        configured.anchor != run.snapshot["anchor"] or anchor != configured.anchor
+        configured.anchor != facts.origin_anchor or anchor != configured.anchor
     ):
         raise snapshots.ContentError("content_binding_changed")
     return dict(
         **_logical_context(state),
         config=configured,
-        base=source.config["relative_path"],
-        path=entry.relative_path,
+        base=state.source_locator["relative_path"],
+        path=facts.relative_path,
         anchor=anchor,
         expected=dict(expected),
         source_identity=expected_source,

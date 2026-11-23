@@ -4,22 +4,15 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.enums import UserRole
 from app.db.models.dataset_source import (
-    DatasetSource,
     DatasetScanRun,
-    DatasetScanEntry,
-    DatasetSourceItem,
-    DatasetSourceRevision,
-    DatasetSourcePreview,
     DatasetRegistrationRun,
-    DatasetRegistrationEntry,
 )
 from app.db.models.user import User
-from app.db.models.dataset_asset import StorageLocation
 from app.deps import get_db, require_roles, require_scopes, assert_request_scopes
 from app.schemas.dataset_source import (
     DatasetSourceCreate,
@@ -50,8 +43,11 @@ from app.schemas.dataset_source import (
     SourceRulesImpact,
 )
 from app.services import dataset_scans as svc
+from app.services import dataset_registration_data as registration_data
+from app.services import dataset_scan_data
 from app.services import dataset_source_access as access
 from app.services import agent_availability
+from app.services.assets_dataset_data import visible_sources
 from app.services.audit import AuditAction, AuditService
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.content_snapshot import (
@@ -115,21 +111,28 @@ async def list_sources(
     actor: User = Depends(manager),
 ):
     actor = await access.require_manager(db, actor.id)
-    stmt = select(DatasetSource).where(access.source_scope_clause(actor))
-    if dataset_id:
-        stmt = stmt.where(DatasetSource.dataset_id == dataset_id)
-    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = await db.scalars(
-        stmt.order_by(DatasetSource.created_at.desc(), DatasetSource.id)
-        .limit(limit)
-        .offset(offset)
-    )
-    rows = list(rows)
+    sources = visible_sources(actor.id, dataset_id=dataset_id)
+    total = await db.scalar(select(func.count()).select_from(sources))
+    rows = (
+        await db.execute(
+            select(sources)
+            .order_by(sources.c.created_at.desc(), sources.c.id)
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
     location_map = {
         location.id: location
-        for location in await db.scalars(
-            select(StorageLocation).where(
-                StorageLocation.id.in_({row.location_id for row in rows})
+        for location in (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.directory_source_display_locations("
+                    "CAST(:actor_id AS uuid), CAST(:location_ids AS uuid[]))"
+                ),
+                {
+                    "actor_id": actor.id,
+                    "location_ids": list({row.location_id for row in rows}),
+                },
             )
         )
     }
@@ -303,23 +306,15 @@ async def list_scans(
     actor: User = Depends(manager),
 ):
     await access.require_source(db, source_id, actor)
-    query = select(DatasetScanRun).where(DatasetScanRun.source_id == source_id)
-    if complete is not None:
-        query = query.where(DatasetScanRun.complete == complete)
-    if active_only:
-        query = query.where(DatasetScanRun.status.in_(["pending", "running"]))
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    ordering = (
-        (
-            DatasetScanRun.completed_at.desc().nulls_last(),
-            DatasetScanRun.created_at.desc(),
-            DatasetScanRun.id,
-        )
-        if complete is True
-        else (DatasetScanRun.created_at.desc(), DatasetScanRun.id)
+    return await dataset_scan_data.list_scans(
+        db,
+        source_id,
+        actor_id=actor.id,
+        limit=limit,
+        offset=offset,
+        complete=complete,
+        active_only=active_only,
     )
-    rows = await db.scalars(query.order_by(*ordering).limit(limit).offset(offset))
-    return {"items": list(rows), "total": total}
 
 
 @router.get("/dataset-scans/{run_id}", response_model=DatasetScanOut)
@@ -342,12 +337,7 @@ async def active_registration(
     actor: User = Depends(manager),
 ):
     await access.require_source(db, source_id, actor)
-    return await db.scalar(
-        select(DatasetRegistrationRun).where(
-            DatasetRegistrationRun.source_id == source_id,
-            DatasetRegistrationRun.status.in_(["pending", "running"]),
-        )
-    )
+    return await registration_data.active_run(db, source_id)
 
 
 @router.get("/dataset-scans/{run_id}/entries", response_model=DatasetScanEntryList)
@@ -358,124 +348,14 @@ async def list_entries(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    run = await access.require_run(db, DatasetScanRun, run_id, actor)
-    query = select(DatasetScanEntry).where(
-        DatasetScanEntry.run_id == run_id, DatasetScanEntry.relative_path != ""
+    await access.require_run(db, DatasetScanRun, run_id, actor)
+    return await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.directory_scan_entry_page("
+            "CAST(:actor_id AS uuid), CAST(:run_id AS uuid), :limit, CAST(:offset AS bigint))"
+        ),
+        {"actor_id": actor.id, "run_id": run_id, "limit": limit, "offset": offset},
     )
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = list(
-        await db.scalars(
-            query.order_by(DatasetScanEntry.path_digest).limit(limit).offset(offset)
-        )
-    )
-    registered = {
-        r.path_digest: r
-        for r in await db.scalars(
-            select(DatasetSourceItem).where(
-                DatasetSourceItem.source_id == run.source_id,
-                DatasetSourceItem.path_digest.in_([row.path_digest for row in rows]),
-            )
-        )
-    }
-    baseline_observations = {
-        e.path_digest: (
-            e.verified_content["observation"] if e.verified_content else None,
-            scan.snapshot["anchor"],
-        )
-        for e, scan in await db.execute(
-            select(DatasetScanEntry, DatasetScanRun)
-            .join(DatasetScanRun, DatasetScanRun.id == DatasetScanEntry.run_id)
-            .join(
-                DatasetSourceItem,
-                (DatasetSourceItem.run_id == DatasetScanEntry.run_id)
-                & (DatasetSourceItem.path_digest == DatasetScanEntry.path_digest),
-            )
-            .where(
-                DatasetSourceItem.source_id == run.source_id,
-                DatasetSourceItem.path_digest.in_([row.path_digest for row in rows]),
-            )
-        )
-    }
-    historical = {
-        r.path_digest: r.dataset_item_id
-        for r in await db.scalars(
-            select(DatasetSourceRevision).where(
-                DatasetSourceRevision.source_id == run.source_id,
-                DatasetSourceRevision.run_id == run.id,
-                DatasetSourceRevision.path_digest.in_(
-                    [row.path_digest for row in rows]
-                ),
-            )
-        )
-    }
-    accepted = {
-        row.path_digest: historical[row.path_digest]
-        if row.path_digest in historical
-        else (
-            registered[row.path_digest].dataset_item_id
-            if row.verified_content
-            and row.path_digest in registered
-            and registered[row.path_digest].content_sha256
-            == row.verified_content["sha256"]
-            and baseline_observations.get(row.path_digest)
-            == (row.verified_content["observation"], run.snapshot["anchor"])
-            else None
-        )
-        for row in rows
-    }
-    previews = {
-        p.path_digest: p
-        for p in await db.scalars(
-            select(DatasetSourcePreview).where(
-                DatasetSourcePreview.source_id == run.source_id,
-                DatasetSourcePreview.path_digest.in_([row.path_digest for row in rows]),
-            )
-        )
-    }
-    return {
-        "items": [
-            {
-                "path_digest": row.path_digest,
-                "relative_path": row.relative_path,
-                "kind": row.kind,
-                "state": row.state,
-                "size_bytes": row.observed.get("size"),
-                "content_verified": row.verified_content is not None,
-                "registered_item_id": accepted.get(row.path_digest),
-                "preview_state": previews[row.path_digest].state
-                if (
-                    row.path_digest in previews
-                    and row.path_digest in registered
-                    and accepted.get(row.path_digest)
-                    == registered[row.path_digest].dataset_item_id
-                )
-                else None,
-                "preview_bytes": previews[row.path_digest].size_bytes
-                if (
-                    row.path_digest in previews
-                    and row.path_digest in registered
-                    and accepted.get(row.path_digest)
-                    == registered[row.path_digest].dataset_item_id
-                )
-                else None,
-                "verified_content": {
-                    k: row.verified_content[k]
-                    for k in (
-                        "sha256",
-                        "size_bytes",
-                        "media_type",
-                        "width",
-                        "height",
-                        "verified_at",
-                    )
-                }
-                if row.verified_content
-                else None,
-            }
-            for row in rows
-        ],
-        "total": total,
-    }
 
 
 @router.post(
@@ -654,11 +534,7 @@ async def get_scan_registration(
     actor: User = Depends(manager),
 ):
     await access.require_run(db, DatasetScanRun, scan_id, actor)
-    return await db.scalar(
-        select(DatasetRegistrationRun).where(
-            DatasetRegistrationRun.scan_run_id == scan_id
-        )
-    )
+    return await registration_data.for_scan(db, scan_id)
 
 
 async def dispatch_registration(db, run, created):
@@ -667,8 +543,7 @@ async def dispatch_registration(db, run, created):
         from app.workers.dataset_registration import dispatch
 
         await dispatch(db, run.id)
-    await db.refresh(run)
-    return run
+    return await registration_data.read_run(db, run.id)
 
 
 @router.post(
@@ -799,40 +674,7 @@ async def registration_entries(
     actor: User = Depends(manager),
 ):
     run = await access.require_run(db, DatasetRegistrationRun, registration_id, actor)
-    entry = DatasetRegistrationEntry
-    stmt = (
-        select(entry, DatasetScanEntry)
-        .join(
-            DatasetScanEntry,
-            (DatasetScanEntry.run_id == run.scan_run_id)
-            & (DatasetScanEntry.path_digest == entry.path_digest),
-        )
-        .where(entry.run_id == run.id)
-    )
-    if state:
-        stmt = stmt.where(entry.state == state)
-    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = (
-        await db.execute(stmt.order_by(entry.path_digest).offset(offset).limit(limit))
-    ).all()
-    return {
-        "total": total,
-        "items": [
-            {
-                "path_digest": unit.path_digest,
-                "relative_path": observed.relative_path,
-                "state": unit.state,
-                "item_id": unit.item_id,
-                "error_code": unit.error_code,
-                "attempts": unit.attempts,
-                "size_bytes": observed.observed.get("size"),
-                "sha256": (observed.verified_content or {}).get("sha256"),
-                "preview_estimated_bytes": unit.preview_estimated_bytes,
-                "preview_error": unit.preview_error,
-            }
-            for unit, observed in rows
-        ],
-    }
+    return await registration_data.entries_page(db, run.id, state, limit, offset)
 
 
 @router.get(
@@ -864,10 +706,8 @@ async def get_sync_schedule(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    from app.db.models.dataset_source import DatasetSourceSyncSchedule
-
     await access.require_source(db, source_id, actor)
-    return await db.get(DatasetSourceSyncSchedule, source_id)
+    return await registration_data.read_schedule(db, source_id)
 
 
 @router.put(

@@ -8,11 +8,10 @@ import uuid
 
 from fastapi import HTTPException
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.db.enums import PlatformRole
-from app.db.models.dataset import Dataset
-from app.db.models.point_cloud_quality import PointCloudQualityRun
+from app.services.assets_dataset_data import dataset_metadata
 from app.db.models.project import Project
 from app.services import comment_attachment_authority as credentials
 from app.services import original_content_access as access
@@ -240,12 +239,15 @@ async def guard(db, context, *, lock=False):
         if lock
         else await jobs.get_job(db, context.job_id, populate_existing=True)
     )
-    statement = select(PointCloudQualityRun).where(
-        PointCloudQualityRun.id == context.run_id
-    )
-    if lock:
-        statement = statement.with_for_update()
-    run = await db.scalar(statement.execution_options(populate_existing=True))
+    run = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_labeling_v1.point_quality_original_run("
+                "CAST(:id AS uuid), :lock)"
+            ),
+            {"id": context.run_id, "lock": lock},
+        )
+    ).one_or_none()
     if (
         job
         and (job.status == "cancelled" or (job.payload or {}).get("cancel_requested"))
@@ -316,7 +318,9 @@ def validate_receipt(value):
 async def axis(db, source, *, lock):
     if source.item_facts is None:
         return "iso_8855"
-    dataset = await access._row(db, Dataset, source.item_facts.dataset_id, lock=lock)
+    dataset = await dataset_metadata(
+        db, source.item_facts.dataset_id, lock_share_nowait=lock
+    )
     if dataset is None:
         raise ContentError("content_binding_changed")
     return (dataset.metadata_ or {}).get("axis_convention") or "iso_8855"
@@ -467,12 +471,11 @@ async def read_points(db, context, source, convention):
 
 async def publication(db, run, context, observed):
     """Retain all final authority/source locks for the caller's issue transaction."""
-    from app.db.models.annotation import Annotation
-    from app.db.models.dataset import DatasetItem, Scene
-    from app.db.models.scene_pose import SceneFramePose
-    from app.db.models.scene_track import SceneTrack, SceneTrackInterval
-    from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-    from app.services.labeling_core_read_relations import task_row
+    from app.services.labeling_core_read_relations import (
+        lock_task_rows_for_core_read_share,
+        task_dataset_item_link_row,
+        task_row,
+    )
     from app.services.point_cloud_quality import service
     from app.services.point_cloud_quality.config import (
         load_point_cloud_quality_config,
@@ -485,32 +488,21 @@ async def publication(db, run, context, observed):
     current, _job = await guard(db, context, lock=True)
     task_ids = [uuid.UUID(v) for v in context.scope["task_ids"]]
     scene_ids = [uuid.UUID(v) for v in context.scope["scene_ids"]]
-    statements = [
-        select(Scene.id).where(Scene.id.in_(scene_ids)).order_by(Scene.id),
-        select(Annotation.id)
-        .where(Annotation.task_id.in_(task_ids))
-        .order_by(Annotation.id),
-        select(SceneTrack.id)
-        .where(SceneTrack.scene_id.in_(scene_ids))
-        .order_by(SceneTrack.id),
-        select(SceneTrackInterval.id)
-        .where(
-            SceneTrackInterval.scene_track_id.in_(
-                select(SceneTrack.id).where(SceneTrack.scene_id.in_(scene_ids))
-            )
-        )
-        .order_by(SceneTrackInterval.id),
-        select(SceneFramePose.id)
-        .where(SceneFramePose.scene_id.in_(scene_ids))
-        .order_by(SceneFramePose.id),
-    ]
-    from app.services.labeling_core_read_relations import (
-        lock_task_rows_for_core_read_share,
-    )
-
     await lock_task_rows_for_core_read_share(db, task_ids)
-    for statement in statements:
-        await db.execute(statement.with_for_update(read=True, nowait=True))
+    await db.execute(
+        text("SELECT yoao_assets_v1.lock_point_quality_scenes(CAST(:ids AS uuid[]))"),
+        {"ids": scene_ids},
+    )
+    await db.execute(
+        text(
+            "SELECT yoao_labeling_v1.lock_point_quality_annotation_geometry(CAST(:id AS uuid))"
+        ),
+        {"id": context.run_id},
+    )
+    await db.execute(
+        text("SELECT yoao_assets_v1.lock_point_quality_poses(CAST(:ids AS uuid[]))"),
+        {"ids": scene_ids},
+    )
     item_ids = set(
         await db.scalars(
             select(task_row.dataset_item_id).where(task_row.id.in_(task_ids))
@@ -518,22 +510,16 @@ async def publication(db, run, context, observed):
     )
     item_ids.update(
         await db.scalars(
-            select(TaskDatasetItemLink.dataset_item_id).where(
-                TaskDatasetItemLink.task_id.in_(task_ids)
+            select(task_dataset_item_link_row.dataset_item_id).where(
+                task_dataset_item_link_row.task_id.in_(task_ids)
             )
         )
     )
     await db.execute(
-        select(Dataset.id)
-        .where(
-            Dataset.id.in_(
-                select(DatasetItem.dataset_id).where(
-                    DatasetItem.id.in_([v for v in item_ids if v])
-                )
-            )
-        )
-        .order_by(Dataset.id)
-        .with_for_update(read=True, nowait=True)
+        text(
+            "SELECT yoao_assets_v1.lock_point_quality_item_datasets(CAST(:ids AS uuid[]))"
+        ),
+        {"ids": sorted(item_id for item_id in item_ids if item_id)},
     )
     project = await access._row(db, Project, context.project_id, lock=True)
     if (

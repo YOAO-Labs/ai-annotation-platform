@@ -3,12 +3,7 @@
 import sys
 from pathlib import Path
 
-from sqlalchemy import select
-
 from app.config import settings
-from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import image_pyramid_originals as originals
 from app.services import original_sources, storage_access, thumbnail_outputs
 from app.services.content_snapshot import ContentError
@@ -18,12 +13,8 @@ from app.services.image_pyramid import pyramid_eligible
 
 
 async def _business(db, kind, identifier, *, lock=False):
-    model = DatasetItem if kind == "dataset_item" else Task
-    statement = select(model).where(model.id == identifier)
-    if lock:
-        statement = statement.with_for_update(nowait=True)
     async with original_sources._reads(db, lock):
-        return await db.scalar(statement.execution_options(populate_existing=True))
+        return await thumbnail_outputs.business_facts(db, kind, identifier, lock=lock)
 
 
 async def _current(db, kind, identifier, expected, lifecycle_revision):
@@ -60,12 +51,10 @@ async def _error(db, kind, identifier, source, revision, exc):
         return
     await db.rollback()
     try:
-        row = await _current(db, kind, identifier, source, revision)
-        metadata = dict(row.metadata_ or {})
-        metadata["thumbnail_error"] = getattr(
-            exc, "code", "thumbnail_generation_failed"
+        await _current(db, kind, identifier, source, revision)
+        await thumbnail_outputs.record_item_error(
+            db, identifier, getattr(exc, "code", "thumbnail_generation_failed")
         )
-        row.metadata_ = metadata
         await db.commit()
     except Exception:
         await db.rollback()
@@ -108,8 +97,8 @@ async def generate(
             dimensions = await dimensions_probe(db, kind, identifier)
             await db.rollback()
             if missing:
-                current = await _current(db, kind, identifier, source, revision)
-                current.width, current.height = dimensions
+                await _current(db, kind, identifier, source, revision)
+                await thumbnail_outputs.set_item_dimensions(db, identifier, *dimensions)
                 await db.commit()
                 source = await originals.pin(db, kind, identifier)
                 await db.rollback()
@@ -163,45 +152,8 @@ async def generate(
             input_ref={"source": thumbnail_outputs.source_facts(source)},
             body=body,
         )
-        row = await _current(db, kind, identifier, source, revision)
-        async with original_sources._reads(db, True):
-            ready = await db.scalar(
-                select(ThumbnailOutput)
-                .where(ThumbnailOutput.id == output.id)
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        if (
-            ready is None
-            or ready.state != "ready"
-            or ready.uncertain_write
-            or ready.owner_kind != owner_kind
-            or ready.owner_id != identifier
-            or ready.input_ref != output.input_ref
-            or ready.storage_ref != output.storage_ref
-        ):
-            raise ContentError("thumbnail_output_changed")
-        previous_id = row.thumbnail_output_id
-        if previous_id is not None and previous_id != ready.id:
-            async with original_sources._reads(db, True):
-                previous = await db.scalar(
-                    select(ThumbnailOutput)
-                    .where(ThumbnailOutput.id == previous_id)
-                    .with_for_update(nowait=True)
-                )
-            if (
-                previous is not None
-                and previous.owner_kind == owner_kind
-                and previous.owner_id == identifier
-                and previous.state not in {"retiring", "deleted"}
-            ):
-                previous.state = "retiring"
-                previous.retired_at = previous.next_check_at = thumbnail_outputs.now()
-        row.thumbnail_output_id = ready.id
-        row.thumbnail_path = thumbnail_outputs.owner(ready).key(
-            thumbnail_outputs.RELATIVE_KEY
-        )
-        row.blurhash = blurhash
+        await _current(db, kind, identifier, source, revision)
+        await thumbnail_outputs.publish_ordinary(db, kind, identifier, output, blurhash)
         await db.commit()
     except Exception as exc:
         from app.services import fixture_media_execution

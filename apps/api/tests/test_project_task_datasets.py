@@ -395,6 +395,7 @@ async def test_association_replay_deletion_high_water_and_frozen_bytes(
     await db_session.flush()
     later = await add_version(db_session, project)
     later_membership = await service.ensure_membership(db_session, later)
+    await db_session.refresh(stream)
     assert later_membership.ordinal == 2 and stream.next_ordinal == 3
     assert (
         later.snapshot,
@@ -452,7 +453,9 @@ async def test_membership_refuses_unknown_contract_and_detects_wrong_stream(
     wrong = ProjectTaskDataset(project_id=project.id, task="segment")
     db_session.add(wrong)
     await db_session.flush()
-    membership.task_dataset_id = wrong.id
+    registered = await db_session.get(TaskDatasetVersionMembership, version.id)
+    assert registered.task_dataset_id == membership.task_dataset_id
+    registered.task_dataset_id = wrong.id
     await db_session.flush()
     with pytest.raises(TrainingDatasetError) as invalid:
         await service.ensure_membership(db_session, version)

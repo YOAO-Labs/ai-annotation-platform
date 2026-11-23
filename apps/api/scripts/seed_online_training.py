@@ -22,7 +22,7 @@ from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs, project_task_dataset, training_datasets
-from app.services import training_dataset_storage
+from app.services import training_dataset_data, training_dataset_storage
 from app.services.annotation_evidence import freeze_review_contributor_evidence
 from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
 from app.services.storage import storage_service
@@ -551,7 +551,7 @@ async def prepare_baseline(
     db.add(version)
     await db.flush()
     await training_dataset_storage.allocate(db, version)
-    await project_task_dataset.ensure_membership(db, version, project_locked=True)
+    await project_task_dataset.ensure_membership(db, version)
     await training_datasets.enqueue_dataset(db, version)
     training_datasets.check_prepared_clock(prepared)
     return version
@@ -565,9 +565,16 @@ async def _reuse_baseline(db, existing):
             raise SeedAssetError(str(exc)) from exc
         await db.refresh(existing, with_for_update=True)
         if existing.status == "running":
-            await jobs.mark_failed(
-                db, existing.async_job_id, error="种子构建已中断，重新构建同一快照"
+            message = "种子构建已中断，重新构建同一快照"
+            await training_dataset_data.fail_version(
+                db,
+                existing,
+                existing.async_job_id,
+                cancelled=False,
+                code="worker_failed",
+                message=message,
             )
+            await jobs.mark_failed(db, existing.async_job_id, error=message)
         if existing.status in {"failed", "cancelled", "running"}:
             await training_datasets.enqueue_dataset(db, existing)
     return existing

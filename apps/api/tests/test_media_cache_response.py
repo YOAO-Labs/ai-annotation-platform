@@ -18,6 +18,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
 from app.api.v1.media_cache import read_media_cache
+from app.db.models.image_pyramid import ImagePyramidOutput
+from app.db.models.thumbnail_output import ThumbnailOutput
+from app.db.models.video_derivative import VideoDerivativeOutput
 from app.services import media_cache_response as service, media_cache_urls
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_assets import ensure_legacy_bindings
@@ -125,22 +128,19 @@ class Harness:
                 harness.transaction = False
                 harness.events.append("session-close")
 
-            async def get(self, model, identifier, **kwargs):
-                harness.transaction = True
-                harness.db_reads += 1
-                return harness.row if identifier == harness.identifier else None
-
             async def commit(self):
                 harness.transaction = False
                 harness.events.append("commit")
 
-            async def scalar(self, statement):
-                harness.transaction = True
-                if statement.column_descriptions[0].get("entity") is not None:
-                    assert statement._for_update_arg.read
-                    assert statement._for_update_arg.nowait
-                    return harness.row
-                return False
+        async def get_output(db, identifier, *, lock=False):
+            harness.transaction = True
+            if not lock:
+                harness.db_reads += 1
+            return harness.row if identifier == harness.identifier else None
+
+        async def operation_is_open(db, purpose, *, excluding=None):
+            assert excluding == harness.permit.id
+            return False
 
         async def target_for_ref(db, ref):
             assert ref == self.ref
@@ -171,6 +171,11 @@ class Harness:
             return self.permit
 
         monkeypatch.setattr(service, "async_session", Database)
+        for output_owner, _ in service._FAMILIES.values():
+            monkeypatch.setattr(output_owner, "get_output", get_output)
+        monkeypatch.setattr(
+            service.storage_access, "operation_is_open", operation_is_open
+        )
         monkeypatch.setattr(
             service.media_cache_storage, "target_for_ref", target_for_ref
         )
@@ -674,7 +679,12 @@ async def admitted_output(test_engine, monkeypatch, request):
     removed when this test mode is destroyed after the bounded regression run.
     """
     kind = request.param
-    model, family = service._FAMILIES[kind]
+    _, family = service._FAMILIES[kind]
+    model = {
+        "thumbnail": ThumbnailOutput,
+        "image-pyramid": ImagePyramidOutput,
+        "video-derivative": VideoDerivativeOutput,
+    }[kind]
     identifier = uuid.uuid4()
     factory = async_sessionmaker(test_engine, expire_on_commit=False)
     saved = reference(identifier, registered=False, family=family)

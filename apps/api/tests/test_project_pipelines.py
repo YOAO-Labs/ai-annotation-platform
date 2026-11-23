@@ -415,3 +415,49 @@ async def test_apply_pipeline_rejects_outsider_without_mutation(
         select(ProjectPipeline).where(ProjectPipeline.project_id == project.id)
     )
     assert copies.scalars().all() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("source_visible", "status"), [(False, 404), (True, 422)])
+async def test_apply_validates_model_scope_only_for_visible_source(
+    httpx_client, super_admin, project_admin, db_session, source_visible, status
+):
+    admin, _ = super_admin
+    actor, token = project_admin
+    source_owner = actor.id if source_visible else admin.id
+    source = await _seed_project(db_session, source_owner, name="source")
+    target = await _seed_project(db_session, actor.id, name="target")
+    template = ProjectPipeline(
+        id=uuid.uuid4(),
+        scope="private",
+        project_id=source.id,
+        name="controlled template",
+        stages=[
+            {
+                "stage": 0,
+                "ml_backend_id": str(uuid.uuid4()),
+                "model_id": "project-release",
+            },
+        ],
+        created_by=source_owner,
+    )
+    db_session.add(template)
+    await db_session.commit()
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{target.id}/pipelines/apply",
+        json={"pipeline_id": str(template.id), "set_default": True},
+        headers=_auth(token),
+    )
+
+    assert response.status_code == status, response.text
+    if source_visible:
+        assert "跨项目复制" in response.json()["detail"]
+    await db_session.refresh(template)
+    assert template.usage_count == 0
+    assert (
+        await db_session.scalar(
+            select(ProjectPipeline.id).where(ProjectPipeline.project_id == target.id)
+        )
+        is None
+    )

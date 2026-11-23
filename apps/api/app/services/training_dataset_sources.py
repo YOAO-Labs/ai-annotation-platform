@@ -3,10 +3,8 @@
 from copy import deepcopy
 import uuid
 
-from sqlalchemy import select
-from app.db.models.dataset_asset import StorageLocation
-
 from fastapi import HTTPException
+from sqlalchemy import text
 from training_contract.dataset import DatasetContractError
 from training_contract.lineage import SOURCE_LINEAGE_CONTRACT, validate_source_lineage
 
@@ -65,18 +63,24 @@ def frozen_source_evidence(snapshot, manifest, member, source, snapshot_digest):
 
 async def capture_source_lineage(db, context):
     """Freeze only persisted, safe facts; physical locators never cross this boundary."""
-    from app.db.models.dataset_source import DatasetScanRun, DatasetSourceRevision
-
-    scan = await db.get(DatasetScanRun, context["run_id"], populate_existing=True)
-    accepted = (
-        await db.get(
-            DatasetSourceRevision,
-            context["accepted_revision_id"],
-            populate_existing=True,
+    if db.autoflush:
+        await db.flush()
+    lineage = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.directory_reference_lineage("
+                "CAST(:item AS uuid), CAST(:source AS uuid), CAST(:run AS uuid), "
+                ":digest, CAST(:revision AS uuid))"
+            ),
+            {
+                "item": context["item_id"],
+                "source": context["source_id"],
+                "run": context["run_id"],
+                "digest": context["path_digest"],
+                "revision": context["accepted_revision_id"],
+            },
         )
-        if context["accepted_revision_id"]
-        else None
-    )
+    ).one_or_none()
 
     def timestamp(value):
         return value.isoformat() if value is not None else None
@@ -86,13 +90,19 @@ async def capture_source_lineage(db, context):
         "location_id": str(context["location_id"]),
         "path_digest": context["path_digest"],
         "scan_run_id": str(context["run_id"]),
-        "accepted_revision_id": str(accepted.id) if accepted else None,
-        "revision_number": accepted.revision_number if accepted else None,
-        "previous_revision_id": str(accepted.previous_revision_id)
-        if accepted and accepted.previous_revision_id
-        else None,
-        "accepted_at": timestamp(accepted.accepted_at) if accepted else None,
-        "scan_completed_at": timestamp(scan.completed_at) if scan else None,
+        "accepted_revision_id": (
+            str(lineage.accepted_revision_id)
+            if lineage and lineage.accepted_revision_id
+            else None
+        ),
+        "revision_number": lineage.revision_number if lineage else None,
+        "previous_revision_id": (
+            str(lineage.previous_revision_id)
+            if lineage and lineage.previous_revision_id
+            else None
+        ),
+        "accepted_at": timestamp(lineage.accepted_at) if lineage else None,
+        "scan_completed_at": timestamp(lineage.completed_at) if lineage else None,
         "content_verified_at": context["content_receipt"].get("verified_at"),
         "source_config_revision": context["source_revision"],
         "location_config_revision": context["location_revision"],
@@ -202,6 +212,8 @@ async def training_reference_snapshot(
 
 async def lock_source_maintenance(db, snapshot):
     """Fence new source-backed publication, never retained-copy downloads."""
+    if db.autoflush:
+        await db.flush()
     for sample in snapshot.get("samples", []):
         if not sample.get("asset_reference"):
             continue
@@ -209,28 +221,20 @@ async def lock_source_maintenance(db, snapshot):
         if proof:
             location_id, revision = proof["location_id"], proof["revision"]
         else:
-            lineage = sample.get("source_lineage") or {}
-            location_id, revision = lineage.get("location_id"), 1
-            if not location_id:
-                from app.db.models.dataset_source import DatasetReference, DatasetSource
-
-                reference = await db.get(
-                    DatasetReference, uuid.UUID(sample["dataset_item_id"])
-                )
-                source = (
-                    await db.get(DatasetSource, reference.source_id)
-                    if reference
-                    else None
-                )
-                if source is None:
-                    raise ContentError("source_unavailable")
-                location_id = source.location_id
-        location_id = uuid.UUID(str(location_id))
-        await db.execute(
-            select(StorageLocation.id)
-            .where(StorageLocation.id == location_id)
-            .with_for_update(read=True, nowait=True)
+            location_id = (sample.get("source_lineage") or {}).get("location_id")
+            revision = 1
+        location_id = await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.lock_directory_reference_location("
+                "CAST(:location AS uuid), CAST(:item AS uuid))"
+            ),
+            {
+                "location": uuid.UUID(str(location_id)) if location_id else None,
+                "item": None if location_id else uuid.UUID(sample["dataset_item_id"]),
+            },
         )
+        if location_id is None:
+            raise ContentError("source_unavailable")
         await storage_access.check(
             db,
             location_id,

@@ -236,28 +236,20 @@ def mapped_entry(monkeypatch, kind, version="source-version", *, after_read=None
         async def call():
             return await avatar_uploads.read(db, row.token)
     elif kind == "attachment":
-        report = SimpleNamespace(
-            id=row.bound_report_id,
-            reporter_id=row.owner_id,
-            attachments=[
-                bug_attachment_uploads.attachment(row).model_dump(by_alias=True)
-            ],
-            screenshot_url=None,
-        )
         monkeypatch.setattr(bug_attachment_uploads, "capture_authority", AsyncMock())
         monkeypatch.setattr(
-            bug_attachment_uploads, "locked_report", AsyncMock(return_value=report)
-        )
-        monkeypatch.setattr(
-            bug_attachment_uploads, "_for_key", AsyncMock(return_value=row)
-        )
-        monkeypatch.setattr(
-            bug_attachment_uploads, "_locked", AsyncMock(return_value=row)
+            bug_attachment_uploads,
+            "_registered_receipt",
+            AsyncMock(side_effect=lambda *_: bug_attachment_uploads.snapshot(row)),
         )
 
         async def call():
             return await bug_attachment_uploads.read(
-                db, actor, object(), report.id, bug_attachment_uploads.object_key(row)
+                db,
+                actor,
+                object(),
+                row.bound_report_id,
+                bug_attachment_uploads.object_key(row),
             )
     else:
         proof = SimpleNamespace(

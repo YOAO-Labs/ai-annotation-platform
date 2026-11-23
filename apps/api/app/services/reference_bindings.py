@@ -1,22 +1,11 @@
 """Content identities and short lifecycle locks shared by reference consumers."""
 
 import uuid
-from sqlalchemy import select
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import (
-    DatasetAsset,
-    StorageLocation,
-)
-from app.db.models.dataset_source import (
-    DatasetReference,
-    DatasetSource,
-    DatasetSourceRevision,
-)
-from app.db.models.storage_connection import StorageConnection
+from sqlalchemy import text
+
 from app.services.content_snapshot import ContentError
 from app.services import storage_access
-from app.services.task_scope import ids_clause
 
 
 def task_binding(task):
@@ -45,112 +34,78 @@ def normalize_binding(binding):
 
 
 async def reference_binding(db, task):
-    item = await db.get(DatasetItem, task.dataset_item_id, populate_existing=True)
-    ref = await db.get(DatasetReference, task.dataset_item_id, populate_existing=True)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == task.dataset_item_id)
-        .execution_options(populate_existing=True)
-    )
-    if (
-        item is None
-        or ref is None
-        or asset is None
-        or item.file_path != task.file_path
-        or asset.verification_state != "verified"
-        or asset.checksum_algorithm != "sha256"
-    ):
-        raise ContentError("content_unverified")
-    source = await db.get(DatasetSource, ref.source_id, populate_existing=True)
-    location = (
-        await db.get(StorageLocation, source.location_id, populate_existing=True)
-        if source
-        else None
-    )
-    if not source or not source.enabled or source.unregistered_at:
-        raise ContentError("source_unavailable")
-    if not location or not location.enabled:
-        raise ContentError("location_unavailable")
-    connection = (
-        await db.get(StorageConnection, location.connection_id, populate_existing=True)
-        if location.connection_id
-        else None
-    )
-    accepted_id = await db.scalar(
-        select(DatasetSourceRevision.id)
-        .where(
-            DatasetSourceRevision.source_id == ref.source_id,
-            DatasetSourceRevision.dataset_item_id == item.id,
-            DatasetSourceRevision.asset_id == asset.id,
-            DatasetSourceRevision.ownership_mode == "reference",
+    return await read_reference_binding(db, task.dataset_item_id, task.file_path)
+
+
+async def read_reference_binding(db, item_id, file_path, *, lock=False):
+    if db.autoflush:
+        await db.flush()
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.directory_reference_binding("
+                "CAST(:item AS uuid), :file_path, :lock)"
+            ),
+            {"item": item_id, "file_path": file_path, "lock": lock},
         )
-        .order_by(DatasetSourceRevision.acceptance_order.desc())
-        .limit(1)
-    )
+    ).one()
+    if row.error_code is not None:
+        raise ContentError(row.error_code)
     return {
-        "dataset_id": str(item.dataset_id),
-        "asset_id": str(asset.id),
-        "sha256": asset.checksum_value,
-        "size": asset.size_bytes,
-        "width": item.width,
-        "height": item.height,
-        "run_id": str(ref.run_id),
-        "accepted_revision_id": str(accepted_id) if accepted_id else None,
-        "source_id": str(source.id),
-        "source_revision": source.config_revision,
-        "location_id": str(location.id),
-        "location_revision": location.config_revision,
-        "maintenance_revision": await storage_access.check(db, location.id),
-        "connection_id": str(connection.id) if connection else None,
-        "connection_revision": connection.revision if connection else None,
+        "dataset_id": str(row.dataset_id),
+        "asset_id": str(row.asset_id),
+        "sha256": row.sha256,
+        "size": row.size_bytes,
+        "width": row.width,
+        "height": row.height,
+        "run_id": str(row.run_id),
+        "accepted_revision_id": (
+            str(row.accepted_revision_id) if row.accepted_revision_id else None
+        ),
+        "source_id": str(row.source_id),
+        "source_revision": row.source_revision,
+        "location_id": str(row.location_id),
+        "location_revision": row.location_revision,
+        "maintenance_revision": await storage_access.check(
+            db, row.location_id, lock=lock
+        ),
+        "connection_id": str(row.connection_id) if row.connection_id else None,
+        "connection_revision": row.connection_revision,
     }
 
 
 async def lock_reference_bindings(db, bindings, node_id):
     """No original I/O. Call after actor, Key and batch/Task locks."""
-    for model, field in (
-        (StorageConnection, "connection_id"),
-        (StorageLocation, "location_id"),
-        (DatasetSource, "source_id"),
-    ):
-        ids = sorted(
-            {
-                uuid.UUID(row["reference"][field])
-                for row in bindings
-                if row.get("reference", {}).get(field)
+    pinned = [row for row in bindings if "reference" in row]
+    if not pinned:
+        return
+    if db.autoflush:
+        await db.flush()
+    await db.execute(
+        text(
+            "SELECT yoao_assets_v1.lock_directory_reference_bindings("
+            "CAST(:connection_id AS uuid[]), CAST(:location_id AS uuid[]), "
+            "CAST(:source_id AS uuid[]), CAST(:item_id AS uuid[]))"
+        ),
+        {
+            **{
+                field: list(
+                    {
+                        uuid.UUID(row["reference"][field])
+                        for row in pinned
+                        if row["reference"].get(field)
+                    }
+                )
+                for field in ("connection_id", "location_id", "source_id")
             },
-            key=str,
-        )
-        if ids:
-            await db.execute(
-                select(model.id)
-                .where(ids_clause(model.id, ids))
-                .order_by(model.id)
-                .with_for_update(read=True, nowait=True)
-            )
-    item_ids = sorted(
-        {uuid.UUID(row["item_id"]) for row in bindings if "reference" in row},
-        key=str,
+            "item_id": list({uuid.UUID(row["item_id"]) for row in pinned}),
+        },
     )
-    for model, column in (
-        (DatasetItem, DatasetItem.id),
-        (DatasetAsset, DatasetAsset.dataset_item_id),
-    ):
-        await db.execute(
-            select(model.id)
-            .where(ids_clause(column, item_ids))
-            .order_by(model.id)
-            .with_for_update(read=True, nowait=True)
+    for row in sorted(pinned, key=lambda row: row["reference"]["location_id"]):
+        reference = row["reference"]
+        await storage_access.check(
+            db,
+            uuid.UUID(reference["location_id"]),
+            expected_revision=reference.get("maintenance_revision", 1),
+            lock=True,
         )
-
-    for row in sorted(
-        bindings, key=lambda row: row.get("reference", {}).get("location_id", "")
-    ):
-        reference = row.get("reference")
-        if reference:
-            await storage_access.check(
-                db,
-                uuid.UUID(reference["location_id"]),
-                expected_revision=reference.get("maintenance_revision", 1),
-                lock=True,
-            )

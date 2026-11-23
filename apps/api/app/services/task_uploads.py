@@ -13,7 +13,6 @@ from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import MAX_DIRECT_UPLOAD_BYTES
 from app.services.dataset_storage_keys import normalize_dataset_relative_path
-from app.services.display_id import next_display_id
 from app.services.labeling_core_read_relations import (
     lock_task_for_core_read,
     task_dataset_item_link_row,
@@ -141,19 +140,17 @@ async def initialize(db, actor, request, data, file_type):
         authority=actor_facts(actor, proof),
         content_type=data.content_type,
     )
-    display_id = await next_display_id(db, "tasks")
     created = await db.scalar(
         text(
             "SELECT yoao_labeling_v1.create_uploading_task("
             "CAST(:task_id AS uuid), CAST(:project_id AS uuid), "
-            "CAST(:display_id AS text), CAST(:file_name AS text), "
+            "CAST(:file_name AS text), "
             "CAST(:file_path AS text), CAST(:file_type AS text), "
             "CAST(:actor_id AS uuid))"
         ),
         {
             "task_id": task_id,
             "project_id": data.project_id,
-            "display_id": display_id,
             "file_name": logical_path,
             "file_path": allocation["object_key"],
             "file_type": file_type,

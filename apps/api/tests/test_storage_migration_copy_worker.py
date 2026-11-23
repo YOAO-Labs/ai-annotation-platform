@@ -10,19 +10,19 @@ import uuid
 from fastapi import HTTPException
 import pytest
 from botocore.hooks import HierarchicalEmitter
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.async_job import AsyncJob
-from app.db.models.audit_log import AuditLog
 from app.db.models.dataset_asset import StorageLocation
-from app.db.models.notification import Notification
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.storage_migration_copy import (
     StorageMigrationCopy as Copy,
+    StorageMigrationCopyAttempt as Attempt,
     StorageMigrationCopyDelta as Delta,
 )
+from app.db.models.storage_migration_inventory import StorageMigrationInventory
 from app.db.models.user import User
 from app.schemas.storage_migration_copy import (
     StorageMigrationCopyAttemptRequest,
@@ -34,6 +34,7 @@ from app.workers import storage_migration_copy as worker
 from tests.factory import create_user
 from tests.storage_migration_isolation import migration_engine as migration_engine
 from tests.test_storage_migration_copies import seed
+from tests.test_storage_migration_inventories import settled_inventory_fixture
 
 
 @pytest.fixture
@@ -56,66 +57,15 @@ async def world(migration_engine):
             connection.id,
         )
         await db.commit()
-    try:
-        yield SimpleNamespace(
-            maker=maker,
-            actor_id=actor_id,
-            copy_id=copy_id,
-            job_id=job_id,
-            task_id=task_id,
-            location_id=location_id,
-            connection_id=connection_id,
-        )
-    finally:
-        async with maker() as db:
-            copy_ids = list(
-                await db.scalars(
-                    select(Copy.id)
-                    .where(Copy.target_location_id == location_id)
-                    .order_by(Copy.generation.desc())
-                )
-            )
-            attempts = list(
-                await db.scalars(
-                    select(service.Attempt).where(service.Attempt.copy_id.in_(copy_ids))
-                )
-            )
-            ids = [
-                p
-                for a in attempts
-                for p in (a.source_operation_id, a.target_operation_id)
-                if p
-            ]
-            if ids:
-                await db.execute(
-                    delete(StorageOperation).where(StorageOperation.id.in_(ids))
-                )
-            for owned_id in copy_ids:
-                await db.execute(delete(Copy).where(Copy.id == owned_id))
-            await db.execute(
-                delete(Notification).where(Notification.user_id == actor_id)
-            )
-            await db.execute(delete(AsyncJob).where(AsyncJob.user_id == actor_id))
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(
-                delete(AuditLog).where(
-                    AuditLog.actor_id == actor_id,
-                    AuditLog.action.in_(
-                        [
-                            "storage.migration_copy_start",
-                            "storage.migration_inventory_start",
-                        ]
-                    ),
-                )
-            )
-            await db.execute(delete(User).where(User.id == actor_id))
-            await db.execute(
-                delete(StorageLocation).where(StorageLocation.id == location_id)
-            )
-            await db.execute(
-                delete(StorageConnection).where(StorageConnection.id == connection_id)
-            )
-            await db.commit()
+    yield SimpleNamespace(
+        maker=maker,
+        actor_id=actor_id,
+        copy_id=copy_id,
+        job_id=job_id,
+        task_id=task_id,
+        location_id=location_id,
+        connection_id=connection_id,
+    )
 
 
 async def execute(world):
@@ -312,7 +262,7 @@ async def test_explicit_hard_restart_uses_real_child_death_proof(world):
         )
         async with world.maker() as db:
             a = await service.claim(db, world.job_id, world.task_id)
-            a.process = proof
+            (await db.get(Attempt, a.id)).process = proof
             await db.commit()
             row = await service.owner(db, world.copy_id)
             permits = [
@@ -455,10 +405,8 @@ def object_report(inventory, count, complete):
 
 async def add_objects(world, clients, count=2, complete=False):
     async with world.maker() as db:
-        row = await service.owner(db, world.copy_id)
-        inventory = await db.get(
-            service.StorageMigrationInventory, row.source_inventory_job_id
-        )
+        row = await db.get(Copy, world.copy_id)
+        inventory = await db.get(StorageMigrationInventory, row.source_inventory_job_id)
         raw = object_report(inventory, count, complete)
         row.source_report, row.source_report_sha256, row.source_complete = (
             raw,
@@ -479,9 +427,10 @@ async def next_inventory(world, *, count=2, complete=False):
         inv, job, reused = await service.inventories.start(db, actor)
         assert not reused
         await service.inventories.claim(db, job.id, inv.task_id)
-        inv.operation_id = uuid.uuid4()
+        inv = await settled_inventory_fixture(db, job.id)
         raw = object_report(inv, count, complete)
         assert await service.inventories.publish(db, job.id, inv.task_id, report=raw)
+        inv = await service.inventories.by_job(db, job.id)
         assert inv.report_sha256 == service.sha(raw)
         await db.commit()
         return job.id
@@ -644,8 +593,8 @@ async def test_generation_atomic_single_successor_reuse_and_report_identity(
             await db.scalars(select(Copy).where(Copy.parent_copy_id == world.copy_id))
         )
         assert len(children) == 1
-        parent = await service.owner(db, world.copy_id)
-        a = await service.last(db, parent)
+        parent = await db.get(Copy, world.copy_id)
+        a = await db.get(Attempt, parent.last_attempt_id)
         a.status = "pending"
         job = await db.get(AsyncJob, a.async_job_id)
         job.status = "pending"
@@ -673,7 +622,7 @@ async def test_generation_rejects_same_report_unprepared_and_unsettled_parent(
         await derive(world, inventory_id)
     assert caught.value.detail == {"code": "copy_active_conflict"}
     async with world.maker() as db:
-        a = await service.by_job(db, world.job_id)
+        a = await db.get(Attempt, (await service.by_job(db, world.job_id)).id)
         row = await service.owner(db, world.copy_id)
         permit = await storage_access.acquire(db, row.target_location_id, service.KIND)
         a.target_operation_id = permit.id
@@ -985,7 +934,7 @@ async def test_recover_clones_old_selection_including_verified_without_broadenin
             .split()[19],
         )
         async with world.maker() as db:
-            a = await service.by_job(db, world.job_id)
+            a = await db.get(Attempt, (await service.by_job(db, world.job_id)).id)
             row = await service.owner(db, world.copy_id)
             delta = await db.get(Delta, (row.id, selected[1]))
             data = dict(delta.data)

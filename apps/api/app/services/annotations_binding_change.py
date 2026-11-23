@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
@@ -66,26 +66,16 @@ async def candidates(db, *, limit, offset):
 
 
 async def history(db):
-    from app.db.models.comment_attachment_upload import CommentAttachmentUpload
-    from app.db.models.guide_asset_upload import GuideAssetUpload
-    from app.db.models.managed_original_creation import ManagedOriginalCreation
-    from app.db.models.raster_mask_object import RasterMaskObject
-    from app.db.models.task_original import TaskOriginal
-
-    models = {
-        "task_originals": TaskOriginal,
-        "creation_allocations": ManagedOriginalCreation,
-        "raster_mask_objects": RasterMaskObject,
-        "comment_attachments": CommentAttachmentUpload,
-        "guide_assets": GuideAssetUpload,
-    }
-    counts = []
-    for name, model in models.items():
-        query = select(func.count()).select_from(model)
-        if name == "creation_allocations":
-            query = query.where(model.owner_kind == "task")
-        counts.append(query.scalar_subquery().label(name))
-    return dict((await db.execute(select(*counts))).mappings().one())
+    row = await db.execute(
+        text(
+            "SELECT originals.task_originals, originals.creation_allocations, "
+            "labeling.raster_mask_objects, labeling.comment_attachments, "
+            "yoao_workspace_v1.guide_binding_history() AS guide_assets "
+            "FROM yoao_assets_v1.original_binding_history() AS originals "
+            "CROSS JOIN yoao_labeling_v1.annotation_binding_history() AS labeling"
+        )
+    )
+    return dict(row.mappings().one())
 
 
 async def _binding(db, *, lock=False):

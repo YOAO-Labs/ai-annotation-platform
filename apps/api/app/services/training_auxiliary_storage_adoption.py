@@ -7,6 +7,7 @@ reads a source, repairs an output, or proves that an old remote process stopped.
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import fields, is_dataclass, replace
 from datetime import datetime, timezone
 import io
 import json
@@ -411,13 +412,14 @@ def verify_operation(owner, state):
 
 
 def _facts(row):
+    values = (
+        {field.name: getattr(row, field.name) for field in fields(row)}
+        if is_dataclass(row)
+        else vars(row)
+    )
     return json.loads(
         json.dumps(
-            {
-                column.key: deepcopy(getattr(row, column.key))
-                for column in row.__table__.columns
-                if column.key != "storage_ref"
-            },
+            {key: value for key, value in values.items() if key != "storage_ref"},
             default=lambda value: (
                 value.isoformat() if isinstance(value, datetime) else str(value)
             ),
@@ -425,124 +427,76 @@ def _facts(row):
     )
 
 
-def _kind(purpose):
-    from app.db.models.training_preview import (
-        TrainingPreview,
-        TrainingPreviewResourceLease,
-    )
-    from app.db.models.sample_evaluation import (
-        SampleEvaluationRun,
-        SampleEvaluationAttempt,
-        SampleEvaluationSample,
-    )
-    from app.db.models.active_learning import (
-        ActiveLearningRound,
-        ActiveLearningAttempt,
-        ActiveLearningCandidate,
-    )
+def _owners(purpose):
     from app.services import (
-        training_preview_storage,
-        sample_evaluation_storage,
         active_learning_storage,
+        sample_evaluation_storage,
+        training_preview_storage,
     )
 
     return {
-        "training-preview": (
-            TrainingPreview,
-            None,
-            TrainingPreviewResourceLease,
-            None,
-            training_preview_storage,
-        ),
-        "sample-evaluation": (
-            SampleEvaluationRun,
-            SampleEvaluationAttempt,
-            SampleEvaluationSample,
-            "run_id",
-            sample_evaluation_storage,
-        ),
-        "active-learning": (
-            ActiveLearningRound,
-            ActiveLearningAttempt,
-            ActiveLearningCandidate,
-            "round_id",
-            active_learning_storage,
-        ),
+        "training-preview": training_preview_storage,
+        "sample-evaluation": sample_evaluation_storage,
+        "active-learning": active_learning_storage,
     }[purpose]
 
 
 async def pin(db, purpose, identifier, actor, project, key_id):
     """Fence one retained owner, then publish only after authority and I/O settle."""
     from fastapi import HTTPException
-    from sqlalchemy import select
-    from app.db.models.api_key import ApiKey
-    from app.db.models.dataset_asset import StorageLocation
-    from app.services import storage_access
+    from app.services import (
+        active_learning_data,
+        evaluation_data,
+        storage_access,
+        storage_registry_data,
+        training_preview_data,
+    )
     from app.services.content_snapshot import ContentError
     from app.services.dataset_content import key_authority
     from app.services.project_write_guard import lock_actor_project_authority
     from app.services.project_access import resolve_project_access_by_id
 
-    model, attempt_model, member_model, relation, owners = _kind(purpose)
+    owners = _owners(purpose)
     scopes = ["annotations:read", "datasets:read", "datasets:write"]
 
-    async def authority(*, lock_key):
+    async def authority():
         await lock_actor_project_authority(db, actor.id, project.id)
         _, access = await resolve_project_access_by_id(
             db, actor_id=actor.id, project_id=project.id
         )
         if not access.is_manager:
             raise HTTPException(403, detail="项目管理权限已变化")
-        if lock_key and key_id is not None:
-            await db.execute(
-                select(ApiKey.id).where(ApiKey.id == key_id).with_for_update(read=True)
-            )
         return [await key_authority(db, actor, key_id, scope) for scope in scopes]
 
     async def context():
-        row = await db.scalar(
-            select(model)
-            .where(model.id == identifier, model.project_id == project.id)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        if purpose == "training-preview":
+            row = await training_preview_data.get_preview(
+                db, project.id, identifier, lock=True
+            )
+        elif purpose == "sample-evaluation":
+            row = await evaluation_data.get_run(
+                db, project.id, identifier, lock="update"
+            )
+        else:
+            row = await active_learning_data.get_round(
+                db, project.id, identifier, lock=True
+            )
         if row is None:
             raise HTTPException(404, detail="训练输出记录不存在")
         if row.storage_ref is not None:
             return row, None
         attempts, members = [], []
-        if attempt_model is None:
-            if await db.scalar(
-                select(member_model.resource_id)
-                .where(member_model.preview_id == row.id)
-                .limit(1)
-            ):
+        if purpose == "training-preview":
+            if await training_preview_data.preview_has_lease(db, row.id):
                 reject("legacy_storage_version_active")
+        elif purpose == "sample-evaluation":
+            attempts = await evaluation_data.adoption_attempts(db, row.id)
+            members = await evaluation_data.adoption_samples(db, row.id)
         else:
-            attempts = list(
-                await db.scalars(
-                    select(attempt_model)
-                    .where(getattr(attempt_model, relation) == row.id)
-                    .order_by(attempt_model.id)
-                    .limit(MAX_ATTEMPTS + 1)
-                    .with_for_update(read=True)
-                    .execution_options(populate_existing=True)
-                )
-            )
-            if len(attempts) > MAX_ATTEMPTS:
-                reject("legacy_storage_inventory_limit")
-            members = list(
-                await db.scalars(
-                    select(member_model)
-                    .where(getattr(member_model, relation) == row.id)
-                    .order_by(member_model.ordinal)
-                    .limit(33)
-                    .with_for_update(read=True)
-                    .execution_options(populate_existing=True)
-                )
-            )
-            if len(members) > 32:
-                reject("legacy_storage_inventory_limit")
+            attempts = await active_learning_data.adoption_attempts(db, row.id)
+            members = await active_learning_data.adoption_candidates(db, row.id)
+        if len(attempts) > MAX_ATTEMPTS or len(members) > 32:
+            reject("legacy_storage_inventory_limit")
         state = {
             "purpose": purpose,
             "record": _facts(row),
@@ -553,7 +507,7 @@ async def pin(db, purpose, identifier, actor, project, key_id):
         return row, state
 
     try:
-        initial_authority = await authority(lock_key=False)
+        initial_authority = await authority()
         row, state = await context()
         if row.storage_ref is not None:
             owners.resolve(row)
@@ -587,13 +541,15 @@ async def pin(db, purpose, identifier, actor, project, key_id):
         finally:
             if not unsettled:
                 CAPACITY.release()
-        if await authority(lock_key=True) != initial_authority:
+        if await authority() != initial_authority:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-        await db.execute(
-            select(StorageLocation.id)
-            .where(StorageLocation.id == uuid.UUID(candidate["location_id"]))
-            .with_for_update(read=True)
-        )
+        if (
+            await storage_registry_data.get_location(
+                db, uuid.UUID(candidate["location_id"]), lock="share"
+            )
+            is None
+        ):
+            reject("legacy_storage_context_changed")
         current, current_state = await context()
         if (
             current.storage_ref is not None
@@ -607,7 +563,7 @@ async def pin(db, purpose, identifier, actor, project, key_id):
             expected_revision=revision,
             lock=True,
         )
-        current.storage_ref = {
+        storage_ref = {
             **candidate,
             "evidence": {
                 **evidence,
@@ -616,6 +572,19 @@ async def pin(db, purpose, identifier, actor, project, key_id):
                 "api_key_id": str(key_id) if key_id else None,
             },
         }
+        if purpose == "training-preview":
+            await training_preview_data.pin_storage(
+                db, current.id, storage_ref, retained=True
+            )
+        elif purpose == "sample-evaluation":
+            if not await evaluation_data.pin_storage(db, current, storage_ref):
+                reject("legacy_storage_context_changed")
+        elif not await active_learning_data.pin_storage(db, current, storage_ref):
+            reject("legacy_storage_context_changed")
+        if is_dataclass(current):
+            current = replace(current, storage_ref=storage_ref)
+        else:
+            current.storage_ref = storage_ref
         await db.commit()
         return current
     except TrainingDatasetError as exc:

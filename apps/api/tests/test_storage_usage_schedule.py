@@ -59,7 +59,7 @@ async def test_due_tick_reuses_single_inventory_and_disable_does_not_cancel(read
     await db.commit()
     await db.refresh(jobs[0])
     assert jobs[0].status == "pending"
-    assert (await db.get(Schedule, "platform")).status == "off"
+    assert (await db.get(Schedule, "platform", populate_existing=True)).status == "off"
 
 
 async def test_revocation_pauses_even_before_due_and_requires_reauthorization(ready):
@@ -78,6 +78,7 @@ async def test_revocation_pauses_even_before_due_and_requires_reauthorization(re
     await db.refresh(row)
     assert row.status == "paused"
     await svc.configure_schedule(db, actor, True, 24)
+    await db.refresh(row)
     assert row.status == "active"
 
 

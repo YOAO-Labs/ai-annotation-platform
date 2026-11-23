@@ -616,7 +616,7 @@ def install_backend(monkeypatch, identifier, *, capabilities_value=None):
             return_value=SimpleNamespace(
                 id=identifier,
                 state="connected",
-                health_meta={"capabilities": capabilities_value or caps()},
+                capabilities=capabilities_value or caps(),
             )
         ),
     )

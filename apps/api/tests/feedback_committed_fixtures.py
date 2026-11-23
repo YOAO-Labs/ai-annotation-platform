@@ -12,7 +12,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.models.api_key import ApiKey
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.bug_attachment_upload import BugAttachmentUpload
-from app.db.models.bug_report import BugReport
+from app.db.models.bug_report import BugComment, BugReport
 from app.db.models.user import User
 from app.deps import get_db
 from app.services import identity_request_authority
@@ -23,18 +23,11 @@ from tests.test_reference_original_cache import referenced_cache as referenced_c
 @pytest.fixture
 async def committed_feedback_world(referenced_cache, app_module, monkeypatch):
     owner = referenced_cache
-    created = {model: set() for model in (BugReport, BugAttachmentUpload)}
     async with owner.factory() as db:
         users = [
             await db.get(User, user.id)
             for user in (owner.actor, owner.stranger, owner.manager)
         ]
-
-        @event.listens_for(db.sync_session, "after_flush")
-        def remember(_session, _context):
-            for row in _session.new:
-                if type(row) in created and row.id is not None:
-                    created[type(row)].add(row.id)
 
         async def database():
             yield db
@@ -57,11 +50,19 @@ async def committed_feedback_world(referenced_cache, app_module, monkeypatch):
                 )
             finally:
                 await db.rollback()
-                for model in (BugAttachmentUpload, BugReport):
-                    if created[model]:
-                        await db.execute(
-                            delete(model).where(model.id.in_(created[model]))
-                        )
+                actors = [user.id for user in users]
+                reports = select(BugReport.id).where(BugReport.reporter_id.in_(actors))
+                await db.execute(
+                    delete(BugComment).where(BugComment.bug_report_id.in_(reports))
+                )
+                await db.execute(
+                    delete(BugAttachmentUpload).where(
+                        BugAttachmentUpload.owner_id.in_(actors)
+                    )
+                )
+                await db.execute(
+                    delete(BugReport).where(BugReport.reporter_id.in_(actors))
+                )
                 await db.commit()
 
 

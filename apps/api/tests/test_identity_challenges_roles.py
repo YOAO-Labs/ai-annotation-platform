@@ -8,6 +8,7 @@ import json
 import asyncpg
 import pytest
 from sqlalchemy.engine import make_url
+from yoao_identity.mail_postgres import SMTP_SETTINGS_CAPABILITIES
 
 
 def _dsn(environment_name: str) -> str:
@@ -173,10 +174,10 @@ async def test_mail_login_has_only_four_functions_and_cannot_read_settings():
 
 
 @pytest.mark.asyncio
-async def test_mail_settings_login_can_call_only_the_settings_snapshot():
+async def test_mail_settings_login_can_call_only_mail_policy_and_smtp_diagnostics():
     connection = await _assert_only_functions(
         "AAP_MODULE_DATA_IDENTITY_MAIL_SETTINGS_URL",
-        {"yoao_settings_v1.mail_delivery_policy(jsonb)"},
+        SMTP_SETTINGS_CAPABILITIES,
     )
     try:
         fallback = {
@@ -198,6 +199,8 @@ async def test_mail_settings_login_can_call_only_the_settings_snapshot():
         assert type(policy["smtp_password"]) is str
         for sql in (
             "SELECT * FROM public.system_settings LIMIT 1",
+            "SELECT * FROM yoao_settings_v1.smtp_test_attempts LIMIT 1",
+            "SELECT yoao_settings_v1.queue_smtp_test(NULL::uuid)",
             "SELECT * FROM public.users LIMIT 1",
             "SELECT yoao_settings_v1.identity_recovery_policy('{}'::jsonb)",
             "SELECT yoao_identity_recovery_v1.mail_policy()",

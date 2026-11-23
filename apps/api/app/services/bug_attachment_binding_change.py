@@ -4,19 +4,16 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, or_, select
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.bug_attachment_upload import BugAttachmentUpload
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.services import storage_access, storage_maintenance
+from app.services import storage_access, storage_maintenance, storage_registry_data
 from app.services.audit import AuditAction, AuditService
 from app.services.bug_attachment_storage import BugAttachmentStorageError
 from app.services.bug_attachment_storage_target import probe_target, target_for
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
+from app.services.dataset_assets import validate_legacy_bindings
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_location_change import digest
 
@@ -37,63 +34,40 @@ def binding_facts(binding):
 
 
 async def candidates(db, *, limit, offset):
-    display_name = func.coalesce(StorageConnection.name, StorageLocation.name)
-    eligible = or_(
-        StorageLocation.id == LEGACY_LOCATION_ID,
-        (StorageConnection.kind == "s3") & (StorageConnection.scope == "global"),
-    )
-    query = (
-        select(StorageLocation, display_name.label("display_name"))
-        .outerjoin(
-            StorageConnection, StorageConnection.id == StorageLocation.connection_id
-        )
-        .where(StorageLocation.enabled, StorageLocation.kind == "s3", eligible)
-    )
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = await db.execute(
-        query.order_by(display_name, StorageLocation.id).limit(limit).offset(offset)
+    rows, total = await storage_registry_data.list_binding_candidates(
+        db, limit=limit, offset=offset
     )
     return {
         "items": [
             {
                 "location_id": row.id,
-                "name": name,
+                "name": row.display_name,
                 "config_revision": row.config_revision,
             }
-            for row, name in rows
+            for row in rows
         ],
         "total": total,
     }
 
 
-async def history(db):
-    row = (
-        (
-            await db.execute(
-                select(
-                    func.count()
-                    .filter(BugAttachmentUpload.state == "pending")
-                    .label("pending"),
-                    func.count()
-                    .filter(BugAttachmentUpload.state == "ready")
-                    .label("ready"),
-                    func.count()
-                    .filter(BugAttachmentUpload.state == "retired")
-                    .label("retired"),
-                ).select_from(BugAttachmentUpload)
-            )
-        )
-        .mappings()
-        .one()
+async def history(db, actor_id):
+    if db.autoflush:
+        await db.flush()
+    counts = await db.scalar(
+        text("SELECT yoao_diagnostics_v1.bug_attachment_history(CAST(:actor AS uuid))"),
+        {"actor": actor_id},
     )
-    return dict(row)
+    if counts is None:
+        reject("storage_binding_authority_revoked", 403)
+    return counts
 
 
 async def _binding(db, *, lock=False):
-    query = select(StorageBinding).where(StorageBinding.purpose == "bug-reports")
-    if lock:
-        query = query.with_for_update(nowait=True)
-    row = await db.scalar(query.execution_options(populate_existing=True))
+    row = await storage_registry_data.get_binding(
+        db,
+        "bug-reports",
+        lock="update_nowait" if lock else None,
+    )
     if row is None:
         reject("bug_attachment_storage_binding_unproven")
     return row
@@ -101,32 +75,22 @@ async def _binding(db, *, lock=False):
 
 async def _lock_positions(db, current, target_id):
     ids = sorted({current.location_id, target_id})
-    initial = list(
-        await db.scalars(select(StorageLocation).where(StorageLocation.id.in_(ids)))
-    )
-    if len(initial) != len(ids):
+    initial = [
+        await storage_registry_data.get_location(db, identifier) for identifier in ids
+    ]
+    if any(row is None for row in initial):
         reject("bug_attachment_binding_target_missing", 404)
     connections = {row.id: row.connection_id for row in initial}
     connection_ids = sorted(
         {value for value in connections.values() if value is not None}
     )
-    if connection_ids:
-        await db.execute(
-            select(StorageConnection.id)
-            .where(StorageConnection.id.in_(connection_ids))
-            .order_by(StorageConnection.id)
-            .with_for_update(read=True, nowait=True)
-        )
-    rows = list(
-        await db.scalars(
-            select(StorageLocation)
-            .where(StorageLocation.id.in_(ids))
-            .order_by(StorageLocation.id)
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
-    )
-    if {row.id: row.connection_id for row in rows} != connections:
+    for identifier in connection_ids:
+        await storage_registry_data.get_connection(db, identifier, lock="share_nowait")
+    rows = [
+        await storage_registry_data.get_location(db, identifier, lock="share_nowait")
+        for identifier in ids
+    ]
+    if {row.id: row.connection_id for row in rows if row is not None} != connections:
         reject("storage_binding_preview_changed")
 
 
@@ -155,24 +119,21 @@ async def capture(db, payload, actor, api_key_id, *, lock=False):
         reject("bug_attachment_binding_unchanged")
     if await validate_legacy_bindings(db):
         reject("bug_attachment_storage_binding_unproven")
-    location = await db.get(
-        StorageLocation, payload.target_location_id, populate_existing=True
-    )
+    location = await storage_registry_data.get_location(db, payload.target_location_id)
     if location is None:
         reject("bug_attachment_binding_target_missing", 404)
     if location.config_revision != payload.target_config_revision:
         reject("storage_binding_preview_changed")
     target = await target_for(db, location)
     connection = (
-        await db.get(StorageConnection, location.connection_id, populate_existing=True)
+        await storage_registry_data.get_connection(db, location.connection_id)
         if location.connection_id is not None
         else None
     )
     revision = await storage_access.check(db, location.id, lock=lock)
-    counts = await history(db)
-    current = await db.get(StorageLocation, binding.location_id, populate_existing=True)
+    counts = await history(db, actor.id)
+    current = await storage_registry_data.get_location(db, binding.location_id)
     previous = {
-        "purpose": "bug-reports",
         **before,
         "location_config_revision": current.config_revision,
         "state": "configured",
@@ -280,10 +241,15 @@ async def apply(db, payload, actor, *, api_key_id=None, request=None):
     if digest(reviewed) != token["review"]:
         reject("storage_binding_preview_changed")
     decode_token(payload.impact_token)
-    binding.location_id = target.location_id
-    binding.bucket = target.bucket
-    binding.generation += 1
-    await db.flush()
+    if not await storage_registry_data.switch_binding(
+        db,
+        "bug-reports",
+        expected_generation=binding.generation,
+        location_id=target.location_id,
+        bucket=target.bucket,
+    ):
+        reject("storage_binding_preview_changed")
+    generation = binding.generation + 1
     await AuditService.log(
         db,
         actor=actor,
@@ -299,7 +265,7 @@ async def apply(db, payload, actor, *, api_key_id=None, request=None):
                 "location_id": str(target.location_id),
                 "bucket": target.bucket,
                 "key_prefix": target.key_prefix,
-                "generation": binding.generation,
+                "generation": generation,
             },
             "history": reviewed["history"],
             "reviewed_at": token["measured_at"],
@@ -308,7 +274,7 @@ async def apply(db, payload, actor, *, api_key_id=None, request=None):
     return {
         **previous,
         "location_id": target.location_id,
-        "generation": binding.generation,
+        "generation": generation,
         "bucket": target.bucket,
         "location_config_revision": target.config_revision,
     }

@@ -1,35 +1,5 @@
 """Capture the format-specific immutable input contract before enqueue."""
 
-from sqlalchemy import select, update
-
-from app.db.models.async_job import AsyncJob
-
-
-async def _record_dispatch(db, job_id, values):
-    unclaimed = (
-        select(AsyncJob.id)
-        .where(
-            AsyncJob.id == job_id,
-            AsyncJob.kind == "export",
-            AsyncJob.status == "pending",
-            AsyncJob.celery_task_id.is_(None),
-        )
-        .with_for_update(skip_locked=True)
-        .cte("unclaimed_export_dispatch")
-    )
-    result = await db.scalar(
-        update(AsyncJob)
-        .where(AsyncJob.id.in_(select(unclaimed.c.id)))
-        .values(**values)
-        .returning(AsyncJob.id)
-        .execution_options(synchronize_session=False)
-    )
-    return result is not None
-
-
-async def record_dispatch(db, job_id, task_id):
-    return await _record_dispatch(db, job_id, {"celery_task_id": task_id})
-
 
 async def create_export_job(
     db, project, *, actor_id, payload, batch_id, targets, opts, task_ids=None

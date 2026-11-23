@@ -273,7 +273,10 @@ class AnnotationCommentService:
             )
             .where(annotation_row.task_id.in_(task_ids))
         )
-        await retire_for_comments(self.db, doomed_comments)
+        with self.db.no_autoflush:
+            comment_ids = list(await self.db.scalars(doomed_comments))
+        if comment_ids:
+            await retire_for_comments(self.db, comment_ids)
         result = await discussion_command(
             self.db,
             DeleteCommentsForTasks(

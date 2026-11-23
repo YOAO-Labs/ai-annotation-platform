@@ -113,6 +113,7 @@ async def test_queued_quality_work_cannot_cross_an_archive_transition(
 ):
     db, dataset, actor, *_ = world
     run = await quality.start(db, dataset.id, actor, DatasetQualityConfig())
+    run = await db.get(Run, run.id)
     job = await db.get(AsyncJob, run.async_job_id)
     assert run.authority["dataset_lifecycle_revision"] == 1
     assert job.payload["dataset_lifecycle_revision"] == 1
@@ -190,6 +191,7 @@ async def test_legacy_quality_authority_defaults_to_initial_lifecycle_revision(
     db, dataset, actor, run = ready
     if owner == "quality":
         target = await quality.start(db, dataset.id, actor, DatasetQualityConfig())
+        target = await db.get(Run, target.id)
         worker = quality_worker
     else:
         target = await make_batch(ready)
@@ -226,7 +228,8 @@ async def test_quality_final_evidence_write_rechecks_lifecycle_after_source_io(
 
     async def transition_after_snapshot(*args, **kwargs):
         snapshot = await capture(*args, **kwargs)
-        checkpoint["processed"] = run.processed
+        current = await quality.require_run(db, dataset.id, run.id, actor)
+        checkpoint["processed"] = current.processed
         checkpoint["item_id"] = args[1]
         await transition(db, dataset, archived=True)
         if restored:
@@ -235,7 +238,7 @@ async def test_quality_final_evidence_write_rechecks_lifecycle_after_source_io(
 
     monkeypatch.setattr(content, "quality_snapshot", transition_after_snapshot)
     await quality_worker.execute(db, run.id, job.celery_task_id, "worker:test")
-    await db.refresh(run)
+    run = await db.get(Run, run.id, populate_existing=True)
     assert run.status == "failed" and run.error_code == (
         "dataset_lifecycle_changed" if restored else "dataset_archived"
     )
@@ -264,7 +267,8 @@ async def test_quality_business_checkpoints_fence_old_authority_independently(
         if checkpoint == "report":
             await quality.finish(db, pending, "completed")
         elif checkpoint == "member":
-            await review.process_member(db, batch, actor, run)
+            job = await db.get(AsyncJob, batch.async_job_id)
+            await review.process_member(db, batch, actor, run, job.celery_task_id)
         else:
             await review.finish(db, batch, "completed")
     assert exc.value.detail["code"] == (
@@ -294,6 +298,10 @@ async def test_archived_quality_cancellation_and_terminal_cleanup_remain_availab
     await db.commit()
     await service.signal_interrupted(db, job.id, task_id, cancelled=False)
     await db.commit()
+    target = await db.get(
+        Run if owner == "quality" else Batch, target.id, populate_existing=True
+    )
+    await db.refresh(job)
     assert target.status == job.status == "cancelled"
 
 

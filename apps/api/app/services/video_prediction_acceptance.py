@@ -14,14 +14,11 @@ import math
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import Text, case, cast, func, select
+from sqlalchemy import Text, case, cast, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import attributes, defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.raster_mask_object import RasterMaskObject
-from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.services import prediction_originals as common
 from app.services import storage_access, video_prediction_originals as originals
 from app.services import video_prediction_references as references
@@ -568,9 +565,8 @@ async def _segment(db, task, actor, selection, prediction, indexes, *, lock=Fals
     if lock and identifier is not None:
         if task.dataset_item_id is not None:
             await db.execute(
-                select(DatasetItem.id)
-                .where(DatasetItem.id == task.dataset_item_id)
-                .with_for_update(nowait=True)
+                text("SELECT yoao_assets_v1.lock_video_segment_source(:task, :item)"),
+                {"task": task.id, "item": task.dataset_item_id},
             )
         from app.services.labeling_core_read_relations import (
             lock_video_segment_for_core_read_share,
@@ -658,32 +654,14 @@ async def _mask_owner(db, reference, *, lock=False):
 
     from app.services import raster_mask_objects, raster_object_storage as physical
 
-    query = select(RasterMaskObject).where(
-        RasterMaskObject.logical_key == reference["object_key"],
-        RasterMaskObject.state == "ready",
-    )
-    if lock:
-        query = query.with_for_update(read=True, nowait=True)
-    row = await db.scalar(query.execution_options(populate_existing=True))
+    row = await raster_mask_objects.ready_owner(db, reference["object_key"], lock=lock)
     if row is None:
         _reject("prediction_video_mask_changed")
     receipt = physical.snapshot(row)
     raster_mask_objects._matching_reference(reference, receipt)
     location_id = uuid.UUID(receipt.storage_ref["location_id"])
     if lock:
-        gate = (
-            (
-                await db.execute(
-                    select(
-                        StorageMaintenanceGate.state, StorageMaintenanceGate.revision
-                    )
-                    .where(StorageMaintenanceGate.location_id == location_id)
-                    .with_for_update(read=True, nowait=True)
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
+        gate = await storage_access.gate_facts(db, location_id, lock="share_nowait")
         if gate is None:
             _reject("prediction_video_mask_changed")
         revision = storage_access.validate(gate, None)

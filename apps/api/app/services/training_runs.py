@@ -10,13 +10,10 @@ from training_contract.catalog import definition_for_identity, instance_rle_capa
 import hashlib
 import hmac
 import json
-import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import insert
 from training_contract import definition, verify_native
 from training_contract.validation import CANONICAL, configuration_for_data_contract
 from training_contract.dataset import DETECTION, SEGMENTATION, is_instance_rle
@@ -29,13 +26,6 @@ from training_contract.input_membership import (
 )
 
 from app.config import settings
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import (
-    TrainingAttempt,
-    TrainingEvent,
-    TrainingResourceLease,
-    TrainingRun,
-)
 from app.schemas.training_run import ExecutorFence, ExecutorRecovery, TrainingRunCreate
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
@@ -43,6 +33,8 @@ from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services import training_run_storage
 from app.services import training_claims as claims
+from app.services import training_dataset_data as datasets
+from app.services import training_run_data as data
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_authority_contract import TrainingAuthorityPort
@@ -79,20 +71,12 @@ def now():
     return datetime.now(timezone.utc)
 
 
-async def stage_run_deletion(db, run: TrainingRun) -> None:
-    """Stage SQL deletion; the workflow commits it with its storage intent."""
-    await db.delete(run)
+async def stage_run_deletion(db, run: data.RunFacts) -> None:
+    await data.delete_run(db, run.project_id, run.id)
 
 
 async def load_run(db, project_id, run_id, *, lock=False):
-    statement = select(TrainingRun).where(
-        TrainingRun.id == run_id, TrainingRun.project_id == project_id
-    )
-    if lock:
-        statement = statement.with_for_update().execution_options(
-            populate_existing=True
-        )
-    run = await db.scalar(statement)
+    run = await data.get_run(db, project_id, run_id, lock=lock)
     if run is None:
         raise HTTPException(status_code=404, detail="训练实验不存在")
     return run
@@ -337,7 +321,7 @@ async def frozen_config(
     if template is None or base is None:
         raise HTTPException(status_code=422, detail="训练器或基础权重不在受控目录中")
     if requires_prepared_asset(body.framework, template["version"], base):
-        lease = await db.get(TrainingResourceLease, resource_id())
+        lease = await data.get_lease(db, resource_id())
         if not (
             lease
             and lease.last_seen_at
@@ -347,14 +331,12 @@ async def frozen_config(
             raise HTTPException(
                 status_code=409, detail="该训练节点尚未准备并校验所选基础模型权重"
             )
-    dataset = await db.scalar(
-        select(TrainingDatasetVersion)
-        .where(
-            TrainingDatasetVersion.id == body.dataset_id,
-            TrainingDatasetVersion.project_id == project_id,
-        )
-        .with_for_update(read=True)
+    if not await datasets.hold_version(db, body.dataset_id, project_id):
+        raise HTTPException(status_code=404, detail="训练数据版本不存在")
+    read_dataset = (
+        datasets.read_version if observe_members else datasets.read_version_facts
     )
+    dataset = await read_dataset(db, body.dataset_id, project_id=project_id)
     if dataset is None:
         raise HTTPException(status_code=404, detail="训练数据版本不存在")
     if dataset.status != "ready" or not dataset.package_sha256:
@@ -504,7 +486,11 @@ def artifact_key(owner, attempt_id, relative_name):
 async def allocate_storage(db, run):
     """Only explicit new-run creation calls this before its first attempt."""
     try:
-        return await training_run_storage.allocate(db, run)
+        if run.storage_ref is not None:
+            return training_run_storage.resolve(run).ref
+        ref = await training_run_storage.allocate(db, run)
+        await data.pin_storage(db, run.id, ref)
+        return ref
     except TrainingDatasetError as exc:
         raise HTTPException(
             status_code=exc.status_code,
@@ -514,19 +500,7 @@ async def allocate_storage(db, run):
 
 async def new_attempt(db, run, *, resume_from=None):
     storage_owner(run)
-    ordinal = (
-        await db.scalar(
-            select(func.max(TrainingAttempt.ordinal)).where(
-                TrainingAttempt.run_id == run.id
-            )
-        )
-        or 0
-    ) + 1
-    attempt = TrainingAttempt(
-        run_id=run.id, ordinal=ordinal, resume_from_id=resume_from
-    )
-    db.add(attempt)
-    await db.flush()
+    attempt_id = uuid.uuid4()
     job = await jobs.create_job(
         db,
         kind="training_run",
@@ -534,9 +508,12 @@ async def new_attempt(db, run, *, resume_from=None):
         project_id=run.project_id,
         payload={
             "run_id": str(run.id),
-            "attempt_id": str(attempt.id),
+            "attempt_id": str(attempt_id),
             "name": run.name,
         },
+    )
+    attempt = await data.enqueue_attempt(
+        db, run.id, attempt_id, job.id, previous=resume_from
     )
     run.current_attempt_id = attempt.id
     run.async_job_id = job.id
@@ -548,21 +525,11 @@ async def new_attempt(db, run, *, resume_from=None):
 
 
 async def lock_resource(db, identity=None):
-    identity = identity or resource_id()
-    await db.execute(
-        insert(TrainingResourceLease)
-        .values(resource_id=identity)
-        .on_conflict_do_nothing()
-    )
-    return await db.scalar(
-        select(TrainingResourceLease)
-        .where(TrainingResourceLease.resource_id == identity)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    return await data.get_lease(db, identity or resource_id(), lock=True)
 
 
-async def mark_terminal(db, run, attempt, status, error=None):
+async def mark_terminal(db, run, attempt, status, error=None, *, failure=None):
+    accounting = attempt.native_accounting
     if (
         attempt.native_budget
         and attempt.resource_id is None
@@ -570,16 +537,25 @@ async def mark_terminal(db, run, attempt, status, error=None):
     ):
         from training_contract.budget import receipt
 
-        attempt.native_accounting = receipt(
-            attempt.native_budget, "not_started", seconds=0.0
-        )
+        accounting = receipt(attempt.native_budget, "not_started", seconds=0.0)
     error = (
         redact_text(error, (settings.training_executor_token,))[:1000]
         if error
         else error
     )
+    at = now()
+    await data.finish_queued_attempt(
+        db, run.id, attempt.id, status, at, error, accounting, failure
+    )
+    attempt.native_accounting = accounting
+    if failure is not None:
+        attempt.failure = failure
+    await _terminal_job(db, run, attempt, status, at, error)
+
+
+async def _terminal_job(db, run, attempt, status, at, error):
     attempt.status = run.status = status
-    attempt.completed_at = run.completed_at = now()
+    attempt.completed_at = run.completed_at = at
     attempt.error_message = run.error_message = error
     if status == "succeeded":
         await jobs.mark_complete(
@@ -594,30 +570,22 @@ async def mark_terminal(db, run, attempt, status, error=None):
     await notify_job_terminal(db, job_id=run.async_job_id)
 
 
-async def observe_lost(db, lease):
+async def observe_lost(db, lease, *, run=None, attempt=None):
     if not lease.attempt_id:
         return
-    preliminary = await db.get(TrainingAttempt, lease.attempt_id)
-    if preliminary is None:
-        return
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(TrainingRun.id == preliminary.run_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    attempt = await db.scalar(
-        select(TrainingAttempt)
-        .where(TrainingAttempt.id == lease.attempt_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    if run is None or attempt is None:
+        preliminary = await data.get_attempt(db, lease.attempt_id)
+        if preliminary is None:
+            return
+        run = await data.executor_run(db, preliminary.run_id, lock=True)
+        attempt = await data.get_attempt(db, lease.attempt_id, lock=True)
+    cutoff = now() - timedelta(seconds=settings.training_heartbeat_timeout_seconds)
     if (
-        attempt
+        run
+        and attempt
         and attempt.status in ACTIVE - {"lost", "cancelling"}
         and attempt.heartbeat_at
-        and attempt.heartbeat_at
-        < now() - timedelta(seconds=settings.training_heartbeat_timeout_seconds)
+        and attempt.heartbeat_at < cutoff
     ):
         if run.current_attempt_id == attempt.id:
             attempt.status = run.status = "lost"
@@ -629,36 +597,26 @@ async def observe_lost(db, lease):
                 run.error_message,
                 source="platform",
             )
+            await data.lose_attempt(
+                db, run.id, attempt.id, cutoff, run.error_message, attempt.failure
+            )
             await jobs.update_progress(
                 db, run.async_job_id, 0, extra_payload={"execution_lost": True}
             )
 
 
 async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
-    preliminary = await db.get(TrainingAttempt, attempt_id)
+    preliminary = await data.get_attempt(db, attempt_id)
     if preliminary is None or not preliminary.resource_id:
         raise HTTPException(status_code=404, detail="执行尝试不存在")
     lease = await lock_resource(db, preliminary.resource_id)
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(TrainingRun.id == preliminary.run_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    attempt = await db.scalar(
-        select(TrainingAttempt)
-        .where(TrainingAttempt.id == attempt_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    run = await data.executor_run(db, preliminary.run_id, lock=True)
+    attempt = await data.get_attempt(db, attempt_id, lock=True)
     if (
-        run.current_attempt_id != attempt.id
-        or attempt.executor_id != fence.executor_id
-        or attempt.boot_id != fence.boot_id
-        or not secrets.compare_digest(
-            attempt.lease_digest or "",
-            hashlib.sha256(fence.lease_token.encode()).hexdigest(),
-        )
+        run is None
+        or attempt is None
+        or run.current_attempt_id != attempt.id
+        or not await data.attempt_matches(db, attempt.id, fence)
         or (
             not allow_terminal
             and (lease.attempt_id != attempt.id or attempt.status in TERMINAL)
@@ -695,7 +653,9 @@ def claim_token(attempt, claim_id):
 
 async def assignment(db, run, attempt, token):
     run_owner = attempt_storage_owner(run, attempt)
-    dataset = await db.get(TrainingDatasetVersion, run.dataset_id)
+    dataset = await datasets.read_version_facts(
+        db, run.dataset_id, project_id=run.project_id
+    )
     try:
         if dataset is None or dataset.project_id != run.project_id:
             raise TrainingDatasetError(
@@ -721,7 +681,7 @@ async def assignment(db, run, attempt, token):
     if attempt.native_budget:
         result["native_budget"] = attempt.native_budget
     if attempt.resume_from_id:
-        parent = await db.get(TrainingAttempt, attempt.resume_from_id)
+        parent = await data.get_attempt(db, attempt.resume_from_id)
         if parent is None or parent.run_id != run.id:
             raise HTTPException(status_code=409, detail="恢复来源不属于该训练实验")
         checkpoint = next(
@@ -799,26 +759,24 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
     ):
         raise HTTPException(status_code=409, detail="执行器物理资源与配置不一致")
     lease = await lock_resource(db)
-    lease.executor_id = body.executor_id
-    lease.boot_id = body.boot_id
-    lease.runtime = body.runtime
-    lease.last_seen_at = now()
+    await data.observe_executor(db, body, now())
     await observe_lost(db, lease)
     if lease.attempt_id:
-        attempt = await db.get(TrainingAttempt, lease.attempt_id)
+        attempt = await data.get_attempt(db, lease.attempt_id)
         if (
             attempt.executor_id == body.executor_id
             and attempt.boot_id == body.boot_id
             and attempt.claim_id == body.claim_id
         ):
             token = claim_token(attempt, body.claim_id)
-            if not secrets.compare_digest(
-                attempt.lease_digest, hashlib.sha256(token.encode()).hexdigest()
-            ):
+            proof = ExecutorFence(
+                executor_id=body.executor_id, boot_id=body.boot_id, lease_token=token
+            )
+            if not await data.attempt_matches(db, attempt.id, proof):
                 raise HTTPException(
                     status_code=409, detail="执行器密钥已变更，请先协调旧租约"
                 )
-            run = await db.get(TrainingRun, attempt.run_id)
+            run = await data.executor_run(db, attempt.run_id)
             if not input_runtime_compatible(run.config, body.runtime):
                 raise HTTPException(
                     status_code=409, detail="执行器不支持冻结的训练输入合同"
@@ -827,22 +785,14 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
         return None
     if body.recover_only:
         return None
-    candidates = (
-        await db.scalars(
-            select(TrainingRun)
-            .where(TrainingRun.status == "queued")
-            .order_by(TrainingRun.created_at)
-            .limit(100)
-            .with_for_update(skip_locked=True)
-        )
-    ).all()
+    candidates = await data.gpu_queue(db)
     for run in candidates:
         config = run.config
         if config["resource_id"] != body.resource_id or not runtime_compatible(
             config, body.runtime
         ):
             continue
-        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        attempt = await data.get_attempt(db, run.current_attempt_id)
         if attempt is None or attempt.run_id != run.id:
             raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
         try:
@@ -881,18 +831,13 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
                 continue
             try:
                 validate_budget(attempt.native_budget, attempt.id, run.config_digest)
-                previous = list(
-                    await db.scalars(
-                        select(TrainingAttempt).where(
-                            TrainingAttempt.run_id == run.id,
-                            TrainingAttempt.id != attempt.id,
-                        )
-                    )
-                )
+                previous = await data.list_attempts(db, run.id)
                 from training_contract.budget import validate_receipt
 
                 consumed = 0.0
                 for prior in previous:
+                    if prior.id == attempt.id:
+                        continue
                     if (
                         prior.native_accounting is None
                         and prior.resource_id is None
@@ -937,25 +882,32 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
                     )
             except (HTTPException, ValueError, KeyError, TypeError) as exc:
                 reason = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+                error = "初始化来源校验失败：" + reason[:400]
+                diagnostic = redact_text(error, (settings.training_executor_token,))
                 await mark_terminal(
-                    db, run, attempt, "failed", "初始化来源校验失败：" + reason[:400]
-                )
-                attempt.failure = failure_receipt(
-                    "input_mismatch",
-                    "preparing",
-                    run.config_digest,
-                    run.error_message,
-                    source="platform",
+                    db,
+                    run,
+                    attempt,
+                    "failed",
+                    error,
+                    failure=failure_receipt(
+                        "input_mismatch",
+                        "preparing",
+                        run.config_digest,
+                        diagnostic,
+                        source="platform",
+                    ),
                 )
                 continue
         attempt.claim_id = body.claim_id
         token = claim_token(attempt, body.claim_id)
         attempt.executor_id = body.executor_id
         attempt.boot_id = body.boot_id
-        attempt.lease_digest = hashlib.sha256(token.encode()).hexdigest()
+        at = now()
+        await data.claim_attempt(db, run.id, attempt.id, body, token, at)
         attempt.resource_id = body.resource_id
         attempt.runtime = body.runtime
-        attempt.started_at = attempt.heartbeat_at = now()
+        attempt.started_at = attempt.heartbeat_at = at
         attempt.status = run.status = "preparing"
         lease.attempt_id = attempt.id
         await jobs.mark_running(db, run.async_job_id)
@@ -965,8 +917,7 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
 
 async def heartbeat(db, attempt_id, body, *, training_authority: TrainingAuthorityPort):
     lease, run, attempt = await fenced(db, attempt_id, body)
-    lease.last_seen_at = now()
-    await observe_lost(db, lease)
+    await observe_lost(db, lease, run=run, attempt=attempt)
     lost = attempt.status == "lost"
     try:
         await authority(
@@ -988,42 +939,32 @@ async def heartbeat(db, attempt_id, body, *, training_authority: TrainingAuthori
             source="platform",
         )
     attempt.heartbeat_at = now()
+    metrics = None
     for event in body.events:
-        existing = await db.get(TrainingEvent, (attempt.id, event.sequence))
-        payload = event.model_dump(exclude={"sequence", "kind"})
-        if existing:
-            if existing.kind != event.kind or existing.payload != payload:
-                raise HTTPException(
-                    status_code=409, detail="同一事件序号不能用于不同内容"
-                )
+        outcome = await data.record_event(
+            db,
+            attempt.id,
+            body,
+            event.sequence,
+            event.kind,
+            event.model_dump(exclude={"sequence", "kind"}),
+        )
+        if outcome == "replay":
             continue
-        last = (
-            await db.scalar(
-                select(func.max(TrainingEvent.sequence)).where(
-                    TrainingEvent.attempt_id == attempt.id
-                )
-            )
-            or 0
-        )
-        if event.sequence != last + 1:
+        if outcome == "conflict":
+            raise HTTPException(status_code=409, detail="同一事件序号不能用于不同内容")
+        if outcome == "gap":
             raise HTTPException(status_code=409, detail="事件序号不连续")
-        if event.epoch and event.epoch > run.config["parameters"]["epochs"]:
+        if outcome == "epoch_bounds":
             raise HTTPException(status_code=422, detail="训练轮次超出冻结配置")
-        db.add(
-            TrainingEvent(
-                attempt_id=attempt.id,
-                sequence=event.sequence,
-                kind=event.kind,
-                payload=payload,
-            )
-        )
-        await db.flush()
+        if outcome != "accepted":
+            data._stale()
         if run.status not in {"cancelling", "lost"}:
             run.status = attempt.status = (
                 "training" if event.kind == "epoch" else event.kind
             )
         if event.kind == "epoch":
-            run.metrics = {
+            metrics = {
                 "epoch": event.epoch,
                 "values": event.metrics,
                 "validation_digest": run.config["validation_digest"],
@@ -1033,6 +974,7 @@ async def heartbeat(db, attempt_id, body, *, training_authority: TrainingAuthori
                 run.async_job_id,
                 min(95, int(event.epoch / run.config["parameters"]["epochs"] * 95)),
             )
+    await data.heartbeat_attempt(db, run, attempt, body, metrics=metrics)
     return {
         "stop": lost or run.status == "cancelling",
         "reason": "heartbeat_expired" if lost else run.error_message,
@@ -1049,7 +991,7 @@ async def authorize_upload(db, attempt_id, body):
         raise HTTPException(status_code=422, detail="单次产物超过大小限制")
     if attempt.upload_inventory and attempt.upload_inventory != inventory:
         raise HTTPException(status_code=409, detail="已授权产物不能改写")
-    attempt.upload_inventory = inventory
+    await data.authorize_attempt_upload(db, run.id, attempt.id, body, inventory)
     if run.status not in {"lost", "cancelling"}:
         run.status = attempt.status = "uploading"
         await jobs.update_progress(
@@ -1323,11 +1265,9 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
             actor_id=run.creator_id,
             api_key_id=run.authorization.get("api_key_id"),
         )
-    attempt.artifacts = artifacts
-    attempt.native_accounting = body.native_accounting
-    attempt.finish_request_digest = request_digest
+    failure = None
     if body.failure:
-        attempt.failure = {
+        failure = {
             **body.failure.model_dump(mode="json"),
             "diagnostic": redact_text(
                 body.failure.diagnostic,
@@ -1337,12 +1277,30 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
     error = (
         redact_text(
             body.error_message, (settings.training_executor_token, body.lease_token)
-        )
+        )[:1000]
         if body.error_message
         else None
     )
-    await mark_terminal(db, run, attempt, status, error)
-    lease.attempt_id = None
+    at = now()
+    await data.finish_executor_attempt(
+        db,
+        run.id,
+        attempt.id,
+        body,
+        status,
+        at,
+        error,
+        accounting=body.native_accounting,
+        failure=failure,
+        finish_digest=request_digest,
+        artifacts=artifacts,
+    )
+    attempt.artifacts = artifacts
+    attempt.native_accounting = body.native_accounting
+    attempt.finish_request_digest = request_digest
+    if failure is not None:
+        attempt.failure = failure
+    await _terminal_job(db, run, attempt, status, at, error)
     return attempt
 
 
@@ -1358,12 +1316,7 @@ async def admit(
     await claims.project_lock(db, project_id)
     await lock_project_manager(db, user.id, project_id)
     request_digest = content_digest(body.request_payload())
-    existing = await db.scalar(
-        select(TrainingRun).where(
-            TrainingRun.project_id == project_id,
-            TrainingRun.request_id == body.request_id,
-        )
-    )
+    existing = await data.run_request(db, project_id, body.request_id)
     if existing:
         if existing.request_digest != request_digest:
             raise HTTPException(status_code=409, detail="同一请求标识不能用于不同实验")
@@ -1374,7 +1327,8 @@ async def admit(
         raise HTTPException(
             status_code=409, detail="训练配置已变化或尚未检查，请重新预检"
         )
-    run = TrainingRun(
+    run = await data.create_run(
+        db,
         project_id=project_id,
         creator_id=user.id,
         dataset_id=body.dataset_id,
@@ -1387,14 +1341,12 @@ async def admit(
         origin=origin,
         authorization={"api_key_id": api_key_id},
     )
-    db.add(run)
-    await db.flush()
     await allocate_storage(db, run)
     await new_attempt(db, run)
     return run, True
 
 
-def reserve_study_budget(attempt, run, allowance):
+async def reserve_study_budget(db, attempt, run, allowance):
     from training_contract.budget import POLICY_DIGEST, validate_budget
 
     budget = {
@@ -1405,6 +1357,7 @@ def reserve_study_budget(attempt, run, allowance):
         "allowance_seconds": float(allowance),
     }
     validate_budget(budget, attempt.id, run.config_digest)
+    await data.reserve_study_attempt(db, run.id, attempt.id, budget)
     attempt.native_budget = budget
 
 
@@ -1425,7 +1378,8 @@ async def create_study_child(
     authorization,
     allowance,
 ):
-    run = TrainingRun(
+    run = await data.create_run(
+        db,
         project_id=project_id,
         creator_id=creator_id,
         study_id=study_id,
@@ -1439,42 +1393,79 @@ async def create_study_child(
         origin=origin,
         authorization=authorization,
     )
-    db.add(run)
-    await db.flush()
     await allocate_storage(db, run)
     attempt = await new_attempt(db, run)
-    reserve_study_budget(attempt, run, allowance)
+    await reserve_study_budget(db, attempt, run, allowance)
+    return run
+
+
+async def create_policy_child(
+    db,
+    *,
+    project_id,
+    creator_id,
+    dataset_id,
+    initialization_model_id,
+    auto_trigger_id,
+    request_digest,
+    name,
+    config,
+    config_digest,
+    origin,
+    authorization,
+):
+    run = await data.create_run(
+        db,
+        project_id=project_id,
+        creator_id=creator_id,
+        dataset_id=dataset_id,
+        initialization_model_id=initialization_model_id,
+        auto_trigger_id=auto_trigger_id,
+        request_id=auto_trigger_id,
+        request_digest=request_digest,
+        name=name,
+        config=config,
+        config_digest=config_digest,
+        origin=origin,
+        authorization=authorization,
+    )
+    await allocate_storage(db, run)
+    await new_attempt(db, run)
     return run
 
 
 async def cancel_study_child(db, run):
     if run.status == "queued":
-        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        attempt = await data.get_attempt(db, run.current_attempt_id)
         await mark_terminal(
             db, run, attempt, "cancelled", "参数搜索已停止，未启动的试验已取消"
         )
     elif run.status in ACTIVE:
-        attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+        attempt = await data.get_attempt(db, run.current_attempt_id)
+        await data.cancel_attempt(db, run, attempt)
         run.status = attempt.status = "cancelling"
 
 
-def mark_study_manual_resume(run: TrainingRun) -> None:
+async def mark_study_manual_resume(db, run: data.RunFacts) -> None:
+    await data.manual_resume(db, run.id, run.current_attempt_id, study=True)
     run.authorization = {**run.authorization, "study_manual_resume": True}
 
 
-def mark_policy_manual_resume(run: TrainingRun) -> None:
+async def mark_policy_manual_resume(db, run: data.RunFacts) -> None:
+    await data.manual_resume(db, run.id, run.current_attempt_id, study=False)
     run.authorization = {**run.authorization, "manual_resume": True}
 
 
 async def cancel(db, project_id, run_id, user: User | IdentityActorFacts):
     await lock_project_manager(db, user.id, project_id)
     run = await load_run(db, project_id, run_id, lock=True)
-    attempt = await db.get(TrainingAttempt, run.current_attempt_id)
+    attempt = await data.get_attempt(db, run.current_attempt_id)
     if run.status in TERMINAL:
         raise HTTPException(status_code=409, detail="训练实验已结束")
     if run.status == "queued":
         await mark_terminal(db, run, attempt, "cancelled")
     else:
+        await data.cancel_attempt(db, run, attempt)
         run.status = attempt.status = "cancelling"
     return run
 
@@ -1486,19 +1477,25 @@ async def recover(db, attempt_id, body: ExecutorRecovery) -> None:
     if attempt.status not in TERMINAL:
         if lease.attempt_id != attempt.id:
             raise HTTPException(status_code=409, detail="GPU 租约已变化")
-        await mark_terminal(
-            db,
-            run,
-            attempt,
-            "cancelled" if run.status == "cancelling" else "failed",
-            "执行器重启，已通过独占资源锁确认旧进程退出",
-        )
-        attempt.failure = failure_receipt(
+        status = "cancelled" if run.status == "cancelling" else "failed"
+        error = "执行器重启，已通过独占资源锁确认旧进程退出"
+        at = now()
+        failure = failure_receipt(
             "execution_lost",
             "execution",
             run.config_digest,
-            "执行器重启，已通过独占资源锁确认旧进程退出",
+            error,
             source="platform",
         )
-        attempt.runtime = {**attempt.runtime, "recovery_boot_id": str(body.new_boot_id)}
-        lease.attempt_id = None
+        await data.finish_executor_attempt(
+            db,
+            run.id,
+            attempt.id,
+            body,
+            status,
+            at,
+            error,
+            failure=failure,
+            recovery_boot=body.new_boot_id,
+        )
+        await _terminal_job(db, run, attempt, status, at, error)

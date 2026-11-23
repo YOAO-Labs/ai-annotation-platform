@@ -7,8 +7,8 @@ import uuid
 from fastapi import HTTPException
 
 from app.db.models.project import Project
-from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services.learning_models_data import Deployment, ModelVersion
+from app.services.training_dataset_data import read_version
 from app.services import trained_models as models
 from app.services import training_storage_io as storage_io
 
@@ -30,16 +30,16 @@ async def live_receipt(
 async def install_and_trial(
     db,
     project: Project,
-    version: TrainedModelVersion,
-    deployment: ModelDeployment,
+    version: ModelVersion,
+    deployment: Deployment,
 ):
     """Install the frozen artifact and run its fixed validation-image trial."""
     backend = await models.enabled_backend(db, project.id, deployment.registry_id)
     models.check_declared_compatibility(backend, version)
     await models.assert_routable_backend(db, project.id, deployment.registry_id)
     weights_owner = await models.owner_for_model(db, version)
-    dataset = await db.get(
-        TrainingDatasetVersion, uuid.UUID(version.provenance["dataset_id"])
+    dataset = await read_version(
+        db, uuid.UUID(version.provenance["dataset_id"]), project_id=project.id
     )
     if dataset is None:
         raise HTTPException(status_code=409, detail="固定训练版本不可用")

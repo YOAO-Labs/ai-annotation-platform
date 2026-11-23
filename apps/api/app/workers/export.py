@@ -22,11 +22,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.dataset import DatasetItem, Scene, SensorCalibrationRevision
 from app.db.models.project import Project
-from app.db.models.scene_pose import SceneFramePose
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import async_job as async_job_svc
 from app.services import (
     export_execution_context,
@@ -36,9 +32,19 @@ from app.services import (
 )
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
-from app.services.labeling_core_read_relations import annotation_row, task_row
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    task_dataset_item_link_row as TaskDatasetItemLink,
+    task_row,
+)
 from app.services.project_access import get_workspace_project
 from app.services.workspace_read_relations import project_facts
+from app.services.exporting.asset_facts import (
+    calibration_facts as SensorCalibrationRevision,
+    item_facts as DatasetItem,
+    pose_facts as SceneFramePose,
+    scene_facts as Scene,
+)
 from app.services.exporting import cache as export_cache
 from app.services.exporting import output_authority
 from app.services.exporting.packaging import build_export_zip
@@ -476,9 +482,9 @@ async def _nuscenes_scope_digest(
     project_id: uuid.UUID,
     batch_id: uuid.UUID | None,
 ) -> str:
-    task_query = select(Task).where(Task.project_id == project_id)
+    task_query = select(task_row).where(task_row.project_id == project_id)
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     tasks = list((await db.execute(task_query)).scalars())
     task_ids = [task.id for task in tasks]
     links = []
@@ -610,9 +616,9 @@ async def _multicamera_coco_scope_digest(
     project_id: uuid.UUID,
     batch_id: uuid.UUID | None,
 ) -> str:
-    task_query = select(Task.id).where(Task.project_id == project_id)
+    task_query = select(task_row.id).where(task_row.project_id == project_id)
     if batch_id is not None:
-        task_query = task_query.where(Task.batch_id == batch_id)
+        task_query = task_query.where(task_row.batch_id == batch_id)
     task_ids = list((await db.execute(task_query)).scalars())
     rows = []
     for start in range(0, len(task_ids), 1000):

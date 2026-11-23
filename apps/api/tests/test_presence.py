@@ -133,13 +133,15 @@ async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession)
     assert (await _presence(db_session, already_offline.id)).status == "offline"
 
 
-async def test_presence_scan_reads_runtime_threshold(db_session: AsyncSession):
+async def test_presence_scan_reads_runtime_threshold(
+    db_session: AsyncSession, super_admin
+):
     """A subsequent beat scan uses the DB override without a worker restart."""
 
     from app.core.security import hash_password
 
     await SystemSettingsService.set_many(
-        db_session, {"offline_threshold_minutes": 2}, actor_id=None
+        db_session, {"offline_threshold_minutes": 2}, actor_id=super_admin[0].id
     )
     await db_session.commit()
     now = datetime.now(timezone.utc)

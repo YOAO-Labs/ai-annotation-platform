@@ -167,8 +167,8 @@ async def harness(test_engine, monkeypatch):
     async def is_referenced(db, key):
         return key in result.references
 
-    monkeypatch.setattr(owners, "_referenced_keys", referenced_keys)
-    monkeypatch.setattr(owners, "_is_referenced", is_referenced)
+    monkeypatch.setattr(owners, "referenced_keys", referenced_keys)
+    monkeypatch.setattr(owners, "is_referenced", is_referenced)
     async with result.factory() as db:
         await ensure_legacy_bindings(db)
         await db.commit()

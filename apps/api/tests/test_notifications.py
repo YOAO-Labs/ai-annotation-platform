@@ -10,7 +10,6 @@ import pytest
 from app.db.models.bug_report import BugReport
 from app.db.models.notification import Notification
 from app.db.models.notification_preference import NotificationPreference
-from app.services.display_id import next_display_id
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
 from yoao_notifications.preferences_policy import (
@@ -36,10 +35,12 @@ async def _seed_bug(
     status: str = "new",
     assigned_to: uuid.UUID | None = None,
 ) -> BugReport:
-    display_id = await next_display_id(db, "bug_reports")
+    number = await db.scalar(
+        text("SELECT pg_catalog.nextval('public.display_seq_bug_reports')")
+    )
     report = BugReport(
         id=uuid.uuid4(),
-        display_id=display_id,
+        display_id=f"B-{number}",
         reporter_id=reporter_id,
         route="/foo",
         user_role="annotator",

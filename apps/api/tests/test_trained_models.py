@@ -45,7 +45,7 @@ async def seed_source(db, owner, *, project=None):
         snapshot_digest="b" * 64,
         name="Frozen",
         snapshot={},
-        status="ready",
+        status="pending",
         manifest={"samples": []},
         package_key="owned/dataset.zip",
         package_sha256="c" * 64,
@@ -56,6 +56,7 @@ async def seed_source(db, owner, *, project=None):
 
     ref = await allocate(db, dataset)
     dataset.package_key = ref["prefix"] + "dataset.zip"
+    dataset.status = "ready"
     run = TrainingRun(
         project_id=project.id,
         creator_id=owner.id,

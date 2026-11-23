@@ -19,6 +19,7 @@ from app.services.training_datasets import bind_training_authority
 from tests.active_learning_fixtures import (
     candidate_ports,
     complete,
+    current_round,
     decide_with_ports,
     prepare_with_ports,
     seed,
@@ -69,7 +70,7 @@ async def current(db_session, super_admin, monkeypatch):
         await db_session.flush()
         from app.db.models.active_learning import ActiveLearningAttempt
 
-        return round, await db_session.get(
+        return await current_round(db_session, round.id), await db_session.get(
             ActiveLearningAttempt, round.current_attempt_id
         )
 

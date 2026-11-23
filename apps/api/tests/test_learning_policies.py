@@ -24,12 +24,19 @@ pytestmark = pytest.mark.usefixtures("training_config_fixture")
 
 
 async def check_policy_with_db_reader(db, policy_id, *, force=False):
-    return await service.check_policy(
+    result = await service.check_policy(
         db,
         policy_id,
         training_authority=bind_training_authority(db),
         force=force,
     )
+    for record in list(db.identity_map.values()):
+        if isinstance(
+            record,
+            (LearningPolicy, LearningTrigger, TrainingDatasetVersion, TrainingRun),
+        ):
+            await db.refresh(record)
+    return result
 
 
 async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effective_values(

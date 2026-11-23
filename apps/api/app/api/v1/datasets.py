@@ -43,12 +43,7 @@ from yoao_assets_source.connectors.registry import (
     target_host as connector_target_host,
     validate_source_path as validate_connector_source_path,
 )
-from yoao_assets_catalog import (
-    CreateDatasetRequest,
-    DatasetPatch,
-    GetDatasetRequest,
-    UpdateDatasetRequest,
-)
+from yoao_assets_catalog import CreateDatasetRequest, GetDatasetRequest
 from yoao_assets_catalog.associations_contract import ListDatasetProjectsRequest
 from app.deps import (
     get_db,
@@ -83,11 +78,7 @@ from app.schemas.dataset import (
 from app.schemas.dataset_view import DatasetItemQuery
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
-from app.services.dataset import (
-    DatasetService,
-    ensure_dataset_storage_name_is_writable,
-    writable_dataset,
-)
+from app.services.dataset import DatasetService
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import (
@@ -425,25 +416,24 @@ async def update_dataset(
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     await recheck_directory_write(request, db, dataset_id)
-    dataset = await writable_dataset(db, dataset_id)
-    if data.name is not None:
-        ensure_dataset_storage_name_is_writable(data.name)
-        if dataset.storage_scan_prefix is None and dataset.name != data.name:
-            dataset.storage_scan_prefix = f"{dataset.name}/"
-            await db.flush()
     operation_id = idempotency_key or uuid.uuid4()
-    result = await AssetsCatalogGateway(db).update(
-        UpdateDatasetRequest(
-            operation_id=operation_id,
-            actor_id=current_user.id,
-            dataset_id=dataset_id,
-            patch=DatasetPatch.model_validate(data.model_dump(exclude_unset=True)),
-        )
+    svc = DatasetService(db)
+    update_kwargs: dict = {}
+    if "axis_convention" in data.model_fields_set:
+        update_kwargs["axis_convention"] = data.axis_convention
+    result = await svc.update(
+        dataset_id,
+        name=data.name,
+        description=data.description,
+        actor_id=current_user.id,
+        operation_id=operation_id,
+        **update_kwargs,
     )
+    if result is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    await db.commit()
     response.headers["Idempotency-Key"] = str(operation_id)
-    return DatasetOut.model_validate(result.dataset).model_copy(
-        update={"lifecycle_revision": dataset.lifecycle_revision}
-    )
+    return result
 
 
 @router.post(
@@ -616,21 +606,14 @@ async def get_dataset_item_preview(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(require_roles(*_MANAGERS)),
 ):
-    from app.db.models.dataset import DatasetItem
-    from app.db.models.dataset_source import DatasetSourceItem
     from app.services.content_snapshot import SnapshotResponse
     from app.services.dataset_content import content_http_error
     from app.services.directory_previews import read_preview
-    from app.services.dataset_workbench import visible_mapping_query
+    from app.services.dataset_workbench import preferred_preview_mapping
 
     if request.headers.get("range") is not None:
         raise HTTPException(416, "Range is not supported for previews")
-    mapping = await db.scalar(
-        visible_mapping_query(item_id, actor)
-        .join(DatasetItem, DatasetItem.id == DatasetSourceItem.dataset_item_id)
-        .where(DatasetItem.id == item_id, DatasetItem.dataset_id == dataset_id)
-        .limit(1)
-    )
+    mapping = await preferred_preview_mapping(db, dataset_id, item_id, actor)
     if mapping is None:
         raise HTTPException(404, "Dataset item preview not found")
     try:

@@ -9,10 +9,14 @@ from sqlalchemy import Text, and_, bindparam, cast, func, literal, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.services import original_sources, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.exporting import core_reads, image_inputs, lidar_inputs
+from app.services.exporting.asset_facts import (
+    dataset_facts as Dataset,
+    item_facts as DatasetItem,
+    scene_facts as Scene,
+)
 from app.services.exporting.core_reads import Project
 from app.services.labeling_core_read_relations import (
     annotation_row as Annotation,

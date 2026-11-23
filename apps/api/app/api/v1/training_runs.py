@@ -13,13 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.project import Project
-from app.db.models.trained_model import TrainedModelVersion
-from app.db.models.training_run import (
-    TrainingAttempt,
-    TrainingEvent,
-    TrainingResourceLease,
-    TrainingRun,
-)
+from app.services import learning_models_data as models
+from app.services import training_run_data as data
 from app.deps import (
     get_current_user,
     get_current_user_id,
@@ -94,7 +89,7 @@ async def catalog(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = adapters.catalog()
-    lease = await db.get(TrainingResourceLease, adapters.resource_id())
+    lease = await data.get_lease(db, adapters.resource_id())
     result["online"] = bool(
         lease
         and lease.last_seen_at
@@ -211,43 +206,48 @@ async def list_runs(
     ),
 ) -> dict:
     start, end = created_date_bounds(created_from, created_to)
-    predicates = [TrainingRun.project_id == project.id]
+    fields = data.run_summary_row.c
+    predicates = [fields.project_id == project.id]
     pattern = literal_search_pattern(q)
     if pattern is not None:
         predicates.append(
             or_(
-                TrainingRun.name.ilike(pattern, escape="\\"),
-                TrainingRun.config["base_model"]["id"]
+                fields.name.ilike(pattern, escape="\\"),
+                fields.config["base_model"]["id"]
                 .as_string()
                 .ilike(pattern, escape="\\"),
             )
         )
     if status is not None:
-        predicates.append(TrainingRun.status == status)
+        predicates.append(fields.status == status)
     if task is not None:
-        predicates.append(run_task_expression(TrainingRun.config) == task)
+        predicates.append(run_task_expression(fields.config) == task)
     if framework is not None:
-        predicates.append(TrainingRun.config["framework"].as_string() == framework)
+        predicates.append(fields.config["framework"].as_string() == framework)
     if start is not None:
-        predicates.append(TrainingRun.created_at >= start)
+        predicates.append(fields.created_at >= start)
     if end is not None:
-        predicates.append(TrainingRun.created_at <= end)
+        predicates.append(fields.created_at <= end)
     if adapters.catalog()["enabled"]:
         lease = await service.lock_resource(db)
         await service.observe_lost(db, lease)
         await db.commit()
     total = await db.scalar(
-        select(func.count()).select_from(TrainingRun).where(*predicates)
+        select(func.count()).select_from(data.run_summary_row).where(*predicates)
     )
     items = (
-        await db.scalars(
-            select(TrainingRun)
-            .where(*predicates)
-            .order_by(TrainingRun.created_at.desc(), TrainingRun.id.desc())
-            .limit(limit)
-            .offset(offset)
+        (
+            await db.execute(
+                select(data.run_summary_row)
+                .where(*predicates)
+                .order_by(fields.created_at.desc(), fields.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
         )
-    ).all()
+        .mappings()
+        .all()
+    )
     return {
         "total": total,
         "items": [
@@ -283,27 +283,8 @@ async def get_run(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     run = await service.load_run(db, project.id, run_id)
-    attempts = (
-        await db.scalars(
-            select(TrainingAttempt)
-            .where(TrainingAttempt.run_id == run.id)
-            .order_by(TrainingAttempt.ordinal.desc())
-        )
-    ).all()
-    registered_models = (
-        await db.execute(
-            select(
-                TrainedModelVersion.id,
-                TrainedModelVersion.attempt_id,
-                TrainedModelVersion.name,
-            )
-            .where(
-                TrainedModelVersion.project_id == project.id,
-                TrainedModelVersion.run_id == run.id,
-            )
-            .order_by(TrainedModelVersion.created_at, TrainedModelVersion.id)
-        )
-    ).all()
+    attempts = await data.list_attempts(db, run.id, newest_first=True)
+    registered_models = await models.run_candidates(db, project.id, run.id)
     return {
         "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
         "registration_eligibility": registration_eligibility(run.config),
@@ -328,17 +309,10 @@ async def get_events(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     run = await service.load_run(db, project.id, run_id)
-    attempt = await db.get(TrainingAttempt, attempt_id or run.current_attempt_id)
+    attempt = await data.get_attempt(db, attempt_id or run.current_attempt_id)
     if attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="执行尝试不存在")
-    statement = (
-        select(TrainingEvent)
-        .where(TrainingEvent.attempt_id == attempt.id, TrainingEvent.sequence > after)
-        .order_by(TrainingEvent.sequence.desc() if latest else TrainingEvent.sequence)
-    )
-    events = (await db.scalars(statement.limit(100))).all()
-    if latest:
-        events.reverse()
+    events = await data.event_page(db, attempt.id, after, latest=latest)
     return {
         "attempt_id": str(attempt.id),
         "items": [
@@ -362,13 +336,8 @@ async def get_evaluation(
     from app.services.training_evaluations import read_evaluation
 
     await lock_project_manager(db, user.id, project.id)
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
-    attempt = await db.get(TrainingAttempt, attempt_id)
+    run = await data.get_run(db, project.id, run_id, lock="share")
+    attempt = await data.get_attempt(db, attempt_id)
     if run is None or attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="实验或执行尝试不存在")
     result = await read_evaluation(run, attempt, offset, limit, db=db)
@@ -424,20 +393,10 @@ def _log_download_http_error(exc):
 
 async def _download_artifact_context(db, project, user, run_id, attempt_id, name):
     await lock_project_manager(db, user.id, project.id)
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(TrainingRun.id == run_id, TrainingRun.project_id == project.id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
+    run = await data.get_run(db, project.id, run_id, lock="share")
     if run is None:
         raise HTTPException(status_code=404, detail="训练实验不存在")
-    attempt = await db.get(
-        TrainingAttempt,
-        attempt_id,
-        populate_existing=True,
-        with_for_update={"read": True},
-    )
+    attempt = await data.get_attempt(db, attempt_id, lock="share")
     artifact = (
         (attempt.artifacts or {}).get(name)
         if attempt and attempt.run_id == run.id

@@ -105,6 +105,9 @@ async def test_observations_replay_independently_without_renewing_liveness_or_ad
         )
         == first
     )
+    await db_session.refresh(run)
+    await db_session.refresh(attempt)
+    await db_session.refresh(lease)
     assert (
         run.status,
         attempt.status,
@@ -170,6 +173,7 @@ async def test_observations_replay_independently_without_renewing_liveness_or_ad
         ExecutorObservations.model_validate(forged),
         training_authority=bind_training_authority(db_session),
     )
+    await db_session.refresh(attempt)
     accepted = attempt.observation_state["summary"]
     assert accepted["latest"]["phase"] == "training"
     assert accepted["latest"]["producer_boot_id"] == str(claim.boot_id)
@@ -228,6 +232,7 @@ async def test_restart_producer_identity_and_independent_log_cursor_with_seconda
         skipped,
         training_authority=bind_training_authority(db_session),
     )
+    await db_session.refresh(attempt)
     tail = await observations.page(db_session, attempt, "logs", after=1)
     assert tail["items"] == [] and tail["next_cursor"] == 10
     assert not tail["has_more"] and tail["latest_cursor"] == 10
@@ -327,7 +332,7 @@ async def test_bounded_windows_keep_high_watermarks_gaps_and_hourly_cleanup_summ
     )
     assert len(encoded(attempt.observation_state)) < 16 * 1024
     old = training.now() - timedelta(days=8)
-    for model, _ in observations.STREAMS.values():
+    for model in (TrainingTelemetrySample, TrainingLogChunk):
         rows = (
             await db_session.scalars(
                 select(model).where(model.attempt_id == attempt.id)
@@ -356,6 +361,7 @@ async def test_bounded_windows_keep_high_watermarks_gaps_and_hourly_cleanup_summ
             training_authority=bind_training_authority(db_session),
         )
     )["telemetry_cursor"] == 740
+    await db_session.refresh(attempt)
     assert (await observations.page(db_session, attempt, "telemetry"))["gaps"][-1][
         "reason"
     ] == "producer_retention"
@@ -765,7 +771,7 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
         }
         attempt.artifacts = {"train.log": artifact}
         run.current_attempt_id = attempt.id
-        for model, _ in observations.STREAMS.values():
+        for model in (TrainingTelemetrySample, TrainingLogChunk):
             seed.add(
                 model(
                     attempt_id=attempt.id,
@@ -854,7 +860,7 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
             assert b"private" not in writes[0]["Body"]
         assert deletions == [f"projects/{project.id}/runs/{run.id}/"]
         async with maker() as verify:
-            for model, _ in observations.STREAMS.values():
+            for model in (TrainingTelemetrySample, TrainingLogChunk):
                 assert (
                     await verify.scalar(
                         select(func.count())

@@ -7,8 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from training_contract import definition
 
-from app.db.models.learning_policy import LearningPolicy, LearningTrigger
-from app.db.models.training_study import TrainingStudy
+from app.services import learning_selection_data as data
 from app.services import training_adapters, training_initialization as initialization
 from app.services.project_access import get_workspace_project
 
@@ -75,17 +74,9 @@ async def policy_claim_allowed(db, run):
             populate_existing=True,
         )
         return project.status == "in_progress"
-    row = (
-        await db.execute(
-            select(LearningPolicy, LearningTrigger)
-            .join(LearningTrigger, LearningTrigger.policy_id == LearningPolicy.id)
-            .where(LearningTrigger.id == run.auto_trigger_id)
-            .execution_options(populate_existing=True)
-        )
-    ).one_or_none()
-    if row is None:
+    policy = await data.policy_claim(db, run)
+    if policy is None:
         return False
-    policy, trigger = row
     project = await get_workspace_project(
         db,
         actor_id=run.creator_id,
@@ -94,7 +85,7 @@ async def policy_claim_allowed(db, run):
     )
     return bool(
         policy.enabled
-        and policy.revision == trigger.policy_revision
+        and policy.revision == policy.policy_revision
         and project.status == "in_progress"
         and policy_template_current(policy)
         and run.config.get("initialization") == policy.config.get("initialization")
@@ -104,7 +95,7 @@ async def policy_claim_allowed(db, run):
 async def study_claim_allowed(db, run):
     if run.study_id is None:
         return True
-    study = await db.get(TrainingStudy, run.study_id, populate_existing=True)
+    study = await data.study_claim(db, run)
     project = await get_workspace_project(
         db,
         actor_id=run.creator_id,

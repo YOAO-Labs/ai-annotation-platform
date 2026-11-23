@@ -9,17 +9,12 @@ from functools import wraps
 from typing import Any, Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.dataset import (
-    DatasetItem,
-    VideoChunk,
-    VideoFrameCache,
-    VideoFrameIndex,
-)
+from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.observability.metrics import (
     VIDEO_CHUNK_REQUESTS_TOTAL,
@@ -54,7 +49,7 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class VideoContext:
-    item: DatasetItem
+    item: DatasetItem | derivatives.VideoItem
     metadata: VideoMetadata
     task: Task | None = None
     authority: originals.Authority | None = None
@@ -95,7 +90,7 @@ def _video_meta(item: DatasetItem) -> VideoMetadata:
     return VideoMetadata.model_validate(raw)
 
 
-def _ensure_video_item(item: DatasetItem | None) -> DatasetItem:
+def _ensure_video_item(item: DatasetItem | derivatives.VideoItem | None):
     if not item or item.file_type != "video":
         raise HTTPException(status_code=404, detail="Video not found")
     return item
@@ -264,7 +259,7 @@ def _repairable(exc: Exception) -> bool:
 
 
 async def _metadata_preparing(db, ctx, *, force=False):
-    current = await derivatives.row(db, DatasetItem, ctx.item.id)
+    current = await derivatives.item_row(db, ctx.item.id)
     force = force and current.video_building_output_id is None
     output, enqueue = await derivatives.prepare(
         db, ctx.item.id, ctx.authority, "metadata", spec={"schema": 1}, force=force
@@ -280,7 +275,7 @@ async def _physical_context(db, ctx: VideoContext) -> VideoContext:
     source = await originals.check(db, ctx.authority)
     if source.item_id != ctx.item.id:
         raise ContentError("content_binding_changed")
-    item = _ensure_video_item(await derivatives.row(db, DatasetItem, ctx.item.id))
+    item = _ensure_video_item(await derivatives.item_row(db, ctx.item.id))
     ctx = replace(ctx, item=item)
     try:
         output = await derivatives.metadata(db, item, source)
@@ -307,27 +302,15 @@ async def pts_ms_for_frame(
     frame_index: int,
     metadata: VideoMetadata,
 ) -> int | None:
-    row = (
-        await db.execute(
-            select(VideoFrameIndex.pts_ms).where(
-                VideoFrameIndex.dataset_item_id == dataset_item_id,
-                VideoFrameIndex.frame_index == frame_index,
-            )
-        )
-    ).scalar_one_or_none()
+    if db.autoflush:
+        await db.flush()
+    row = await db.scalar(
+        text("SELECT yoao_assets_v1.legacy_video_pts(:item, :frame)"),
+        {"item": dataset_item_id, "frame": frame_index},
+    )
     if row is not None:
         return int(row)
     return _estimated_pts_ms(frame_index, metadata)
-
-
-async def _slot(db, ctx, kind, spec):
-    model = VideoFrameCache if kind == "frame" else VideoChunk
-    predicates = [model.dataset_item_id == ctx.item.id]
-    names = ("frame_index", "width", "format") if kind == "frame" else ("chunk_id",)
-    predicates.extend(getattr(model, name) == spec[name] for name in names)
-    return await db.scalar(
-        select(model).where(*predicates).execution_options(populate_existing=True)
-    )
 
 
 async def _prepare(db, ctx, kind, spec, *, force=False):
@@ -335,8 +318,8 @@ async def _prepare(db, ctx, kind, spec, *, force=False):
         db, ctx.item.id, ctx.authority, kind, spec=spec, force=force
     )
     if output.state == "ready":
-        slot = await derivatives._slot(
-            db, ctx.item, kind, spec, lock=True, write=True, wait=True
+        slot = await derivatives.slot_for(
+            db, ctx.item, kind, spec, lock=True, write=True
         )
         if slot is None:
             raise ContentError("video_derivative_generation_changed")
@@ -344,7 +327,19 @@ async def _prepare(db, ctx, kind, spec, *, force=False):
             output = await derivatives.ready_output(
                 db, slot, ctx.authority, expected_output_id=output.id
             )
-            slot.last_accessed_at = _now()
+            if not await db.scalar(
+                text(
+                    "SELECT yoao_assets_v1.legacy_video_touch_slot(:kind, :item, :slot, :output, :at)"
+                ),
+                {
+                    "kind": kind,
+                    "item": ctx.item.id,
+                    "slot": slot.id,
+                    "output": output.id,
+                    "at": _now(),
+                },
+            ):
+                raise ContentError("video_derivative_generation_changed")
         except (ContentError, physical.VideoDerivativeStorageError) as exc:
             if not _repairable(exc):
                 raise
@@ -549,20 +544,21 @@ async def retry_frames(
     ctx = await _physical_context(db, ctx)
     indices = sorted(set(frame_indices))
     if not (force and indices):
-        stmt = (
-            select(VideoFrameCache.frame_index)
-            .where(
-                VideoFrameCache.dataset_item_id == ctx.item.id,
-                VideoFrameCache.width == width,
-                VideoFrameCache.format == format_,
-                VideoFrameCache.status == "failed",
+        if db.autoflush:
+            await db.flush()
+        indices = (
+            await db.scalars(
+                text(
+                    "SELECT * FROM yoao_assets_v1.legacy_video_failed_frames(:item, :width, :format, :frames)"
+                ),
+                {
+                    "item": ctx.item.id,
+                    "width": width,
+                    "format": format_,
+                    "frames": indices or None,
+                },
             )
-            .order_by(VideoFrameCache.frame_index)
-            .limit(500)
-        )
-        if indices:
-            stmt = stmt.where(VideoFrameCache.frame_index.in_(indices))
-        indices = list((await db.scalars(stmt)).all())
+        ).all()
     frames = await _frames(db, ctx, indices, width, format_, force=True)
     return VideoFramePrefetchResponse(
         dataset_item_id=ctx.item.id, task_id=ctx.task_id, frames=frames
@@ -614,7 +610,7 @@ async def frame_timetable(
 async def chunk_samples(db, ctx, chunk_id, *, expected_output_id=None):
     ctx = await _physical_context(db, ctx)
     spec = derivatives.chunk_spec(ctx.generation, chunk_id)
-    slot = await _slot(db, ctx, "chunk", spec)
+    slot = await derivatives.slot_for(db, ctx.item, "chunk", spec)
     if expected_output_id is not None and (
         slot is None or slot.output_id != expected_output_id
     ):
@@ -939,7 +935,7 @@ async def get_frame_array(
     )
     ctx = await _physical_context(db, ctx)
     spec = derivatives.frame_spec(ctx.generation, frame_index, width, format_)
-    slot = await _slot(db, ctx, "frame", spec)
+    slot = await derivatives.slot_for(db, ctx.item, "frame", spec)
     if slot is None:
         raise HTTPException(409, {"code": "video_derivative_not_ready"})
     output = objects.snapshot(await derivatives.ready_output(db, slot, authority))

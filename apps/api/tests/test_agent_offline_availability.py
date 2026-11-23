@@ -137,7 +137,7 @@ async def test_current_heartbeat_credentials_and_bound_root_share_one_projection
     db_session, content_world, project_admin
 ):
     db, world = db_session, content_world
-    await accept_all_files(db, world)
+    accepted = await accept_all_files(db, world)
     agent, credential, _ = await attach_agent(db, world[4], world[2])
     stamp = await db.scalar(select(func.now()))
 
@@ -175,7 +175,11 @@ async def test_current_heartbeat_credentials_and_bound_root_share_one_projection
     with pytest.raises(FilesystemStorageError, match="agent_revoked"):
         await agent_storage.configuration(db, world[4])
 
-    observations = dataset_workbench.observations(world[3].id, project_admin[0])
+    observations = dataset_workbench.observations(
+        world[3].id,
+        project_admin[0],
+        item_ids=[row["item_id"] for row in accepted.values()],
+    )
     hidden = (await db.execute(select(observations))).mappings().one()
     projected = dataset_workbench.availability(hidden)
     assert projected["agent_status"] is None
@@ -204,10 +208,13 @@ async def test_ready_same_content_cache_is_still_readable_with_offline_agent(
     try:
         async with world.factory() as db:
             ids = await dataset_workbench.available_cache_ids(
-                db, world.dataset_id, world.manager
+                db, world.dataset_id, world.manager, item_ids=[world.item_id]
             )
             obs = dataset_workbench.observations(
-                world.dataset_id, world.manager, cache_entry_ids=ids
+                world.dataset_id,
+                world.manager,
+                item_ids=[world.item_id],
+                cache_entry_ids=ids,
             )
             row = (await db.execute(select(obs))).mappings().one()
             projected = dataset_workbench.availability(row)

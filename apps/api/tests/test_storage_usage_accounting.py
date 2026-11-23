@@ -7,40 +7,24 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.storage_usage import (
     StorageUsageMutation as Mutation,
     StorageUsageInventoryObject as Observation,
     StorageUsageReconciliation as Reconciliation,
-    StorageUsageSchedule as Schedule,
     StorageUsageSnapshot as Snapshot,
 )
 from app.services import storage_usage_accounting as svc
+from tests.managed_image_inference_fixtures import managed_database
 
 
 @pytest.fixture
-async def accounting_factory(test_engine):
-    schema = "usage_accounting_" + uuid.uuid4().hex
-    async with test_engine.begin() as connection:
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    try:
-        async with engine.begin() as connection:
-            for model in (Mutation, Observation, Reconciliation, Schedule, Snapshot):
-                await connection.run_sync(
-                    lambda conn, table=model.__table__: table.create(conn)
-                )
+async def accounting_factory(test_db_url):
+    async with managed_database(test_db_url) as engine:
         yield async_sessionmaker(engine, expire_on_commit=False)
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 def record():
@@ -134,7 +118,7 @@ async def observe(db, scope, generation, objects, start, end):
         db.add(snapshot)
         await db.flush()
     await svc.stage_page(db, generation, scope, objects, start, end)
-    await svc.complete_bucket(db, snapshot, generation, start, end)
+    await svc.complete_bucket(db, scope, generation, start, end)
     await db.flush()
     return await db.get(Reconciliation, (generation, scope))
 

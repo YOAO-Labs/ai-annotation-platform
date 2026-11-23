@@ -136,7 +136,9 @@ apps/api/.venv/bin/python scripts/storage_source_fence.py status \
 
 ## 绑定窗口并封存最终增量
 
-`scripts/finalize_storage_migration.py` 把实际原生封闭与应用窗口、新清单及 B5 后继复制绑定。命令由可信部署运维在当前应用数据库环境中执行，原生凭据仍只用上述两个操作进程变量；API 与 Worker 不需要 Docker 权限。`--actor-id` 为当前有效超级管理员 UUID。命令不接受上传的证明文件；bind／seal不发布业务读取路由，原件映射须另外显式发布。
+`scripts/finalize_storage_migration.py` 把实际原生封闭与应用窗口、新清单及 B5 后继复制绑定。命令由可信部署运维执行，`STORAGE_MIGRATION_CONTROL_DATABASE_URL` 只在本地命令进程提供专用控制 LOGIN；不回退到普通应用或迁移 owner 的连接。`scripts/cutover_storage_migration.py` 使用同一控制身份。原生凭据仍只用上述两个操作进程变量；API 与 Worker 不需要 Docker 权限。`--actor-id` 为当前有效超级管理员 UUID。命令不接受上传的证明文件；bind／seal 不发布业务读取路由，原件映射须另外显式发布。
+
+先按单独部署策略建立 `NOINHERIT`、无角色成员关系的控制 LOGIN，再由迁移 owner 使用 `infra/docker/storage-migration-control-grants.sql` 安装授权（`expected_database`、`migration_role`、`application_role`、`storage_migration_control_role`）。它只拥有明确的可信控制事务所需权限；普通 API／Worker 不持有该口令，控制角色也不读取连接器密文。已登记位置的实际对象操作仍归 Assets Source。
 
 1. 先完成初次复制及九用途处理评审，开启以该批次为父的迁移窗口，并停止登记访问。待旧任务与实际许可全部收尾后，实际执行原生 `seal`。
 2. 选定一个新的最终核验 UUID，在同一私有配置与状态上执行 `bind`。它先持久保存应用绑定责任，再核对数据库、源／目标和窗口，递增窗口修订；之后生成的新任务会固定此修订。
@@ -409,7 +411,7 @@ apps/api/.venv/bin/python scripts/inventory_storage_references.py \
 
 输出和临时目录的父目录应事先存在并限制访问。输出以 `0600` 独占创建；数据库快照、SQLite 关联索引位于自动清理的私有临时目录中。终端仅输出汇总和安全错误码。目录包含必要的逻辑 owner ID、物理端点、桶、原始键和保存修订，应按敏感运维资料保管；不含认证令牌、签名、加密凭据、授权证明或完整业务正文。头像的 `token` 列是公开头像对象的 32 位十六进制 owner ID，仅作为逻辑主键投影；此例外不适用于认证／API／授权令牌。
 
-数据库账号只需静态白名单列的 SELECT 权限，无需写入、迁移或对象权限。命令先在单个有界的 `REPEATABLE READ READ ONLY` 事务中读取，再关闭连接处理源报告。它实际探测可见列，兼容报告附件版本列缺省的旧schema；新责任表在其引入前不适用，当前schema缺表或缺少必要字段则报告不完整。不会将缺省版本解释为当前版本。权限不足、表形状未知或预算耗尽会保留不完整状态。
+运行角色只需执行已安装的各 owner 固定投影和迁移版本查询，不需要业务表／列 SELECT、迁移权限或对象权限。命令在同一个有界的 `REPEATABLE READ READ ONLY` 事务中按主键续页，再关闭连接处理源报告。缺少投影、权限不足、版本观测不可用或预算耗尽均为不完整快照，不能解释为储存记录不存在；某家族返回零行时仍记录为已枚举。缺省对象版本仍为未知，不解释为当前版本。
 
 目录覆盖27类已登记记录的所有状态，包括pending、ready、失败和retired，不按当前用途绑定筛选。逐family识别当前保存结构；数据集原件的新定位仍为schema1，不将全部新地址统一当作schema2：
 
@@ -450,9 +452,9 @@ pnpm dev:worktree -- exec --mode test -- env DEBUG=false PYTHONDONTWRITEBYTECODE
   --report /private/reference-verification.json
 ```
 
-当前夹具在0254准备小型合成保存记录和源对象，CLI使用临时只读数据库角色实际核对27家族SQL投影、不同保存地址形式、跨端点暂存、当前配置不同于保存端点、版本和未知历史，并交给现有copy plan读取。比较CLI前后全部业务表、源对象版本／内容和输入清单指纹，验证写入及秘密列读取均被拒绝；结束撤销临时角色，调用者随后销毁所属test数据库、Redis和九桶。它不往返数据库迁移，不启动应用、Worker或浏览器，不代表完整业务消费者或生产迁移验证。
+当前资格脚本要求自有空 test 数据库已迁移并安装正式普通角色授权。迁移 owner 只负责种入可核对的合成记录；CLI 使用真实普通 LOGIN，不创建临时只读账号或补授表／列权限。它核对 27 家族、跨端点暂存、准确版本与未知历史，并交给现有复制计划读取。数据库、源对象和原输入清单必须保持不变；同一普通 LOGIN 对私表写入、保存密钥和迁移版本表的直接访问必须被拒绝。这不代表完整产品流程或生产迁移验收。
 
-旧`verify_storage_references.py`保留0244／0245历史复现夹具；当前工具的纯检查覆盖其旧表／列形状兼容，不把历史实测记录冒称当前head验证。
+旧 `verify_storage_references.py` 是 0244／0245 历史复现夹具，仅在相应历史 collector checkout 运行；当前工具不以旧表／列或临时读账号回退。
 
 ## 本地初次复制与可恢复核验
 

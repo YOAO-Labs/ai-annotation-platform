@@ -11,15 +11,17 @@ from dataclasses import dataclass
 import threading
 
 from fastapi import HTTPException
-from sqlalchemy import exists, select
 from starlette.responses import StreamingResponse
 
 from app.db.base import async_session
-from app.db.models.image_pyramid import ImagePyramidOutput
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.thumbnail_output import ThumbnailOutput
-from app.db.models.video_derivative import VideoDerivativeOutput
-from app.services import media_cache_storage, media_cache_urls, storage_access
+from app.services import (
+    image_pyramid_objects,
+    media_cache_storage,
+    media_cache_urls,
+    storage_access,
+    thumbnail_outputs,
+    video_derivative_objects,
+)
 from app.services import storage_migration_artifact_reads as artifact_reads
 from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
@@ -34,9 +36,9 @@ THUMBNAIL_MAX_BYTES = 2 * 1024**2
 _slots = asyncio.BoundedSemaphore(4)
 _waiting = threading.BoundedSemaphore(64)
 _FAMILIES = {
-    "thumbnail": (ThumbnailOutput, "thumbnails"),
-    "image-pyramid": (ImagePyramidOutput, "image-pyramids"),
-    "video-derivative": (VideoDerivativeOutput, "video-derivatives"),
+    "thumbnail": (thumbnail_outputs, "thumbnails"),
+    "image-pyramid": (image_pyramid_objects, "image-pyramids"),
+    "video-derivative": (video_derivative_objects, "video-derivatives"),
 }
 
 
@@ -49,13 +51,8 @@ def _missing():
 
 
 def _purpose(capability):
-    if capability.kind == "thumbnail":
-        from app.services.thumbnail_outputs import purpose
-    elif capability.kind == "image-pyramid":
-        from app.services.image_pyramid_objects import purpose
-    else:
-        from app.services.video_derivative_objects import purpose
-    return purpose(capability.output_id)
+    owner, _ = _FAMILIES[capability.kind]
+    return owner.purpose(capability.output_id)
 
 
 def _plain(value):
@@ -88,28 +85,20 @@ class PinnedObject:
 
 
 async def _object(db, capability, *, permit=None):
-    model, family = _FAMILIES[capability.kind]
-    if permit is None:
-        row = await db.get(model, capability.output_id, populate_existing=True)
-    else:
-        row = await db.scalar(
-            select(model)
-            .where(model.id == capability.output_id)
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
+    output_owner, family = _FAMILIES[capability.kind]
+    row = await output_owner.get_output(
+        db, capability.output_id, lock=permit is not None
+    )
     if row is None or row.state not in {"ready", "retiring"}:
         _missing()
-    if permit is not None and row.state == "retiring":
-        if await db.scalar(
-            select(
-                exists().where(
-                    StorageOperation.purpose == _purpose(capability),
-                    StorageOperation.id != permit.id,
-                )
-            )
-        ):
-            raise _error("media_cache_busy")
+    if (
+        permit is not None
+        and row.state == "retiring"
+        and await storage_access.operation_is_open(
+            db, _purpose(capability), excluding=permit.id
+        )
+    ):
+        raise _error("media_cache_busy")
     reference = deepcopy(row.storage_ref)
     try:
         owner = media_cache_storage.resolve_ref(

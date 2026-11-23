@@ -5,15 +5,12 @@ from collections.abc import Callable
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import or_, select
-
-from app.db.models.learning_policy import LearningPolicy, LearningTrigger
+from app.services import learning_selection_data as data
 from app.services import learning_policies as policies, training_runs as runs
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.training_authority_contract import TrainingAuthorityPort
 
 log = logging.getLogger(__name__)
-CHECK_BATCH_SIZE = 100
 
 
 async def tick(
@@ -25,33 +22,7 @@ async def tick(
     force=False,
 ):
     async with session_factory() as db:
-        ids = (
-            [policy_id]
-            if policy_id
-            else list(
-                await db.scalars(
-                    select(LearningPolicy.id)
-                    .where(
-                        or_(
-                            LearningPolicy.enabled.is_(True)
-                            & (
-                                LearningPolicy.next_check_at.is_(None)
-                                | (LearningPolicy.next_check_at <= runs.now())
-                            ),
-                            LearningPolicy.id.in_(
-                                select(LearningTrigger.policy_id).where(
-                                    LearningTrigger.status.in_(policies.ACTIVE_TRIGGERS)
-                                )
-                            ),
-                        )
-                    )
-                    .order_by(
-                        LearningPolicy.last_checked_at.nullsfirst(), LearningPolicy.id
-                    )
-                    .limit(CHECK_BATCH_SIZE)
-                )
-            )
-        )
+        ids = [policy_id] if policy_id else await data.due_policies(db, runs.now())
     for identity in ids:
         async with session_factory() as db:
             try:

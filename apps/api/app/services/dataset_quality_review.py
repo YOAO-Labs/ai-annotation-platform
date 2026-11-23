@@ -1,28 +1,17 @@
 """Fixed scope previews, current authority and atomic review checkpoints."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import String, and_, cast, delete, func, or_, select
-
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_quality import (
-    DatasetQualityRun as Run,
-    DatasetQualityResult as Result,
-)
-from app.db.models.dataset_quality_review import (
-    DatasetQualityReviewBatch as Batch,
-    DatasetQualityReviewMember as Member,
-)
 from app.schemas.dataset_quality import DatasetQualityReview
 from app.services import async_job as jobs, dataset_quality as quality
 from app.services import dataset_source_access as access
-from app.services.async_job_notify import notify_job_terminal
 from app.services.audit import AuditService
 from app.services.dataset_content import key_authority
+from app.services.dataset_quality_data import QualityData
 
 ACTIVE = quality.ACTIVE
 LEASE_SECONDS = quality.LEASE_SECONDS
@@ -47,37 +36,32 @@ EVIDENCE_FIELDS = (
 
 
 def evidence(row):
-    return json.loads(
-        json.dumps({k: getattr(row, k) for k in EVIDENCE_FIELDS}, default=str)
+    value = {key: row[key] for key in EVIDENCE_FIELDS}
+    if value["observed_at"] is not None:
+        observed = datetime.fromisoformat(value["observed_at"]).astimezone(timezone.utc)
+        value["observed_at"] = str(observed)
+    return value
+
+
+async def list_batches(db, dataset_id, run_id, actor, *, limit, offset):
+    await quality.require_run(db, dataset_id, run_id, actor)
+    return await QualityData(db).batch_page(
+        run_id, actor.id, limit=limit, offset=offset
     )
 
 
-def visible_clause(actor):
-    return or_(Batch.status != "preview", Batch.created_by == actor.id)
-
-
-def job_scope_clause(actor):
-    return and_(
-        AsyncJob.kind == "dataset_quality_review",
-        select(1)
-        .select_from(Batch)
-        .join(Run, Run.id == Batch.quality_run_id)
-        .where(
-            quality.scope_clause(actor),
-            cast(Batch.id, String) == AsyncJob.payload["batch_id"].astext,
-        )
-        .exists(),
+async def member_page(db, batch, actor, *, limit, offset):
+    page = await QualityData(db).member_page(
+        batch, actor.id, limit=limit, offset=offset
     )
+    if page is None:
+        raise HTTPException(404, "Review batch not found")
+    return page
 
 
 async def require_batch(db, dataset_id, run_id, batch_id, actor, *, lock=False):
     await quality.require_run(db, dataset_id, run_id, actor)
-    stmt = select(Batch).where(
-        Batch.id == batch_id, Batch.quality_run_id == run_id, visible_clause(actor)
-    )
-    if lock:
-        stmt = stmt.with_for_update()
-    batch = await db.scalar(stmt.execution_options(populate_existing=True))
+    batch = await QualityData(db).batch(run_id, batch_id, actor.id, lock=lock)
     if batch is None:
         raise HTTPException(404, "Review batch not found")
     return batch
@@ -88,63 +72,36 @@ async def preview(db, dataset_id, run_id, actor, payload):
     dataset = await quality.require_write(db, dataset_id)
     if run.status in ACTIVE:
         raise HTTPException(409, "Wait until quality detection has stopped")
-    await db.execute(
-        delete(Batch).where(
-            Batch.quality_run_id == run_id,
-            Batch.created_by == actor.id,
-            Batch.status == "preview",
-            Batch.expires_at <= now(),
-        )
-    )
-    count = await db.scalar(
-        select(func.count())
-        .select_from(Batch)
-        .where(
-            Batch.quality_run_id == run_id,
-            Batch.created_by == actor.id,
-            Batch.status == "preview",
-        )
-    )
-    if count >= 20:
+    data = QualityData(db)
+    if not await data.prepare_preview(run_id, actor.id, now()):
         raise HTTPException(409, "Too many unconfirmed previews; wait for expiry")
-    filters = payload.query.model_dump(exclude_none=True)
-    stmt = quality.result_query(
-        run.id, **(filters if payload.scope == "filtered" else {})
+    filters = (
+        payload.query.model_dump(exclude_none=True)
+        if payload.scope == "filtered"
+        else {}
     )
-    if payload.scope == "selected":
-        stmt = stmt.where(Result.id.in_(payload.result_ids))
-    rows = (
-        await db.execute(
-            stmt.order_by(Result.id)
-            .limit(quality.MAX_MEMBERS + 1)
-            .execution_options(populate_existing=True)
-        )
-    ).all()
+    rows = await data.preview_rows(
+        run.id,
+        actor.id,
+        **filters,
+        results=payload.result_ids if payload.scope == "selected" else None,
+    )
     if payload.scope == "selected" and len(rows) != len(payload.result_ids):
         raise HTTPException(404, "Selected quality result not found")
     if not rows or len(rows) > quality.MAX_MEMBERS:
         raise HTTPException(422, "Review scopes require 1 to 10000 results")
-    members, historical = [], 0
-    for row, duplicates, item_id, asset_id, sha in rows:
-        stale = item_id is None or asset_id != row.asset_id or sha != row.sha256
-        historical += int(stale)
-        members.append(
-            Member(
-                result_id=row.id,
-                snapshot={
-                    **evidence(row),
-                    "duplicate_count": duplicates,
-                    "historical": stale,
-                },
-                state="blocked" if row.state == "pending" else "pending",
-                reason_code="result_pending" if row.state == "pending" else None,
-                processed_at=now() if row.state == "pending" else None,
-            )
-        )
-    selection = {
-        "scope": payload.scope,
-        "query": filters if payload.scope == "filtered" else {},
-    }
+    members = [
+        {
+            "result_id": row["id"],
+            "snapshot": {
+                **evidence(row),
+                "duplicate_count": row["duplicate_count"],
+                "historical": row["historical"],
+            },
+        }
+        for row in rows
+    ]
+    selection = {"scope": payload.scope, "query": filters}
     proof = {"rule_version": run.rule_version, "config": run.config}
     note = payload.note.strip()
     digest = hashlib.sha256(
@@ -155,57 +112,37 @@ async def preview(db, dataset_id, run_id, actor, payload):
                 "proof": proof,
                 "decision": payload.state,
                 "note": note,
-                "members": [
-                    {"result_id": str(m.result_id), "snapshot": m.snapshot}
-                    for m in members
-                ],
+                "members": members,
             },
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
-    blocked = sum(m.state == "blocked" for m in members)
-    batch = Batch(
-        quality_run_id=run_id,
-        authority={"dataset_lifecycle_revision": dataset.lifecycle_revision},
-        created_by=actor.id,
-        selection=selection,
-        proof=proof,
-        scope_digest=digest,
-        decision=payload.state,
-        note=note,
-        total=len(members),
-        actionable_count=len(members) - blocked,
-        historical_count=historical,
-        processed=blocked,
-        summary={
-            "applied_count": 0,
-            "conflict_count": 0,
-            "blocked_count": blocked,
-            "processed_count": blocked,
-            "partial": bool(blocked),
-        },
-        expires_at=now() + timedelta(minutes=10),
+    created_at = now()
+    batch = await data.create_preview(
+        run_id,
+        actor.id,
+        dataset.lifecycle_revision,
+        selection,
+        digest,
+        payload.state,
+        note,
+        created_at,
+        created_at + timedelta(minutes=10),
+        members,
     )
-    db.add(batch)
-    await db.flush()
-    for member in members:
-        member.batch_id = batch.id
-        db.add(member)
-    await db.flush()
+    if batch is None:
+        raise HTTPException(404, "Quality run not found")
     return batch
 
 
 async def authority(db, batch):
     actor = await access.require_manager(db, uuid.UUID(batch.authority["actor_id"]))
-    run = await db.get(Run, batch.quality_run_id, populate_existing=True)
-    if run is None:
-        raise HTTPException(404, "Quality run not found")
-    await quality.require_run(db, run.dataset_id, run.id, actor)
-    if (
-        await key_authority(db, actor, batch.authority["api_key_id"], "datasets:write")
-        != batch.authority["key_proof"]
-    ):
+    run = await quality.require_run(db, batch.dataset_id, batch.quality_run_id, actor)
+    proof = await key_authority(
+        db, actor, batch.authority["api_key_id"], "datasets:write"
+    )
+    if not await QualityData(db).batch_key_matches(batch, proof):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
     return actor, run
@@ -213,12 +150,7 @@ async def authority(db, batch):
 
 async def attach_job(db, batch, run, actor, key_id):
     dataset = await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
-    batch.authority = {
-        "dataset_lifecycle_revision": dataset.lifecycle_revision,
-        "actor_id": str(actor.id),
-        "api_key_id": str(key_id) if key_id else None,
-        "key_proof": await key_authority(db, actor, key_id, "datasets:write"),
-    }
+    proof = await key_authority(db, actor, key_id, "datasets:write")
     job = await jobs.create_job(
         db,
         kind="dataset_quality_review",
@@ -233,11 +165,18 @@ async def attach_job(db, batch, run, actor, key_id):
         },
         celery_task_id=str(uuid.uuid4()),
     )
-    batch.async_job_id = job.id
-    batch.status, batch.error_code, batch.completed_at = "pending", None, None
-    batch.generation += 1
-    batch.lease_until = now() + timedelta(seconds=LEASE_SECONDS)
-    await db.flush()
+    updated = await QualityData(db).attach_batch(
+        batch,
+        job.id,
+        actor.id,
+        key_id,
+        proof,
+        dataset.lifecycle_revision,
+        now() + timedelta(seconds=LEASE_SECONDS),
+    )
+    if updated is None:
+        raise HTTPException(409, "Review attempt changed")
+    return updated
 
 
 async def execute_preview(
@@ -256,7 +195,7 @@ async def execute_preview(
     if not batch.actionable_count:
         raise HTTPException(409, "This scope has no reviewable results")
     run = await quality.require_run(db, dataset_id, run_id, actor)
-    await attach_job(db, batch, run, actor, key_id)
+    batch = await attach_job(db, batch, run, actor, key_id)
     await AuditService.log(
         db,
         actor=actor,
@@ -281,7 +220,7 @@ async def resume(db, dataset_id, run_id, batch_id, actor, key_id=None):
             409, "Only interrupted batches with pending members can resume"
         )
     run = await quality.require_run(db, dataset_id, run_id, actor)
-    await attach_job(db, batch, run, actor, key_id)
+    batch = await attach_job(db, batch, run, actor, key_id)
     await AuditService.log(
         db,
         actor=actor,
@@ -292,49 +231,21 @@ async def resume(db, dataset_id, run_id, batch_id, actor, key_id=None):
     return batch
 
 
-async def summarize(db, batch):
-    counts = dict(
-        (
-            await db.execute(
-                select(Member.state, func.count())
-                .where(Member.batch_id == batch.id)
-                .group_by(Member.state)
-            )
-        ).all()
-    )
-    batch.processed = sum(n for state, n in counts.items() if state != "pending")
-    batch.summary = {
-        "applied_count": counts.get("applied", 0),
-        "conflict_count": counts.get("conflict", 0),
-        "blocked_count": counts.get("blocked", 0),
-        "processed_count": batch.processed,
-        "partial": bool(counts.get("conflict", 0) or counts.get("blocked", 0)),
-    }
-
-
-async def finish(db, batch, status, error=None):
+async def finish(db, batch, status, error=None, *, task_id=None):
     if status == "completed":
-        run = await db.get(Run, batch.quality_run_id, populate_existing=True)
-        if run is None:
-            raise HTTPException(404, "Quality run not found")
-        await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
-    await summarize(db, batch)
-    batch.status = (
-        "partial" if status == "completed" and batch.summary["partial"] else status
+        await quality.require_write(db, batch.dataset_id, snapshot=batch.authority)
+    updated = await QualityData(db).transition_batch(
+        batch, status, now(), task_id=task_id, error=error
     )
-    batch.error_code, batch.completed_at, batch.lease_until = error, now(), None
-    batch.generation += 1
-    if batch.async_job_id:
-        result = {"batch_id": str(batch.id), **batch.summary}
-        if status == "completed":
-            await jobs.mark_complete(db, batch.async_job_id, result=result)
-        elif status == "cancelled":
-            await jobs.mark_cancelled(db, batch.async_job_id, result=result)
-        else:
-            await jobs.mark_failed(
-                db, batch.async_job_id, error=error or "worker_failed", result=result
-            )
-        await notify_job_terminal(db, job_id=batch.async_job_id)
+    if updated and updated.async_job_id:
+        await quality.finish_job(
+            db,
+            updated.async_job_id,
+            status,
+            error,
+            {"batch_id": str(batch.id), **updated.summary},
+        )
+    return updated
 
 
 async def cancel_job(db, job, actor):
@@ -352,91 +263,69 @@ async def cancel_job(db, job, actor):
 
 
 async def fenced(db, batch_id, job_id, task_id, generation):
-    batch = await db.scalar(
-        select(Batch)
-        .where(Batch.id == batch_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    return await QualityData(db).batch_attempt(
+        "worker",
+        now(),
+        batch_id=batch_id,
+        job_id=job_id,
+        task_id=task_id,
+        generation=generation,
     )
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
-    if (
-        batch is None
-        or job is None
-        or batch.async_job_id != job_id
-        or job.celery_task_id != task_id
-        or batch.generation != generation
-        or batch.status not in ACTIVE
-        or job.status not in ACTIVE
-        or not batch.lease_until
-        or batch.lease_until <= now()
-    ):
-        return None
-    return batch
 
 
-async def process_member(db, batch, actor, run):
-    member = await db.scalar(
-        select(Member)
-        .where(Member.batch_id == batch.id, Member.state == "pending")
-        .order_by(Member.id)
-        .limit(1)
-    )
+async def process_member(db, batch, actor, run, task_id):
+    data = QualityData(db)
+    member = await data.next_member(batch.id)
     if member is None:
-        return False
-    row = await db.scalar(
-        select(Result)
-        .where(Result.id == member.result_id, Result.run_id == run.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+        return None
+    row = await data.lock_result(run.id, member.result_id)
     await quality.require_write(db, run.dataset_id, snapshot=batch.authority)
-    expected = {k: member.snapshot[k] for k in EVIDENCE_FIELDS}
+    expected = {key: member.snapshot[key] for key in EVIDENCE_FIELDS}
+    revision = None
     if (
-        row is None
-        or evidence(row) != expected
-        or batch.proof != {"rule_version": run.rule_version, "config": run.config}
+        row is not None
+        and evidence(row) == expected
+        and batch.proof == {"rule_version": run.rule_version, "config": run.config}
     ):
-        member.state, member.reason_code = "conflict", "evidence_or_review_changed"
-    else:
         value = await quality.review_result(
             db,
             run,
-            row.id,
+            member.result_id,
             actor,
             DatasetQualityReview(
                 state=batch.decision,
                 note=batch.note,
-                expected_revision=member.snapshot["review_revision"],
+                expected_revision=expected["review_revision"],
             ),
             batch_id=batch.id,
+            locked=row,
         )
-        member.state = "applied"
-        member.applied_revision = value["review_revision"]
-    member.processed_at = now()
-    await db.flush()
-    await summarize(db, batch)
-    return True
+        revision = value["review_revision"]
+    recorded_at = now()
+    processed = await data.checkpoint(
+        batch,
+        task_id,
+        member.id,
+        revision,
+        recorded_at,
+        recorded_at + timedelta(seconds=LEASE_SECONDS),
+    )
+    return processed if processed is not None else False
 
 
 async def signal_interrupted(db, job_id, task_id, *, cancelled):
-    batch = await db.scalar(
-        select(Batch)
-        .where(Batch.async_job_id == job_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    batch = await QualityData(db).batch_attempt(
+        "signal", now(), job_id=job_id, task_id=task_id
     )
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
-    if (
-        batch is None
-        or job is None
-        or job.celery_task_id != task_id
-        or batch.status not in ACTIVE
-        or job.status not in ACTIVE
-    ):
-        return
-    await finish(
-        db,
-        batch,
-        "cancelled" if cancelled else "failed",
-        "cancelled" if cancelled else "worker_failed",
-    )
+    if batch is not None:
+        await finish(
+            db,
+            batch,
+            "cancelled" if cancelled else "failed",
+            "cancelled" if cancelled else "worker_failed",
+            task_id=task_id,
+        )
+
+
+async def reconcile_terminal(db, job_id, *, cancelled):
+    await QualityData(db).reconcile_batch(job_id, cancelled=cancelled, now=now())

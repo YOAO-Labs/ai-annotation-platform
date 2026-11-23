@@ -18,10 +18,7 @@ from sqlalchemy import delete, event, func, select, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.application.async_job_read import (
-    SqlAsyncJobReadAdapter,
-    _build_async_job_query,
-)
+from app.application.async_job_read import SqlAsyncJobReadAdapter
 from app.services.jobs_list_query_data import JobsListQueryPostgresData
 from yoao_jobs.async_job_list_query_contract import AsyncJobListQuery
 from app.db.models.async_job import AsyncJob
@@ -31,6 +28,7 @@ from app.db.models.user import User
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
 from tests.factory import create_membership, create_project, create_user
+from tests.jobs_list_legacy_query import legacy_async_job_query
 
 
 async def _assert_matches_legacy_list(
@@ -50,7 +48,7 @@ async def _assert_matches_legacy_list(
         role=actor.role,
         is_active=actor.is_active,
     )
-    legacy = _build_async_job_query(
+    legacy = legacy_async_job_query(
         current_user=actor_snapshot,
         status=status,
         kind=kind,
@@ -268,7 +266,7 @@ async def test_restricted_api_and_node_consume_jobs_list_capabilities(
                 id=world["actor_id"], role="employee", is_active=True
             )
             async with world["sessions"]() as oracle:
-                legacy = _build_async_job_query(
+                legacy = legacy_async_job_query(
                     current_user=actor,
                     status=None,
                     kind=None,
@@ -641,7 +639,7 @@ async def test_owner_membership_uses_current_identity_but_keeps_preflight_role_s
             world["sessions"], world["actor_id"], **current_change
         )
 
-        legacy = _build_async_job_query(
+        legacy = legacy_async_job_query(
             current_user=snapshot,
             status=None,
             kind=None,
@@ -691,7 +689,7 @@ async def test_owner_snapshot_manager_branch_survives_same_statement_deactivatio
         await _commit_user_change(
             world["sessions"], world["manager_id"], is_active=False
         )
-        legacy = _build_async_job_query(
+        legacy = legacy_async_job_query(
             current_user=snapshot,
             status=None,
             kind=None,
@@ -742,7 +740,7 @@ async def test_owner_page_and_total_keep_independent_identity_snapshots(
             snapshot is not None and snapshot.role == "employee" and snapshot.is_active
         )
 
-        legacy = _build_async_job_query(
+        legacy = legacy_async_job_query(
             current_user=snapshot,
             status=None,
             kind=None,

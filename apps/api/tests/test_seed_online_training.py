@@ -995,7 +995,7 @@ async def test_baseline_preparation_commits_sources_then_finalizes_under_project
         "enqueue",
         "clock",
     ]
-    assert membership.call_args.kwargs == {"project_locked": True}
+    membership.assert_awaited_once_with(db, version)
     db.commit.assert_awaited_once()
 
 
@@ -1029,6 +1029,10 @@ async def test_concurrent_baseline_publication_reuses_the_new_existing_attempt(
     )
     monkeypatch.setattr(fixture_seed.training_datasets, "enqueue_dataset", enqueue)
     monkeypatch.setattr(fixture_seed.jobs, "mark_failed", mark_failed)
+    fail_version = AsyncMock()
+    monkeypatch.setattr(
+        fixture_seed.training_dataset_data, "fail_version", fail_version
+    )
     assert await fixture_seed.prepare_baseline(db, project) is existing
     prepare.assert_awaited_once()
     finalize.assert_not_awaited()
@@ -1038,3 +1042,4 @@ async def test_concurrent_baseline_publication_reuses_the_new_existing_attempt(
         == int(status in {"failed", "cancelled", "running"})
     )
     assert mark_failed.await_count == int(status == "running")
+    assert fail_version.await_count == int(status == "running")

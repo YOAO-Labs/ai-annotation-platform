@@ -8,60 +8,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, delete, text, update
+from sqlalchemy import text
 
-from app.db.models.annotation_conversion_plan import AnnotationConversionPlan
-from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
-from app.db.models.mask_annotation_revision import MaskAnnotationRevision
-from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
 from app.observability.raster_mask import (
     refresh_raster_mask_active_geometries_safely,
-)
-from app.services.raster_mask_references import (
-    _MASK_REFERENCE_QUERIES as _MASK_REFERENCE_QUERIES,
-    _MASK_REFERENCE_EXISTS_QUERIES as _MASK_REFERENCE_EXISTS_QUERIES,
-    referenced_keys,
-    is_referenced,
 )
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
-
-VIDEO_TRACKER_STAGED_TTL = timedelta(hours=24)
-_referenced_raster_mask_keys = referenced_keys
-_is_raster_mask_key_referenced = is_referenced
-
-
-async def _expire_mask_annotation_revisions(
-    db,
-    *,
-    now: datetime | None = None,
-) -> int:
-    """Delete snapshots after their retention window has actually elapsed."""
-    result = await db.execute(
-        delete(MaskAnnotationRevision)
-        .where(MaskAnnotationRevision.expires_at <= (now or datetime.now(timezone.utc)))
-        .returning(MaskAnnotationRevision.id)
-    )
-    return len(result.scalars().all())
-
-
-async def _expire_annotation_conversion_plans(
-    db,
-    *,
-    now: datetime | None = None,
-) -> int:
-    result = await db.execute(
-        delete(AnnotationConversionPlan)
-        .where(
-            AnnotationConversionPlan.expires_at <= (now or datetime.now(timezone.utc))
-        )
-        .returning(AnnotationConversionPlan.id)
-    )
-    return len(result.scalars().all())
 
 
 @celery_app.task(name="app.workers.cleanup.purge_soft_deleted_attachments")
@@ -91,47 +47,6 @@ async def _purge_guide_assets_async() -> dict:
         return await guide_asset_uploads.cleanup(db, limit=500)
 
 
-async def _expire_stale_video_tracker_candidates(
-    db,
-    *,
-    now: datetime | None = None,
-) -> int:
-    """Release abandoned staged Mask refs and correction track leases after 24h."""
-    cutoff = (now or datetime.now(timezone.utc)) - VIDEO_TRACKER_STAGED_TTL
-    expirable = (
-        VideoTrackerJobStatus.PENDING_REVIEW.value,
-        VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-        VideoTrackerJobStatus.CANCELLED.value,
-    )
-    result = await db.execute(
-        update(VideoTrackerJob)
-        .where(
-            VideoTrackerJob.staged_result.is_not(None),
-            VideoTrackerJob.status.in_(expirable),
-            VideoTrackerJob.completed_at.is_not(None),
-            VideoTrackerJob.completed_at <= cutoff,
-        )
-        .values(
-            staged_result=None,
-            status=case(
-                (
-                    VideoTrackerJob.status.in_(
-                        (
-                            VideoTrackerJobStatus.PENDING_REVIEW.value,
-                            VideoTrackerJobStatus.PARTIALLY_REVIEWED.value,
-                        )
-                    ),
-                    VideoTrackerJobStatus.DISCARDED.value,
-                ),
-                else_=VideoTrackerJob.status,
-            ),
-            revision=VideoTrackerJob.revision + 1,
-        )
-        .returning(VideoTrackerJob.id)
-    )
-    return len(result.scalars().all())
-
-
 @celery_app.task(name="app.workers.cleanup.purge_unreferenced_raster_masks")
 def purge_unreferenced_raster_masks(dry_run: bool = False) -> dict:
     """Retire and collect known RLE owners after their protected publication window."""
@@ -140,18 +55,18 @@ def purge_unreferenced_raster_masks(dry_run: bool = False) -> dict:
 
 async def _purge_unreferenced_raster_masks_async(*, dry_run: bool = False) -> dict:
     from app.services import raster_mask_objects
+    from app.services.ai_mask_accept import expire_accept_decisions
+    from app.services.annotation_conversion import expire_conversion_plans
+    from app.services.mask_slice_restore import expire_mask_annotation_revisions
+    from app.services.video_tracking.jobs import expire_stale_tracker_candidates
 
     async with task_session() as db:
         expired_tracker = expired_conversion = expired_revisions = 0
         if not dry_run:
-            await db.execute(
-                delete(AiMaskAcceptDecision).where(
-                    AiMaskAcceptDecision.expires_at <= datetime.now(timezone.utc)
-                )
-            )
-            expired_tracker = await _expire_stale_video_tracker_candidates(db)
-            expired_conversion = await _expire_annotation_conversion_plans(db)
-            expired_revisions = await _expire_mask_annotation_revisions(db)
+            await expire_accept_decisions(db)
+            expired_tracker = await expire_stale_tracker_candidates(db)
+            expired_conversion = await expire_conversion_plans(db)
+            expired_revisions = await expire_mask_annotation_revisions(db)
             await db.commit()
             await refresh_raster_mask_active_geometries_safely(db)
         result = await raster_mask_objects.cleanup(db, dry_run=dry_run, limit=1000)

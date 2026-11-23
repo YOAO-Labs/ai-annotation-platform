@@ -2,7 +2,7 @@
 
 import asyncio
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 import hashlib
 import io
 import os
@@ -161,6 +161,7 @@ async def test_newer_metadata_attempt_prevents_old_publication(world, db_session
     await db_session.commit()
     with pytest.raises(ContentError, match="video_derivative_changed"):
         await core.check(db_session, old, world.authority, token=token)
+    await db_session.refresh(world.item)
     assert replacement.id != old.id
     assert world.item.video_output_id is None
     assert world.item.video_building_output_id == replacement.id
@@ -398,18 +399,26 @@ async def test_real_active_output_claim_survives_expiry(real_video, monkeypatch)
     try:
         assert await asyncio.to_thread(entered.wait, 30)
         async with context.factory() as db:
-            output = await db.get(Output, identifier, with_for_update=True)
-            token, expires = output.lease_token, output.lease_expires_at
-            assert token is not None and await objects._in_use(db, identifier)
-            output.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-            await db.commit()
-        async with context.factory() as db:
-            output = await db.get(Output, identifier, with_for_update=True)
+            current = await db.get(Output, identifier)
+            token, expires = current.lease_token, current.lease_expires_at
+            assert token is not None
+            assert await db.scalar(
+                select(StorageOperation.id)
+                .where(StorageOperation.purpose == objects.purpose(identifier))
+                .limit(1)
+            )
+            expired = await db.execute(
+                text(
+                    "SELECT id FROM yoao_assets_v1.legacy_video_expire_attempt(:output, :now)"
+                ),
+                {"output": identifier, "now": expires + timedelta(seconds=1)},
+            )
+            assert expired.first() is None
             assert await objects.claim(db, output) is None
-            assert output.state == "building" and output.lease_token == token
-            assert await objects._in_use(db, identifier)
-            output.lease_expires_at = expires
-            await db.commit()
+            current = await db.get(Output, identifier, populate_existing=True)
+            assert current.state == "building" and current.lease_token == token
+            assert current.lease_expires_at == expires
+            await db.rollback()
     finally:
         release.set()
         await running
@@ -559,7 +568,9 @@ async def test_claimed_task_frame_finishes_after_short_item_writer(
     )
     async with manifest_runtime() as db:
         authority = await originals.authorize(db, context.task_id, actor, request)
-        metadata = await db.get(Output, metadata_id)
+        metadata = await objects.read_attempt(
+            db, context.item_id, "metadata", metadata_id
+        )
         output, _ = await core.prepare(
             db,
             context.item_id,

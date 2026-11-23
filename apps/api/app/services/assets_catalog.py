@@ -305,7 +305,12 @@ class AssetsCatalogGateway:
         await self.db.commit()
         return reply
 
-    async def update(self, request: UpdateDatasetRequest) -> DatasetMutationResult:
+    async def update(
+        self,
+        request: UpdateDatasetRequest,
+        *,
+        commit: bool = True,
+    ) -> DatasetMutationResult:
         _require_request_budget(request)
         reply = await self._call(
             """
@@ -328,7 +333,8 @@ class AssetsCatalogGateway:
             or reply.dataset.id != request.dataset_id
         ):
             raise self._invalid_scope()
-        await self.db.commit()
+        if commit:
+            await self.db.commit()
         return reply
 
     async def list_dataset_projects(

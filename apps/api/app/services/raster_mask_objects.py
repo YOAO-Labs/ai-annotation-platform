@@ -10,23 +10,20 @@ import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
+from types import SimpleNamespace
 import uuid
 
-from sqlalchemy import delete, exists, func, or_, select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models.raster_mask_object import (
-    RasterMaskObject as Object,
-    RasterMaskPublication as Publication,
-)
-from app.db.models.raster_mask_upload import RasterMaskUpload
-from app.db.models.storage_maintenance import StorageOperation
 from app.services import raster_object_storage as physical, storage_access
 from app.services import conditional_write_accounting as accounting
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.original_read_plan import ReadRoute
+from app.services.raster_mask_references import is_referenced, referenced_keys
 from app.services.storage import storage_service
 
 GRACE = timedelta(hours=24)
@@ -122,21 +119,28 @@ async def _content_try_lock(db, key):
 
 
 async def _owners(db, identifiers, *, read=False):
-    result = {}
-    for identifier in sorted(set(identifiers)):
-        row = await db.scalar(
-            select(Object)
-            .where(Object.id == identifier)
-            .with_for_update(read=read, nowait=True)
-            .execution_options(populate_existing=True)
+    rows = await db.execute(
+        text("SELECT * FROM yoao_labeling_v1.lock_raster_owners(:ids, :share)"),
+        {"ids": sorted(set(identifiers)), "share": read},
+    )
+    return {row.id: row for row in rows}
+
+
+async def ready_owner(db, key, *, lock=False):
+    return (
+        await db.execute(
+            text("SELECT * FROM yoao_labeling_v1.ready_raster_owner(:key, :share)"),
+            {"key": key, "share": lock},
         )
-        if row is not None:
-            result[identifier] = row
-    return result
+    ).one_or_none()
 
 
 async def _lock_ready_write(db, identifier):
-    await db.scalar(select(Object.id).where(Object.id == identifier).with_for_update())
+    if not await db.scalar(
+        text("SELECT yoao_labeling_v1.lock_raster_ready_for_publish(:id)"),
+        {"id": identifier},
+    ):
+        _reject()
 
 
 async def _gate(db, receipt, revision=None):
@@ -228,27 +232,21 @@ async def _add_guard(db, receipt, revision, enabled, *, read_route=None):
     if not enabled:
         return None
     guard = _Guard(uuid.uuid4(), receipt, revision, read_route)
-    db.add(
-        Publication(
-            id=guard.id,
-            object_id=receipt.id,
-            gate_revision=revision,
-            created_at=now(),
-        )
+    await db.execute(
+        text(
+            "SELECT yoao_labeling_v1.open_raster_publication(:id, :owner, :revision, :now)"
+        ),
+        {"id": guard.id, "owner": receipt.id, "revision": revision, "now": now()},
     )
-    await db.flush()
     return guard
 
 
 async def _require_guard(db, guard):
     if guard is not None and not await db.scalar(
-        select(
-            exists().where(
-                Publication.id == guard.id,
-                Publication.object_id == guard.receipt.id,
-                Publication.gate_revision == guard.revision,
-            )
-        )
+        text(
+            "SELECT yoao_labeling_v1.raster_publication_matches(:id, :owner, :revision)"
+        ),
+        {"id": guard.id, "owner": guard.receipt.id, "revision": guard.revision},
     ):
         _reject()
 
@@ -271,14 +269,10 @@ async def _bind_prediction_producer(db, object_id):
 async def _initial(db, facts, guarded):
     async with _session(db) as session:
         await _publish_lock(session, facts["logical_key"])
-        row = await session.scalar(
-            select(Object)
-            .where(Object.logical_key == facts["logical_key"], Object.state == "ready")
-            .with_for_update(read=True, nowait=True)
-        )
+        row = await ready_owner(session, facts["logical_key"], lock=True)
         candidate = row is None
         if candidate:
-            row = Object(id=uuid.uuid4(), **facts, created_at=now(), state="pending")
+            row = SimpleNamespace(id=uuid.uuid4(), **facts, created_at=now())
             row.storage_ref = await physical.allocate(session, row)
         else:
             _matching_facts(row, facts)
@@ -290,8 +284,15 @@ async def _initial(db, facts, guarded):
         else:
             revision, read_route = await _read_plan(session, receipt)
         if candidate:
-            session.add(row)
-            await session.flush()
+            await session.execute(
+                text(
+                    "SELECT yoao_labeling_v1.stage_raster_object("
+                    ":id, :logical_key, :canonical_sha256, :canonical_size_bytes, "
+                    ":height, :width, :runs, :storage_encoding, :stored_sha256, "
+                    ":stored_size_bytes, CAST(:storage_ref AS jsonb), :created_at)"
+                ),
+                {**vars(row), "storage_ref": json.dumps(row.storage_ref)},
+            )
         await _bind_prediction_producer(session, receipt.id)
         guard = await _add_guard(
             session, receipt, revision, guarded, read_route=read_route
@@ -370,8 +371,35 @@ async def _touch(db, receipt, revision, guard=None, *, read_route=None):
         await _lock_ready_write(session, receipt.id)
         await _read_gate(session, receipt, revision, read_route)
         await _require_guard(session, guard)
-        row.last_used_at = max(now(), row.last_used_at or row.published_at)
+        await _record_use(session, receipt)
         await _commit(session)
+
+
+async def _record_use(db, receipt):
+    if not await db.scalar(
+        text(
+            "SELECT yoao_labeling_v1.touch_ready_raster_object(:id, CAST(:ref AS jsonb), :now)"
+        ),
+        {"id": receipt.id, "ref": json.dumps(receipt.storage_ref), "now": now()},
+    ):
+        _reject()
+
+
+async def _retire(db, receipt, state, *, cutoff=None):
+    if not await db.scalar(
+        text(
+            "SELECT yoao_labeling_v1.retire_raster_object("
+            ":id, :state, CAST(:ref AS jsonb), :now, :cutoff)"
+        ),
+        {
+            "id": receipt.id,
+            "state": state,
+            "ref": json.dumps(receipt.storage_ref),
+            "now": now(),
+            "cutoff": cutoff,
+        },
+    ):
+        _reject()
 
 
 async def _publish(db, receipt, revision, guard, guarded, storage):
@@ -381,14 +409,20 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
         _current(row, receipt, "pending")
         await _gate(session, receipt, revision)
         await _require_guard(session, guard)
-        winner = await session.scalar(
-            select(Object).where(
-                Object.logical_key == receipt.logical_key, Object.state == "ready"
-            )
-        )
+        winner = await ready_owner(session, receipt.logical_key)
         if winner is None:
-            row.state = "ready"
-            row.published_at = row.last_used_at = max(now(), row.created_at)
+            if not await session.scalar(
+                text(
+                    "SELECT yoao_labeling_v1.publish_raster_object("
+                    ":id, CAST(:ref AS jsonb), :now)"
+                ),
+                {
+                    "id": receipt.id,
+                    "ref": json.dumps(receipt.storage_ref),
+                    "now": now(),
+                },
+            ):
+                _reject()
             await _commit(session)
             return receipt, guard
         winner_receipt = physical.snapshot(winner)
@@ -409,21 +443,18 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
         await _gate(session, receipt, revision)
         await _read_gate(session, winner_receipt, winner_revision, winner_route)
         if guard is not None:
-            deleted = await session.execute(
-                delete(Publication).where(
-                    Publication.id == guard.id,
-                    Publication.object_id == receipt.id,
-                    Publication.gate_revision == revision,
-                )
-            )
-            if deleted.rowcount != 1:
+            if not await session.scalar(
+                text(
+                    "SELECT yoao_labeling_v1.release_raster_publication(:id, :owner, :revision)"
+                ),
+                {"id": guard.id, "owner": receipt.id, "revision": revision},
+            ):
                 _reject()
         replacement = await _add_guard(
             session, winner_receipt, winner_revision, guarded, read_route=winner_route
         )
-        row.state = "retired"
-        row.retired_at = max(now(), row.created_at)
-        winner.last_used_at = max(now(), winner.last_used_at or winner.published_at)
+        await _retire(session, receipt, "pending")
+        await _record_use(session, winner_receipt)
         await _commit(session)
         return winner_receipt, replacement
 
@@ -486,9 +517,7 @@ async def load(reference, *, db=None, storage=storage_service):
         _reject("raster_object_storage_unpinned")
     async with _context(db) as context:
         async with _session(context) as session:
-            row = await session.scalar(
-                select(Object).where(Object.logical_key == key, Object.state == "ready")
-            )
+            row = await ready_owner(session, key)
             if row is None:
                 _reject("raster_object_storage_unpinned")
             receipt = physical.snapshot(row)
@@ -526,100 +555,81 @@ async def bind_publications(db, value):
     if not selected:
         return 0
     with db.no_autoflush:
-        present = list(
-            (
-                await db.scalars(
-                    select(Publication)
-                    .where(Publication.id.in_(selected))
-                    .order_by(Publication.id)
-                    .with_for_update(nowait=True)
-                )
-            ).all()
-        )
-        owners = {
-            row.id: row
-            for row in (
-                await db.scalars(
-                    select(Object)
-                    .where(Object.id.in_([row.object_id for row in present]))
-                    .execution_options(populate_existing=True)
-                )
-            ).all()
-        }
+        present = (
+            await db.execute(
+                text("SELECT * FROM yoao_labeling_v1.lock_raster_publications(:ids)"),
+                {"ids": list(selected)},
+            )
+        ).all()
         for row in present:
-            guard = selected[row.id]
+            guard = selected[row.publication_id]
             if row.object_id != guard.receipt.id or row.gate_revision != guard.revision:
                 _reject()
-            _current(owners.get(row.object_id), guard.receipt, "ready")
+            _current(row, guard.receipt, "ready")
             await _read_gate(db, guard.receipt, guard.revision, guard.read_route)
         if present:
-            await db.execute(
-                delete(Publication).where(
-                    Publication.id.in_([row.id for row in present])
-                )
+            consumed = await db.scalar(
+                text(
+                    "SELECT yoao_labeling_v1.consume_raster_publications("
+                    ":ids, :objects, :revisions)"
+                ),
+                {
+                    "ids": [row.publication_id for row in present],
+                    "objects": [row.object_id for row in present],
+                    "revisions": [row.gate_revision for row in present],
+                },
             )
+            if consumed != len(present):
+                _reject()
     return len(present)
 
 
 async def _expired_reservations(db, cutoff):
     async with _session(db) as session:
-        removed = await session.execute(
-            delete(RasterMaskUpload).where(
-                RasterMaskUpload.linked_at.is_(None),
-                RasterMaskUpload.created_at <= cutoff,
-            )
+        removed = await session.scalar(
+            text("SELECT yoao_labeling_v1.expire_unlinked_raster_uploads(:cutoff)"),
+            {"cutoff": cutoff},
         )
         await _commit(session)
-        return removed.rowcount
-
-
-async def _referenced_keys(db):
-    from app.services.raster_mask_references import referenced_keys
-
-    return await referenced_keys(db)
-
-
-async def _is_referenced(db, key):
-    from app.services.raster_mask_references import is_referenced
-
-    return await is_referenced(db, key)
+        return int(removed)
 
 
 async def _guarded(db, receipt, *, exclude_operation=None):
-    if await db.scalar(select(exists().where(Publication.object_id == receipt.id))):
+    if await db.scalar(
+        text("SELECT yoao_labeling_v1.raster_object_has_publication(:object)"),
+        {"object": receipt.id},
+    ):
         return True
     if await db.scalar(
         text("SELECT yoao_jobs_v1.prediction_mask_object_retained(:object)"),
         {"object": receipt.id},
     ):
         return True
-    conditions = [
-        or_(
-            StorageOperation.purpose == purpose("read", receipt.id),
-            (StorageOperation.location_id == _location(receipt))
-            & StorageOperation.purpose.in_(
-                [purpose(operation, receipt.id) for operation in ("write", "delete")]
+    return bool(
+        await db.scalar(
+            text(
+                "SELECT yoao_assets_storage_v1.physical_io_is_open(:read, NULL, :excluded) "
+                "OR yoao_assets_storage_v1.physical_io_is_open(:write, :location, :excluded) "
+                "OR yoao_assets_storage_v1.physical_io_is_open(:delete, :location, :excluded)"
             ),
+            {
+                "read": purpose("read", receipt.id),
+                "write": purpose("write", receipt.id),
+                "delete": purpose("delete", receipt.id),
+                "location": _location(receipt),
+                "excluded": exclude_operation,
+            },
         )
-    ]
-    if exclude_operation is not None:
-        conditions.append(StorageOperation.id != exclude_operation)
-    return bool(await db.scalar(select(exists().where(*conditions))))
+    )
 
 
 async def _business_retains(db, receipt, state):
-    if not await _is_referenced(db, receipt.logical_key):
+    if not await is_referenced(db, receipt.logical_key):
         return False
     if state != "retired":
         return True
-    winner = await db.scalar(
-        select(Object).where(
-            Object.logical_key == receipt.logical_key,
-            Object.state == "ready",
-            Object.id != receipt.id,
-        )
-    )
-    if winner is None:
+    winner = await ready_owner(db, receipt.logical_key)
+    if winner is None or winner.id == receipt.id:
         return True
     physical.resolve(winner)
     return any(getattr(winner, name) != getattr(receipt, name) for name in _CANONICAL)
@@ -654,8 +664,7 @@ async def _gc_one(db, receipt, cutoff, storage):
             return "retained"
         revision = await _gate(session, receipt)
         if row.state == "ready":
-            row.state = "retired"
-            row.retired_at = max(now(), row.last_used_at or row.published_at)
+            await _retire(session, receipt, "ready", cutoff=cutoff)
             await _commit(session)
             return "retired"
         await _commit(session)
@@ -669,7 +678,7 @@ async def _gc_one(db, receipt, cutoff, storage):
             if row is None or row.state != "retired":
                 _reject()
             await _gate(session, receipt, revision)
-            _attempt(row)
+            await _note_attempts(session, [row.id], [now()])
             target = await physical.io_target(session, receipt)
             await _commit(session)
 
@@ -686,18 +695,22 @@ async def _gc_one(db, receipt, cutoff, storage):
         if row is None or row.state != "retired":
             _reject()
         await _gate(session, receipt, revision)
-        await session.delete(row)
+        if not await session.scalar(
+            text("SELECT yoao_labeling_v1.settle_raster_gc(:id, CAST(:ref AS jsonb))"),
+            {"id": receipt.id, "ref": json.dumps(receipt.storage_ref)},
+        ):
+            _reject()
         await _commit(session)
     return "deleted"
 
 
-def _attempt(row):
-    current = now()
-    row.last_attempted_at = (
-        max(current, row.last_attempted_at + timedelta(microseconds=1))
-        if row.last_attempted_at is not None
-        else current
+async def _note_attempts(db, identifiers, timestamps):
+    updated = await db.scalar(
+        text("SELECT yoao_labeling_v1.note_raster_gc_attempts(:ids, :timestamps)"),
+        {"ids": identifiers, "timestamps": timestamps},
     )
+    if updated != len(identifiers):
+        _reject()
 
 
 async def cleanup(db, *, dry_run=False, limit=1000, storage=storage_service):
@@ -722,35 +735,24 @@ async def cleanup(db, *, dry_run=False, limit=1000, storage=storage_service):
         except Exception:
             result["errors"] += 1
     async with _session(db) as session:
-        keys = await _referenced_keys(session)
+        keys = await referenced_keys(session)
         result["referenced"] = len(keys)
-        query = (
-            select(Object)
-            .where(
-                or_(
-                    Object.state == "retired",
-                    (Object.state == "ready")
-                    & (
-                        func.coalesce(Object.last_used_at, Object.published_at)
-                        <= cutoff
-                    ),
-                )
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT * FROM yoao_labeling_v1.raster_physical_gc_candidates("
+                    ":cutoff, :limit, :claim)"
+                ),
+                {"cutoff": cutoff, "limit": limit, "claim": not dry_run},
             )
-            .order_by(
-                Object.last_attempted_at.asc().nulls_first(),
-                Object.created_at,
-                Object.id,
-            )
-            .limit(limit)
-        )
-        if not dry_run:
-            query = query.with_for_update(skip_locked=True)
-        rows = list((await session.scalars(query)).all())
+        ).all()
         candidates = []
+        attempted_ids, attempted_at = [], []
         for row in rows:
             result["scanned"] += 1
             if not dry_run:
-                _attempt(row)
+                attempted_ids.append(row.id)
+                attempted_at.append(now())
             try:
                 receipt = physical.snapshot(row)
                 if (
@@ -768,6 +770,8 @@ async def cleanup(db, *, dry_run=False, limit=1000, storage=storage_service):
             except (ValueError, TypeError):
                 result["errors"] += 1
         if not dry_run:
+            if attempted_ids:
+                await _note_attempts(session, attempted_ids, attempted_at)
             await _commit(session)
     if dry_run:
         return result

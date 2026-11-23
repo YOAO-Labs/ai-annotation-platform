@@ -25,7 +25,6 @@ from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from tests import test_export_media_bundle_models as model_tests
 
-bundle_owned_db = model_tests.owned_db
 create_zip = model_tests._zip
 
 
@@ -105,12 +104,10 @@ class FakeDB:
     def __init__(self):
         self.rows, self.statements, self.savepoints = {}, [], []
         self.no_autoflush = nullcontext()
+        self.autoflush = True
         self.commit, self.rollback, self.flush = AsyncMock(), AsyncMock(), AsyncMock()
         self.refresh = AsyncMock()
         self.failure = None
-
-    def add(self, row):
-        self.rows[row.id] = row
 
     async def connection(self):
         return self
@@ -120,28 +117,36 @@ class FakeDB:
         self.savepoints.append(savepoint)
         return savepoint
 
-    def current(self, statement):
-        self.statements.append(statement)
+    async def execute(self, statement, params):
+        capability = str(statement).split("yoao_export_v1.", 1)[1].split("(", 1)[0]
+        identifier = params["id"]
         if self.failure:
             raise self.failure
-        identifier = statement.compile().params["id_1"]
-        return self.rows.get(identifier)
-
-    async def scalar(self, statement):
-        return self.current(statement)
-
-    async def execute(self, statement):
-        row = self.current(statement)
-        data = (
-            None
-            if row is None
-            else {
-                column.name: getattr(row, column.name)
-                for column in statement.selected_columns
-            }
-        )
+        row = self.rows.get(identifier)
+        if capability == "allocate_media":
+            row = self.rows[identifier] = SimpleNamespace(**params, fixture_run_id=None)
+            result = row
+        elif capability == "media_delivery":
+            result = row
+        elif capability == "media_fence":
+            result = (
+                SimpleNamespace(
+                    **{name: getattr(row, name) for name in bundles._SCALARS}
+                )
+                if row is not None
+                else None
+            )
+        elif capability == "claim_media":
+            row.lease_token, row.lease_expires_at = params["token"], params["expires"]
+            result = True
+        elif capability == "publish_media":
+            row.state, row.published_at = "ready", params["published"]
+            result = True
+        else:
+            raise AssertionError(capability)
+        self.statements.append((capability, params, result))
         return SimpleNamespace(
-            mappings=lambda: SimpleNamespace(one_or_none=lambda: data)
+            one=lambda: result, one_or_none=lambda: result, scalar=lambda: result
         )
 
 
@@ -516,7 +521,8 @@ async def test_claim_is_once_fixed_hour_and_never_commits_or_renews(monkeypatch)
     assert await bundles.claim(db, receipt.id) is None
     assert db.rows[receipt.id].lease_token == claim.lease_token
     db.commit.assert_not_awaited()
-    assert all(query._for_update_arg.nowait for query in db.statements)
+    fences = [params for name, params, _ in db.statements if name == "media_delivery"]
+    assert len(fences) == 3 and all(params["lock"] is True for params in fences)
 
 
 async def test_claim_lease_never_outlives_common_expiry(monkeypatch):
@@ -558,8 +564,10 @@ async def test_check_claim_reads_only_small_fence_columns_and_no_document_copies
     current = await bundles.check_claim(db, claim, lock=True)
     assert isinstance(current, bundles.BundleFence)
     assert current.lease_token == claim.lease_token
+    capability, params, projected = db.statements[-1]
+    assert capability == "media_fence" and params["mode"] == "update_nowait"
     assert not {"input_snapshot", "inventory", "logical_paths"}.intersection(
-        db.statements[-1].selected_columns.keys()
+        vars(projected)
     )
     db.commit.assert_not_awaited()
     forbidden.assert_not_called()
@@ -726,6 +734,7 @@ async def test_database_final_publication_rolls_back_and_commits_with_exact_zip_
     await bundles.publish(db, claim)
     output.state = "ready"
     await db.commit()
+    await db.refresh(row)
     assert row.state == "ready" and row.published_at is not None
     assert output.state == "ready" and output.expires_at == row.expires_at
 

@@ -5,16 +5,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.db.models.training_dataset import TrainingDatasetVersion
 from app.deps import get_db, require_project_owner, require_scopes
 from app.schemas.project_task_dataset import (
     ProjectTaskDatasetPage,
     UnrecognizedTrainingDatasetVersionPage,
 )
-from app.services.project_task_dataset import (
-    list_task_datasets,
-    recognized_task_expression,
-)
+from app.services.project_task_dataset import list_task_datasets
+from app.services.training_dataset_data import dataset_lineage_row
 
 router = APIRouter(
     prefix="/projects/{project_id}/task-datasets",
@@ -39,24 +36,18 @@ async def list_unrecognized_versions(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ):
+    version = dataset_lineage_row.c
     stmt = select(
-        TrainingDatasetVersion.id,
-        TrainingDatasetVersion.name,
-        TrainingDatasetVersion.status,
-        TrainingDatasetVersion.created_at,
-        case_raw_task(),
+        version.id, version.name, version.status, version.created_at, version.raw_task
     ).where(
-        TrainingDatasetVersion.project_id == project.id,
-        recognized_task_expression().is_(None),
+        version.project_id == project.id,
+        version.recognized_task.is_(None),
     )
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = (
         (
             await db.execute(
-                stmt.order_by(
-                    TrainingDatasetVersion.created_at.desc(),
-                    TrainingDatasetVersion.id.desc(),
-                )
+                stmt.order_by(version.created_at.desc(), version.id.desc())
                 .limit(limit)
                 .offset(offset)
             )
@@ -65,12 +56,3 @@ async def list_unrecognized_versions(
         .all()
     )
     return {"items": [dict(row) for row in rows], "total": total}
-
-
-def case_raw_task():
-    from sqlalchemy import case
-
-    value = TrainingDatasetVersion.snapshot["task"]
-    return case(
-        (func.jsonb_typeof(value) == "string", value.as_string()), else_=None
-    ).label("raw_task")

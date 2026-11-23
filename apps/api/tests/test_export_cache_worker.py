@@ -30,12 +30,14 @@ from tests.test_lidar_export_worker import (
 
 
 class _CacheDB:
+    autoflush = False
+
     def __init__(self, value: object) -> None:
         self.value = value
         self.deleted: list[object] = []
 
-    async def scalar(self, _statement: object):
-        return self.value
+    async def execute(self, _statement, _params):
+        return SimpleNamespace(one_or_none=lambda: self.value)
 
     async def delete(self, value: object) -> None:
         self.deleted.append(value)

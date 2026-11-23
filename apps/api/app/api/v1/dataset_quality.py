@@ -4,10 +4,8 @@ from typing import Literal
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import func, select
 
 from app.deps import get_current_user, get_db, require_scopes
-from app.db.models.dataset_quality import DatasetQualityRun as Run
 from app.schemas.dataset_quality import (
     DatasetQualityConfig,
     DatasetQualityRunOut,
@@ -16,7 +14,6 @@ from app.schemas.dataset_quality import (
     DatasetQualityReview,
 )
 from app.services import dataset_quality as svc
-from app.services.dataset_source_access import assert_dataset_manage
 from app.services.dataset_content import key_authority
 
 router = APIRouter(
@@ -33,17 +30,7 @@ async def list_runs(
     db=Depends(get_db),
     actor=Depends(get_current_user),
 ):
-    actor = await assert_dataset_manage(db, dataset_id, actor)
-    stmt = select(Run).where(Run.dataset_id == dataset_id, svc.scope_clause(actor))
-    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = list(
-        await db.scalars(
-            stmt.order_by(Run.created_at.desc(), Run.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    )
-    return {"items": rows, "total": total}
+    return await svc.list_runs(db, dataset_id, actor, limit=limit, offset=offset)
 
 
 @router.post(
@@ -118,6 +105,7 @@ async def results(
     return await svc.result_page(
         db,
         run,
+        actor,
         limit=limit,
         offset=offset,
         finding=finding,

@@ -19,12 +19,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
-from sqlalchemy import select
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.services import storage_access, storage_presigning
+from app.services import storage_access, storage_presigning, storage_registry_data
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
@@ -276,39 +273,20 @@ async def allocate(db, row) -> dict:
         await ensure_legacy_bindings(db)
     except ValueError:
         _reject("export_storage_binding_unproven")
-    initial = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "export")
-        .execution_options(populate_existing=True)
-    )
+    initial = await storage_registry_data.get_binding(db, "export")
     if initial is None:
         _reject("export_storage_binding_unproven")
     binding_facts = initial.location_id, initial.bucket, initial.generation
-    initial_location = await db.get(
-        StorageLocation, initial.location_id, populate_existing=True
-    )
+    initial_location = await storage_registry_data.get_location(db, initial.location_id)
     if initial_location is None:
         _reject("export_storage_binding_unproven")
     connection_id = getattr(initial_location, "connection_id", None)
     if connection_id is not None:
-        await db.scalar(
-            select(StorageConnection)
-            .where(StorageConnection.id == connection_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
-    location = await db.scalar(
-        select(StorageLocation)
-        .where(StorageLocation.id == binding_facts[0])
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
+        await storage_registry_data.get_connection(db, connection_id, lock="share")
+    location = await storage_registry_data.get_location(
+        db, binding_facts[0], lock="share"
     )
-    binding = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "export")
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
+    binding = await storage_registry_data.get_binding(db, "export", lock="share")
     if (
         location is None
         or location.id != binding_facts[0]
@@ -317,9 +295,9 @@ async def allocate(db, row) -> dict:
         or (binding.location_id, binding.bucket, binding.generation) != binding_facts
     ):
         _reject("export_storage_binding_unproven")
-    from app.services.export_storage_target import target_for
+    from app.services.export_storage_target import target_origin_for
 
-    target = await target_for(db, location)
+    target = await target_origin_for(db, location)
     if (
         type(binding.generation) is not int
         or binding.generation < 1
@@ -352,7 +330,7 @@ async def io_target(db, row):
     from app.services.export_storage_target import target_for
 
     identifier = uuid.UUID(owner.ref["location_id"])
-    location = await db.get(StorageLocation, identifier, populate_existing=True)
+    location = await storage_registry_data.get_location(db, identifier)
     logical = key_for(row.media, row.project_id, row.job_id, row.id)
     target = await target_for(
         db, location, saved_root=owner.object_key[: -len(logical)]

@@ -3,23 +3,21 @@
 import asyncio
 import time
 import uuid
-from datetime import timedelta
 
 from celery.utils.nodenames import worker_direct
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.models.dataset_source import DatasetRegistrationRun as Run
-from app.db.models.user import User
 from app.services import dataset_registration as svc
+from app.services import dataset_registration_data as data
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
-from app.services.directory_policy import permits_preview
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import scan_snapshot
 from app.services.dataset_references import register_entry
+from app.services.directory_policy import permits_preview
+from app.services.identity_read_relations import read_account_profile
 from app.workers.celery_app import celery_app
 
 CHUNK_ENTRIES = 25
@@ -46,11 +44,11 @@ def _publish(run_id, task_id, node):
 
 async def dispatch(db, run_id):
     _, _, run, job = await svc.context(db, run_id)
-    if run.status != "pending" or not job:
+    if run.status != "pending" or not job or not await data.arm_dispatch(db, run, job):
         await db.commit()
         return
     task_id, node = job.celery_task_id, run.snapshot["node_id"]
-    run.lease_expires_at = await scans.now(db) + timedelta(seconds=30)
+    await data.read_run(db, run.id)
     await db.commit()
     try:
         await asyncio.wait_for(
@@ -64,7 +62,8 @@ async def dispatch(db, run_id):
             and current_job
             and current_job.celery_task_id == task_id
         ):
-            current.error_code = "dispatch_unavailable"
+            await data.fail_dispatch(db, current, current_job)
+            await data.read_run(db, run_id)
         await db.commit()
 
 
@@ -79,7 +78,9 @@ def error_code(exc):
 
 
 async def process_one(db, run_id, task_id, fence, work):
-    actor = await db.get(User, work["actor_id"])
+    actor = await read_account_profile(db, work["actor_id"])
+    if actor is None:
+        raise HTTPException(403, detail={"code": "access_revoked"})
     digest = work["path_digest"]
 
     async def guard(session):
@@ -257,17 +258,7 @@ async def recover_pending():
     recovered = 0
     try:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            candidates = list(
-                await db.scalars(
-                    select(Run.id)
-                    .where(
-                        Run.status.in_(svc.ACTIVE),
-                        Run.lease_expires_at <= await scans.now(db),
-                    )
-                    .order_by(Run.lease_expires_at)
-                    .limit(100)
-                )
-            )
+            candidates = await data.due_runs(db, await scans.now(db))
             await db.commit()
             for run_id in candidates:
                 _, _, run, job = await svc.context(db, run_id)
@@ -279,11 +270,16 @@ async def recover_pending():
                 ):
                     await db.commit()
                     continue
-                if run.status == "running":
-                    run.generation += 1
-                    run.lease_token = None
-                    run.status = job.status = "pending"
-                    job.celery_task_id = str(uuid.uuid4())
+                if run.status == "running" and not await data.requeue(
+                    db,
+                    run,
+                    job,
+                    (run.generation, run.lease_token),
+                    str(uuid.uuid4()),
+                    recover=True,
+                ):
+                    await db.commit()
+                    continue
                 await db.commit()
                 await dispatch(db, run_id)
                 recovered += 1

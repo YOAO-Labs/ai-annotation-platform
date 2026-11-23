@@ -390,16 +390,19 @@ async def capture_retry_authority(
     access = await resolve_project_access(db, actor_id=actor_id, project=project)
     if not access.is_manager:
         raise HTTPException(status_code=403, detail="requires project admin")
-    from app.db.models.prediction_execution import PredictionExecutionSnapshot
+    from app.services.prediction_execution import SnapshotIdentity, load_snapshot
 
-    frozen = await db.get(
-        PredictionExecutionSnapshot, target.snapshot_id, populate_existing=True
-    )
-    if frozen is None or frozen.digest != target.snapshot_digest:
+    try:
+        payload, digest = await load_snapshot(db, target.snapshot_id, project.id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409, detail="Retry execution snapshot is unavailable"
+        ) from exc
+    if digest != target.snapshot_digest:
         raise HTTPException(
             status_code=409, detail="Retry execution snapshot is unavailable"
         )
-    payload = await _load_snapshot_payload(db, target)
+    frozen = SnapshotIdentity(target.snapshot_id, digest)
     actor = SimpleNamespace(id=actor_id)
     request = retry_credential_request(credential)
     if target.evidence == "video":
@@ -438,17 +441,6 @@ async def capture_retry_authority(
         job_kind="prediction_retry",
     )
     return {"prediction_authority": proof}
-
-
-async def _load_snapshot_payload(db, target: RetryTarget) -> dict:
-    from app.services.prediction_execution import load_snapshot
-
-    payload, digest = await load_snapshot(
-        db, target.snapshot_id, target.project.id if target.project else None
-    )
-    if digest != target.snapshot_digest:
-        raise HTTPException(status_code=409, detail="Retry execution snapshot changed")
-    return payload
 
 
 async def bind_retry_authority(

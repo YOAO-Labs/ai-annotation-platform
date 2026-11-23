@@ -18,7 +18,8 @@ import tempfile
 import traceback
 import uuid
 
-from inventory_storage_references import FAMILIES, allowed_columns, quoted
+import inventory_storage_references as legacy_collector
+from inventory_storage_references import FAMILIES
 from storage_migration_inventory import PURPOSES, InventoryLimits, write_inventory
 from storage_migration_references import identity, verify
 from verify_legacy_storage_rollback import ROOT, require, verified_environment
@@ -55,6 +56,8 @@ async def columns(connection):
 
 
 async def grants(owner, role):
+    from inventory_storage_references import allowed_columns, quoted
+
     async with owner.begin() as connection:
         fields = await columns(connection)
         for family in FAMILIES:
@@ -319,6 +322,10 @@ async def qualify(backend):
     readonly = None
     phases = []
     try:
+        require(
+            hasattr(legacy_collector, "allowed_columns"),
+            "Run the 0244/0245 reproduction from its historical collector checkout",
+        )
         async with owner.connect() as connection:
             facts = await database_facts(connection)
             require(

@@ -1,8 +1,6 @@
 """Directory-owned derivatives never enter the legacy presigned media path."""
 
-from sqlalchemy import case, select
-
-from app.db.models.dataset_source import DatasetSourceRevision
+from sqlalchemy import Boolean, String, Uuid, case, cast, column, func, select
 
 
 def effective_cache_policy(source, location):
@@ -32,32 +30,36 @@ def preview_policy_clause():
 
 
 async def owns_media(db, item_id):
-    return (
-        bool(
-            await db.scalar(
-                select(DatasetSourceRevision.source_id)
-                .where(
-                    DatasetSourceRevision.dataset_item_id == item_id,
-                    DatasetSourceRevision.owns_item.is_(True),
-                )
-                .limit(1)
+    if item_id is None:
+        return False
+    if db.autoflush:
+        await db.flush()
+    return bool(
+        await db.scalar(
+            select(
+                func.yoao_assets_v1.dataset_owns_directory_media(cast(item_id, Uuid))
             )
         )
-        if item_id
-        else False
     )
 
 
-def legacy_media_column(column):
-    from app.db.models.dataset import DatasetItem
-
-    owned = (
-        select(DatasetSourceRevision.source_id)
-        .where(
-            DatasetSourceRevision.dataset_item_id == DatasetItem.id,
-            DatasetSourceRevision.owns_item.is_(True),
+def legacy_cover_facts(task):
+    facts = (
+        func.yoao_assets_v1.dataset_cover_facts(task.dataset_item_id)
+        .table_valued(
+            column("file_type", String),
+            column("thumbnail_path", String),
+            column("blurhash", String),
+            column("directory_owned", Boolean),
         )
-        .correlate(DatasetItem)
-        .exists()
+        .lateral("dataset_cover")
     )
-    return case((owned, None), else_=column).label(column.key)
+    thumbnail = case(
+        (facts.c.directory_owned, None),
+        else_=func.coalesce(facts.c.thumbnail_path, task.thumbnail_path),
+    ).label("thumbnail_path")
+    blurhash = case(
+        (facts.c.directory_owned, None),
+        else_=func.coalesce(facts.c.blurhash, task.blurhash),
+    ).label("blurhash")
+    return facts, thumbnail, blurhash

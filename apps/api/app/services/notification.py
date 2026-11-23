@@ -23,10 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
 
 from app.config import settings
-from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.owner_orm_compat import mark_missing_identity, synchronize_owner_evaluate
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.jobs_notification_scope import notification_scope_facts
 from yoao_notifications.preferences import NotificationPreferenceManager
 from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from yoao_notifications.append import NotificationAppendManager
@@ -305,8 +305,11 @@ class NotificationService:
             return False
         try:
             if not include_migration_inventory and row.target_type == "async_job":
+                if self.db.autoflush:
+                    await self.db.flush()
+                scope_facts = notification_scope_facts()
                 kind = await self.db.scalar(
-                    select(AsyncJob.kind).where(AsyncJob.id == row.target_id)
+                    select(scope_facts.c.kind).where(scope_facts.c.id == row.target_id)
                 )
                 if (
                     kind
