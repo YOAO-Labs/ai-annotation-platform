@@ -2,11 +2,10 @@
 
 import asyncio
 from datetime import timedelta
-from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import delete, event, func, insert, literal_column, select, text, update
+from sqlalchemy import delete, event, func, insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.dataset import Dataset
@@ -22,17 +21,28 @@ from tests.factory import make_user_dict
 @pytest.fixture
 async def counters(test_engine):
     location, source = uuid.uuid4(), uuid.uuid4()
+    actor = make_user_dict("super_admin", f"{uuid.uuid4()}@rates.invalid", "Observer")
+    async with test_engine.begin() as connection:
+        await connection.execute(insert(User).values(**actor))
+        await connection.execute(
+            insert(StorageLocation).values(
+                id=location,
+                name=str(location),
+                kind="filesystem",
+                config={"scope": "global"},
+            )
+        )
     try:
-        yield location, source
+        yield location, source, actor["id"]
     finally:
         async with test_engine.begin() as connection:
             await connection.execute(
                 delete(Bucket).where(Bucket.location_id == location)
             )
-
-
-def admin():
-    return SimpleNamespace(role="super_admin", is_active=True)
+            await connection.execute(
+                delete(StorageLocation).where(StorageLocation.id == location)
+            )
+            await connection.execute(delete(User).where(User.id == actor["id"]))
 
 
 async def observed(db, location, source, metric="original_read", outcome="success"):
@@ -44,16 +54,14 @@ async def observed(db, location, source, metric="original_read", outcome="succes
 async def test_first_healthy_observation_has_denominator_without_fault_row(
     db_session, test_engine, counters
 ):
-    location, source = counters
-    empty = await rates.visible_rates(db_session, SimpleNamespace(id=location), admin())
+    location, source, actor = counters
+    empty = await rates.visible_rates(db_session, location, actor)
     assert empty is not None
     assert empty["original_read"]["total_count"] == 0
     assert empty["original_read"]["failure_rate"] is None
     assert empty["preview_generate"]["failure_rate"] is None
     await observed(db_session, location, source)
-    result = await rates.visible_rates(
-        db_session, SimpleNamespace(id=location), admin()
-    )
+    result = await rates.visible_rates(db_session, location, actor)
     assert result["original_read"] == {
         "success_count": 1,
         "failure_count": 0,
@@ -75,7 +83,7 @@ async def test_first_healthy_observation_has_denominator_without_fault_row(
 async def test_parallel_completions_duplicate_settlement_and_late_result(
     test_engine, counters
 ):
-    location, source = counters
+    location, source, actor = counters
     async with AsyncSession(test_engine) as db:
         old = rates.begin(location, source, "original_read")
         new = rates.begin(location, source, "original_read")
@@ -96,7 +104,7 @@ async def test_parallel_completions_duplicate_settlement_and_late_result(
                 )
             )
         )
-        summary = await rates.visible_rates(db, SimpleNamespace(id=location), admin())
+        summary = await rates.visible_rates(db, location, actor)
     assert summary["original_read"] == {
         "success_count": 12,
         "failure_count": 11,
@@ -108,7 +116,7 @@ async def test_parallel_completions_duplicate_settlement_and_late_result(
 async def test_locked_bucket_skips_bounded_observation_without_retry(
     db_session, test_engine, counters
 ):
-    location, source = counters
+    location, source, actor = counters
     await observed(db_session, location, source)
     async with AsyncSession(test_engine) as blocker:
         await blocker.scalar(
@@ -118,9 +126,7 @@ async def test_locked_bucket_skips_bounded_observation_without_retry(
         assert not await rates.finish(db_session, attempt, "failure")
         await blocker.rollback()
     assert not await rates.finish(db_session, attempt, "failure")
-    summary = await rates.visible_rates(
-        db_session, SimpleNamespace(id=location), admin()
-    )
+    summary = await rates.visible_rates(db_session, location, actor)
     assert summary["original_read"]["total_count"] == 1
     assert await db_session.scalar(select(1)) == 1
 
@@ -129,7 +135,7 @@ async def test_locked_bucket_skips_bounded_observation_without_retry(
 async def test_completion_day_is_utc_not_session_zone_and_other_days_are_excluded(
     db_session, test_engine, counters, monkeypatch, session_zone
 ):
-    location, source = counters
+    location, source, actor = counters
     original_bounds = rates._bounds
 
     async def shifted(connection, **kwargs):
@@ -168,9 +174,7 @@ async def test_completion_day_is_utc_not_session_zone_and_other_days_are_exclude
                     last_observed_at=stamp,
                 )
             )
-    result = await rates.visible_rates(
-        db_session, SimpleNamespace(id=location), admin()
-    )
+    result = await rates.visible_rates(db_session, location, actor)
     assert result["original_read"]["total_count"] == 1
     assert result["original_read"]["failure_count"] == 0
     assert result["measured_at"].date() == expected_day
@@ -179,7 +183,7 @@ async def test_completion_day_is_utc_not_session_zone_and_other_days_are_exclude
 async def test_counter_survives_caller_rollback_without_committing_business(
     db_session, test_engine, super_admin, counters
 ):
-    location, source = counters
+    location, source, actor = counters
     dataset = Dataset(
         display_id=uuid.uuid4().hex[:20],
         name="uncommitted",
@@ -201,15 +205,14 @@ async def test_counter_survives_caller_rollback_without_committing_business(
         )
     assert dataset.name == "uncommitted"
     await db_session.rollback()
-    assert (
-        await rates.visible_rates(db_session, SimpleNamespace(id=location), admin())
-    )["original_read"]["total_count"] == 1
+    summary = await rates.visible_rates(db_session, location, actor)
+    assert summary["original_read"]["total_count"] == 1
 
 
 async def test_observer_sql_failure_does_not_poison_caller_or_retry(
     db_session, counters, monkeypatch
 ):
-    location, source = counters
+    location, source, actor = counters
     original_bounds = rates._bounds
 
     async def failed(connection, **kwargs):
@@ -220,17 +223,14 @@ async def test_observer_sql_failure_does_not_poison_caller_or_retry(
     attempt = rates.begin(location, source, "original_read")
     assert not await rates.finish(db_session, attempt, "failure")
     assert not await rates.finish(db_session, attempt, "success")
-    assert (
-        await rates.visible_rates(db_session, SimpleNamespace(id=location), admin())
-        is None
-    )
+    assert await rates.visible_rates(db_session, location, actor) is None
     assert await db_session.scalar(select(1)) == 1
 
 
 async def test_rate_query_is_one_select_in_independent_readonly_transaction(
     db_session, test_engine, counters
 ):
-    location, source = counters
+    location, source, actor = counters
     await observed(db_session, location, source)
     statements = []
 
@@ -239,14 +239,14 @@ async def test_rate_query_is_one_select_in_independent_readonly_transaction(
 
     event.listen(test_engine.sync_engine, "before_cursor_execute", capture)
     try:
-        assert await rates.visible_rates(
-            db_session, SimpleNamespace(id=location), admin()
-        )
+        assert await rates.visible_rates(db_session, location, actor)
     finally:
         event.remove(test_engine.sync_engine, "before_cursor_execute", capture)
     assert "SET TRANSACTION READ ONLY" in statements
     reads = [value for value in statements if value.startswith(("SELECT", "WITH"))]
-    assert len(reads) == 1 and reads[0].count("statement_timestamp()") == 1
+    assert (
+        len(reads) == 1 and "yoao_assets_v1.read_storage_observation_rates" in reads[0]
+    )
     assert not any(
         value.startswith(("INSERT", "UPDATE", "DELETE")) for value in statements
     )
@@ -320,7 +320,7 @@ async def test_acl_orphan_visibility_and_same_day_configuration_changes(
         (actors[1], 1, 1),
         (actors[2], 1, 0),
     ):
-        result = await rates.visible_rates(db_session, location, actor)
+        result = await rates.visible_rates(db_session, location.id, actor.id)
         assert result["original_read"]["total_count"] == total
         assert result["original_read"]["failure_count"] == failures
     async with AsyncSession(db_session.bind.engine) as independent:
@@ -331,10 +331,13 @@ async def test_acl_orphan_visibility_and_same_day_configuration_changes(
         )
         await independent.commit()
     await observed(db_session, location.id, sources[0].id)
-    result = await rates.visible_rates(db_session, location, actors[1])
+    result = await rates.visible_rates(db_session, location.id, actors[1].id)
     assert result["original_read"]["failure_rate"] == 0.5
-    actors[0].is_active = False
-    assert (await rates.visible_rates(db_session, location, actors[0]))[
+    async with db_session.bind.engine.begin() as independent:
+        await independent.execute(
+            update(User).where(User.id == actors[0].id).values(is_active=False)
+        )
+    assert (await rates.visible_rates(db_session, location.id, actors[0].id))[
         "original_read"
     ]["total_count"] == 0
 
@@ -409,8 +412,8 @@ async def test_rate_query_failure_keeps_faults_response_and_caller_transaction(
     actors, location, _sources = committed_world
     monkeypatch.setattr(
         rates,
-        "_visible_statement",
-        lambda *_: select(literal_column("private_missing_rate_column")),
+        "_VISIBLE_RATES",
+        text("SELECT private_missing_rate_column"),
     )
     response = await httpx_client.get(
         f"/api/v1/storage-locations/{location.id}/faults", headers=headers(actors[0])
@@ -425,10 +428,10 @@ async def test_final_role_revocation_rejects_rate_result(
     actors, location, _sources = committed_world
     original = rates.visible_rates
 
-    async def revoked(db, target, actor):
-        value = await original(db, target, actor)
+    async def revoked(db, target, actor_id):
+        value = await original(db, target, actor_id)
         await db.execute(
-            update(User).where(User.id == actor.id).values(role="employee")
+            update(User).where(User.id == actor_id).values(role="employee")
         )
         return value
 

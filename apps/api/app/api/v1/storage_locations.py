@@ -740,16 +740,17 @@ async def source_faults(
     proof = await key_authority(
         db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
     )
-    location = await svc.get_visible(db, location_id, actor)
     initial_role = actor.role
     result = await storage_fault_state.visible_page(
-        db, location, actor, state=state, limit=limit, offset=offset
+        db, location_id, actor, state=state, limit=limit, offset=offset
     )
-    result["rates"] = await storage_observation_rates.visible_rates(db, location, actor)
+    result["rates"] = await storage_observation_rates.visible_rates(
+        db, location_id, actor.id
+    )
     actor = await require_manager(db, actor.id)
     if actor.role != initial_role:
         raise HTTPException(403, detail={"code": "access_revoked"})
-    await svc.get_visible(db, location_id, actor)
+    await storage_fault_state.require_visible_location(db, location_id, actor.id)
     if (
         await key_authority(
             db, actor, getattr(request.state, "api_key_id", None), "datasets:read"

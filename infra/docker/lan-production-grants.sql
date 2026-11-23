@@ -1641,4 +1641,57 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]),
     yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)
     TO :"application_role";
+DO $storage_fault_private_acl$
+DECLARE
+    v_runtime name := pg_catalog.current_setting('yoao.application_role');
+    v_target regclass;
+    v_columns text;
+    v_function regprocedure;
+BEGIN
+    FOREACH v_target IN ARRAY ARRAY[
+        'public.storage_fault_states', 'public.storage_observation_buckets',
+        'yoao_assets_v1.storage_fault_observation_key'
+    ]::regclass[] LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC', v_target, v_runtime);
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(a.attname), ',' ORDER BY a.attnum)
+        INTO v_columns FROM pg_catalog.pg_attribute AS a
+        WHERE a.attrelid = v_target AND a.attnum > 0 AND NOT a.attisdropped;
+        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC', v_columns, v_target, v_runtime);
+        IF pg_catalog.has_table_privilege(v_runtime, v_target, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime, v_target, 'SELECT,INSERT,UPDATE,REFERENCES')
+           OR pg_catalog.pg_has_role(v_runtime, (SELECT relowner FROM pg_catalog.pg_class WHERE oid = v_target), 'MEMBER') THEN
+            RAISE EXCEPTION 'Runtime retains private storage observation access: %', v_target;
+        END IF;
+    END LOOP;
+    EXECUTE pg_catalog.format('REVOKE ALL ON SEQUENCE public.storage_fault_observation_seq FROM %I, PUBLIC', v_runtime);
+    IF pg_catalog.has_sequence_privilege(v_runtime, 'public.storage_fault_observation_seq', 'USAGE,SELECT,UPDATE')
+       OR pg_catalog.pg_has_role(v_runtime, (
+            SELECT relowner FROM pg_catalog.pg_class WHERE oid = 'public.storage_fault_observation_seq'::regclass
+       ), 'MEMBER') THEN
+        RAISE EXCEPTION 'Runtime retains private storage fault sequence access';
+    END IF;
+    FOREACH v_function IN ARRAY ARRAY[
+        'yoao_assets_v1._storage_fault_seal(bigint,uuid,uuid,text,text,jsonb,jsonb)',
+        'yoao_assets_v1._storage_fault_location_visible(uuid,text,uuid,boolean)',
+        'yoao_assets_v1._storage_fault_job_visible(uuid,text,uuid)',
+        'yoao_jobs_v1.read_storage_fault_job(uuid)'
+    ]::regprocedure[] LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I, PUBLIC', v_function, v_runtime);
+        IF pg_catalog.has_function_privilege(v_runtime, v_function, 'EXECUTE') THEN
+            RAISE EXCEPTION 'Runtime retains private storage observation helper access: %', v_function;
+        END IF;
+    END LOOP;
+    EXECUTE pg_catalog.format('GRANT USAGE ON SCHEMA yoao_assets_v1 TO %I', v_runtime);
+    EXECUTE pg_catalog.format(
+        'GRANT EXECUTE ON FUNCTION
+            yoao_assets_v1.reserve_storage_fault_observation(uuid,uuid,text,text,jsonb,jsonb),
+            yoao_assets_v1.record_storage_fault_observation(bigint,bytea,uuid,uuid,text,text,jsonb,jsonb,text),
+            yoao_assets_v1.read_storage_fault_facts(uuid,uuid,text,boolean,boolean),
+            yoao_assets_v1.storage_fault_location_visible(uuid,uuid),
+            yoao_assets_v1.storage_fault_page(uuid,uuid,text,integer,integer),
+            yoao_assets_v1.record_storage_observation_rate(uuid,uuid,text,boolean),
+            yoao_assets_v1.read_storage_observation_rates(uuid,uuid)
+        TO %I', v_runtime);
+END;
+$storage_fault_private_acl$;
 COMMIT;

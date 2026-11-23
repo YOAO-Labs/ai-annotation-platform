@@ -2094,6 +2094,9 @@ class LocalResources:
                 await connection.exec_driver_sql(_IMAGE_EXPORT_SCOPE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
+                await connection.exec_driver_sql(
+                    self.private_runtime_acl("storage_fault")
+                )
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
                 await connection.exec_driver_sql(self.private_runtime_acl("inference"))
