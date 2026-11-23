@@ -810,6 +810,25 @@ def read_from_client(client, row, *, limit=100, offset=0):
     return _read_page(client, _read_snapshot(row, limit, offset), limit, offset)
 
 
+def read_from_source(row, *, source, limit=100, offset=0):
+    original = _read_snapshot(row, limit, offset)
+    deadline = time.monotonic() + VERIFY_SECONDS
+    with storage_access.closing_registered(tempfile.TemporaryFile()) as output:
+        source.download_to(output)
+        return _semantic(output, original, limit, offset, deadline)
+
+
+def write_from_source(row, fileobject, *, source, accounting=None):
+    original = snapshot(row)
+    deadline = time.monotonic() + VERIFY_SECONDS
+    try:
+        _semantic(fileobject, original, 1, original.row_count + 1, deadline)
+        fileobject.seek(0)
+        source.write(fileobject, accounting=accounting)
+    finally:
+        fileobject.seek(0)
+
+
 def _read_snapshot(row, limit, offset):
     if (
         type(limit) is not int

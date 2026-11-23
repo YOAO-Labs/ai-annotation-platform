@@ -29,6 +29,7 @@ from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.services import async_job as jobs
 from app.services import audit_archive_storage as archive_storage
 from app.services import conditional_write_accounting
+from app.services import saved_output_io
 from app.services import storage_access
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_archive_output_data import (
@@ -264,6 +265,7 @@ class _WriteAccounting:
 async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) -> int:
     revision = None
     target = await archive_storage.io_target(db, receipt)
+    source = saved_output_io.capture(target, "archive", receipt)
     if target is not None:
         await db.rollback()
 
@@ -271,6 +273,8 @@ async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) 
         nonlocal revision
         if accounting is not None:
             accounting.permit = permit
+        if source is not None:
+            source.attach(permit)
         await _begin(db)
         await _running_job(db, receipt.job_id)
         await _pending_owner(db, receipt)
@@ -288,10 +292,11 @@ async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) 
         db,
         UUID(str(receipt.storage_ref["location_id"])),
         f"audit_archive_write_{receipt.id.hex}",
-        archive_storage.write,
+        archive_storage.write_from_source if source is not None else archive_storage.write,
         receipt,
         file,
-        **({"target": target} if target is not None else {}),
+        **({"source": source} if source is not None else {}),
+        **({"target": target} if target is not None and source is None else {}),
         **({"accounting": accounting.recorder} if accounting is not None else {}),
         timeout=archive_storage.VERIFY_SECONDS,
         on_acquired=acquired,

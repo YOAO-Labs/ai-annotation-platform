@@ -12,6 +12,7 @@ from app.core import token_blacklist
 from app.db.enums import UserRole
 from app.services import audit_archive_storage as storage, bug_attachment_uploads
 from app.services.audit_archive_output_data import list_ready_outputs, lock_ready_output
+from app.services import saved_output_io
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
@@ -90,7 +91,7 @@ def _admin(actor):
 def _authority_error(exc):
     if (
         isinstance(exc.detail, dict)
-        and exc.detail.get("code") == "bug_attachment_authority_revoked"
+        and exc.detail.get("code") in {"bug_attachment_authority_revoked", "api_key_authority_revoked"}
     ):
         return HTTPException(403, {"code": "audit_archive_authority_revoked"})
     return exc
@@ -194,6 +195,7 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
             db, owner.ref, owner.object_key, receipt.sha256, receipt.size_bytes
         )
         target = await storage.io_target(db, receipt) if route is None else None
+        source = saved_output_io.capture(target, "archive", receipt)
         await db.commit()
         _check_clock(proof)
         revision = None
@@ -202,6 +204,9 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
             nonlocal revision
             await reauthorize(db, proof)
             await _same_ready(db, receipt)
+            if source is not None:
+                source.attach(permit)
+                await source.admit_read(db, proof.original.actor_id)
             await db.commit()
             _check_clock(proof)
             revision = permit.revision
@@ -221,11 +226,12 @@ async def read_archive_rows(db, actor, request, year, month, *, limit=100, offse
                 db,
                 uuid.UUID(receipt.storage_ref["location_id"]),
                 read_purpose(receipt.id),
-                storage.read,
+                storage.read_from_source if source is not None else storage.read,
                 receipt,
                 limit=limit,
                 offset=offset,
-                **({"target": target} if target is not None else {}),
+                **({"source": source} if source is not None else {}),
+                **({"target": target} if target is not None and source is None else {}),
                 on_acquired=acquired,
             )
         await reauthorize(db, proof)

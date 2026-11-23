@@ -21,6 +21,7 @@ from app.services import (
     export_media_storage,
     export_storage,
     export_zip_accounting,
+    saved_output_io,
     storage_access,
 )
 from app.services import key_removal_accounting as removal
@@ -353,11 +354,14 @@ async def write(db, receipt, path):
     """Drain the actual upload/readback thread before releasing the ZIP path."""
     owner = export_storage.resolve(receipt)
     target = await export_storage.io_target(db, receipt)
+    source = saved_output_io.capture(target, "zip", receipt)
     revision = None
 
     async def acquired(permit):
         nonlocal revision
         revision = permit.revision
+        if source is not None:
+            source.attach(permit)
         row = await _locked(db, receipt.id)
         if row is None or row.state != "pending" or not same(row, receipt):
             reject()
@@ -372,15 +376,13 @@ async def write(db, receipt, path):
             db,
             uuid.UUID(owner.ref["location_id"]),
             "export_write_" + receipt.id.hex,
-            export_storage.write,
-            receipt,
-            path,
-            **({"target": target} if target is not None else {}),
+            source.write_path if source is not None else export_storage.write,
+            *((path,) if source is not None else (receipt, path)),
+            **({"target": target} if target is not None and source is None else {}),
             accounting=accounting,
             **(
                 {"save_proof": proof_writer(db, receipt)}
-                if receipt.fixture
-                or owner.ref["location_id"] != str(export_storage.LEGACY_LOCATION_ID)
+                if receipt.fixture and source is None
                 else {}
             ),
             on_acquired=acquired,
@@ -488,11 +490,14 @@ async def verify_cache(db, artifact):
     owner = export_storage.resolve(receipt)
     route = await _read_route(db, receipt)
     target = None if route is not None else await export_storage.io_target(db, receipt)
+    source = saved_output_io.capture(target, "zip", receipt)
     revision = None
 
     async def acquired(permit):
         nonlocal revision
         revision = permit.revision
+        if source is not None:
+            source.attach(permit)
         current = await _locked(db, receipt.id)
         if current is None or current.state != "ready" or not same(current, receipt):
             reject()
@@ -516,10 +521,10 @@ async def verify_cache(db, artifact):
                 db,
                 uuid.UUID(owner.ref["location_id"]),
                 read_purpose(receipt.id),
-                export_storage.verify,
-                receipt,
+                source.verify if source is not None else export_storage.verify,
+                *(() if source is not None else (receipt,)),
                 missing_ok=True,
-                **({"target": target} if target is not None else {}),
+                **({"target": target} if target is not None and source is None else {}),
                 on_acquired=acquired,
             )
     except export_storage.ExportStorageError as exc:
@@ -587,10 +592,13 @@ async def prepare_download(db, receipt, *, download_name, expected_revision=None
     if route is None and receipt.storage_ref["schema"] == 1:
         return None
     revision = None
+    source = None
 
     async def acquired(permit):
         nonlocal revision
         revision = permit.revision
+        if source is not None:
+            source.attach(permit)
 
     if route is not None:
         if (
@@ -609,14 +617,15 @@ async def prepare_download(db, receipt, *, download_name, expected_revision=None
         )
     else:
         target = await export_storage.io_target(db, receipt)
+        source = saved_output_io.capture(target, "zip", receipt)
         url = await storage_access.run(
             db,
             target.location_id,
             read_purpose(receipt.id),
-            export_storage.sign,
-            receipt,
+            source.sign if source is not None else export_storage.sign,
+            *(() if source is not None else (receipt,)),
             download_name=download_name,
-            target=target,
+            **({"target": target} if source is None else {}),
             expected_revision=expected_revision,
             on_acquired=acquired,
         )
@@ -780,26 +789,30 @@ async def _cleanup_one(db, identifier, counters):
             db, receipt, producer="export_zip_removals", purpose="temporary"
         )
         owned_permit, failure = None, None
+        target = None
+        source = None
 
         async def acquired(permit):
             nonlocal owned_permit
             owned_permit = permit
+            if source is not None:
+                source.attach(permit)
 
         try:
+            if receipt.storage_ref["schema"] == 2:
+                target = await export_storage.io_target(db, receipt)
+                source = saved_output_io.capture(target, "zip", receipt)
             await storage_access.run(
                 db,
                 uuid.UUID(owner.ref["location_id"]),
                 "export_delete_" + receipt.id.hex,
-                export_storage.delete,
-                receipt,
+                source.delete if source is not None else export_storage.delete,
+                *(() if source is not None else (receipt,)),
                 accounting=accounting,
-                **({"proof": proof} if proof is not None else {}),
+                **({"proof": proof} if proof is not None and source is None else {}),
                 on_acquired=acquired,
-                **(
-                    {"target": await export_storage.io_target(db, receipt)}
-                    if receipt.storage_ref["schema"] == 2
-                    else {}
-                ),
+                **({"version": proof["version_id"]} if source is not None and proof is not None else {}),
+                **({"target": target} if target is not None and source is None else {}),
             )
         except BaseException as exc:
             failure = exc
