@@ -129,7 +129,14 @@ class SavedOutput:
             except SavedIOError as exc:
                 if not exc.unsettled and exc.code != "output_write_already_started":
                     raise
-                result = client.command("outputs", "write_status", self._proof() | {"kind": self.kind})
+                try:
+                    result = client.command(
+                        "outputs", "write_status", self._proof() | {"kind": self.kind}
+                    )
+                except SavedIOError:
+                    raise SavedIOError(
+                        "output_receipt_unsettled", status_code=503, unsettled=True
+                    ) from None
             if (
                 set(result) != {"etag", "version_id"}
                 or not isinstance(result["etag"], str) or not 0 < len(result["etag"]) <= 1024
