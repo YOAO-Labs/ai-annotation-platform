@@ -114,6 +114,10 @@ IDENTITY_AVATAR_FUNCTIONS = (
     "yoao_identity_v1.read_avatar_binding_history()",
     "yoao_identity_v1.avatar_saved_target_referenced(uuid)",
 )
+IDENTITY_AVATAR_INVENTORY_FUNCTIONS = (
+    "yoao_identity_v1.inventory_avatar_uploads(text,integer)",
+    "yoao_identity_v1.usage_avatar_uploads(text[])",
+)
 SAVED_SOURCE_ROLE = "yoao_asset_source_saved_io_client"
 STORAGE_MIGRATION_CONTROL_ROLE = "yoao_storage_migration_control_client"
 SAVED_SOURCE_FUNCTIONS = (
@@ -6067,6 +6071,7 @@ def _ordinary_login_acl(
         f"'{signature}'"
         for signature in (
             *IDENTITY_AVATAR_FUNCTIONS,
+            *IDENTITY_AVATAR_INVENTORY_FUNCTIONS,
             "yoao_jobs_v1.directory_job_total(uuid,uuid)",
             "yoao_assets_v1.read_legacy_pyramid_summaries(uuid[],uuid[],text)",
             "yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)",
@@ -13376,7 +13381,11 @@ SELECT pg_catalog.jsonb_build_object(
             ).strip()
         )
         expected_identity_functions = (
-            (*IDENTITY_ISSUER_FACT_FUNCTIONS, *IDENTITY_AVATAR_FUNCTIONS)
+            (
+                *IDENTITY_ISSUER_FACT_FUNCTIONS,
+                *IDENTITY_AVATAR_FUNCTIONS,
+                *IDENTITY_AVATAR_INVENTORY_FUNCTIONS,
+            )
             if m2b_profile
             else IDENTITY_ISSUER_FACT_FUNCTIONS
         )

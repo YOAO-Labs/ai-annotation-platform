@@ -118,7 +118,9 @@ BEGIN
             'yoao_identity_v1.begin_avatar_retirement(text)'::regprocedure,
             'yoao_identity_v1.finish_avatar_retirement(text,jsonb,text,integer,text)'::regprocedure,
             'yoao_identity_v1.read_avatar_binding_history()'::regprocedure,
-            'yoao_identity_v1.avatar_saved_target_referenced(uuid)'::regprocedure
+            'yoao_identity_v1.avatar_saved_target_referenced(uuid)'::regprocedure,
+            'yoao_identity_v1.inventory_avatar_uploads(text,integer)'::regprocedure,
+            'yoao_identity_v1.usage_avatar_uploads(text[])'::regprocedure
         ]::oid[];
         IF EXISTS (
             SELECT FROM pg_catalog.pg_proc AS p

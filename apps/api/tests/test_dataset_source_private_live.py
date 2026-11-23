@@ -113,7 +113,8 @@ async def test_catalog_project_link_and_pose_evidence_under_ordinary_login(test_
                 frame_index=0,
                 timestamp_us=-42,
                 ego_translation=[1, 2, 3],
-                ego_rotation=[1, 0, 0, 0],
+                ego_rotation=[0.0, 0.0, 1.0, 0.0],
+                source_metadata={"sample": "camera-track-0"},
             )
             assert (
                 await scene_pose.upsert_frame_poses(db, scene_id=scene_id, poses=[pose])
@@ -123,10 +124,13 @@ async def test_catalog_project_link_and_pose_evidence_under_ordinary_login(test_
                 await scene_pose.get_frame_pose(db, scene_id=scene_id, frame_index=0)
                 == pose
             )
-            expected = await spatial.read_poses(
+            native_trajectory = await spatial.read_poses(
                 ReadPosesRequest(actor_id=actor.id, scene_id=scene_id)
             )
-            assert await scene_pose.get_trajectory(db, scene_id) == expected == [pose]
+            trajectory = await scene_pose.get_trajectory(db, scene_id)
+            expected = [pose.model_dump()]
+            assert [entry.model_dump() for entry in native_trajectory] == expected
+            assert [entry.model_dump() for entry in trajectory] == expected
     finally:
         async with maker.begin() as owner:
             await owner.execute(delete(Project).where(Project.id == project.id))
