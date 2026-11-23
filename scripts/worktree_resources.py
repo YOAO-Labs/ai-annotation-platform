@@ -154,6 +154,19 @@ AUDIT_RUNTIME_CAPABILITIES = (
     "yoao_audit_v1.query_events(pg_catalog.jsonb)",
     "yoao_audit_v1.maintenance_command(jsonb)",
 )
+INSIGHTS_RUNTIME_CAPABILITIES = (
+    "yoao_insights_v1.list_saved_task_views(uuid,uuid,text)",
+    "yoao_insights_v1.read_saved_task_view(uuid,uuid,uuid)",
+    "yoao_insights_v1.create_saved_task_view(uuid,uuid,text,text,text,jsonb,jsonb,jsonb)",
+    "yoao_insights_v1.update_saved_task_view(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)",
+    "yoao_insights_v1.delete_saved_task_view(uuid,uuid,uuid)",
+    "yoao_insights_v1.list_personal_dataset_views(uuid,uuid)",
+    "yoao_insights_v1.has_personal_dataset_view(uuid,uuid,uuid)",
+    "yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid)",
+    "yoao_insights_v1.create_personal_dataset_view(uuid,uuid,text,jsonb)",
+    "yoao_insights_v1.update_personal_dataset_view(uuid,uuid,uuid,text,jsonb)",
+    "yoao_insights_v1.delete_personal_dataset_view(uuid,uuid,uuid)",
+)
 JOBS_LIFECYCLE_RUNTIME_CAPABILITIES = (
     "yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid)",
     "yoao_jobs_v1.read_job_execution_snapshot(uuid)",
@@ -2097,6 +2110,13 @@ class LocalResources:
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
                 await connection.exec_driver_sql(self.private_runtime_acl("inference"))
+                await connection.exec_driver_sql(self.private_runtime_acl("insights"))
+                await connection.exec_driver_sql(
+                    f"GRANT USAGE ON SCHEMA yoao_insights_v1 TO {role}"
+                )
+                await connection.exec_driver_sql(
+                    f"GRANT EXECUTE ON FUNCTION {', '.join(INSIGHTS_RUNTIME_CAPABILITIES)} TO {role}"
+                )
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("

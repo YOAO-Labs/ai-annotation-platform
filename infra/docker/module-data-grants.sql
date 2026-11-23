@@ -1236,7 +1236,6 @@ GRANT SELECT (
 GRANT SELECT (id, pool_id, enabled), INSERT (id, project_id, pool_id, enabled),
     UPDATE (enabled, updated_at)
     ON public.project_ml_backend_pool TO :"inference_owner";
-GRANT SELECT (project_id), DELETE ON public.project_task_views TO :"insights_owner";
 GRANT SELECT (project_id, task_id), UPDATE (project_id, task_id)
     ON public.bug_reports TO :"diagnostics_owner";
 GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
@@ -1315,6 +1314,12 @@ GRANT EXECUTE ON FUNCTION
     yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     TO :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_insights_v1 TO :"insights_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_labeling_v1, yoao_workspace_v1, yoao_assets_v1 TO :"insights_owner";
+GRANT SELECT (user_id, project_id, kind, started_at, duration_ms, annotation_count, was_rejected)
+    ON yoao_labeling_v1.task_event_facts TO :"insights_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.read_project_visibility(uuid,uuid),
+    yoao_workspace_v1.lock_media_project_access(uuid,uuid),
+    yoao_assets_v1.lock_dataset_reference(uuid) TO :"insights_owner";
 GRANT USAGE ON SCHEMA yoao_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_export_v1 TO :"export_owner", :"workspace_owner";
@@ -3180,10 +3185,31 @@ ALTER FUNCTION yoao_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA yoao_inference_pipelines_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA yoao_insights_v1 TO :"insights_owner";
+GRANT TEMPORARY ON DATABASE :"expected_database" TO :"insights_owner";
+GRANT CREATE ON SCHEMA public, yoao_insights_v1 TO :"insights_owner";
+ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO :"insights_owner";
+ALTER TABLE public.project_task_views OWNER TO :"insights_owner";
+ALTER TABLE public.dataset_saved_views OWNER TO :"insights_owner";
 ALTER FUNCTION yoao_insights_v1.clear_project_task_views(uuid)
     OWNER TO :"insights_owner";
-REVOKE CREATE ON SCHEMA yoao_insights_v1 FROM :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.refresh_user_perf_daily() OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._task_view_project_scope(uuid,uuid,boolean) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._task_view_snapshot(public.project_task_views) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._lock_writable_task_view(uuid,uuid,uuid,boolean) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.list_saved_task_views(uuid,uuid,text) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.read_saved_task_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.create_saved_task_view(uuid,uuid,text,text,text,jsonb,jsonb,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.update_saved_task_view(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.delete_saved_task_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._dataset_view_snapshot(public.dataset_saved_views) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.list_personal_dataset_views(uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.has_personal_dataset_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.create_personal_dataset_view(uuid,uuid,text,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.update_personal_dataset_view(uuid,uuid,uuid,text,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.delete_personal_dataset_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+GRANT EXECUTE ON FUNCTION yoao_insights_v1.refresh_user_perf_daily() TO :"migration_role";
+REVOKE CREATE ON SCHEMA public, yoao_insights_v1 FROM :"insights_owner";
 
 GRANT CREATE ON SCHEMA yoao_diagnostics_v1 TO :"diagnostics_owner";
 ALTER FUNCTION yoao_diagnostics_v1.detach_project_references(uuid)

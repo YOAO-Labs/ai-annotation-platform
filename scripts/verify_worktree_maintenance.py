@@ -48,7 +48,12 @@ async def probe_database():
                 "SELECT password_hash FROM public.users LIMIT 0",
                 "UPDATE public.users SET name=name WHERE false",
                 "CREATE TABLE forbidden_probe (id int)",
-                "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_user_perf_daily",
+                "SELECT day FROM public.mv_user_perf_daily",
+                "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+                "SELECT yoao_insights_v1.refresh_user_perf_daily()",
+                "SELECT name FROM public.project_task_views",
+                "SELECT name FROM public.dataset_saved_views",
+                "CREATE TABLE yoao_insights_v1.forbidden_probe (id int)",
             ):
                 try:
                     await connection.execute(text(sql))
@@ -59,6 +64,15 @@ async def probe_database():
                         "The ordinary runtime role unexpectedly has maintenance privileges"
                     )
         async with owner.begin() as connection:
+            assert await connection.scalar(
+                text(
+                    "SELECT relation.relispopulated AND relation.relowner=function.proowner "
+                    "AND function.prosecdef AND function.pronargs=0 "
+                    "FROM pg_catalog.pg_class AS relation CROSS JOIN pg_catalog.pg_proc AS function "
+                    "WHERE relation.oid='public.mv_user_perf_daily'::regclass "
+                    "AND function.oid='yoao_insights_v1.refresh_user_perf_daily()'::regprocedure"
+                )
+            )
             await connection.execute(
                 text(
                     "CREATE TABLE public.audit_logs_y2001m01 PARTITION OF public.audit_logs "

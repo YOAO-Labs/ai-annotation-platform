@@ -1027,11 +1027,81 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.pending_storage_deletions_v2(
     yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
     TO :"asset_cleanup_role";
 
-DO $$
+DO $insights_private_acl$
+DECLARE
+    v_runtime pg_catalog.name := pg_catalog.current_setting('yoao.application_role');
+    v_owner pg_catalog.oid := (
+        SELECT proowner FROM pg_catalog.pg_proc
+        WHERE oid = 'yoao_insights_v1.clear_project_task_views(uuid)'::pg_catalog.regprocedure
+    );
+    v_relation text;
+    v_columns text;
+    v_private pg_catalog.regprocedure;
 BEGIN
-    EXECUTE format('ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I',
-                   current_setting('yoao.application_role'));
-END $$;
+    IF pg_catalog.pg_has_role(v_runtime, v_owner, 'MEMBER') OR (
+        SELECT proowner FROM pg_catalog.pg_proc
+        WHERE oid = 'yoao_insights_v1.refresh_user_perf_daily()'::pg_catalog.regprocedure
+    ) IS DISTINCT FROM v_owner THEN
+        RAISE EXCEPTION 'Insights storage must use its existing owner, never the runtime';
+    END IF;
+    REVOKE ALL ON SCHEMA yoao_insights_v1 FROM PUBLIC;
+    REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_insights_v1 FROM PUBLIC;
+    EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA yoao_insights_v1 FROM %I CASCADE', v_runtime);
+    IF pg_catalog.has_schema_privilege(v_runtime, 'yoao_insights_v1', 'CREATE') THEN
+        RAISE EXCEPTION 'The runtime can create in the Insights owner schema';
+    END IF;
+    FOREACH v_relation IN ARRAY ARRAY[
+        'public.mv_user_perf_daily', 'public.project_task_views', 'public.dataset_saved_views'
+    ] LOOP
+        IF (SELECT relowner FROM pg_catalog.pg_class
+            WHERE oid = v_relation::pg_catalog.regclass) IS DISTINCT FROM v_owner THEN
+            RAISE EXCEPTION 'Unexpected Insights storage owner on %; apply the ownership migration', v_relation;
+        END IF;
+        SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
+        INTO STRICT v_columns
+        FROM pg_catalog.pg_attribute AS attribute
+        WHERE attribute.attrelid = v_relation::pg_catalog.regclass
+          AND attribute.attnum > 0 AND NOT attribute.attisdropped;
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC CASCADE',
+            v_relation, v_runtime);
+        EXECUTE pg_catalog.format('REVOKE ALL (%s) ON TABLE %s FROM %I, PUBLIC CASCADE',
+            v_columns, v_relation, v_runtime);
+        IF pg_catalog.has_table_privilege(v_runtime, v_relation, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(v_runtime, v_relation, 'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'The runtime still has direct Insights storage access on %', v_relation;
+        END IF;
+    END LOOP;
+    FOREACH v_private IN ARRAY ARRAY[
+        'yoao_insights_v1.refresh_user_perf_daily()',
+        'yoao_insights_v1.clear_project_task_views(uuid)',
+        'yoao_insights_v1._task_view_project_scope(uuid,uuid,boolean)',
+        'yoao_insights_v1._task_view_snapshot(public.project_task_views)',
+        'yoao_insights_v1._lock_writable_task_view(uuid,uuid,uuid,boolean)',
+        'yoao_insights_v1._dataset_view_snapshot(public.dataset_saved_views)'
+    ]::pg_catalog.regprocedure[] LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I CASCADE', v_private, v_runtime);
+        IF pg_catalog.has_function_privilege(v_runtime, v_private, 'EXECUTE') THEN
+            RAISE EXCEPTION 'The runtime has an inherited Insights function grant on %', v_private;
+        END IF;
+    END LOOP;
+END;
+$insights_private_acl$;
+
+GRANT USAGE ON SCHEMA yoao_insights_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    yoao_insights_v1.list_saved_task_views(uuid,uuid,text),
+    yoao_insights_v1.read_saved_task_view(uuid,uuid,uuid),
+    yoao_insights_v1.create_saved_task_view(uuid,uuid,text,text,text,jsonb,jsonb,jsonb),
+    yoao_insights_v1.update_saved_task_view(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb),
+    yoao_insights_v1.delete_saved_task_view(uuid,uuid,uuid),
+    yoao_insights_v1.list_personal_dataset_views(uuid,uuid),
+    yoao_insights_v1.has_personal_dataset_view(uuid,uuid,uuid),
+    yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid),
+    yoao_insights_v1.create_personal_dataset_view(uuid,uuid,text,jsonb),
+    yoao_insights_v1.update_personal_dataset_view(uuid,uuid,uuid,text,jsonb),
+    yoao_insights_v1.delete_personal_dataset_view(uuid,uuid,uuid)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION yoao_insights_v1.refresh_user_perf_daily() TO :"application_role";
 
 REVOKE INSERT, UPDATE, DELETE ON TABLE public.alembic_version FROM :"application_role";
 REVOKE DELETE ON TABLE public.gpu_backend_memberships, public.gpu_backend_fences

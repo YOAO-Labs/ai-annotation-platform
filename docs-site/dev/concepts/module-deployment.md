@@ -1516,6 +1516,24 @@ Node、排序锁等待、缓存与时间字段、精确授权和异常回复回�
 
 Node 仅提供本地单命令 transport conformance；Native 继续持有业务策略。此结果不代表整个 Workspace、完整业务语言替换、独立数据库、全部 namespace 或生产容量已完成，也不继承旧完整默认门的通过状态。当前阶段不要求 schema downgrade；事务回滚与当前库恢复仍是必验项。其余能力与完整组合资格按本页台账跟踪。详见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer) 与 [Workspace 运行指南](/api/guides/workspace-runtime)。
 
+## Insights 保存视图与绩效维护
+
+项目筛选视图和个人数据集视图由 `yoao_insights_v1` 的定参能力维护。API 仍负责原认证、
+API Key scope 和筛选校验；写入在调用方事务内按项目当前权限或数据集与账号范围限定，
+不会把已保存的查询当成新的素材访问授权。个人视图创建保留 Assets 数据集行锁和 100 项
+上限；项目或数据集删除继续沿用原外键清理。过滤测试夹具调用同一个创建能力。
+
+`bo0487` 原地收回 `public.mv_user_perf_daily` 的旧运行角色所有权，保留原数据、定义、
+填充状态及三项索引。迁移模式沿用既有 Insights 代码 owner，模块授权脚本将三个存储对象
+与能力一起交给 NOLOGIN Insights owner，不保留运行角色的表或列权限。维护任务按原 UTC
+每小时第 5 分钟调用无参 `yoao_insights_v1.refresh_user_perf_daily()` 做并发刷新。刷新
+owner 只从 Labeling 已发布的 TaskEvent 关系读取聚合所需七列，不读取 TaskEvent 私表。
+当前 API 效率与 DuckDB 同步已直接使用 Labeling 的公开事实，没有活跃的 MV 查询消费者。
+
+LAN 的 `maintenance` 队列仍由原共享登录的维护 worker 消费，获得刷新执行权而不取得
+视图所有权或 DDL 权限；分离维护连接的 worktree 不向普通连接开放刷新。独立功能专用
+角色不继承 Insights owner，也不自动获得此执行权。
+
 ## Workspace 模板查询
 
 模板、项目和成员目录都在 API 原事务内读取。`yoao_workspace_template_query_client`、`yoao_workspace_project_query_client` 和 `yoao_workspace_directory_query_client` 保留供独立包一致性验证，不用作 API DSN。来自旧 namespace 的数据库仍须满足原迁移围栏：停止旧读者接入、关闭三个旧 LOGIN 并排空已建立的连接；仅改密码不会断开连接。旧凭据不作为备用入口。
@@ -3504,10 +3522,9 @@ Torch；116 项安装包测试通过。资格记录为
 已经清理。原始记录位于 `.worktree/labeling-native-current-owner-image-artifact.json`。
 这只关闭当前 owner 工件资格，尚未执行当前冷 API／worker 的跨进程真实消费或故障恢复。
 
-当前权限复核发现月度 `PredictionPartitionService.ensure_future_partitions` 仍直接执行
-分区 DDL，普通运行角色还持有预测分区树所有权与兼容宽 ACL。该操作属于 Labeling，
-在集中验收前由现有 owner 承接；`mv_user_perf_daily` 的既有刷新属于独立 Insights 例外，
-不与预测分区一起移交。别名频率和栅格 Mask 指标的旧表读取已改为既有公开关系，筛选、
+集中验收前的权限复核发现月度 `PredictionPartitionService.ensure_future_partitions`
+仍直接执行分区 DDL，普通运行角色当时还持有预测分区树所有权与兼容宽 ACL。该操作属于
+Labeling；同期的效率视图刷新属于独立 Insights 维护路径。别名频率和栅格 Mask 指标的旧表读取已改为既有公开关系，筛选、
 项目范围与指标失败回滚保持。暂缓的模型谱系和种子路径继续单列，不提前全局撤权。
 
 准备期 API 镜像已验证 2,360 项构建输入、757 项安装包资源和 1,539 项 API／迁移文件；
@@ -3525,9 +3542,9 @@ ACL、owner 和设置；SQL 静态检查通过，数据库恢复尚未执行。
 worker 和预测账号的精确三函数配置。调用方只提交 UTC 月份，不能提供 SQL、表名或
 schema；owner 校验目标确为预测分区后才返回，保持原月份范围、事务及返回名称行为。
 common owner grants 将预测父表及现有分区树交给 NOLOGIN Labeling owner，并仅为该
-owner 的固定维护开放 public schema CREATE；普通 LOGIN 仍不继承 owner。LAN 不再
-把预测分区树所有权交回普通 API，Insights MV 的既有维护所有权单独保留，兼容表 ACL
-没有全局撤销。函数体、合同、安装清单、恢复选择和普通运行允许项均已登记。
+owner 的固定维护开放 public schema CREATE；普通 LOGIN 仍不继承 owner。LAN 不再把预测
+分区树所有权交回普通 API。该轮尚未切换 Insights 的既有刷新所有权，也未全局撤销兼容表 ACL。
+函数体、合同、安装清单、恢复选择和普通运行允许项均已登记。
 
 父线 31 项基础检查通过，0357 SQL／PLpgSQL 和包内副本核对通过；新的原生案例保存了
 分区创建、幂等、事务回滚、同名非分区拒绝及调用方原始 DDL 拒绝。这里尚未执行数据库
@@ -3648,11 +3665,10 @@ video writer 的 268 项安装文件均与来源一致；这些安装与离线�
 四项过期状态／缺失行检查通过。修正后的冷 API 和完整恢复已通过下述定点复验；
 Assets reset 维护调用与完整运维边界仍未闭合，整模块资格继续开放。
 
-效率物化视图现通过 `yoao_labeling_v1.task_event_facts` 读取既有字段，保持原十列聚合
-和三项索引。替换前保存所有者及显式授权，重建时先清除创建角色的额外默认授权，
-以迁移身份刷新后恢复所有者并重放有效授权；回退使用相同顺序。当前配置只有所有者
-授权；若环境另有自定义授权，保留被授权者、权限及 grant option，但不承诺保留历史
-grantor 身份。没有重新开放 TaskEvent 私表读取，普通角色刷新及完整恢复已通过限定实测。
+0365 将效率物化视图改为通过 `yoao_labeling_v1.task_event_facts` 读取既有字段，保持
+原十列聚合和三项索引。该历史迁移重建时保留当时对象所有者与授权，回退使用相同顺序。
+其限定实测验证的是当时普通角色仍为视图 owner 的刷新路径，且不开放 TaskEvent 私表读取；
+现行 owner 与能力以本页 Insights 保存视图与绩效维护一节为准。
 
 本轮规范收据为 `.worktree/labeling-0365-runtime-qualification.json`，SHA-256
 `ff4e730523cfdc842cb1e1bdac59ba68eb266c3b222ac71d372b8865989a1513`。

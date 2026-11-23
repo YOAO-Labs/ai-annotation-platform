@@ -122,7 +122,8 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml run --r
 -v asset_cleanup_role=yoao_asset_cleanup_client
 ```
 
-每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，授予业务 DML，禁止运行角色修改迁移版本或删除 GPU membership/fence 真值；同时把审计、预测父表及全部子分区、两个统计物化视图交给运行角色维护。
+每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，为应用授权已发布的操作，
+不把 `mv_user_perf_daily`、`project_task_views` 或 `dataset_saved_views` 交给运行角色。
 
 Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固定公开关系与 Native 命令能力。
 应用角色必须没有角色成员资格；`NOINHERIT` 不能阻止 `SET ROLE`。PUBLIC 或所有权仍提供
@@ -135,9 +136,9 @@ Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固
 迁移后须重应用此 profile，而不是给应用角色补私表权限或迁移 owner 凭据。
 来源写入的生命周期和来源保护状态通过有限事务投影读取，行锁仍由原调用方事务持有。
 
-`celery-worker-maintenance` 专门消费 `maintenance` 队列，沿用下面限定维护对象的运行角色权限，不挂载迁移账号 secret。
-
-**运行角色并非纯 DML 账号**：现有月分区任务需要 CREATE/DROP 子分区，PostgreSQL 的统计刷新需要视图所有权和数据库 TEMPORARY 权限。因此它拥有上述限定维护对象及 `public` schema CREATE 权限；其余业务对象仍由迁移角色所有。迁移角色单向继承运行角色，运行角色不能反过来成为迁移角色，也没有集群管理权限。
+`celery-worker-maintenance` 专门消费 `maintenance` 队列，不挂载迁移账号 secret。
+Insights 效率视图的并发刷新通过无参 `yoao_insights_v1.refresh_user_perf_daily()` 执行，
+LAN 现有共享登录只获该函数执行权，不可读写效率视图或在 Insights schema 创建对象。
 
 启动常驻服务：
 

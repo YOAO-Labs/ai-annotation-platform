@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.tasks import (
@@ -13,7 +12,6 @@ from app.api.v1.tasks import (
     _task_with_url,
 )
 from app.deps import get_current_user, get_db
-from app.db.models.project_task_view import ProjectTaskView
 from yoao_workspace_contract.access import ProjectAccess
 from app.services.project_access import resolve_project_access_by_id
 from app.schemas.task_view import (
@@ -44,6 +42,7 @@ from app.services.data_management.views import (
 )
 from app.services.user_brief import resolve_briefs
 from app.services.identity_contracts import IdentityActorFacts
+from app.services.insights_saved_views import SavedTaskView
 
 router = APIRouter()
 
@@ -52,7 +51,7 @@ def _can_manage_project(access: ProjectAccess) -> bool:
     return access.is_manager
 
 
-def _assert_can_write_view(access: ProjectAccess, view: ProjectTaskView) -> None:
+def _assert_can_write_view(access: ProjectAccess, view: SavedTaskView) -> None:
     if view.visibility == "private":
         if view.owner_id == access.user_id or access.is_super_admin:
             return
@@ -71,18 +70,8 @@ def _sort_to_json(payload) -> list[dict]:
     ]
 
 
-async def _commit_or_duplicate(db: AsyncSession) -> None:
-    try:
-        await db.commit()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409, detail="Task view name already exists"
-        ) from exc
-
-
 def _view_out(
-    view: ProjectTaskView,
+    view: SavedTaskView,
     task_count: int | None = None,
     invalid_fields: list[str] | None = None,
 ) -> ProjectTaskViewOut:
@@ -227,7 +216,7 @@ async def create_task_view(
         status_code=201,
         detail={"project_id": str(project_id), "visibility": view.visibility},
     )
-    await _commit_or_duplicate(db)
+    await db.commit()
     return _view_out(view)
 
 
@@ -299,6 +288,7 @@ async def update_task_view(
         )
     view = await svc.update_view(
         view,
+        actor_id=user.id,
         name=payload.name,
         visibility=payload.visibility,
         filter_json=payload.filter_json,
@@ -318,7 +308,7 @@ async def update_task_view(
         status_code=200,
         detail={"project_id": str(project_id), "visibility": view.visibility},
     )
-    await _commit_or_duplicate(db)
+    await db.commit()
     return _view_out(view)
 
 
@@ -330,7 +320,7 @@ async def delete_task_view(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ):
-    project, access = await resolve_project_access_by_id(
+    _, access = await resolve_project_access_by_id(
         db, actor_id=user.id, project_id=project_id
     )
     svc = TaskViewService(db)
@@ -346,7 +336,7 @@ async def delete_task_view(
         status_code=204,
         detail={"project_id": str(project_id), "deleted": True},
     )
-    await svc.delete_view(view)
+    await svc.delete_view(view, user.id)
     await db.commit()
     return None
 
@@ -395,7 +385,7 @@ async def copy_task_view(
         status_code=201,
         detail={"project_id": str(project_id), "copied_from": str(source.id)},
     )
-    await _commit_or_duplicate(db)
+    await db.commit()
     return _view_out(view)
 
 
