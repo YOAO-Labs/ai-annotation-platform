@@ -251,6 +251,95 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 },
             )
 
+    def test_fast_native_fixture_guards_and_audit_migration_profile_routing(self):
+        ordinary_guards = (
+            "tests/test_jobs_fixture_cleanup_native.py",
+            "tests/test_jobs_fixture_media_publication_native.py",
+            "tests/test_fixture_export_owner_native.py",
+        )
+        migration_guard = "tests/test_fixture_audit_migration.py"
+        selected = (*ordinary_guards, migration_guard)
+        self.assertTrue(set(selected) <= set(TEST_FILES))
+        self.assertEqual(
+            _STRICT_PROFILE_TARGETS.get(migration_guard), "fixture-audit-migration"
+        )
+        for target in ordinary_guards:
+            self.assertNotIn(target, _STRICT_PROFILE_TARGETS)
+
+        collected = {
+            "tests/test_jobs_fixture_cleanup_native.py": [
+                "tests/test_jobs_fixture_cleanup_native.py::test_cleanup"
+            ],
+            "tests/test_jobs_fixture_media_publication_native.py": [
+                "tests/test_jobs_fixture_media_publication_native.py::test_publication"
+            ],
+            "tests/test_fixture_export_owner_native.py": [
+                "tests/test_fixture_export_owner_native.py::test_export_owner"
+            ],
+            "tests/test_fixture_audit_migration.py": [
+                "tests/test_fixture_audit_migration.py::test_audit_receipt_forward_migration[legacy-audit]",
+                "tests/test_fixture_audit_migration.py::test_audit_receipt_forward_migration[empty-audit]",
+            ],
+        }
+        invocations = {}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "acceptance.json"
+            args = _arguments(["--output", str(output)])
+
+            def profile_run(argv, *, collect_only=False, partition_default=True):
+                receipt = Path(argv[1])
+                manifest = receipt.with_suffix(".collection.json")
+                if collect_only:
+                    manifest.write_text(
+                        json.dumps(
+                            [node for nodes in collected.values() for node in nodes]
+                        )
+                    )
+                    return 0
+                selection = tuple(argv[3::2])
+                invocations[receipt.stem] = selection
+                actual = [node for target in selection for node in collected[target]]
+                manifest.write_text(json.dumps(actual))
+                receipt.write_text(
+                    json.dumps(
+                        {
+                            "status": "passed",
+                            "test_exit_code": 0,
+                            "cleanup": {"errors": []},
+                        }
+                    )
+                )
+                suite = ET.Element("testsuite", tests=str(len(actual)))
+                for node in actual:
+                    target, bracket, parameter = node.partition("[")
+                    path, *parts = target.split("::")
+                    ET.SubElement(
+                        suite,
+                        "testcase",
+                        classname=".".join(
+                            [path.removesuffix(".py").replace("/", "."), *parts[:-1]]
+                        ),
+                        name=parts[-1] + bracket + parameter,
+                    )
+                ET.ElementTree(suite).write(receipt.with_suffix(".junit.xml"))
+                return 0
+
+            with (
+                patch(
+                    "scripts.verify_module_data_boundary.main", side_effect=profile_run
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(_run_strict_default(args, selected), 0)
+
+            self.assertEqual(
+                invocations,
+                {
+                    "ordinary": ordinary_guards,
+                    "fixture-audit-migration": (migration_guard,),
+                },
+            )
+
     def test_default_interruption_cannot_leave_a_prior_pass(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "acceptance.json"

@@ -843,6 +843,11 @@ async def verify_retired(instance, resources, engine, owner_path):
         == {**instance["generation"], "state": "closed"},
         "authority_generation_not_closed",
     )
+    require(
+        not os.path.lexists(instance["directory"] / "playback.sock")
+        and not os.path.lexists(instance["directory"] / "playback-control.json"),
+        "playback_control_not_retired",
+    )
     _verify_run_receipts(instance["directory"], suite, [str(run)])
     native = _private(instance["native_path"])
     require(

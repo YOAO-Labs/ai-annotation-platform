@@ -30,9 +30,9 @@
     },
     "current_base": {
       "branch": "feat/backend-opt",
-      "commit": "2218cdc2eb469476911a55b6b0707f5da15748cd",
-      "origin_feat_backend_opt_at_mapping": "ef8d3b2df2185a09491bc6f10f8ab2c576675fdb",
-      "commits_ahead_of_origin": 16,
+      "commit": "4c2912fab47351a75ae7d7039bcf178543e8a775",
+      "origin_feat_backend_opt_at_mapping": "a63e999a367e77353c3464dd76523dfb08c47152",
+      "commits_ahead_of_origin": 1,
       "deduplication_applied": {
         "file": "scripts/verify_module_data_boundary.py",
         "removed_duplicate_selector": "tests/test_notification_delivery_scope.py",
@@ -45,24 +45,24 @@
   "current_collection": {
     "mode": "Read-only pytest --collect-only via CollectionManifest over scripts.verify_module_data_boundary.TEST_FILES; no test execution.",
     "exit_code": 0,
-    "selectors_total": 434,
-    "selectors_unique": 434,
-    "distinct_test_files": 427,
+    "selectors_total": 438,
+    "selectors_unique": 438,
+    "distinct_test_files": 431,
     "duplicate_selectors": 0,
-    "collected_nodes": 3310,
-    "collected_unique_nodes": 3310,
+    "collected_nodes": 3323,
+    "collected_unique_nodes": 3323,
     "duplicate_nodes": 0,
     "unmatched_nodes": 0,
     "zero_node_selectors": 0,
-    "profiles_total": 30,
+    "profiles_total": 31,
     "ordinary_profile": {
-      "selector_count": 403,
-      "collected_nodes": 3213
+      "selector_count": 406,
+      "collected_nodes": 3224
     },
     "isolated_profiles_summary": {
-      "profile_count": 29,
-      "selector_count": 31,
-      "collected_nodes": 97
+      "profile_count": 30,
+      "selector_count": 32,
+      "collected_nodes": 99
     },
     "selector_overlap_notes": [
       {
@@ -77,14 +77,16 @@
   },
   "profile_routing": {
     "ordinary": {
-      "selector_count": 403,
-      "collected_nodes": 3213,
+      "selector_count": 406,
+      "collected_nodes": 3224,
       "selectors": [
         "tests/test_video_frame_service.py",
         "tests/test_video_control_worker_binding.py",
         "tests/test_video_derivative_seeds.py::test_request_ownership_marker_cannot_be_supplied_by_caller",
         "tests/test_video_derivative_seeds.py::test_fixture_video_publication_proof_uses_private_postgres_state",
         "tests/test_jobs_fixture_cleanup_binding.py",
+        "tests/test_jobs_fixture_cleanup_native.py",
+        "tests/test_jobs_fixture_media_publication_native.py",
         "tests/test_predictions_import.py::test_owned_prediction_import_cleanup",
         "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof",
         "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof_rejects",
@@ -97,6 +99,7 @@
         "tests/test_labeling_core_read_native.py",
         "tests/test_labeling_export_core_locks_native.py",
         "tests/test_image_export_scope_native.py",
+        "tests/test_fixture_export_owner_native.py",
         "tests/test_labeling_mask_quality_native.py",
         "tests/test_labeling_spatial_quality_native.py",
         "tests/test_labeling_task_maintenance_native.py",
@@ -496,6 +499,11 @@
         "collected_nodes": 1,
         "selectors": ["tests/test_fixture_auxiliary_retirement.py"]
       },
+      "fixture-audit-migration": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_fixture_audit_migration.py"]
+      },
       "audit-maintenance-native": {
         "selector_count": 1,
         "collected_nodes": 2,
@@ -726,6 +734,34 @@
         "profile": "reclaim-version-delete",
         "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
         "reason": "Managed-original reclamation isolated profile (empty-DB requirement)."
+      },
+      {
+        "selector": "tests/test_jobs_fixture_cleanup_native.py",
+        "profile": "ordinary",
+        "test_introduced_commit": "9873647a4a8ba5dc3da3310fbb0f2ea7c9149b28",
+        "selection_issue": "#189",
+        "reason": "Fast native Jobs fixture cleanup ownership, rollback-only workspace guard, and non-test DB rejection contracts."
+      },
+      {
+        "selector": "tests/test_jobs_fixture_media_publication_native.py",
+        "profile": "ordinary",
+        "test_introduced_commit": "05bb30bd2bc946627a8a99039e6b1ca49f132f57",
+        "selection_issue": "#189",
+        "reason": "Fast native fixture media publication settlement boundary."
+      },
+      {
+        "selector": "tests/test_fixture_export_owner_native.py",
+        "profile": "ordinary",
+        "test_introduced_commit": "9222592619b4124d17c6dc67ebc0f3ed62b639b3",
+        "selection_issue": "#189",
+        "reason": "Fast native fixture export receipt private-owner boundary."
+      },
+      {
+        "selector": "tests/test_fixture_audit_migration.py",
+        "profile": "fixture-audit-migration",
+        "test_introduced_commit": "859e7af699364f76c8ce40aafab88b40f32a509d",
+        "selection_issue": "#189",
+        "reason": "Fast native audit receipt forward-migration guard routed to isolated fixture-audit-migration profile because it creates standalone migration databases."
       }
     ],
     "profile_routing_changes": [
@@ -890,7 +926,7 @@
   "issue_189_t2_shared_receipt_boundary": {
     "issue": "#189",
     "policy": "T2 cross-run cleanup and neighbor protection shares receipts with T1 during any maintainer-approved formal default run on one frozen candidate: do not duplicate execution, do not cross-sign across different candidates, and do not resurrect retired screenshot/recording fixtures to match the historical 44-node count.",
-    "parallel_pr_coordination": "Parallel #189 work adds 4 fast native fixture tests to TEST_FILES; scripts/test_module_data_selection.py therefore enforces structural invariants (no duplicates, existing paths, profile subset, no retired selectors) instead of hard-coding len(TEST_FILES) == 434.",
+    "combined_baseline_alignment": "Integrated with #190 on the same feat/backend-opt baseline: adds 4 fast native fixture guards (tests/test_jobs_fixture_cleanup_native.py, tests/test_jobs_fixture_media_publication_native.py, tests/test_fixture_export_owner_native.py, and tests/test_fixture_audit_migration.py routed to isolated fixture-audit-migration) while scripts/test_module_data_selection.py enforces structural invariants instead of hard-coding len(TEST_FILES).",
     "active_t2_related_selectors_in_current_default": [
       {
         "selector": "tests/test_identity_e2e_live.py",
@@ -909,6 +945,30 @@
         "profile": "fixture-auxiliary-retirement",
         "collected_nodes": 1,
         "historical_t2_role": "auxiliary_original_retirement"
+      },
+      {
+        "selector": "tests/test_fixture_audit_migration.py",
+        "profile": "fixture-audit-migration",
+        "collected_nodes": 2,
+        "historical_t2_role": "fixture_audit_receipt_forward_migration_guard"
+      },
+      {
+        "selector": "tests/test_jobs_fixture_cleanup_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 9,
+        "historical_t2_role": "jobs_fixture_cleanup_owner_and_rollback_guards"
+      },
+      {
+        "selector": "tests/test_jobs_fixture_media_publication_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 1,
+        "historical_t2_role": "jobs_fixture_media_publication_settlement_guard"
+      },
+      {
+        "selector": "tests/test_fixture_export_owner_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 1,
+        "historical_t2_role": "fixture_export_receipt_owner_guard"
       },
       {
         "selector": "tests/test_identity_e2e_native.py",
