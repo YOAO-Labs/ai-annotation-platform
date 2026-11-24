@@ -16,7 +16,6 @@ import traceback
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
-from yoao_jobs.publication_postgres import PUBLICATION_FUNCTIONS
 from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
@@ -55,16 +54,15 @@ from app.services.raster_mask_storage import (
 )
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.application import mask_repair_execution as worker
-from app.workers.jobs_dispatch import _verify_login
 from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 from tests._owned_s3 import patch_owned_client
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
     attach_managed,
     db_session as db_session,
-    managed_database,
     sync_world as sync_world,
 )
+from tests.mask_repair_publication import published_repair_database
 from tests.raster_mask_support import Objects
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_jobs_quality_queue_binding import _messages, media_queue as media_queue
@@ -109,47 +107,8 @@ def assert_reference(actual, rle):
 
 
 @pytest.fixture
-async def publication_login(test_engine):
-    role = f"mask_publication_{uuid.uuid4().hex}"
-    password = uuid.uuid4().hex
-    async with test_engine.begin() as owner:
-        await owner.exec_driver_sql(
-            f"CREATE ROLE {role} LOGIN NOINHERIT PASSWORD '{password}'"
-        )
-    try:
-        yield role, password
-    finally:
-        async with test_engine.begin() as owner:
-            await owner.exec_driver_sql(f"DROP ROLE {role}")
-
-
-@pytest.fixture
-async def input_world(test_engine, monkeypatch, publication_login):
-    role, password = publication_login
-    async with managed_database(test_engine.url) as engine:
-        database = engine.dialect.identifier_preparer.quote_identifier(
-            engine.url.database
-        )
-        functions = ", ".join(
-            f"yoao_jobs_v1.{name}({arguments})"
-            for name, arguments in sorted(PUBLICATION_FUNCTIONS)
-        )
-        async with engine.begin() as owner:
-            await owner.exec_driver_sql(
-                f"REVOKE TEMP ON DATABASE {database} FROM PUBLIC"
-            )
-            await owner.exec_driver_sql(
-                f"GRANT CONNECT ON DATABASE {database} TO {role}"
-            )
-            await owner.exec_driver_sql(f"GRANT USAGE ON SCHEMA yoao_jobs_v1 TO {role}")
-            await owner.exec_driver_sql(
-                f"GRANT EXECUTE ON FUNCTION {functions} TO {role}"
-            )
-        url = engine.url.set(drivername="postgresql", username=role, password=password)
-        dsn = url.render_as_string(hide_password=False)
-        await _verify_login(dsn, PUBLICATION_FUNCTIONS)
-        monkeypatch.setattr(settings, "jobs_publication_database_url", dsn)
-        monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+async def input_world(test_engine, monkeypatch):
+    async with published_repair_database(test_engine, monkeypatch) as engine:
         async with input_storage_world(engine, monkeypatch) as inputs:
             yield inputs
 
