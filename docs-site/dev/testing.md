@@ -46,6 +46,8 @@ pnpm dev:worktree -- exec --mode test -- \
 
 `Plugin SDK test dependency` 从 Actions 变量 `YOAO_SDK_MANIFEST` 指定的 URL 读取清单，用 `YOAO_SDK_MANIFEST_SHA256` 验证清单，再验证并分发 `yoao-backend-runtime` wheel。四个 API 分片与 `Python SDK tests` 使用同一次运行的制品。准备失败表示测试未执行，不是用例失败；非纯文档 PR 缺少任何成功分片，`Backend tests` 都不会通过。设置分支保护前，先在产品 PR 确认四份 `backend-test-results-*` 和 `python-sdk-test-results` 包含实际用例结果。
 
+工作树的运行、维护和资源隔离测试只运行一次，与四个 API 分片并行。工作树测试失败不会阻止 API 分片执行或上传 JUnit；在需要应用检查的 PR 上，`Backend tests` 要求工作树测试和四个分片都成功。
+
 ### 前端：Vitest + MSW (`apps/web`)
 
 <span id="常用命令-1" aria-hidden="true"></span>
@@ -62,6 +64,8 @@ pnpm dev:worktree -- exec --mode e2e -- \
 ```
 
 按 [E2E README](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/apps/web/e2e/README.md) 选择 spec、项目和专项启动器。独立构建产物验收不用开发服务器或浏览器注入状态代替。验证写入时先按方法、资源 ID 和路径捕获**实际**请求，再断言响应、持久状态和刷新恢复。
+
+CI 选中视频专项时，将 `video-pipeline-*` 分片排在通用 Chromium 分片前面；没有选中的视频测试不会因此加入。浏览器矩阵最多同时运行 11 个套件。
 
 `test:e2e:mask-native` 和 `test:e2e:mask-native-editor` 自行创建并监督隔离环境，直接从仓库根运行 `pnpm --filter web <脚本>`，不要套在 `dev:worktree exec` 内。
 
