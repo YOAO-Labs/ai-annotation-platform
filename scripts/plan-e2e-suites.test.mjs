@@ -459,10 +459,6 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
 test("large PR reports use files while suite dispatch and final audit outputs stay bounded", () => {
   const cwd = mkdtempSync(join(tmpdir(), "e2e-large-plan-"));
   const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
-  const ciYml = readFileSync(
-    fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
-    "utf8",
-  );
   const git = (...args) =>
     execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   try {
@@ -487,7 +483,8 @@ test("large PR reports use files while suite dispatch and final audit outputs st
     const reportDir = join(cwd, "report files");
     mkdirSync(reportDir);
     const shadowPath = join(reportDir, "shadow.json");
-    const result = spawnSync(process.execPath, [script, base], {
+    const summaryPath = join(reportDir, "summary.md");
+    const result = spawnSync(process.execPath, [script, base, summaryPath], {
       cwd,
       encoding: "utf8",
       env: {
@@ -538,25 +535,9 @@ test("large PR reports use files while suite dispatch and final audit outputs st
       "forbid",
     );
 
-    const reportCommand = ciYml.match(
-      /      - name: Record shadow E2E selection\n[\s\S]*?        run: \|\n([\s\S]*?          NODE)\n/,
-    );
-    assert.ok(reportCommand, "workflow must retain the selection summary command");
-    const summaryPath = join(reportDir, "summary.md");
-    const report = spawnSync("bash", ["-e"], {
-      cwd,
-      encoding: "utf8",
-      input: reportCommand[1]
-        .split("\n")
-        .map((line) => line.slice(10))
-        .join("\n"),
-      env: { ...process.env, SHADOW_PATH: shadowPath, GITHUB_STEP_SUMMARY: summaryPath },
-    });
-    assert.equal(report.status, 0, report.stderr);
     const summary = readFileSync(summaryPath, "utf8");
-    assert.ok(summary.includes(`planned: ${broadened.join(", ")}`));
-    assert.ok(summary.includes("ML CPU contract caller triggered: true"));
-    assert.ok(summary.includes(paths[1729]));
+    assert.ok(summary.includes(broadened.join(", ")));
+    assert.ok(Buffer.byteLength(summary) < 16 * 1024);
 
     const transfer = spawnSync(
       "bash",

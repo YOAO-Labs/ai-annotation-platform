@@ -33,6 +33,7 @@ repos:
         language: system
         files: ^apps/web/.+\.(ts|tsx|js|jsx)$
         pass_filenames: false
+        stages: [pre-commit]
 
       - id: tsc-web
         name: tsc --noEmit (apps/web)

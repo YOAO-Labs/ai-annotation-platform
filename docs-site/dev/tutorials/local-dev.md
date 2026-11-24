@@ -29,7 +29,7 @@ pnpm install
 
 # 2. 安装后端 Python 环境（含测试依赖）
 python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
-  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime
 cd apps/api
 uv sync --locked --extra test
 
@@ -55,7 +55,7 @@ docker compose up -d --wait postgres redis minio mailpit
 orca worktree create --name my-task --agent codex --setup skip --json
 cd /path/to/new-worktree
 python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
-  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime
 ORCA_ROOT_PATH="/path/to/source-checkout" ORCA_WORKTREE_PATH="$PWD" bash scripts/orca-worktree-setup.sh
 
 # 验证工作树 setup 脚本的软链接与隔离逻辑
