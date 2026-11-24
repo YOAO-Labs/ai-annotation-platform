@@ -6,7 +6,7 @@ original/object bytes and the ML transport are fixtures.
 """
 
 import asyncio
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
@@ -66,9 +66,8 @@ from tests.managed_image_inference_fixtures import (
     sync_world as sync_world,
 )
 from tests.raster_mask_support import Objects
-from tests.test_grant_namespace_security import _login
 from tests.test_interactive_native_mask_endpoint import _setup
-from tests.test_jobs_quality_queue_binding import _messages, media_queue
+from tests.test_jobs_quality_queue_binding import _messages, media_queue as media_queue
 from tests.test_managed_image_inference import httpx_client as httpx_client
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
@@ -110,11 +109,24 @@ def assert_reference(actual, rle):
 
 
 @pytest.fixture
-async def input_world(test_engine, monkeypatch):
-    async with (
-        managed_database(test_engine.url) as engine,
-        _login(engine, "mask_publication") as (role, password),
-    ):
+async def publication_login(test_engine):
+    role = f"mask_publication_{uuid.uuid4().hex}"
+    password = uuid.uuid4().hex
+    async with test_engine.begin() as owner:
+        await owner.exec_driver_sql(
+            f"CREATE ROLE {role} LOGIN NOINHERIT PASSWORD '{password}'"
+        )
+    try:
+        yield role, password
+    finally:
+        async with test_engine.begin() as owner:
+            await owner.exec_driver_sql(f"DROP ROLE {role}")
+
+
+@pytest.fixture
+async def input_world(test_engine, monkeypatch, publication_login):
+    role, password = publication_login
+    async with managed_database(test_engine.url) as engine:
         database = engine.dialect.identifier_preparer.quote_identifier(
             engine.url.database
         )
@@ -143,7 +155,9 @@ async def input_world(test_engine, monkeypatch):
 
 
 @pytest.fixture
-async def repair_world(db_session, sync_world, super_admin, monkeypatch, request):
+async def repair_world(
+    db_session, sync_world, super_admin, monkeypatch, request, media_queue
+):
     blobs = Objects()
     patch_owned_client(monkeypatch, blobs.client)
     from app.services.storage import storage_service
@@ -202,6 +216,7 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         factory=sync_world.factory,
         sources=sync_world,
         inputs=sync_world.inputs,
+        queue=media_queue,
         actor_id=actor.id,
         task_id=task.id,
         project_id=project.id,
@@ -322,8 +337,7 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         lambda _db: Execution(),
     )
     try:
-        with contextmanager(media_queue.__wrapped__)(monkeypatch) as w.queue:
-            yield w
+        yield w
     finally:
         if not w.expect_unsettled:
             await assert_inputs_retired(
