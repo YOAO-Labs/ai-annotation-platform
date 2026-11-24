@@ -386,7 +386,7 @@ jobs:
           uv tool run --from pre-commit==4.6.1 pre-commit run "${scope[@]}" --hook-stage manual --show-diff-on-failure
       - name: Repository Node script tests
         if: needs.e2e-plan.outputs.docs-only != 'true'
-        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs docs-site/scripts/*.test.mjs
+        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs
       - name: Check Python SDK documentation snippets
         if: needs.e2e-plan.outputs.docs-only == 'true'
         run: uv run --no-project --with pytest pytest --noconftest -q packages/python-sdk/tests/test_docs_snippets.py
@@ -398,22 +398,6 @@ jobs:
             BASE=$(git rev-parse HEAD^ 2>/dev/null || git hash-object -t tree /dev/null)
           fi
           node scripts/check-product-naming.mjs --base "$BASE"
-
-  docs-build:
-    name: Docs build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v4
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
-      - name: pnpm docs:build
-        env:
-          DOCS_BASE: /
-        run: pnpm docs:build
 
   e2e-plan:
     name: CI test planning

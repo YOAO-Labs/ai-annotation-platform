@@ -1,7 +1,0 @@
-.vitepress/cache
-.vitepress/dist
-node_modules
-public/openapi.json
-
-public/llms.txt
-public/llms-full.txt

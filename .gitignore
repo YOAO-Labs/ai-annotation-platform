@@ -31,11 +31,7 @@ test-results/
 .pytest_cache/
 .ruff_cache/
 
-docs-site/dev/adr/
-docs-site/public/dev/adr/evidence/
-
-docs-site/changelog/
-docs-site/roadmap/
+docs-site/
 
 data/duckdb/
 apps/api/data/duckdb/

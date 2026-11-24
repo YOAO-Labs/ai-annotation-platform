@@ -32,7 +32,6 @@ apps/web/node_modules/
 config/
 data/
 docs/
-docs-site/
 output/
 outputs/
 **/test-results/
