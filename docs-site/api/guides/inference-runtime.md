@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-11-23
+last_reviewed: 2026-11-24
 ---
 
 # Inference 私有运行配置

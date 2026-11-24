@@ -79,7 +79,7 @@ last_reviewed: 2026-11-24
 - **进程与内核隔离**：`Privileged=false`、私有 PID 命名空间（`PidMode=""`）、`--cap-drop ALL`、`CapAdd` 为空、`Devices` 为空、`--security-opt no-new-privileges`，以及显式内存与 CPU 上限。
 - **网络与端口**：必须使用显式非 `host` Docker 网络，仅暴露声明的单个 `host_port:container_port/tcp` 端口映射。
 - **精确挂载**：仅挂载可写数据目录（`data_dir -> /var/lib/yoao-plugin`）；CUDA 额外在可写数据目录之上以只读方式叠挂 `data/gpu-keyring.json -> /var/lib/yoao-plugin/gpu-keyring.json`，并以只读方式挂载资格报告到 `/var/lib/yoao-plugin-qualification/report.json`。禁止任何 `docker.sock` 或含逗号路径挂载。
-- **运行时环境变量**：容器统一注入 `YOAO_PLUGIN_*`（令牌文件、设备、Registry ID、数据目录、资产来源、图片主机及资格元数据）、`ROUTE_CONTROL_TOKEN_FILE` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 与 `AAP_ROUTE_REGISTRY_ID` 任一非空时由 `yoao-protocol-v2` 拒绝启动）。旧版 `aap.*` 容器标签与 `AAP_PLUGIN_*` 镜像不设双名兼容，须部署匹配版本的 `Plugin-SDK` 与 `YOAO-Plugins` 制品。
+- **运行时环境变量**：容器统一注入 `YOAO_PLUGIN_*`（令牌文件、设备、Registry ID、数据目录、资产来源、图片主机及资格元数据）与 `ROUTE_CONTROL_TOKEN_FILE`；非 `libreyolo` 通用插件额外注入 `ROUTE_REGISTRY_ID`、`YOAO_PLUGIN_ID`、`YOAO_PLUGIN_VERSION`、`YOAO_PLUGIN_ASSET_MANIFEST_SHA256` 与 `YOAO_PLUGIN_MANAGED_MODEL_COMPATIBILITY`（旧名 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 与 `AAP_ROUTE_REGISTRY_ID` 任一非空时由 `yoao-protocol-v2` 拒绝启动）。旧版 `aap.*` 容器标签与 `AAP_PLUGIN_*` 镜像不设双名兼容，须部署匹配版本的 `Plugin-SDK` 与 `YOAO-Plugins` 制品。
 - **CPU 隔离**：所有 CPU 插件一律注入 `NVIDIA_VISIBLE_DEVICES=void` 与空的 `CUDA_VISIBLE_DEVICES`，不申请 GPU 设备，也不按插件名豁免。
 - **CUDA 隔离**：仅通过 `--gpus device=<physical_gpu_uuid>` 暴露单张物理卡，容器内逻辑设备固定为 `cuda:0`，不按宿主机 ordinal 猜测；公钥为 key ID 到 Ed25519 公钥的 unpadded base64url 映射，签发私钥不进入配置或状态目录。
 

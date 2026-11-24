@@ -34,7 +34,7 @@
 
 1. **写所有权归领域 owner**：
    - **Inference** 继续作为推理插件安装身份的唯一写入 owner（`public.ml_backend_registry.extra_params->'plugin'` 与 `yoao_inference_topology_v1`），不迁移到宿主表，不改动已有 GPU 围栏、路由代次与训练发布外键。
-   - **Notifications** 作为通知渠道安装/注册身份的唯一写入 owner，在 `yoao_notifications_v1` schema 下维护私有表（渠道表、用户地址绑定表、外部投递 outbox 表）。普通 API 与 worker 账号只持有 `yoao_notifications_v1.*` 固定 `SECURITY DEFINER` 函数的 `EXECUTE` 权限，不直读私表。数据库命名空间统一采用 `yoao_notifications_v1`（对齐 `bo0474` 命名切换），既有冻结的 `aap-*` v1 线协议标识保持不变；M3b 新引入的偏好 v2 线协议直接定为 `yoao-notification-preferences/v2`。
+   - **Notifications** 作为通知渠道安装/注册身份的唯一写入 owner，在 `yoao_notifications_v1` schema 下维护私有表（渠道表、用户地址绑定表、外部投递 outbox 表）。普通 API 与 worker 账号只持有 `yoao_notifications_v1.*` 固定 `SECURITY DEFINER` 函数的 `EXECUTE` 权限，不直读私表。数据库命名空间统一采用 `yoao_notifications_v1`（对齐 `bo0474` 命名切换），既有已冻结的 `aap-*` 线协议标识（含偏好 v1 与投递 v1/v2）保持不变；M3b 新引入的偏好 v2 线协议直接定为 `yoao-notification-preferences/v2`。
 2. **共享契约而非共享表**：跨扩展点复用同一套便携生命周期语义（四状态 `prepared` / `active` / `disabled` / `retired`、CAS `revision`、固定 `@sha256:` OCI 摘要引用、禁止宿主 API 挂载 Docker socket、停用/退役保留历史、直连档与安装档双轨接入）。
 3. **跨领域视图留待 M4a 只读聚合**：待三个及以上扩展点落地后，如超管界面需要“全部已安装扩展”总览，只通过聚合各 owner 只读投影实现，不引入第二写入权威。
 
@@ -69,7 +69,7 @@
   - `capabilities` 词表：必含 `"deliver"`，可选 `"verify_address"`。
 - **推理专属（`extension_point = "inference"`，未来下一主版本路径）**：
   - 原 `PluginManifest` 中仅服务推理的 `sdk_compatibility`、`models`、`pools`、`compute`（`device` / `gpu_memory_mb`）、`asset_manifest_sha256`、`managed_model_compatibility`、`allowed_asset_sources` 逻辑上归属推理能力专属块。
-  - **零破坏兼容规则**：M3 不修改现有 `apps/_shared/inference_contract/src/yoao_inference_contract/plugin.py` 中的 Inference v1 扁平清单与 `0388_inference_plugin_installation.sql`。读取 OCI 标签 `io.yoao.plugin.manifest` 时，若含 `manifest_schema: "yoao-extension-manifest/v1"` 则按 `extension_point` 分派；若无 `manifest_schema` 则走既有 Inference v1 解析路径。
+  - **零破坏兼容规则**：M3 不修改现有 `apps/_shared/inference_contract/src/yoao_inference_contract/plugin.py` 中的 Inference v1 扁平清单与 `apps/inference/src/yoao_inference/sql/0388_inference_plugin_installation.sql`。读取 OCI 标签 `io.yoao.plugin.manifest` 时，若含 `manifest_schema: "yoao-extension-manifest/v1"` 则按 `extension_point` 分派；若无 `manifest_schema` 则走既有 Inference v1 解析路径。
 
 ### 3. 通知渠道扩展点契约（`yoao-notification-channel/v1`）
 
@@ -80,7 +80,7 @@
 - **凭据存储与角色边界（明确单选）**：
   - 渠道 Bearer Token 在 `yoao_notifications_v1.notification_channels.auth_token_ciphertext` 中使用**专用失败关闭密钥 `NOTIFICATION_CHANNEL_ENCRYPTION_KEY`** 加密（参照 `apps/api/app/core/crypto.py:6-12` 独立 Fernet 密钥，**严禁复用 `settings.secret_key`**；未配置时拒绝注册或解密并返回 503）。
   - **不改动** `yoao_notification_publish_client`（既有 Redis 发布器账号不获得任何渠道表或函数权限，避免触发其失败关闭角色校验）。外部渠道投递使用独立数据库角色 `yoao_notification_channel_delivery_client`（仅持有 `claim_channel_deliveries`、`finish_channel_delivery` 及可见性复核函数权限）；`GET /setup` 与 `POST /verify-address` 仅由专门受控的管理/绑定能力打开对应单渠道令牌，不向普通 `application_role` 暴露批量读令牌接口。
-  - 渠道退役（`disabled -> retired`）时**不可逆清除 `auth_token_ciphertext = NULL`**，可选保留 `auth_token_sha256` 审计摘要（对齐 `0388_inference_plugin_installation.sql:235-237`）。
+  - 渠道退役（`disabled -> retired`）时**不可逆清除 `auth_token_ciphertext = NULL`**，可选保留 `auth_token_sha256` 审计摘要（对齐 `apps/inference/src/yoao_inference/sql/0388_inference_plugin_installation.sql:235-237`）。
 - **出网安全与抗 DNS 重绑定**：
   - 既有 `_validate_ml_backend_url`（`apps/api/app/schemas/ml_backend.py:17,35-49`）只拦四个 loopback 字面量，不足以防 SSRF/DNS 重绑定。通知渠道出网客户端必须复用 `apps/assets-source/src/yoao_assets_source/connectors/host_guard.py:114-191` 同款策略：
     - 拒绝 URL 中的 userinfo、query 与 fragment；默认要求 `https://`，仅在运维显式配置 `NOTIFICATION_CHANNEL_ALLOW_INSECURE_HTTP_HOSTS` / 主机白名单（用于本地隔离容器或受控私网直连）时允许 `http://`。
@@ -122,7 +122,7 @@
   - `external_channel_id_pattern`: `"^[a-z][a-z0-9_-]{1,31}$"`
   - `external_deliverable_types`: 明确列出允许外发的通知类型，**排除** `user.deactivation_requested`、`user.deactivation_completed`、内部迁移作业及未登记的 `feedback.reconcile_drift`。
 - `public.notification_preferences.channels` JSONB 保持既有顶层键 `in_app` / `toast` / `email` 不变，外部渠道开关统一存于嵌套对象 `channels -> 'external' -> <channel_id>`。
-- **协调升级至 `yoao-notification-preferences/v2`**（M3b 在同一变更波次同步更新 `preferences_contract.py`、`yoao_notifications_v1.preference_command`、`infra/docker/notification-preferences-grants.sql`、`apps/api/app/api/v1/notifications.py:34-58,211-214`、`packages/python-sdk/src/yoao/notification_models.py:45-65`、OpenAPI 快照、`apps/web/src/api/notifications.ts` 与 `apps/api/tests/test_notification_preference_commands.py:176-181`）：
+- **协调升级至 `yoao-notification-preferences/v2`**（M3b 在同一变更波次同步更新 `apps/notifications/src/yoao_notifications/preferences_contract.py`、`yoao_notifications_v1.preference_command`、`infra/docker/notification-preferences-grants.sql`、`apps/api/app/api/v1/notifications.py:34-58,211-214`、`packages/python-sdk/src/yoao/notification_models.py:45-65`、OpenAPI 快照、`apps/web/src/api/notifications.ts` 与 `apps/api/tests/test_notification_preference_commands.py:176-181`）：
   - `GET /notification-preferences` 在每条偏好上新增封闭字段 `external_channels: dict[str, bool]`，仅投影 `status IN ('active', 'disabled')` 的已登记渠道（**绝不暴露未核验的 `prepared` 渠道**），且非 `external_deliverable_types` 条目返回空对象 `{}`。
   - `PUT /notification-preferences` 允许只提交 `external_channels`（放宽 `in_app` / `toast` 至少必填其一的旧限制，要求 `in_app` / `toast` / `external_channels` 至少提供一项），并拒绝为非 `external_deliverable_types` 类型或 `prepared`/`retired` 渠道开启外部开关。
   - SQL 在单次 `UPDATE` 中先合并顶层 `in_app`/`toast` 再以 `jsonb_set(..., '{external}', COALESCE(channels->'external', '{}'::jsonb) || v_external_patch, true)` 合并外部键，确保混合请求与并发标签页互不覆盖。
@@ -140,7 +140,7 @@
 3. **`yoao_notifications_v1.notification_channel_deliveries`**（外部渠道持久 outbox 与投递历史表）：
    - `delivery_id uuid PRIMARY KEY`（同时作为 ADR-0025 幂等键），`operation_id uuid NOT NULL`（业务事件/作业幂等键），`notification_id uuid`（可空、无级联删除，支持 `in_app = false` 独立外发与站内信清理不删历史），`channel_id text NOT NULL REFERENCES yoao_notifications_v1.notification_channels(channel_id) ON DELETE RESTRICT`，`recipient_id uuid NOT NULL`，`notification_type text NOT NULL`，`target_type text NOT NULL`，`target_id uuid NOT NULL`，`project_id uuid`（可空），`task_id uuid`（可空，记录评论/反馈关联任务以便复核），`envelope_data jsonb NOT NULL`（已白名单脱敏，不含正文与外部地址），`state text NOT NULL CHECK (state IN ('pending', 'delivered', 'failed_permanent', 'failed_exhausted', 'skipped'))`，`attempt integer NOT NULL DEFAULT 0`，`max_attempts integer NOT NULL DEFAULT 6`，`available_at timestamptz NOT NULL`，`worker_id uuid`，`lease_id uuid`，`lease_expires_at timestamptz`，`last_reason text`，`provider_message_id text`，`created_at`，`finished_at timestamptz`。
    - **强幂等去重约束（覆盖 `in_app = false`）**：
-     - `UNIQUE (operation_id, recipient_id, channel_id, notification_type)`（对齐 `0241_deactivation_notifications.sql:23-24`，保证无论 `notification_id` 是否为空，同一业务事件/终态作业重试绝不生成第二条 `delivery_id`）。
+     - `UNIQUE (operation_id, recipient_id, channel_id, notification_type)`（对齐 `apps/api/alembic/sql/0241_deactivation_notifications.sql:23-24`，保证无论 `notification_id` 是否为空，同一业务事件/终态作业重试绝不生成第二条 `delivery_id`）。
      - 终态通知去重（`notify_terminal`）同步检查 `public.notifications` 与 `yoao_notifications_v1.notification_channel_deliveries`，避免 `in_app = false` 时重复入队。
    - **不快照 `recipient_address`**：投递前实时读取绑定表，解绑即时生效且历史表不滞留地址 PII。
 
@@ -189,7 +189,7 @@
 
 **密钥方案 B（复用 `settings.secret_key` 加密渠道令牌）**：`settings.secret_key` 在开发默认值为静态占位串且用于 JWT/HMAC 签名，混用会扩大密钥泄露爆炸半径并违背 `apps/api/app/core/crypto.py:6-12` 的独立失败关闭加密规范。否决。
 
-**偏好存储方案 B（把 `feishu_dm` 硬编码为 `preferences.policy.json` 与 SQL 固定键）**：每新增渠道都要改 SQL 迁移，违背插件化目标。采用 `channels -> 'external' -> <channel_id>` 动态受控命名空间并校验渠道表存在性，可零迁移支持任意已安装渠道。否决。
+**偏好存储方案 B（把 `feishu_dm` 硬编码为 `apps/notifications/src/yoao_notifications/preferences.policy.json` 与 SQL 固定键）**：每新增渠道都要改 SQL 迁移，违背插件化目标。采用 `channels -> 'external' -> <channel_id>` 动态受控命名空间并校验渠道表存在性，可零迁移支持任意已安装渠道。否决。
 
 ## Notes
 
