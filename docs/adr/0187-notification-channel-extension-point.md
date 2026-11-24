@@ -18,15 +18,15 @@
 
 本 ADR 在实施 M3b（平台侧）与 M3c（飞书插件侧）之前，冻结安装身份归属、跨扩展清单分层、以及通知渠道扩展点的协议、安全、数据模型与投递边界。
 
-| 决策问题        | 选项                                                                                                      | 主要卖点                                                                                                                                   | 主要劣势                                                                                                 |
-| --------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| 安装身份归属    | **A. 领域 owner 各自维护权威安装身份 + 共享便携契约（选用）**                                             | 保持 ADR-0186 单一写入 owner、调用方同事务原子性与按域凭据隔离；不破坏既有推理迁移与 GPU 围栏                                              | 跨扩展点全局列表需在 M4a 做只读聚合投影，不能直接查单表                                                  |
-| 安装身份归属    | B. 宿主级中心扩展注册表（单表 `plugin_installations`）                                                    | 跨领域统一列表与单一管理路由                                                                                                               | 破坏跨模块无私表读写约束，迫使重写 Inference 16 个冻结迁移或制造双写真值，且把不同安全域凭据集中到单表   |
-| 安装身份归属    | C. 宿主目录表 + 领域绑定表双写                                                                            | 兼顾统一目录与领域语义                                                                                                                     | 引入跨表分布式同步与崩溃漂移风险，且计划明确非目标“不建插件市场”                                         |
-| 清单分层        | **A. 通用核心信封 `yoao-extension-manifest/v1` + `extension` 能力专属块，保留 Inference v1 兼容（选用）** | 新扩展点无推理/GPU 污染，支持任意语言免 Plugin-SDK；不破坏 M1a/M1b 已验收推理镜像与收据                                                    | 过渡期存在 Inference v1 扁平清单与通用 v1 分层清单两套解析入口                                           |
-| 清单分层        | B. 原地重构 `PluginManifest` 并迁移所有推理插件与 SQL                                                     | 立即统一成单一 schema                                                                                                                      | 高风险重写冻结 SQL、SDK 与已构建 OCI 镜像，收益与风险失衡                                                |
-| 外部投递 Outbox | **A. Notifications 在 `yoao_notifications_v1` 下新增独立外部渠道表（选用）**                              | 与既有 Redis outbox 及 `yoao_notification_publish_client` 完全解耦；原生支持 `1 × N`、独立 `operation_id` 去重、删站内信保留历史与凭据隔离 | 需维护第二条 Notifications 投递巡检与专用数据库角色                                                      |
-| 外部投递 Outbox | B. 复用并改造 `public.notification_delivery_outbox`                                                       | 少建一张表                                                                                                                                 | 破坏单列 PK 与冻结的 `aap-notifications-delivery/v1\|v2` 契约，迫使 Redis 发布器接触外部 HTTP 凭据与出网 |
+| 决策问题        | 选项                                                                                                      | 主要卖点                                                                                                                                   | 主要劣势                                                                                                      |
+| --------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 安装身份归属    | **A. 领域 owner 各自维护权威安装身份 + 共享便携契约（选用）**                                             | 保持 ADR-0186 单一写入 owner、调用方同事务原子性与按域凭据隔离；不破坏既有推理迁移与 GPU 围栏                                              | 跨扩展点全局列表与后续前端插件市场（M5）需通过各 owner 只读投影聚合，不能直接查单表                           |
+| 安装身份归属    | B. 宿主级中心扩展注册表（单表 `plugin_installations`）                                                    | 跨领域统一列表与单一管理路由                                                                                                               | 破坏跨模块无私表读写约束，迫使重写 Inference 16 个冻结迁移或制造双写真值，且把不同安全域凭据集中到单表        |
+| 安装身份归属    | C. 宿主目录表 + 领域绑定表双写                                                                            | 兼顾统一目录与领域语义                                                                                                                     | 引入跨表分布式同步与崩溃漂移风险；后续前端插件市场（M5）可由各 owner 只读投影聚合，无需提前引入第二套写入权威 |
+| 清单分层        | **A. 通用核心信封 `yoao-extension-manifest/v1` + `extension` 能力专属块，保留 Inference v1 兼容（选用）** | 新扩展点无推理/GPU 污染，支持任意语言免 Plugin-SDK；不破坏 M1a/M1b 已验收推理镜像与收据                                                    | 过渡期存在 Inference v1 扁平清单与通用 v1 分层清单两套解析入口                                                |
+| 清单分层        | B. 原地重构 `PluginManifest` 并迁移所有推理插件与 SQL                                                     | 立即统一成单一 schema                                                                                                                      | 高风险重写冻结 SQL、SDK 与已构建 OCI 镜像，收益与风险失衡                                                     |
+| 外部投递 Outbox | **A. Notifications 在 `yoao_notifications_v1` 下新增独立外部渠道表（选用）**                              | 与既有 Redis outbox 及 `yoao_notification_publish_client` 完全解耦；原生支持 `1 × N`、独立 `operation_id` 去重、删站内信保留历史与凭据隔离 | 需维护第二条 Notifications 投递巡检与专用数据库角色                                                           |
+| 外部投递 Outbox | B. 复用并改造 `public.notification_delivery_outbox`                                                       | 少建一张表                                                                                                                                 | 破坏单列 PK 与冻结的 `aap-notifications-delivery/v1\|v2` 契约，迫使 Redis 发布器接触外部 HTTP 凭据与出网      |
 
 ## Decision
 
@@ -35,8 +35,9 @@
 1. **写所有权归领域 owner**：
    - **Inference** 继续作为推理插件安装身份的唯一写入 owner（`public.ml_backend_registry.extra_params->'plugin'` 与 `yoao_inference_topology_v1`），不迁移到宿主表，不改动已有 GPU 围栏、路由代次与训练发布外键。
    - **Notifications** 作为通知渠道安装/注册身份的唯一写入 owner，在 `yoao_notifications_v1` schema 下维护私有表（渠道表、用户地址绑定表、外部投递 outbox 表）。普通 API 与 worker 账号只持有 `yoao_notifications_v1.*` 固定 `SECURITY DEFINER` 函数的 `EXECUTE` 权限，不直读私表。数据库命名空间统一采用 `yoao_notifications_v1`（对齐 `bo0474` 命名切换），既有已冻结的 `aap-*` 线协议标识（含偏好 v1 与投递 v1/v2）保持不变；M3b 新引入的偏好 v2 线协议直接定为 `yoao-notification-preferences/v2`。
-2. **共享契约而非共享表**：跨扩展点复用同一套便携生命周期语义（四状态 `prepared` / `active` / `disabled` / `retired`、CAS `revision`、固定 `@sha256:` OCI 摘要引用、禁止宿主 API 挂载 Docker socket、停用/退役保留历史、直连档与安装档双轨接入）。
-3. **跨领域视图留待 M4a 只读聚合**：待三个及以上扩展点落地后，如超管界面需要“全部已安装扩展”总览，只通过聚合各 owner 只读投影实现，不引入第二写入权威。
+2. **共享契约而非共享表**：跨扩展点复用同一套便携生命周期语义（四状态 `prepared` / `active` / `disabled` / `retired`、CAS `revision`、固定 `@sha256:` OCI 摘要引用、禁止宿主 API 挂载 Docker socket、停用/退役保留历史、直连档与安装档双轨接入），并在安装/注册记录上统一记录平台权威的 **`source_tier`（`official` / `third_party`）**。
+   - **来源层级防伪造边界**：`source_tier` 只能由平台安装或注册边界写入，默认值为 `third_party`，**绝不采信镜像清单或插件 `/setup` 的自报值**；仅当超级管理员显式确认官方来源（或后续前端插件市场接入经签名／固定摘要核验的官方插件源目录）时才记为 `official`。`source_tier` 仅用于来源区分、审计与前端市场筛选展示，**不豁免**任何隔离、鉴权、SSRF 防护或载荷脱敏门禁。
+3. **跨领域视图服务于后续前端插件市场（M5）**：M3 先落地统一清单与第三方安全边界；后续前端插件市场（含官方源与第三方插件安装）通过聚合各领域 owner 暴露的只读安装投影直接读取 `plugin_id`、`version`、`extension_point`、`display_name`、`description`、`homepage`、`source_tier` 与 `status`，不引入第二写入权威。既有推理插件暂不改写 16 个冻结 SQL 迁移，进入 M5 只读聚合时由 Inference 只读投影补齐默认 `source_tier` 与展示字段映射。
 
 ### 2. 跨扩展点清单采用「通用核心 + `extension` 能力专属块」分层
 
@@ -44,29 +45,33 @@
 
 #### 2.1 通用核心字段（跨扩展点共享）
 
-| 字段               | 归属       | 约束                                                                                                                                                |
-| ------------------ | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `manifest_schema`  | 镜像内     | 固定字面量 `"yoao-extension-manifest/v1"`                                                                                                           |
-| `extension_point`  | 镜像内     | 枚举，首期支持 `"notification_channel"`，预留 `"inference"`、`"format_adapter"` 等                                                                  |
-| `plugin_id`        | 镜像内     | `^[a-z0-9]+(?:[._-][a-z0-9]+)*$`，最长 128                                                                                                          |
-| `version`          | 镜像内     | 1..128 非空规范字符串                                                                                                                               |
-| `publisher`        | 镜像内     | 1..255 非空规范字符串                                                                                                                               |
-| `license`          | 镜像内     | 1..255 非空规范字符串                                                                                                                               |
-| `protocol_version` | 镜像内     | 所实现的扩展点线协议版本（如 `"yoao-notification-channel/v1"`）；取代仅面向 Python Plugin-SDK 的 `sdk_compatibility`，确保任意语言无需 SDK 即可接入 |
-| `entrypoint`       | 镜像内     | 固定非 shell 参数向量（沿用 M1b 规则：禁止大小写 shell 与 `python* -c`/捆绑 `-c`）                                                                  |
-| `capabilities`     | 镜像内     | 非空去重词表，由对应 `extension_point` 校验合法取值                                                                                                 |
-| `resource`         | 镜像内     | 通用容器预算，仅含 `memory_mb`（正整数），**不含** GPU 设备或显存字段                                                                               |
-| `extension`        | 镜像内     | 按 `extension_point` 严格校验的能力专属对象（`extra="forbid"`）                                                                                     |
-| `artifact`         | 安装期绑定 | 固定 `@sha256:` OCI 摘要引用；**禁止写入 OCI 镜像标签内**，由安装器核验 `RepoDigests` 后绑定（沿用 M1b `ImageManifest.bind_artifact()` 模式）       |
+| 字段               | 归属           | 约束                                                                                                                                                |
+| ------------------ | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `manifest_schema`  | 镜像内         | 固定字面量 `"yoao-extension-manifest/v1"`                                                                                                           |
+| `extension_point`  | 镜像内         | 枚举，首期支持 `"notification_channel"`，预留 `"inference"`、`"format_adapter"` 等                                                                  |
+| `plugin_id`        | 镜像内         | `^[a-z0-9]+(?:[._-][a-z0-9]+)*$`，最长 128                                                                                                          |
+| `version`          | 镜像内         | 1..128 非空规范字符串                                                                                                                               |
+| `display_name`     | 镜像内（可选） | 1..64 字符纯文本（不含控制字符），面向未来前端插件市场与管理列表展示；省略时 UI 回退展示 `plugin_id`                                                |
+| `description`      | 镜像内（可选） | 1..280 字符纯文本（不含控制字符），前端按纯文本转义渲染，禁止 HTML/Markdown 注入                                                                    |
+| `homepage`         | 镜像内（可选） | 最长 255 字符的 `https://` 公开 URL，禁止 userinfo、控制字符、`javascript:`/`data:`/`http:` 及 loopback/私网主机；不参与网络访问或信任判断          |
+| `publisher`        | 镜像内         | 1..255 非空规范字符串                                                                                                                               |
+| `license`          | 镜像内         | 1..255 非空规范字符串                                                                                                                               |
+| `protocol_version` | 镜像内         | 所实现的扩展点线协议版本（如 `"yoao-notification-channel/v1"`）；取代仅面向 Python Plugin-SDK 的 `sdk_compatibility`，确保任意语言无需 SDK 即可接入 |
+| `entrypoint`       | 镜像内         | 固定非 shell 参数向量（沿用 M1b 规则：禁止大小写 shell 与 `python* -c`/捆绑 `-c`）                                                                  |
+| `capabilities`     | 镜像内         | 非空去重词表，由对应 `extension_point` 校验合法取值                                                                                                 |
+| `resource`         | 镜像内         | 通用容器预算，仅含 `memory_mb`（正整数），**不含** GPU 设备或显存字段                                                                               |
+| `extension`        | 镜像内         | 按 `extension_point` 严格校验的能力专属对象（`extra="forbid"`）                                                                                     |
+| `artifact`         | 安装期绑定     | 固定 `@sha256:` OCI 摘要引用；**禁止写入 OCI 镜像标签内**，由安装器核验 `RepoDigests` 后绑定（沿用 M1b `ImageManifest.bind_artifact()` 模式）       |
 
 #### 2.2 能力专属字段划分
 
 - **通知渠道专属（`extension_point = "notification_channel"`）**：
   - `channel_id`：`^[a-z][a-z0-9_-]{1,31}$`（如 `"feishu_dm"`），禁止保留名 `in_app`、`toast`、`email`、`external`。
-  - `display_name`：1..64 字符的默认显示名。
   - `address_schema`：抗 ReDoS 的封闭 JSON Schema 子集（见 §3.2）。
   - `allowed_egress_hosts`：声明插件访问的外部 API 主机白名单（如 `["open.feishu.cn"]`），禁止 loopback、链路本地与私有网段，供运维审核与出网策略使用。
   - `capabilities` 词表：必含 `"deliver"`，可选 `"verify_address"`。
+  - 展示字段复用通用核心的 `display_name`、`description`、`homepage`，不在 `extension` 内重复定义（无 OCI 清单的直连档注册由 `GET /setup` 提供 `display_name` 及可选 `description`、`homepage`，应用相同纯文本与 `https://` 校验规则）。
+  - 清单内**禁止声明 `source_tier`**（由平台安装/注册记录独立维护，防第三方插件自报官方身份）。
 - **推理专属（`extension_point = "inference"`，未来下一主版本路径）**：
   - 原 `PluginManifest` 中仅服务推理的 `sdk_compatibility`、`models`、`pools`、`compute`（`device` / `gpu_memory_mb`）、`asset_manifest_sha256`、`managed_model_compatibility`、`allowed_asset_sources` 逻辑上归属推理能力专属块。
   - **零破坏兼容规则**：M3 不修改现有 `apps/_shared/inference_contract/src/yoao_inference_contract/plugin.py` 中的 Inference v1 扁平清单与 `apps/inference/src/yoao_inference/sql/0388_inference_plugin_installation.sql`。读取 OCI 标签 `io.yoao.plugin.manifest` 时，若含 `manifest_schema: "yoao-extension-manifest/v1"` 则按 `extension_point` 分派；若无 `manifest_schema` 则走既有 Inference v1 解析路径。
@@ -91,7 +96,7 @@
 #### 3.2 插件 HTTP 接口与严格错误语义
 
 1. **`GET /health`**：返回 `200 {"status": "ok"}`，响应体上限 `4 KiB`。
-2. **`GET /setup`**（需 Bearer 鉴权，响应体上限 `16 KiB`）：返回 `protocol_version`（`"yoao-notification-channel/v1"`）、`channel_id`、`display_name`、`capabilities`、`address_schema`。
+2. **`GET /setup`**（需 Bearer 鉴权，响应体上限 `16 KiB`）：返回 `protocol_version`（`"yoao-notification-channel/v1"`）、`channel_id`、`display_name`（必填，1..64 字符纯文本）、可选 `description`（1..280 字符纯文本）与 `homepage`（`https://` URL，最多 255 字符）、`capabilities`、`address_schema`。`/setup` 返回的展示元数据均为不可信展示字段，不得包含或影响平台侧 `source_tier`。
    - **`address_schema` 抗 ReDoS 封闭子集**：顶层必须 `type: "object"`、`additionalProperties: false`、最多 8 个属性，序列化体积 `<= 8 KiB`；每个属性只允许白名单关键字 `type`（`"string"` / `"integer"` / `"boolean"`）、`title`、`description`、`minLength`、`maxLength`、`minimum`、`maximum`、`enum`（最多 32 个标量值）。**明确禁止** `$ref`、`$defs`、`pattern`、`patternProperties`、`allOf`/`anyOf`/`oneOf`/`not`、`unevaluatedProperties` 及嵌套对象/数组，彻底消除不可信正则回溯（ReDoS）。
    - **地址体积上限**：用户提交的 `recipient_address` JSON 序列化后必须 `<= 2 KiB`，在**绑定、验证（`/verify-address`）与投递（`/deliver`）三处统一校验**。
 3. **`POST /deliver`**（需 Bearer 鉴权，附带 `X-YOAO-Delivery-Id: <delivery_id>`，连接超时 `3s`、读超时 `10s`，响应体硬上限 `4 KiB`）：
@@ -132,8 +137,8 @@
 全部新表建于 `yoao_notifications_v1` schema 下并撤销 `PUBLIC` 全部权限，普通运行角色仅通过固定 `SECURITY DEFINER` 函数访问：
 
 1. **`yoao_notifications_v1.notification_channels`**（渠道注册与安装权威表）：
-   - `id uuid PRIMARY KEY`，`channel_id text UNIQUE NOT NULL`，`display_name text NOT NULL`，`mode text CHECK (mode IN ('direct', 'managed'))`，`status text CHECK (status IN ('prepared', 'active', 'disabled', 'retired'))`，`revision integer NOT NULL DEFAULT 1`，`endpoint_url text NOT NULL`，`auth_token_ciphertext text`（退役时置 `NULL`），`auth_token_sha256 text`，`protocol_version text NOT NULL`，`capabilities jsonb NOT NULL`，`address_schema jsonb NOT NULL`，`manifest jsonb`（直连档 `NULL`），`rate_limit_per_minute integer NOT NULL DEFAULT 60 CHECK (rate_limit_per_minute BETWEEN 1 AND 600)`，`next_dispatch_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()`，`consecutive_auth_errors integer NOT NULL DEFAULT 0`，`created_at` / `updated_at` / `disabled_at` / `retired_at`。
-   - 停用与退役绝不删除行，保留历史与外键完整性。
+   - `id uuid PRIMARY KEY`，`channel_id text UNIQUE NOT NULL`，`display_name text NOT NULL`，`description text`（可选，最长 280 字符纯文本），`homepage text`（可选，`https://` URL，最长 255 字符），`source_tier text NOT NULL DEFAULT 'third_party' CHECK (source_tier IN ('official', 'third_party'))`（由平台注册／安装入口写入，不从清单或 `/setup` 继承），`mode text CHECK (mode IN ('direct', 'managed'))`，`status text CHECK (status IN ('prepared', 'active', 'disabled', 'retired'))`，`revision integer NOT NULL DEFAULT 1`，`endpoint_url text NOT NULL`，`auth_token_ciphertext text`（退役时置 `NULL`），`auth_token_sha256 text`，`protocol_version text NOT NULL`，`capabilities jsonb NOT NULL`，`address_schema jsonb NOT NULL`，`manifest jsonb`（直连档 `NULL`），`rate_limit_per_minute integer NOT NULL DEFAULT 60 CHECK (rate_limit_per_minute BETWEEN 1 AND 600)`，`next_dispatch_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()`，`consecutive_auth_errors integer NOT NULL DEFAULT 0`，`created_at` / `updated_at` / `disabled_at` / `retired_at`。
+   - 停用与退役绝不删除行，保留历史与外键完整性；只读查询直接返回 `display_name`、`description`、`homepage` 与 `source_tier`，供未来前端插件市场消费。
 2. **`yoao_notifications_v1.user_notification_channel_bindings`**（用户地址绑定表）：
    - `id uuid PRIMARY KEY`，`user_id uuid NOT NULL`，`channel_id text NOT NULL REFERENCES yoao_notifications_v1.notification_channels(channel_id) ON DELETE RESTRICT`，`address jsonb NOT NULL`，`locale text NOT NULL DEFAULT 'zh-CN'`，`verified_at timestamptz`，`created_at` / `updated_at`，`UNIQUE (user_id, channel_id)`。
    - 解绑即删除该绑定行，立即擦除用户外部地址 PII 且不级联影响历史投递记录。

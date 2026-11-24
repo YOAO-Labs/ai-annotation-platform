@@ -23,7 +23,7 @@
 
 - 不把“每个模块独立构建、部署”作为默认部署或完成门槛。
 - **暂缓**跨语言替换实现，Go 月报实验（[ADR-0090](../adr/0090-module-languages-and-audit-summary-process.md)）维持实验状态、不进入真实路径；保留语言无关契约和一致性检查。
-- 不建设通用插件市场、热加载、通用事件总线或前端插件 SDK，等出现具体用例再定。
+- M3 先落地统一清单与第三方安全边界，前端插件市场（含官方源与第三方插件安装）列为后续里程碑（见 M5）；本阶段不建设热加载、通用事件总线或前端插件 SDK，等出现具体用例再定。
 - 不重做已验收的 owner 边界，不改写历史证据、冻结引用或收据。
 - 不处理生产容量、多卡并发、第三方许可发布等上线门槛；这些门槛保持独立。
 
@@ -73,7 +73,7 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | M1a 直连档       | 把“`yoao-plugin dev` 或任意 HTTP 服务 → 模型市场按 URL 和 Token 注册 → 项目启用”写成正式入门路径，并说明非托管实例不具备的能力（GPU 仲裁、受控训练模型部署等，以实际校验为准）。先核实一个疑似卡点：文档写明 `yoao-plugin dev` 只监听 loopback，而注册表拒绝 loopback 地址，平台在容器内时可能连不上 |
 | M1b 安装档简化   | 发布 SDK 与便携契约到 PyPI（需维护者单独授权发布）；从 OCI label 读取 manifest，减少手写 `deployment.json`；把资格报告生成并入安装流程；超管文档分为“操作步骤”和“安全原理”两层，内部术语移到开发文档                                                                                                 |
-| M1c Web 安装入口 | 在 M1b 的 CLI 流程稳定后再评估，不提前实现                                                                                                                                                                                                                                                           |
+| M1c Web 安装入口 | 汇入后续前端插件市场里程碑（M5），在 M1b CLI 与 M3 统一清单及第三方安全边界稳定后再实施，不提前建设单域 Web 安装页                                                                                                                                                                                   |
 
 验收：在没有平台源码的新环境，作者按文档完成直连档注册并产生真实预测；管理员按简化后的流程完成一次 CPU 插件安装和退役；现有 GPU 资格门禁、安装身份和排空语义不放宽。
 
@@ -108,8 +108,8 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 
 工作项：
 
-1. **M3a 设计决定**（写入 ADR）：插件安装身份放在宿主级扩展注册表，还是由领域 owner 各自维护；manifest 中哪些字段跨扩展点通用，推理专属的 `models`、`pools`、GPU 字段改为能力专属。
-2. **M3b 平台侧**：偏好策略增加渠道键（同步 `preferences.policy.json` 与 owner SQL）；用户渠道地址绑定归 Notifications 所有；把持久 outbox 扩展到外部渠道投递；投递 worker 复用现有租约与可见性复核。
+1. **M3a 设计决定**（写入 ADR）：插件安装身份放在宿主级扩展注册表，还是由领域 owner 各自维护；manifest 中哪些字段跨扩展点通用（含面向未来前端插件市场预留的 `display_name`、`description`、`homepage` 可选展示字段），推理专属的 `models`、`pools`、GPU 字段改为能力专属；安装记录统一预留 `source_tier`（`official`／`third_party`）并冻结第三方安全边界。
+2. **M3b 平台侧**：偏好策略增加渠道键（同步 `preferences.policy.json` 与 owner SQL，升级至 `yoao-notification-preferences/v2`）；用户渠道地址绑定与含 `source_tier` 的渠道安装记录归 Notifications 所有；把持久 outbox 扩展到外部渠道投递；投递 worker 复用现有租约与可见性复核。
 3. **M3c 插件侧**：用 Plugin-SDK 之外的最小实现（任意语言）完成飞书插件，验证直连档即可接入；按需提供镜像走安装档。
 
 验收：业务回滚不发送；插件不可用时重试并最终记失败；`permanent` 不重试；投递前撤权或目标不可见时不发送；停用渠道后不再投递且历史保留；重复投递不产生重复消息；用户解绑后不再投递。契约检查可以使用隔离环境中的飞书 API 替身；最终用维护者提供的测试应用验证真实飞书一次。
@@ -119,6 +119,13 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 - **M4a 内置模块统一装配**：在 M2、M3 明确实际需要之后，把路由、Celery 任务、迁移和 Compose 的静态列表改为声明式装配；不提前建设空的通用框架。
 - **M4b 下一个扩展点**：由维护者从格式适配器、训练器、数据源连接器中选择。
 - **M4c owner 收口**：只收口所选扩展点实际触及的 Assets、Learning、Insights 边界（例如格式适配器需要先移除 `Session`／`Project` 参数）。
+
+### M5 前端插件市场（后续里程碑）
+
+在 M3 统一清单（`yoao-extension-manifest/v1`）与第三方安全边界落地、M4 装配收口稳定后实施，统一承接原 M1c Web 安装评估：
+
+- **官方源与第三方插件安装**：接入经固定摘要／签名核验的官方插件源目录，同时支持管理员安装受约束的第三方插件（直连档与受管安装档）；第三方插件不得绕过既有 SSRF、最小凭据、白名单脱敏与容器隔离门禁，宿主 API 仍不接触 Docker socket。
+- **基于只读投影的统一展示**：前端市场直接消费各领域 owner 暴露的只读安装投影（读取通用清单预留的 `display_name`、`description`、`homepage` 与安装记录上的平台权威字段 `source_tier`：`official`／`third_party`），不引入第二套跨领域写入权威。
 
 ## 5. 旧计划逐项去向
 
@@ -170,5 +177,5 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 - **M2b 已通过隔离验收。** 从[Workspace 六项首批](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)扩展到[完整进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。新 checkout 完成登录、建项目、导入、真实 CPU 插件预标注、标注、审核和通知；三个实际普通 LOGIN 在新装、重放授权和非空恢复后均无私表权限。保留服务已分别冷启取证，已登记 S3／SFTP 的 12 个场景均通过，包含复制中断后的接管和原版本读回。各档提交、回执及模型权重等未覆盖范围见[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)。
 - **M2c 已切换维护者日常环境。** 主 checkout 跟踪 `dev`，`annotation` 原地迁移，保留原存储身份；宿主 API/Web、八个 worker 和单实例 Beat 已启用。实测和未覆盖项见[日常迁移回执](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md#m2c)。
 - **M1b 本地交付项已通过。** 新增 OCI 镜像标签 `io.yoao.plugin.manifest` 与 `io.yoao.plugin.qualification-command` 契约及 `yoao plugins inspect-image`／`qualify`、`prepare --image` 与 `install`/`upgrade --qualify` 流程；超管插件指南拆分为“操作步骤”和“安全原理”两层，内部术语与历史迁移迁入[插件安装生命周期](../../docs-site/dev/concepts/plugin-installation-lifecycle.md)。隔离环境已用独立安装的 wheel、真实 `yoao_inference` owner 与强制路由走通免手写 `deployment.json` 的 CPU 插件安装与退役，且确认 GPU 门禁、安装身份与排空语义未放宽；实测回执与未覆盖范围（PyPI 发布与实机物理 GPU 资格命令运行）见 [M1b 运行账本](evidence/1795366269_platform-pluginization/m1b-run-ledger.md)。
-- **M3a 草案已起草。** 架构决定记录在 [ADR-0187](../adr/0187-notification-channel-extension-point.md)（Proposed）：插件安装身份由领域 owner 各自维护并共享便携契约；跨扩展点清单拆分为 `yoao-extension-manifest/v1` 通用核心与 `extension` 能力专属块（保留 Inference v1 零破坏兼容）；通知渠道定义 `yoao-notification-channel/v1` 双档接入、ADR-0025 白名单脱敏信封、动态 `external` 偏好命名空间、独立外部投递 outbox 及投递前实时复核边界。
-- M1b 的 PyPI 正式发布仍需维护者单独授权；M3a 确认后推进 M3b 与 M3c；M1c、M4 尚未实施。
+- **M3a 草案已起草。** 架构决定记录在 [ADR-0187](../adr/0187-notification-channel-extension-point.md)（Proposed）：插件安装身份由领域 owner 各自维护并共享便携契约（安装记录统一区分平台权威的 `source_tier`：`official`／`third_party`）；跨扩展点清单拆分为 `yoao-extension-manifest/v1` 通用核心（预留面向后续前端插件市场的可选展示字段 `display_name`、`description`、`homepage`）与 `extension` 能力专属块（保留 Inference v1 零破坏兼容）；通知渠道定义 `yoao-notification-channel/v1` 双档接入、ADR-0025 白名单脱敏信封、动态 `external` 偏好命名空间（`yoao-notification-preferences/v2`）、独立外部投递 outbox 及投递前实时复核边界。
+- M1b 的 PyPI 正式发布仍需维护者单独授权；M3a 确认后推进 M3b 与 M3c；M4 与后续前端插件市场（M5）尚未实施。
