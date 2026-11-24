@@ -38,6 +38,7 @@ from app.services.raster_mask_storage import (
 )
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.application.mask_repair_execution import run_mask_repair_rollback
+from tests.mask_repair_publication import input_world as input_world
 from tests.test_managed_mask_repair import (
     ORIGINS,
     assert_reference,
@@ -47,7 +48,6 @@ from tests.test_managed_mask_repair import (
     execute,
     forward,
     httpx_client as httpx_client,
-    input_world as input_world,
     plan,
     repair_world as repair_world,
     state,

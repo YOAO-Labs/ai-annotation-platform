@@ -86,7 +86,7 @@ async def _archive_snapshot_engines(test_engine):
 
     runtime_url = _api_url(test_engine)
     grants = ROOT / "infra/docker"
-    async with _owned_database(test_engine) as owner:
+    async with _owned_database(test_engine) as (owner, _):
         name = owner.url.database
         quoted = owner.dialect.identifier_preparer.quote_identifier(name)
         async with owner.begin() as db:

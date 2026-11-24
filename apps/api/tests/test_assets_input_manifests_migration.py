@@ -165,7 +165,7 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
 async def pre_manifest_database(test_db_url):
     admin = create_async_engine(test_db_url, poolclass=NullPool)
     try:
-        async with _owned_database(admin) as engine:
+        async with _owned_database(admin) as (engine, _):
             config = Config("alembic.ini")
             url = engine.url.render_as_string(hide_password=False).replace("%", "%%")
             config.set_main_option("sqlalchemy.url", url)

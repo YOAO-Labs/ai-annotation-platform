@@ -16,10 +16,12 @@ import os
 from types import SimpleNamespace
 import subprocess
 import sys
+from typing import Literal, NamedTuple
 import uuid
 
 from PIL import Image, ImageDraw
 import pytest
+import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -39,23 +41,67 @@ from tests.managed_original_client_support import Client
 from tests.test_prediction_inputs import input_storage_world
 
 
+class ManagedDatabaseIdentity(NamedTuple):
+    oid: int
+    marker: str
+
+
+async def _database_identity(db, name):
+    return (
+        await db.execute(
+            text(
+                "SELECT oid,shobj_description(oid,'pg_database') "
+                "FROM pg_database WHERE datname=:name"
+            ),
+            {"name": name},
+        )
+    ).one()
+
+
+async def _sealed_template_name(db, identity):
+    return (
+        await db.execute(
+            text(
+                "SELECT quote_ident(datname) FROM pg_database WHERE oid=:oid "
+                "AND shobj_description(oid,'pg_database')=:marker AND NOT datallowconn"
+            ),
+            {"oid": identity.oid, "marker": identity.marker},
+        )
+    ).scalar_one()
+
+
 @asynccontextmanager
-async def _owned_database(admin_engine, *, before_drop=None):
+async def _owned_database(
+    admin_engine,
+    *,
+    before_drop=None,
+    template: ManagedDatabaseIdentity | Literal["template0"] | None = None,
+):
     """Drop only the database identity created by this fixture invocation."""
     name = "aap_managed_" + uuid.uuid4().hex + "_test"
     marker = "managed-inference:" + uuid.uuid4().hex
     async with admin_engine.connect() as connection:
         db = await connection.execution_options(isolation_level="AUTOCOMMIT")
-        await db.execute(text(f'CREATE DATABASE "{name}"'))
+        create = f'CREATE DATABASE "{name}"'
+        if template == "template0":
+            create += " TEMPLATE template0"
+        elif template is not None:
+            source = await _sealed_template_name(db, template)
+            create += f" TEMPLATE {source}"
+        await db.execute(text(create))
         await db.execute(text(f"COMMENT ON DATABASE {name} IS '{marker}'"))
         oid = await db.scalar(
             text("SELECT oid FROM pg_database WHERE datname=:name"), {"name": name}
         )
+        identity = ManagedDatabaseIdentity(oid, marker)
     engine = create_async_engine(
         admin_engine.url.set(database=name), poolclass=NullPool
     )
     try:
-        yield engine
+        if isinstance(template, ManagedDatabaseIdentity):
+            async with admin_engine.connect() as db:
+                assert await _sealed_template_name(db, template) == source
+        yield engine, identity
     finally:
         primary = sys.exception()
         disposed = False
@@ -66,16 +112,8 @@ async def _owned_database(admin_engine, *, before_drop=None):
             disposed = True
             async with admin_engine.connect() as connection:
                 db = await connection.execution_options(isolation_level="AUTOCOMMIT")
-                observed = (
-                    await db.execute(
-                        text(
-                            "SELECT oid,shobj_description(oid,'pg_database') "
-                            "FROM pg_database WHERE datname=:name"
-                        ),
-                        {"name": name},
-                    )
-                ).one()
-                assert observed == (oid, marker), observed
+                observed = await _database_identity(db, name)
+                assert observed == identity, observed
                 clients = await db.scalar(
                     text(
                         "SELECT count(*) FROM pg_stat_activity WHERE datname=:name "
@@ -107,33 +145,61 @@ async def _owned_database(admin_engine, *, before_drop=None):
 
 
 @asynccontextmanager
-async def managed_database(test_db_url, *, before_drop=None):
-    """Use fresh migrations rather than cloning database-bound authorities."""
+async def _migrated_database(test_db_url, revision, *, template=None, before_drop=None):
     admin = create_async_engine(test_db_url, poolclass=NullPool)
     try:
-        async with _owned_database(admin, before_drop=before_drop) as engine:
+        async with _owned_database(
+            admin, template=template, before_drop=before_drop
+        ) as (engine, identity):
             environment = os.environ.copy()
             environment["AAP_MANAGED_DATABASE_URL"] = engine.url.render_as_string(
                 hide_password=False
             )
             code = (
                 "from alembic import command; from alembic.config import Config; "
-                "import os; c=Config('alembic.ini'); "
+                "import os, sys; c=Config('alembic.ini'); "
                 "c.set_main_option('sqlalchemy.url',os.environ['AAP_MANAGED_DATABASE_URL']); "
-                "command.upgrade(c,'head')"
+                "command.upgrade(c,sys.argv[1])"
             )
             result = await asyncio.to_thread(
                 subprocess.run,
-                [sys.executable, "-c", code],
+                [sys.executable, "-c", code, revision],
                 env=environment,
                 capture_output=True,
                 text=True,
                 timeout=180,
             )
             assert result.returncode == 0, result.stdout + result.stderr
-            yield engine
+            yield admin, engine, identity
     finally:
         await admin.dispose()
+
+
+@asynccontextmanager
+async def managed_database(
+    test_db_url, *, before_drop=None, prefix: ManagedDatabaseIdentity | None = None
+):
+    """Initialize database-bound authorities in the case database."""
+    async with _migrated_database(
+        test_db_url, "head", template=prefix, before_drop=before_drop
+    ) as (_, engine, _):
+        yield engine
+
+
+_REVISION_BEFORE_FIRST_OWNER_SCHEMA = "0267"
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def managed_schema_prefix(test_db_url):
+    async with _migrated_database(
+        test_db_url, _REVISION_BEFORE_FIRST_OWNER_SCHEMA, template="template0"
+    ) as (admin, engine, identity):
+        name = engine.url.database
+        async with admin.begin() as db:
+            await db.exec_driver_sql(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS false')
+            observed = await _database_identity(db, name)
+            assert observed == identity, observed
+        yield identity
 
 
 @pytest.fixture

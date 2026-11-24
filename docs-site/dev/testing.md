@@ -95,6 +95,8 @@ API 的 SAVEPOINT、ASGI 客户端和角色夹具由 `apps/api/tests/conftest.py
 
 条件写入、训练写入和导出媒体传输的存储记账用例需要从另一条连接读取已提交的流水，不能用同一事务内的 SAVEPOINT 代替。每个模块复用一个已迁移的私有数据库；每条用例使用独立连接工厂，结束时只清除自己创建的 `storage_usage_mutations` 行。用例失败、仍有连接或发现未登记的流水时，下一条用例使用新库。其他会写入持久数据的模块不能直接套用这个夹具。
 
+`test_managed_mask_repair.py` 的请求和 worker 从不同连接提交。模块只复用迁移到 `0267` 的 PostgreSQL 模板库。该修订还没有按数据库身份生成的权限数据。每条用例从模板创建私有库，在新库里执行剩余迁移，并单独创建、验证和回收 Jobs 发布登录角色。不要把迁移到 `head` 或已经运行过用例的数据库当作模板。
+
 夹具按本次运行已登记的资源与对象版本清理。忙锁、待写入和未知归属应保留责任及回执，不能扫桶、跳过清理或强删作业。运行级夹具清理失败与工作树资源销毁是不同结果。具体夹具实现以拥有它的测试和 runner 为准；旧案例与治理经过见[历史记录](https://github.com/YOAO-Labs/ai-annotation-platform/blob/5f2da55125d9ce647e07ee5351b5f6ee71153a7f/docs-site/dev/testing.md?plain=1)。
 
 <span id="module-boundary-acceptance" aria-hidden="true"></span>
