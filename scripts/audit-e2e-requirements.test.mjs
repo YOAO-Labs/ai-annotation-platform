@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -107,7 +107,7 @@ test("docs-allowed skips never block while unplanned skips do", () => {
   }
 });
 
-test("empty required lists need a docs-only classification; repeated audits stay idempotent", () => {
+test("empty runtime required lists fail and an explained docs-only skip is idempotent", () => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-audit-"));
   try {
     const invalid = auditE2ERequirements({ requiredSuites: [], statusDir: dir });
@@ -126,6 +126,42 @@ test("empty required lists need a docs-only classification; repeated audits stay
     assert.deepEqual(first.rows, again.rows);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI accepts an empty test-only manifest only with an explicit nonblank reason", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-audit-test-only-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "required-suites.json");
+  const output = [];
+  const io = {
+    readFileSync,
+    stdout: { write: (message) => output.push(message) },
+  };
+  const run = (manifest) => {
+    writeFileSync(path, JSON.stringify(manifest));
+    return main([path, dir], io);
+  };
+
+  const skip = {
+    classification: "test-only",
+    reason: "Only isolated Vitest cases changed.",
+    suites: [],
+  };
+  assert.equal(run(skip), 0);
+  assert.match(output.pop(), /No browser suites required \(test-only\): Only isolated Vitest/);
+
+  for (const invalid of [
+    { ...skip, reason: "" },
+    { ...skip, reason: "  " },
+    { ...skip, reason: true },
+    { ...skip, classification: "app-code" },
+    { ...skip, classification: "unit-only" },
+    { ...skip, suites: ["smoke"] },
+    { ...skip, suites: [{ suite: "smoke", planned: false, reason: "not run" }] },
+  ]) {
+    assert.equal(run(invalid), 1, JSON.stringify(invalid));
+    assert.match(output.pop(), /invalid-manifest/);
   }
 });
 
@@ -213,6 +249,37 @@ test("audit rejects malformed completion artifacts fail-closed", () => {
     assert.equal(bySuite["layout-stress"], "unknown-outcome");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a nonempty runtime manifest cannot pass on an all-skipped or failed receipt", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "e2e-audit-runtime-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const suite = "layout-short";
+  const requiredSuites = {
+    classification: "app-code",
+    reason: "dock layout changed",
+    suites: [suite],
+  };
+  for (const [receipt, state] of [
+    [{ outcome: "skipped" }, "skipped-not-run"],
+    [{ outcome: "failure" }, "failed"],
+    [
+      { outcome: "success", stats: { expected: 0, unexpected: 0, flaky: 0, skipped: 3 } },
+      "malformed-success",
+    ],
+    [
+      { outcome: "success", stats: { expected: 1, unexpected: 1, flaky: 0, skipped: 0 } },
+      "malformed-success",
+    ],
+  ]) {
+    writeFileSync(join(dir, `${suite}.json`), JSON.stringify({ suite, ...receipt }));
+    const audit = auditE2ERequirements({ requiredSuites, statusDir: dir });
+    assert.equal(audit.ok, false);
+    assert.deepEqual(
+      audit.blockers.map((row) => row.state),
+      [state],
+    );
   }
 });
 

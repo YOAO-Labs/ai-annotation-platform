@@ -25,12 +25,12 @@ const smoke = [
     suite: "smoke",
     legacyGate: false,
     command:
-      "test:e2e --retries=0 e2e/tests/auth.spec.ts e2e/tests/annotation.spec.ts e2e/tests/employee-project-roles.spec.ts e2e/tests/mask-session-guard.spec.ts --grep '健康检查|正确凭证|错密码|未登录访问|annotator 登录|bbox 真实绘制、选类、落库并刷新恢复|same employee annotates A|opposite project actions are denied|切工具离开 dirty session'",
+      "test:e2e --retries=0 e2e/tests/auth.spec.ts e2e/tests/annotation.spec.ts e2e/tests/employee-project-roles.spec.ts e2e/tests/mask-session-guard.spec.ts --grep '正确凭证|错密码|未登录访问|annotator 登录|bbox 真实绘制、选类、落库并刷新恢复|same employee annotates A|opposite project actions are denied|切工具离开 dirty session'",
     built: true,
     scope: "smoke",
     flakyPolicy: "forbid",
     reason:
-      "bounded real chain (reviewer-owned membership: 9 tests / 4 existing files): UI login, real canvas save+refresh, annotator submit→review→complete across two projects, permission denial, dirty-session switch guard",
+      "bounded real chain: UI login, real canvas save and refresh, annotator submit through review across two projects, permission denial, and the dirty-session switch guard",
   },
 ];
 
@@ -45,14 +45,161 @@ function shardSuite(entry, total) {
   });
 }
 
+const web = "apps/web/src";
+const workbench = `${web}/pages/Workbench`;
+const stage = `${workbench}/stage`;
+const browserTests = "apps/web/e2e/tests";
+const specPath = (name) => `${browserTests}/${name}.spec.ts`;
+
+const layoutPaths = [
+  `${workbench}/layout/`,
+  `${workbench}/shell/WorkbenchLayout.tsx`,
+  `${workbench}/shell/FloatingDock.tsx`,
+  `${workbench}/shell/ToolDock.tsx`,
+  `${workbench}/shell/toolDockOverflow.ts`,
+  `${workbench}/state/useWorkbenchNamedPresets.ts`,
+  `${workbench}/state/useWorkbenchWorkspaceLayout.ts`,
+  "apps/api/app/schemas/workbench_workspace.py",
+];
+
+const maskVideoPaths = [
+  `${stage}/VideoKonvaMaskLayer.tsx`,
+  `${stage}/VideoMaskCorrectionDialog.tsx`,
+  `${stage}/videoMaskClipboard.ts`,
+  `${stage}/videoMaskFrames.ts`,
+  `${stage}/videoMaskKeyframeActions.ts`,
+  `${workbench}/state/useVideoMaskCorrection.ts`,
+  `${workbench}/state/videoMaskCorrectionFlow.ts`,
+];
+
+const maskPaths = [
+  /^apps\/web\/src\/pages\/Workbench\/stage\/shared\/(?:geometry\/mask|mask|rasterMask|useRaster|rasterResource|sparseMask)[^/]*$/,
+  /^apps\/web\/src\/pages\/Workbench\/state\/(?:mask|useMask|canEditMask|imageRasterMask)[^/]*$/,
+  /^apps\/web\/src\/pages\/Workbench\/shell\/Mask[^/]*$/,
+  `${stage}/MaskConversionDialog.tsx`,
+  `${stage}/RasterMaskVisual.tsx`,
+  `${stage}/tools/MaskTool.ts`,
+  `${stage}/overlays/MaskCompareTileLayer.tsx`,
+  `${stage}/overlays/MaskOverlayLayer.tsx`,
+  `${stage}/overlays/TiledMaskOverlayLayer.tsx`,
+  "apps/web/src/api/rasterMasks.ts",
+  "apps/web/src/utils/rasterMaskComputeDiagnostics.ts",
+  /^apps\/api\/app\/api\/v1\/(?:_?mask_|tasks\/(?:ai_masks|mask_))/,
+  ...maskVideoPaths,
+];
+
 const maskTriggers = [
-  "apps/web/e2e/tests/mask-",
-  "apps/web/e2e/tests/raster-mask-",
-  "apps/api/app/api/v1/mask_",
-  "apps/api/app/services/",
-  "apps/web/src/pages/Workbench/state/mask",
-  "apps/web/src/pages/Workbench/stage/shared/geometry/",
-  "apps/web/src/pages/Workbench/stage/shared/rasterMask",
+  ...maskPaths,
+  ...["raster-mask-native", "mask-advanced-operations", "mask-editor", "native-mask-ai"].map(
+    specPath,
+  ),
+  "apps/web/e2e/browser-integration/mask-worker.spec.ts",
+];
+
+const videoTriggers = [
+  /^apps\/web\/e2e\/tests\/(?:workbench-)?video-[^/]+\.spec\.ts$/,
+  `${workbench}/stages/video/`,
+  /^apps\/web\/src\/pages\/Workbench\/(?:stage|state|shell|sidebar)\/(?:Video|video|useVideo)[^/]*\.(?:tsx?|module\.css)$/,
+  `${stage}/frameTimebase.ts`,
+  `${stage}/timelineCoords.ts`,
+  `${stage}/useFrameClock.ts`,
+  `${stage}/shared/geometry/maskBuffer.ts`,
+  `${stage}/shared/rasterMaskRender.ts`,
+  `${stage}/shared/useRasterMaskRecords.ts`,
+  `${web}/utils/videoWorkbenchDiagnostics.ts`,
+  `${web}/hooks/useOriginalVideoPlayback.ts`,
+  "apps/api/app/api/v1/tasks/video.py",
+  /^apps\/api\/app\/(?:api\/v1\/video|services\/video|workers\/video_)/,
+];
+
+const timelineSpec = "apps/web/e2e/layout/video-playback-overlay.spec.ts";
+const layoutStressSpecs = [
+  specPath("workbench-layout-matrix"),
+  specPath("workbench-pointcloud-layout-matrix"),
+];
+
+function chromiumSubset(suite, specs, paths, reason) {
+  return {
+    suite,
+    command: `test:e2e --project=chromium ${specs.map((name) => `e2e/tests/${name}.spec.ts`).join(" ")}`,
+    built: true,
+    legacyGate: false,
+    scope: "targeted",
+    requireAllTests: true,
+    triggers: [...paths, ...specs.map(specPath)],
+    reason,
+  };
+}
+
+const shortLayout = chromiumSubset(
+  "layout-short",
+  [
+    "workbench-layout",
+    "workbench-layout-matrix",
+    "workbench-tool-dock",
+    "workbench-ai-tracker-layout",
+    "workbench-context-toolbars",
+  ],
+  layoutPaths,
+  "ordinary Chromium dock, persistence, compact layout, and short rearrangement cases",
+);
+
+const targetedFunctional = [
+  shortLayout,
+  chromiumSubset(
+    "mask-workflows",
+    ["mask-conversion", "mask-lock-bypass", "mask-primary-actions", "mask-slice"],
+    maskPaths,
+    "ordinary Chromium Mask edit, conversion, lock, and slice cases outside the native matrix",
+  ),
+  chromiumSubset(
+    "data-manager",
+    ["data-manager-management", "filter-data-manager"],
+    [`${web}/pages/Projects/ProjectDataManagerPage.tsx`, `${web}/pages/Projects/data-manager/`],
+    "Data Manager queries, saved views, activity and access",
+  ),
+  chromiumSubset(
+    "operational-lists",
+    ["filter-operational-lists"],
+    [
+      `${web}/pages/Datasets/DatasetsPage.tsx`,
+      `${web}/pages/Datasets/DatasetDetailPage.tsx`,
+      `${web}/pages/Datasets/datasetsUrlState.ts`,
+      `${web}/pages/ProjectTemplates/ProjectTemplatesPage.tsx`,
+      `${web}/pages/ProjectTemplates/projectTemplatesUrlState.ts`,
+      `${web}/pages/Audit/AuditPage.tsx`,
+      `${web}/pages/Audit/auditUrlState.ts`,
+      `${web}/pages/Users/UsersPage.tsx`,
+      `${web}/pages/Users/usersUrlState.ts`,
+      `${web}/pages/ModelMarket/VideoTrackerJobsPage.tsx`,
+      `${web}/pages/Dashboard/dashboardUrlState.ts`,
+      `${web}/pages/Dashboard/useDashboardQuerySync.ts`,
+      /^apps\/web\/src\/pages\/Dashboard\/ProjectFilter(?:Control|Panel|Summary)\.tsx$/,
+    ],
+    "real list filters, URL state, and browser history",
+  ),
+  chromiumSubset(
+    "annotation-guide",
+    ["guide-experience", "guide-autosave", "guide-asset-ownership", "markdown-authoring"],
+    [`${web}/pages/Projects/sections/AnnotationGuideSection.tsx`],
+    "annotation guide authoring, autosave, asset ownership, and reading",
+  ),
+  chromiumSubset(
+    "training-parameters",
+    ["training-parameter-reset"],
+    [
+      `${web}/pages/Training/TrainingConfigurationEditor.tsx`,
+      `${web}/pages/Training/TrainingParameterField.tsx`,
+      `${web}/pages/Training/trainingConfiguration.ts`,
+    ],
+    "browser parameter editing and reset",
+  ),
+  chromiumSubset(
+    "lidar-export",
+    ["lidar-export-trusted"],
+    [],
+    "LiDAR export camera selection and preflight in ordinary Chromium",
+  ),
 ];
 
 const functional = [
@@ -105,7 +252,7 @@ const functional = [
     legacyGate: true,
     scope: "specialty",
     requireAllTests: true,
-    triggers: [...maskTriggers, "apps/web/e2e/tests/workbench-ai-toolbar-layers.spec.ts"],
+    triggers: [...maskTriggers, specPath("workbench-ai-toolbar-layers")],
     reason: "native Mask workbench AI toolbar writes and recovery",
     runtime: { collects: 6, skipped: 0 },
   },
@@ -117,8 +264,8 @@ const functional = [
     scope: "specialty",
     requireAllTests: true,
     triggers: [
-      "apps/web/e2e/tests/workbench-ai-inspector-phases.spec.ts",
-      "apps/web/src/pages/Workbench/shell/AIInspectorPanel",
+      specPath("workbench-ai-inspector-phases"),
+      `${workbench}/shell/AIInspectorPanel.tsx`,
       "apps/api/app/workers/frame_preannotate.py",
       "apps/api/app/workers/predictions_retry.py",
       "apps/api/app/workers/celery_app.py",
@@ -130,41 +277,33 @@ const functional = [
   },
 ];
 
-function sharedContractEntries() {
-  return [];
-}
-
 const layoutStress = {
   suite: "layout-stress",
   command: "test:e2e:stress",
   built: true,
   legacyGate: true,
   scope: "extended",
+  triggers: layoutStressSpecs,
   reason: "long-horizon layout stress (54 rearrangements)",
 };
 
+const videoSuites = shardSuite(
+  {
+    suite: "video-pipeline",
+    command:
+      "test:e2e:video --project=chromium --fully-parallel e2e/tests/video- e2e/tests/workbench-video-",
+    built: true,
+    legacyGate: false,
+    scope: "specialty",
+    triggers: videoTriggers,
+    reason:
+      "video pipeline specialty: manifest/chunk playback, tracker jobs, keyframe and Issue chains",
+  },
+  4,
+);
+
 const domainSpecialties = [
-  ...shardSuite(
-    {
-      suite: "video-pipeline",
-      command:
-        "test:e2e:video --project=chromium --fully-parallel e2e/tests/video- e2e/tests/workbench-video-",
-      built: true,
-      legacyGate: false,
-      scope: "specialty",
-      triggers: [
-        "apps/web/e2e/tests/video-",
-        "apps/web/e2e/tests/workbench-video-",
-        "apps/web/src/pages/Workbench/stages/video/",
-        "apps/api/app/api/v1/video",
-        "apps/api/app/services/video",
-        "apps/api/app/workers/",
-      ],
-      reason:
-        "video pipeline specialty: manifest/chunk playback, tracker jobs, keyframe and Issue chains",
-    },
-    4,
-  ),
+  ...videoSuites,
   ...shardSuite(
     {
       suite: "pointcloud",
@@ -173,10 +312,11 @@ const domainSpecialties = [
       legacyGate: true,
       scope: "specialty",
       triggers: [
-        "apps/web/e2e/tests/workbench-pointcloud-",
-        "apps/web/src/pages/Workbench/stages/three-d/",
-        "apps/api/app/api/v1/lidar",
-        "apps/api/app/services/point",
+        /^apps\/web\/e2e\/tests\/workbench-pointcloud[^/]*\.spec\.ts$/,
+        `${workbench}/stages/three-d/`,
+        `${web}/utils/pointCloudNavigationDiagnostics.ts`,
+        /^apps\/api\/app\/(?:api\/v1\/(?:lidar|point_cloud)|services\/point)/,
+        ...layoutPaths,
       ],
       reason: "point-cloud specialty under the SwiftShader software-rendering project",
     },
@@ -184,8 +324,10 @@ const domainSpecialties = [
   ),
 ];
 
-export const SUITE_CONTRACT = [...smoke, ...functional, ...domainSpecialties, layoutStress];
-const allSuites = SUITE_CONTRACT;
+const fullSuites = [...smoke, ...functional, ...domainSpecialties, layoutStress];
+export const SUITE_CONTRACT = [...fullSuites, ...targetedFunctional];
+const suitesById = new Map(SUITE_CONTRACT.map((entry) => [entry.suite, entry]));
+const routedSuites = SUITE_CONTRACT.filter(({ triggers }) => triggers);
 
 function affectsExtended(path) {
   return (
@@ -198,27 +340,6 @@ function affectsExtended(path) {
     /^scripts\/plan-e2e-suites(\.test)?\.mjs$/.test(path)
   );
 }
-
-function affectsExtendedShadow(path) {
-  return (
-    ["apps/web/src/styles/", "apps/web/index.html", "apps/web/e2e/tests/workbench-layout"].some(
-      (prefix) => path.startsWith(prefix),
-    ) ||
-    /\.(css|scss)$/.test(path) ||
-    ["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ".env.example"].includes(
-      path,
-    ) ||
-    /^docker-compose[^/]*\.ya?ml$/.test(path) ||
-    /^\.github\/workflows\/(ci|e2e-[^/]+)\.yml$/.test(path) ||
-    /^scripts\/plan-e2e-suites(\.test)?\.mjs$/.test(path) ||
-    /^apps\/web\/(playwright[^/]*|vite\.config\.ts|tailwind\.config\.[cm]?js|postcss\.config\.cjs)/.test(
-      path,
-    )
-  );
-}
-
-const legacyInclude = (eventName, paths) =>
-  planE2ESuites(eventName, paths).include.map(({ suite }) => suite);
 
 const DOCS_ONLY = [
   /^README\.md$/,
@@ -246,324 +367,221 @@ function isDocsOnlyPath(path) {
   return DOCS_ONLY.some((pattern) => pattern.test(path));
 }
 
-function classifyPaths(paths) {
-  if (!Array.isArray(paths)) throw new Error("PR changed paths must be supplied");
-  const docs = paths.filter((path) => isDocsOnlyPath(path));
-  const docsSet = new Set(docs);
-  const appCode = paths.filter((path) => !docsSet.has(path));
-  const domains = new Set(
-    appCode.map((path) => {
-      const topLevel = path.split("/")[0];
-      if (topLevel === "apps") return `apps/${path.split("/")[1] ?? ""}`;
-      if (
-        topLevel === ".github" ||
-        topLevel === "scripts" ||
-        topLevel === "packages" ||
-        topLevel === "docs-site"
-      )
-        return topLevel;
-      return "unknown";
-    }),
+const ISOLATED_PYTEST = new Set(["apps/api/tests/test_pytest_sharding.py"]);
+const VITEST_CASE = /^apps\/web\/src\/.+\.(?:test|spec)\.[jt]sx?$/;
+const TEST_SUPPORT =
+  /\/(?:__fixtures__|fixtures|helpers|mocks|test|test-utils|testUtils|build|config)\//;
+
+function isIsolatedTest(path) {
+  return ISOLATED_PYTEST.has(path) || (VITEST_CASE.test(path) && !TEST_SUPPORT.test(path));
+}
+
+const corePaths = [/^apps\/web\/src\/pages\/Login\/LoginPage\.(?:tsx|module\.css)$/, timelineSpec];
+const sharedPaths = [
+  `${web}/api/`,
+  `${web}/lib/`,
+  `${web}/stores/`,
+  `${web}/hooks/useAuth.ts`,
+  `${web}/test/`,
+  `${web}/styles/`,
+  `${workbench}/WorkbenchPage.tsx`,
+  `${workbench}/state/taskNavigation.ts`,
+  `${workbench}/state/useWorkbenchShellModel.tsx`,
+  "apps/api/app/api/",
+  "apps/api/app/services/",
+  "apps/api/app/core/",
+  "apps/api/app/deps.py",
+  "apps/web/e2e/fixtures/",
+  "apps/web/e2e/helpers/",
+  /^apps\/web\/(?:e2e\/global-|index\.html$|package\.json$|playwright|tsconfig|vite|postcss|tailwind)/,
+  /^docker-compose[^/]*\.ya?ml$/,
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  ".npmrc",
+  ".env.example",
+];
+const knownRoots = new Set(["apps", "packages", "scripts", ".github", "docs-site"]);
+
+function matches(path, triggers) {
+  return triggers.some((trigger) =>
+    typeof trigger !== "string"
+      ? trigger.test(path)
+      : trigger.endsWith("/")
+        ? path.startsWith(trigger)
+        : path === trigger,
   );
-  const unknownPaths = appCode.filter((path) => {
-    const topLevel = path.split("/")[0];
-    return (
-      !["apps", "packages", "scripts", ".github", "docs-site", "docker-compose.yml"].includes(
-        topLevel,
-      ) &&
-      !["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ".env.example"].includes(
-        path,
-      )
-    );
-  });
-  return {
-    docsOnly: appCode.length === 0 && paths.length > 0,
+}
+
+function selectPrSuites(paths) {
+  if (!Array.isArray(paths)) throw new Error("PR changed paths must be supplied");
+  const docs = [];
+  const appCode = [];
+  const domains = new Set();
+  const unknownPaths = [];
+  const unmappedAppPaths = [];
+  const routes = new Map();
+  let timelineLayout = false;
+  let sharedPath;
+
+  for (const path of paths) {
+    if (isDocsOnlyPath(path)) {
+      docs.push(path);
+      continue;
+    }
+    appCode.push(path);
+    if (isIsolatedTest(path)) continue;
+
+    const [root, app] = path.split("/", 2);
+    const shared = matches(path, sharedPaths);
+    domains.add(root === "apps" ? `apps/${app ?? ""}` : root);
+    if (!knownRoots.has(root) && !shared) unknownPaths.push(path);
+    if (shared) sharedPath ??= path;
+    let mapped = matches(path, corePaths) || shared;
+    for (const { suite, triggers } of routedSuites) {
+      if (!matches(path, triggers)) continue;
+      mapped = true;
+      if (!routes.has(suite)) routes.set(suite, path);
+    }
+    if (!mapped) unmappedAppPaths.push(path);
+    if (
+      path === timelineSpec ||
+      matches(path, videoTriggers) ||
+      matches(path, shortLayout.triggers)
+    )
+      timelineLayout = true;
+  }
+
+  const classification = {
+    event: "pull_request",
+    docsOnly: docs.length > 0 && appCode.length === 0,
+    testOnly: appCode.length > 0 && domains.size === 0,
     emptyDiff: paths.length === 0,
     appCode,
     docs,
     multiDomain: domains.size > 1,
     domains: [...domains],
-    unknownPaths: appCode.filter((path) => {
-      const topLevel = path.split("/")[0];
-      return (
-        !["apps", "packages", "scripts", ".github", "docs-site", "docker-compose.yml"].includes(
-          topLevel,
-        ) &&
-        ![
-          "package.json",
-          "pnpm-lock.yaml",
-          "pnpm-workspace.yaml",
-          ".npmrc",
-          ".env.example",
-        ].includes(path)
-      );
-    }),
+    unknownPaths,
+    unmappedAppPaths,
+  };
+  if (classification.docsOnly || classification.testOnly) {
+    const name = classification.docsOnly ? "docs-only" : "test-only";
+    const reason = classification.docsOnly
+      ? "docs-only change (whitelisted markdown/docs-site paths); no app E2E required"
+      : "Only isolated Vitest or pytest cases changed; their existing CI gates still run.";
+    return {
+      planned: [],
+      classification,
+      gate: { name, reason },
+      reasons: [{ suite: "(none)", selected: false, because: reason }],
+      warnings: [],
+      timelineLayout: false,
+    };
+  }
+
+  const fallback = [
+    classification.emptyDiff && [
+      "Empty diff cannot identify a browser owner.",
+      "empty diff cannot be classified; falling back to the full conservative selection",
+    ],
+    unknownPaths.length > 0 && [
+      "Unrecognized paths require the conservative full matrix.",
+      `unrecognized top-level paths broaden the selection: ${unknownPaths.join(", ")}`,
+    ],
+    classification.multiDomain && [
+      "A multi-domain change requires the conservative full matrix.",
+      `multiple domains touched (${classification.domains.join(", ")}); broadening the selection`,
+    ],
+    sharedPath !== undefined && [
+      "A shared dependency or runtime change requires the conservative full matrix.",
+      `shared dependency path ${sharedPath} selects full functional plus dedicated configs`,
+    ],
+    unmappedAppPaths.length > 0 && [
+      "Unmapped runtime paths require the conservative full matrix.",
+      `app paths without a browser owner broaden to full: ${unmappedAppPaths.join(", ")}`,
+    ],
+  ].filter(Boolean);
+  const broaden = fallback.length > 0;
+  const gate = broaden
+    ? { name: "broad", reason: fallback[0][0] }
+    : {
+        name: "risk",
+        reason: "Only mapped runtime paths changed. Run bounded smoke and their browser owners.",
+      };
+  const entries = broaden
+    ? fullSuites
+    : [...smoke, ...routedSuites.filter(({ suite }) => routes.has(suite))];
+  return {
+    planned: entries.map(({ suite }) => suite),
+    classification,
+    gate,
+    reasons: entries.map(({ suite, reason }) => ({
+      suite,
+      selected: true,
+      because: routes.has(suite)
+        ? `${reason} (triggered by ${routes.get(suite)})`
+        : suite === "smoke" || !broaden
+          ? reason
+          : gate.reason,
+    })),
+    warnings: fallback.map(([, warning]) => warning),
+    timelineLayout: broaden || timelineLayout,
   };
 }
 
-const SHARED_WORKBENCH_TRIGGERS = [
-  "apps/web/src/pages/Workbench/state/",
-  "apps/web/src/pages/Workbench/shell/",
-];
-
-const SHARED_DEPENDENCY_TRIGGERS = [
-  "apps/web/src/api/",
-  "apps/web/src/lib/",
-  "apps/web/src/stores/",
-  "apps/web/src/hooks/",
-  "apps/web/src/test/",
-  "apps/api/app/api/",
-  "apps/api/app/services/",
-  "apps/api/app/core/",
-  "apps/api/app/deps.py",
-];
-
-function triggeredSpecialties(appCode) {
-  const triggered = [];
-  for (const suite of [...SUITE_CONTRACT, ...sharedContractEntries()]) {
-    if (suite.scope !== "specialty" || !suite.triggers || suite.wired === false) continue;
-    const hit = suite.triggers.find((prefix) => appCode.some((path) => path.startsWith(prefix)));
-    if (hit)
-      triggered.push({
-        suite: suite.suite,
-        because: `${suite.reason} (triggered by ${hit})`,
-      });
-  }
-  const sharedHit = SHARED_DEPENDENCY_TRIGGERS.find((prefix) =>
-    appCode.some((path) => path.startsWith(prefix)),
-  );
-  if (sharedHit)
-    for (const suite of SUITE_CONTRACT.filter(
-      ({ scope, triggers }) => scope === "specialty" && triggers,
-    ))
-      triggered.push({
-        suite: suite.suite,
-        because: `${suite.reason} (triggered by shared dependency ${sharedHit})`,
-      });
-  return triggered;
-}
-
-function triggeredSharedContracts(appCode) {
-  return Object.values(SHARED_CONTRACT_SUITES).some(
-    (suite) =>
-      suite.wired &&
-      suite.triggers.some((prefix) => appCode.some((path) => path.startsWith(prefix))),
-  );
-}
-
 export function selectSuites(eventName, paths, options = {}) {
-  if (eventName === "schedule") {
-    const scope = process.env.E2E_SCHEDULE_SCOPE ?? "full";
-    if (!["extended", "full"].includes(scope))
-      throw new Error(`Invalid nightly E2E scope: ${scope} (expected extended or full)`);
-    if (scope === "extended")
-      return {
-        planned: [layoutStress.suite],
-        classification: { event: "schedule", note: "nightly extended-only explicitly requested" },
-        reasons: [
-          {
-            suite: layoutStress.suite,
-            selected: true,
-            because: "nightly scope set to extended-only",
-          },
-        ],
-        warnings: [],
-      };
-    return {
-      planned: allSuites.map(({ suite }) => suite),
-      classification: {
-        event: "schedule",
-        note: "explicit full scope: bounded smoke + full functional shards + dedicated contracts + extended (plan §6.2)",
-      },
-      reasons: [
-        {
-          suite: "all",
-          selected: true,
-          because:
-            "post-merge/nightly verification is the explicit full scope (smoke + full shards + extended)",
-        },
-      ],
-      warnings:
-        eventName === "schedule"
-          ? [
-              "the legacy rollback gate runs extended-only for schedule; the planned nightly selection is full",
-            ]
-          : [],
-    };
-  }
-  if (eventName === "push") {
-    return {
-      planned: allSuites.map(({ suite }) => suite),
-      classification: {
-        event: "push",
-        note: "explicit full scope: bounded smoke + full functional shards + dedicated contracts + extended",
-      },
-      reasons: [
-        {
-          suite: "all",
-          selected: true,
-          because: "post-merge verification is the explicit full scope",
-        },
-      ],
-      warnings: [],
-    };
-  }
-  if (eventName === "workflow_dispatch") {
-    const scope = options.dispatchScope ?? "extended";
-    if (!["extended", "full"].includes(scope))
-      throw new Error(`Invalid manual E2E scope: ${scope} (expected extended or full)`);
-    if (scope === "full")
-      return {
-        planned: allSuites.map(({ suite }) => suite),
-        classification: {
-          event: "workflow_dispatch",
-          note: "manual full run explicitly requested via the e2e_scope input",
-        },
-        reasons: [
-          {
-            suite: "all",
-            selected: true,
-            because:
-              "manual dispatch explicitly selected the full matrix (smoke + full shards + extended)",
-          },
-        ],
-        warnings: [],
-      };
-    return {
-      planned: [layoutStress.suite],
-      classification: {
-        event: "workflow_dispatch",
-        note: "manual entry stays extended-only and explicitly labeled",
-      },
-      reasons: [
-        {
-          suite: layoutStress.suite,
-          selected: true,
-          because: "manual runs select the extended checks explicitly",
-        },
-      ],
-      warnings: [],
-    };
-  }
-  if (eventName !== "pull_request") throw new Error(`Unsupported E2E event: ${eventName}`);
-  if (!Array.isArray(paths)) throw new Error("PR changed paths must be supplied");
-
-  const classification = classifyPaths(paths);
-  const planned = [];
-  const reasons = [];
-  const warnings = [];
-  classification.unmappedAppPaths = (() => {
-    const specialtyPrefixes = allSuites
-      .filter(({ scope, triggers }) => scope === "specialty" && triggers)
-      .flatMap(({ triggers }) => triggers);
-    const sharedPrefixes = SHARED_DEPENDENCY_TRIGGERS;
-    return classification.appCode.filter(
-      (path) =>
-        !specialtyPrefixes.some((prefix) => path.startsWith(prefix)) &&
-        !sharedPrefixes.some((prefix) => path.startsWith(prefix)),
+  if (eventName === "pull_request") return selectPrSuites(paths);
+  const scopes = {
+    push: "full",
+    schedule: process.env.E2E_SCHEDULE_SCOPE ?? "full",
+    workflow_dispatch: options.dispatchScope ?? "extended",
+  };
+  if (!Object.hasOwn(scopes, eventName)) throw new Error(`Unsupported E2E event: ${eventName}`);
+  const scope = scopes[eventName];
+  const nightly = eventName === "schedule";
+  if (!["extended", "full"].includes(scope))
+    throw new Error(
+      `Invalid ${nightly ? "nightly" : "manual"} E2E scope: ${scope} (expected extended or full)`,
     );
-  })();
-
-  if (classification.docsOnly) {
-    reasons.push({
-      suite: "(none)",
-      selected: false,
-      because: "docs-only change (whitelisted markdown/docs-site paths); no app E2E required",
-    });
-  } else {
-    if (classification.emptyDiff)
-      warnings.push(
-        "empty diff cannot be classified; falling back to the full conservative selection",
-      );
-    if (classification.unknownPaths.length)
-      warnings.push(
-        `unrecognized top-level paths broaden the selection: ${classification.unknownPaths.join(", ")}`,
-      );
-    if (classification.multiDomain)
-      warnings.push(
-        `multiple domains touched (${classification.domains.join(", ")}); broadening the selection`,
-      );
-
-    const triggered = triggeredSpecialties(classification.appCode);
-    const sharedDepHit =
-      SHARED_DEPENDENCY_TRIGGERS.find((prefix) =>
-        classification.appCode.some((path) => path.startsWith(prefix)),
-      ) ??
-      SHARED_WORKBENCH_TRIGGERS.find((prefix) =>
-        classification.appCode.some((path) => path.startsWith(prefix)),
-      );
-    const runtimeLike = classification.appCode.some(
-      (path) =>
-        [
-          "package.json",
-          "pnpm-lock.yaml",
-          "pnpm-workspace.yaml",
-          ".npmrc",
-          ".env.example",
-          "docker-compose.yml",
-        ].includes(path) || /^docker-compose[^/]*\.ya?ml$/.test(path),
-    );
-    const broaden =
-      classification.emptyDiff ||
-      classification.unknownPaths.length > 0 ||
-      classification.multiDomain ||
-      classification.unmappedAppPaths.length > 0 ||
-      sharedDepHit !== undefined ||
-      runtimeLike;
-    if (classification.unmappedAppPaths.length)
-      warnings.push(
-        `app paths without a domain specialty mapping broaden to full: ${classification.unmappedAppPaths.join(", ")}`,
-      );
-    if (sharedDepHit !== undefined)
-      warnings.push(
-        `shared dependency path ${sharedDepHit} selects full functional plus dedicated configs`,
-      );
-    if (runtimeLike)
-      warnings.push(
-        "shared runtime/dependency change selects full functional plus dedicated configs",
-      );
-    const addPlanned = (suite, because) => {
-      if (!planned.includes(suite)) {
-        planned.push(suite);
-        reasons.push({ suite, selected: true, because });
-      }
-    };
-    for (const suite of allSuites.filter(({ scope }) => scope === "smoke"))
-      addPlanned(suite.suite, suite.reason);
-    if (broaden) {
-      for (const suite of allSuites.filter(({ scope }) => scope === "full"))
-        addPlanned(
-          suite.suite,
-          "unmapped/multi-domain/shared-runtime change broadens to the full functional shards",
-        );
-    }
-    for (const { suite, because } of triggered) addPlanned(suite, because);
-    if (broaden) {
-      for (const entry of allSuites.filter(
-        (candidate) => candidate.scope === "specialty" && candidate.triggers,
-      ))
-        addPlanned(entry.suite, "broadened selection runs every dedicated domain contract");
-    }
-    if (broaden || classification.appCode.some(affectsExtendedShadow)) {
-      addPlanned(
-        layoutStress.suite,
-        classification.multiDomain
-          ? "multi-domain change broadens verification to layout stress"
-          : "shared layout surface (styles, layout tooling or runtime config) changed",
-      );
-    }
-    if (planned.length === 0)
-      throw new Error(
-        "Illegal E2E selection: app-code changes must always select at least the core suites",
-      );
-  }
-
-  return { planned, classification, reasons, warnings };
+  const full = scope === "full";
+  const reason = full
+    ? "Run bounded smoke, the full functional shards, dedicated checks, and layout stress."
+    : `${nightly ? "Nightly" : "Manual"} extended-only scope selects layout stress.`;
+  return {
+    planned: full ? fullSuites.map(({ suite }) => suite) : [layoutStress.suite],
+    classification: { event: eventName, note: reason },
+    gate: { name: scope, reason },
+    reasons: [{ suite: full ? "all" : layoutStress.suite, selected: true, because: reason }],
+    warnings:
+      nightly && full
+        ? [
+            "the legacy rollback gate runs extended-only for schedule; the planned nightly selection is full",
+          ]
+        : [],
+    timelineLayout: true,
+  };
 }
 
 export function shadowPlan(eventName, paths, options = {}) {
-  const { planned, classification, reasons, warnings } = selectSuites(eventName, paths, options);
-  const legacy = legacyInclude(eventName, paths);
+  const selection = selectSuites(eventName, paths, options);
+  const { planned, classification, reasons, warnings } = selection;
+  const legacy = planE2ESuites(eventName, paths).include.map(({ suite }) => suite);
+  const selectionMode = options.selectionMode ?? "planned";
+  const plannedGate = { ...selection.gate, suites: planned };
+  const rollback = {
+    name: "legacy",
+    reason: "Legacy rollback gate (E2E_SELECTION_MODE=legacy).",
+    suites: legacy,
+  };
+  const effective = selectionMode === "legacy" ? rollback : plannedGate;
+  const broad =
+    plannedGate.name === "broad"
+      ? plannedGate
+      : {
+          name: "broad",
+          reason: "Conservative fallback for shared, unknown, or multi-domain changes.",
+          suites: fullSuites.map(({ suite }) => suite),
+        };
   const legacySet = new Set(legacy);
   const plannedSet = new Set(planned);
   const wiredContracts = Object.entries(SHARED_CONTRACT_SUITES)
@@ -579,6 +597,15 @@ export function shadowPlan(eventName, paths, options = {}) {
     planned,
     added: planned.filter((suite) => !legacySet.has(suite)),
     removed: legacy.filter((suite) => !plannedSet.has(suite)),
+    selectionMode,
+    timelineLayout:
+      selectionMode === "legacy" ? classification.docsOnly !== true : selection.timelineLayout,
+    gates: {
+      planned: plannedGate,
+      effective,
+      rollback,
+      ...(eventName === "pull_request" ? { broad } : {}),
+    },
     classification,
     reasons,
     warnings,
@@ -603,6 +630,20 @@ export function planE2ESuites(eventName, paths) {
   };
 }
 
+function dispatchMatrix(entries) {
+  const ids = new Set(entries.map(({ suite }) => suite));
+  const dedicatedVideo = videoSuites.every(({ suite }) => ids.has(suite));
+  return {
+    include: entries.map(({ suite, command, built, requireAllTests }) => ({
+      suite,
+      command,
+      built,
+      ...(requireAllTests ? { requireAllTests } : {}),
+      ...(dedicatedVideo && suite.startsWith("default-") ? { dedicatedVideo: true } : {}),
+    })),
+  };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const eventName = process.env.GITHUB_EVENT_NAME;
   let paths;
@@ -616,8 +657,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       .filter(Boolean);
   }
   const dispatchScope = process.env.E2E_DISPATCH_SCOPE;
-  const selection = selectSuites(eventName, paths, { dispatchScope });
-  const docsOnly = selection.classification.docsOnly === true;
+  const selectionMode = (process.env.E2E_SELECTION_MODE ?? "").trim() || "planned";
+  if (!["planned", "legacy"].includes(selectionMode))
+    throw new Error(`Invalid E2E selection mode: ${selectionMode}`);
+  const shadow = shadowPlan(eventName, paths, { dispatchScope, selectionMode });
+  const docsOnly = shadow.classification.docsOnly === true;
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
     "scripts/test-suites.json",
@@ -636,17 +680,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       !docsOnly;
   } else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
 
-  const selectionMode = (process.env.E2E_SELECTION_MODE ?? "").trim() || "planned";
-  if (!["planned", "legacy"].includes(selectionMode))
-    throw new Error(`Invalid E2E selection mode: ${selectionMode}`);
-  const legacyGate = planE2ESuites(eventName, paths);
-  const shadow = { ...shadowPlan(eventName, paths, { dispatchScope }), mlCpu };
-  const plannedEntries = selection.planned
-    .map((suite) => SUITE_CONTRACT.find((entry) => entry.suite === suite))
-    .filter(Boolean);
-  const plannedGate = { include: plannedEntries };
-  const gate = selectionMode === "legacy" ? legacyGate : plannedGate;
-  const requiredSuites = gate.include.flatMap(({ suite, flakyPolicy }) => [
+  const { effective, rollback } = shadow.gates;
+  const entries = effective.suites.map((suite) => suitesById.get(suite));
+  const requiredSuites = entries.flatMap(({ suite, flakyPolicy }) => [
     {
       suite,
       planned: true,
@@ -654,8 +690,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     },
     ...(suite === "mask-native" ? [{ suite: "mask-worker", planned: true }] : []),
   ]);
-  const docsOnlySkip = selectionMode !== "legacy" && docsOnly;
-  let matrix = gate;
+  let ordered = entries;
   if (selectionMode === "planned") {
     const { jobSeconds } = JSON.parse(
       readFileSync(new URL("./e2e-job-durations.json", import.meta.url), "utf8"),
@@ -664,46 +699,36 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       if (suite === "smoke") return Infinity;
       return Object.hasOwn(jobSeconds, suite) ? jobSeconds[suite] : -1;
     };
-    matrix = { include: plannedEntries.toSorted((a, b) => priority(b) - priority(a)) };
+    ordered = entries.toSorted((a, b) => priority(b) - priority(a));
   }
-  console.log(`matrix=${JSON.stringify(matrix)}`);
-  console.log(`legacy=${JSON.stringify(legacyGate)}`);
+  console.log(`matrix=${JSON.stringify(dispatchMatrix(ordered))}`);
+  const legacyMatrix = dispatchMatrix(rollback.suites.map((suite) => suitesById.get(suite)));
+  console.log(`legacy=${JSON.stringify(legacyMatrix)}`);
   console.log(
-    `required=${JSON.stringify(
-      docsOnlySkip
-        ? {
-            classification: "docs-only",
-            reason:
-              selection.reasons.find((reason) => /docs-only/.test(reason.because))?.because ??
-              "docs-only change",
-            suites: [],
-          }
-        : {
-            classification: "app-code",
-            reason:
-              selectionMode === "legacy"
-                ? "legacy rollback gate (E2E_SELECTION_MODE=legacy)"
-                : "planned selection (plan §6.2/§6.3)",
-            suites: requiredSuites,
-          },
-    )}`,
+    `required=${JSON.stringify({
+      classification: requiredSuites.length > 0 ? "app-code" : effective.name,
+      reason: effective.reason,
+      suites: requiredSuites,
+    })}`,
   );
   console.log(`docs_only=${docsOnly}`);
-  console.log(`run_suites=${gate.include.length > 0}`);
+  console.log(`run_suites=${entries.length > 0}`);
   console.log(`selection_mode=${selectionMode}`);
+  console.log(`timeline_layout=${shadow.timelineLayout}`);
   const shadowPath = process.env.E2E_SHADOW_PATH || "e2e-shadow.json";
-  writeFileSync(shadowPath, `${JSON.stringify(shadow)}\n`);
+  writeFileSync(shadowPath, `${JSON.stringify({ ...shadow, mlCpu })}\n`);
   console.log(`shadow_path=${shadowPath}`);
   console.log(`ml_cpu=${mlCpu}`);
   const summaryPath = process.argv[3];
   if (summaryPath) {
-    const suites = gate.include.map(({ suite }) => suite).join(", ") || "(none)";
+    const suites = effective.suites.join(", ") || "(none)";
     appendFileSync(
       summaryPath,
       [
         `### CI test selection (${selectionMode})`,
         `Application tests: ${docsOnly ? "not required (docs-only PR)" : "selected"}`,
-        `E2E: ${suites}`,
+        `E2E (${effective.name}): ${suites}`,
+        `Timeline layout: ${shadow.timelineLayout ? "selected" : "not selected"}`,
         `ML CPU: ${mlCpu ? "selected" : "not selected"}`,
         "See the `e2e-selection-report` artifact for changed paths and selection reasons.",
         "",

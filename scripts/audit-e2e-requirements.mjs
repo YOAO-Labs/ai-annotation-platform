@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export function validateRequiredManifest(manifest) {
@@ -18,10 +18,6 @@ export function validateRequiredManifest(manifest) {
     rawSuites = manifest.suites.map((entry) =>
       typeof entry === "string" ? { suite: entry, planned: true } : { planned: true, ...entry },
     );
-    if (rawSuites.length === 0 && classification === "docs-only" && !String(reason).trim())
-      errors.push("docs-only manifest with an empty required list requires a nonblank reason");
-    if (classification === "docs-only" && !String(reason).trim())
-      errors.push("docs-only manifest requires a nonblank reason");
   } else {
     return {
       classification: "invalid",
@@ -30,6 +26,15 @@ export function validateRequiredManifest(manifest) {
       errors: ["manifest must be a suite array or {classification, reason, suites}"],
     };
   }
+  const mayBeEmpty = classification === "docs-only" || classification === "test-only";
+  if (!mayBeEmpty && classification !== "app-code")
+    errors.push(`unknown required manifest classification: ${classification}`);
+  if (!mayBeEmpty && rawSuites.length === 0)
+    errors.push("empty required list without a docs-only or test-only classification");
+  if (mayBeEmpty && (typeof reason !== "string" || !reason.trim()))
+    errors.push(`${classification} manifest requires a nonblank reason`);
+  if (classification === "test-only" && rawSuites.length > 0)
+    errors.push("test-only manifest requires an empty suite list");
 
   const suites = [];
   const seen = new Set();
@@ -76,108 +81,71 @@ export function auditE2ERequirements({ requiredSuites: requiredInput, statusDir 
       })),
       ok: false,
     };
-  const requiredSuites = manifest.suites;
-  if (requiredSuites.length === 0 && manifest.classification !== "docs-only")
-    return {
-      rows: [],
-      blockers: [
-        {
-          suite: "(manifest)",
-          state: "invalid-manifest",
-          detail: "empty required list without a docs-only classification",
-        },
-      ],
-      ok: false,
-    };
-  {
-    const rows = [];
-    const missing = [];
-    if (requiredSuites.length === 0 && manifest.classification !== "docs-only")
-      return {
-        rows: [],
-        blockers: [
-          {
-            suite: "(manifest)",
-            state: "invalid-manifest",
-            detail: "empty required list without a docs-only classification",
-          },
-        ],
-        ok: false,
-      };
-    for (const entry of requiredSuites) {
-      const suite = entry.suite;
-      const docsAllowedSkip = entry.docsAllowedSkip === true && entry.planned === false;
-      const file = join(statusDir, `${suite}.json`);
-      if (!existsSync(file)) {
-        missing.push(suite);
-        rows.push({ suite, state: docsAllowedSkip ? "docs-allowed-skip" : "missing" });
-        continue;
-      }
-      let status;
-      try {
-        status = JSON.parse(readFileSync(file, "utf8"));
-      } catch (error) {
-        rows.push({ suite, state: "unreadable", detail: String(error) });
-        continue;
-      }
-      if (status.suite !== suite) {
-        rows.push({ suite, state: "suite-mismatch", detail: status.suite ?? null });
-        continue;
-      }
-      if (
-        !["success", "failure", "timedout", "cancelled", "setup-failure", "skipped"].includes(
-          status.outcome,
-        )
-      ) {
-        rows.push({ suite, state: "unknown-outcome", detail: status.outcome ?? null });
-        continue;
-      }
-      if (status.outcome === "success") {
-        const stats = status.stats ?? {};
-        const numeric = ["expected", "unexpected", "flaky", "skipped"].every(
-          (key) => typeof stats[key] === "number",
-        );
-        if (!numeric) {
-          rows.push({ suite, state: "malformed-success", detail: "success without numeric stats" });
-          continue;
-        }
-        if (entry.flakyPolicy === "forbid" && status.stats.flaky > 0) {
-          rows.push({ suite, state: "core-flaky", detail: { flaky: status.stats.flaky } });
-          continue;
-        }
-        rows.push({ suite, state: "passed", detail: status });
-        continue;
-      }
-      if (status.outcome === "skipped") {
-        rows.push({ suite, state: docsAllowedSkip ? "docs-allowed-skip" : "skipped-not-run" });
-        continue;
-      }
-      rows.push({
-        suite,
-        state:
-          status.outcome === "cancelled"
-            ? "cancelled"
-            : status.outcome === "setup-failure"
-              ? "setup-failure"
-              : "failed",
-        detail: status,
-      });
+  const rows = [];
+  for (const entry of manifest.suites) {
+    const suite = entry.suite;
+    const docsAllowedSkip = entry.docsAllowedSkip && entry.planned === false;
+    const file = join(statusDir, `${suite}.json`);
+    if (!existsSync(file)) {
+      rows.push({ suite, state: docsAllowedSkip ? "docs-allowed-skip" : "missing" });
+      continue;
     }
-    const blockingStates = [
-      "missing",
-      "failed",
-      "cancelled",
-      "setup-failure",
-      "skipped-not-run",
-      "unreadable",
-      "suite-mismatch",
-      "unknown-outcome",
-      "malformed-success",
-      "core-flaky",
-    ];
-    const blockers = rows.filter((row) => blockingStates.includes(row.state));
-    return { rows, blockers, ok: blockers.length === 0 };
+    let status;
+    try {
+      status = JSON.parse(readFileSync(file, "utf8"));
+    } catch (error) {
+      rows.push({ suite, state: "unreadable", detail: String(error) });
+      continue;
+    }
+    if (status.suite !== suite) {
+      rows.push({ suite, state: "suite-mismatch", detail: status.suite ?? null });
+      continue;
+    }
+    if (
+      !["success", "failure", "timedout", "cancelled", "setup-failure", "skipped"].includes(
+        status.outcome,
+      )
+    ) {
+      rows.push({ suite, state: "unknown-outcome", detail: status.outcome ?? null });
+      continue;
+    }
+    if (status.outcome === "success") {
+      const stats = status.stats ?? {};
+      const numeric = ["expected", "unexpected", "flaky", "skipped"].every(
+        (key) => Number.isSafeInteger(stats[key]) && stats[key] >= 0,
+      );
+      if (!numeric || stats.expected + stats.flaky === 0 || stats.unexpected > 0) {
+        rows.push({
+          suite,
+          state: "malformed-success",
+          detail: "success requires passing stats with at least one executed case and no failures",
+        });
+        continue;
+      }
+      if (entry.flakyPolicy === "forbid" && stats.flaky > 0) {
+        rows.push({ suite, state: "core-flaky", detail: { flaky: stats.flaky } });
+        continue;
+      }
+      rows.push({ suite, state: "passed", detail: status });
+      continue;
+    }
+    if (status.outcome === "skipped") {
+      rows.push({ suite, state: docsAllowedSkip ? "docs-allowed-skip" : "skipped-not-run" });
+      continue;
+    }
+    rows.push({
+      suite,
+      state:
+        status.outcome === "cancelled"
+          ? "cancelled"
+          : status.outcome === "setup-failure"
+            ? "setup-failure"
+            : "failed",
+      detail: status,
+    });
   }
+  const blockers = rows.filter(({ state }) => !["passed", "docs-allowed-skip"].includes(state));
+  return { rows, blockers, ok: blockers.length === 0 };
 }
 
 export function main(argv, io) {
@@ -195,18 +163,16 @@ export function main(argv, io) {
     return 2;
   }
   const requiredSuites = JSON.parse(io.readFileSync(requiredPath, "utf8"));
-  const statusFiles = existsSync(statusDir)
-    ? readdirSync(statusDir).filter((name) => name.endsWith(".json"))
-    : [];
-  if (requiredSuites.length > 0 && statusFiles.length === 0) {
-    io.stderr.write("no suite status artifacts found for a non-empty required list\n");
-    return 1;
-  }
   const audit = auditE2ERequirements({ requiredSuites, statusDir });
   const lines = ["| Suite | State |", "| --- | --- |"];
-  for (const row of audit.rows)
+  for (const row of audit.rows.length > 0 ? audit.rows : audit.blockers)
     lines.push(
       `| ${row.suite} | ${row.state}${row.detail ? ` (${JSON.stringify(row.detail).slice(0, 200)})` : ""} |`,
+    );
+  if (audit.ok && audit.rows.length === 0)
+    lines.push(
+      "",
+      `No browser suites required (${requiredSuites.classification}): ${requiredSuites.reason}`,
     );
   lines.push(
     "",
@@ -222,9 +188,7 @@ export function cli() {
   const io = {
     stdout: process.stdout,
     stderr: process.stderr,
-    existsSync,
     readFileSync,
-    readdirSync,
   };
   return main(process.argv.slice(2), io);
 }

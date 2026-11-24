@@ -45,7 +45,18 @@ const { jobSeconds } = JSON.parse(
 function assertFullDispatch(matrix) {
   const { include } = JSON.parse(matrix);
   const bySuite = (a, b) => a.suite.localeCompare(b.suite);
-  assert.deepEqual(include.toSorted(bySuite), SUITE_CONTRACT.toSorted(bySuite));
+  assert.deepEqual(
+    include.toSorted(bySuite),
+    SUITE_CONTRACT.filter(({ scope }) => scope !== "targeted")
+      .map(({ suite, command, built, requireAllTests }) => ({
+        suite,
+        command,
+        built,
+        ...(requireAllTests ? { requireAllTests: true } : {}),
+        ...(core.includes(suite) ? { dedicatedVideo: true } : {}),
+      }))
+      .toSorted(bySuite),
+  );
   assert.equal(include[0].suite, "smoke");
   const seconds = include.slice(1).map(({ suite }) => jobSeconds[suite] ?? -1);
   assert.deepEqual(
@@ -60,8 +71,8 @@ const withWorkerReceipt = (suites) =>
 test("the full gate has unique jobs with complete Chromium and video partitions", () => {
   assert.equal(broadened.length, 32);
   assert.equal(withWorkerReceipt(broadened).length, 33);
-  assert.equal(SUITE_CONTRACT.length, broadened.length);
-  assert.equal(new Set(SUITE_CONTRACT.map(({ suite }) => suite)).size, broadened.length);
+  assert.equal(SUITE_CONTRACT.filter(({ scope }) => scope !== "targeted").length, broadened.length);
+  assert.equal(new Set(SUITE_CONTRACT.map(({ suite }) => suite)).size, SUITE_CONTRACT.length);
 
   for (const [prefix, ids, command, scope, legacyGate] of [
     ["default-", core, "test:e2e --project=chromium --fully-parallel", "full", true],
@@ -109,6 +120,8 @@ test("the two strict native product groups retain their separate commands and co
     "apps/web/e2e/tests/raster-mask-native.spec.ts",
     "apps/web/e2e/tests/mask-advanced-operations.spec.ts",
     "apps/web/e2e/tests/mask-editor.spec.ts",
+    "apps/web/e2e/tests/native-mask-ai.spec.ts",
+    "apps/web/e2e/browser-integration/mask-worker.spec.ts",
   ]) {
     assert.deepEqual(selectSuites("pull_request", [path]).planned, ["smoke", ...maskSpecialties]);
   }
@@ -166,7 +179,7 @@ test("native AI toolbar and async AI requests have independent required launcher
   }
 });
 
-test("required AI status receipts reject failed, skipped, or zero-case execution", () => {
+test("strict browser receipts reject failed, skipped, or zero-case execution", () => {
   const directory = mkdtempSync(join(tmpdir(), "e2e-required-ai-"));
   try {
     const entries = SUITE_CONTRACT.filter(({ requireAllTests }) => requireAllTests);
@@ -267,10 +280,9 @@ test("executable docs examples and docs build config are app code, not docs-only
     const shadow = shadowPlan("pull_request", [path]);
     assert.equal(shadow.classification.docsOnly, false, path);
     assert.deepEqual(shadow.planned, broadened, path);
-    assert.ok(
-      shadow.classification.unmappedAppPaths.length > 0 || shadow.classification.multiDomain,
-      path,
-    );
+    assert.equal(shadow.gates.effective.name, "broad", path);
+    assert.ok(shadow.gates.effective.reason.trim(), path);
+    assert.equal(shadow.timelineLayout, true, path);
   }
 });
 
@@ -296,30 +308,43 @@ test("multi-domain changes include layout stress with recorded reasons", () => {
   assert.ok(shadow.reasons.some((reason) => /multi-domain/.test(reason.because)));
 });
 
-test("single-domain frontend changes select core plus triggered specialties", () => {
-  const shadow = shadowPlan("pull_request", [
-    "apps/web/src/pages/Workbench/stage/shared/geometry/maskOperations.ts",
-  ]);
-  assert.deepEqual(shadow.planned, ["smoke", ...maskSpecialties]);
-  assert.ok(shadow.reasons.some((reason) => /raster Mask/.test(reason.because)));
-  assert.deepEqual(shadow.added, ["smoke"]);
+test("shared Mask editing code selects native owners and the ordinary Mask workflows", () => {
+  const path = "apps/web/src/pages/Workbench/stage/shared/geometry/maskOperations.ts";
+  const shadow = shadowPlan("pull_request", [path]);
+  assert.deepEqual(shadow.planned, ["smoke", ...maskSpecialties, "mask-workflows"]);
+  assert.ok(shadow.reasons.some(({ because }) => because.includes(path)));
+  assert.deepEqual(shadow.gates.planned, shadow.gates.effective);
+  assert.equal(shadow.gates.effective.name, "risk");
+  assert.deepEqual(shadow.gates.broad.suites, broadened);
+  assert.deepEqual(shadow.gates.rollback.suites, [...functional, "layout-stress"]);
+  assert.notDeepEqual(shadow.gates.broad.suites, shadow.gates.rollback.suites);
+  assert.deepEqual(shadow.added, ["smoke", "mask-workflows"]);
   assert.deepEqual(shadow.removed, [...core, "ai-request-worker", ...pointcloud, "layout-stress"]);
 });
 
-test("each original video trigger requires all four video shards", () => {
+test("each video owner requires all four video shards and the timeline check", () => {
   for (const path of [
     "apps/web/e2e/tests/video-timeline-seek.spec.ts",
     "apps/web/e2e/tests/workbench-video-tracker.spec.ts",
-    "apps/web/src/pages/Workbench/stages/video/example.ts",
+    "apps/web/src/pages/Workbench/stages/video/VideoWorkbench.tsx",
+    "apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css",
+    "apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts",
+    "apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts",
+    "apps/web/src/pages/Workbench/stage/frameTimebase.ts",
+    "apps/web/src/pages/Workbench/stage/timelineCoords.ts",
+    "apps/web/src/pages/Workbench/state/useVideoIssueNavigation.ts",
+    "apps/web/src/hooks/useOriginalVideoPlayback.ts",
     "apps/api/app/api/v1/video.py",
     "apps/api/app/services/video.py",
-    "apps/api/app/workers/example.py",
+    "apps/api/app/api/v1/tasks/video.py",
+    "apps/api/app/workers/video_tracker.py",
   ]) {
-    const { planned, reasons } = selectSuites("pull_request", [path]);
+    const { planned, reasons, timelineLayout } = selectSuites("pull_request", [path]);
     const expected = /^apps\/api\/app\/(api|services)\//.test(path)
       ? broadened
       : ["smoke", ...video];
     assert.deepEqual([...planned].sort(), [...expected].sort(), path);
+    assert.equal(timelineLayout, true, path);
     assert.deepEqual(
       reasons
         .filter(({ suite, because }) => video.includes(suite) && /triggered by /.test(because))
@@ -328,6 +353,130 @@ test("each original video trigger requires all four video shards", () => {
       path,
     );
   }
+});
+
+test("only isolated test changes omit browser jobs without taking the docs bypass", () => {
+  for (const paths of [
+    ["apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.test.ts"],
+    ["apps/web/src/api/client.test.ts", "README.md"],
+    ["apps/api/tests/test_pytest_sharding.py"],
+    [
+      "apps/api/tests/test_pytest_sharding.py",
+      "apps/web/src/pages/Workbench/stages/three-d/useScenePlayback.test.ts",
+    ],
+  ]) {
+    const shadow = shadowPlan("pull_request", paths);
+    assert.deepEqual(shadow.planned, [], paths.join(", "));
+    assert.equal(shadow.classification.docsOnly, false);
+    assert.equal(shadow.classification.testOnly, true);
+    assert.equal(shadow.gates.effective.name, "test-only");
+    assert.match(shadow.gates.effective.reason, /existing CI gates/);
+    assert.equal(shadow.timelineLayout, false);
+  }
+});
+
+test("test support, build setup, shared auth, and unknown runtime paths still select broad", () => {
+  for (const path of [
+    "apps/web/src/test/apiRequestGuard.test.ts",
+    "apps/web/src/test/renderWithProviders.tsx",
+    "apps/web/src/__fixtures__/rasterMaskRle.json",
+    "apps/web/vitest.setup.ts",
+    "apps/web/vite.config.ts",
+    "apps/web/playwright.config.ts",
+    "apps/web/e2e/fixtures/video-playback-overlay.tsx",
+    "apps/web/e2e/helpers/video-timeline-seek.ts",
+    "apps/web/src/stores/authStore.ts",
+    "apps/api/tests/test_dataset_content.py",
+    "apps/api/tests/conftest.py",
+    "apps/web/e2e/tests/mask-session-guard.spec.ts",
+    "apps/api/app/workers/new-worker.py",
+    "apps/web/src/pages/Login/ForgotPasswordPage.tsx",
+    "apps/web/src/pages/Unknown/NewPage.tsx",
+    "apps/web/e2e/tests/auth.spec.ts",
+  ]) {
+    const shadow = shadowPlan("pull_request", [path]);
+    assert.deepEqual(shadow.planned, broadened, path);
+    assert.equal(shadow.gates.effective.name, "broad", path);
+    assert.equal(shadow.timelineLayout, true, path);
+  }
+});
+
+test("Login uses core, but changed ordinary product behavior uses its owning spec", () => {
+  const login = "apps/web/src/pages/Login/LoginPage.tsx";
+  const plan = selectSuites("pull_request", [login, "apps/api/tests/test_pytest_sharding.py"]);
+  assert.deepEqual(plan.planned, ["smoke"]);
+  assert.equal(plan.timelineLayout, false);
+
+  for (const [path, suite, spec] of [
+    [
+      "apps/web/src/pages/Projects/ProjectDataManagerPage.tsx",
+      "data-manager",
+      "data-manager-management",
+    ],
+    [
+      "apps/web/src/pages/Datasets/DatasetsPage.tsx",
+      "operational-lists",
+      "filter-operational-lists",
+    ],
+    [
+      "apps/web/src/pages/Projects/sections/AnnotationGuideSection.tsx",
+      "annotation-guide",
+      "guide-autosave",
+    ],
+    [
+      "apps/web/src/pages/Training/TrainingConfigurationEditor.tsx",
+      "training-parameters",
+      "training-parameter-reset",
+    ],
+    ["apps/web/e2e/tests/lidar-export-trusted.spec.ts", "lidar-export", "lidar-export-trusted"],
+    ["apps/web/e2e/tests/mask-slice.spec.ts", "mask-workflows", "mask-slice"],
+  ]) {
+    const selected = selectSuites("pull_request", [login, path, "apps/web/src/api/client.test.ts"]);
+    assert.deepEqual(selected.planned, ["smoke", suite], path);
+    assert.equal(selected.timelineLayout, false, path);
+    const entry = SUITE_CONTRACT.find((item) => item.suite === suite);
+    assert.ok(entry.command.split(" ").includes(`e2e/tests/${spec}.spec.ts`), path);
+  }
+});
+
+test("short dock layout follows shared layout code without scheduling long stress", () => {
+  for (const path of [
+    "apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx",
+    "apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts",
+    "apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.ts",
+    "apps/api/app/schemas/workbench_workspace.py",
+  ]) {
+    const selected = selectSuites("pull_request", [path]);
+    assert.deepEqual(selected.planned, ["smoke", ...pointcloud, "layout-short"], path);
+    assert.equal(selected.timelineLayout, true, path);
+  }
+  const short = selectSuites("pull_request", ["apps/web/e2e/tests/workbench-layout.spec.ts"]);
+  assert.deepEqual(short.planned, ["smoke", "layout-short"]);
+  assert.equal(short.timelineLayout, true);
+  assert.deepEqual(
+    selectSuites("pull_request", ["apps/web/e2e/tests/workbench-layout-matrix.spec.ts"]).planned,
+    ["smoke", "layout-stress", "layout-short"],
+  );
+  assert.deepEqual(
+    selectSuites("pull_request", ["apps/web/e2e/tests/workbench-pointcloud-layout-matrix.spec.ts"])
+      .planned,
+    ["smoke", ...pointcloud, "layout-stress"],
+  );
+});
+
+test("point-cloud rendering and the standalone timeline spec each keep their real browser owner", () => {
+  const cloud = selectSuites("pull_request", [
+    "apps/web/src/pages/Workbench/stages/three-d/PointCloudTriViewPass.ts",
+    "apps/web/e2e/tests/workbench-pointcloud-playback.spec.ts",
+  ]);
+  assert.deepEqual(cloud.planned, ["smoke", ...pointcloud]);
+  assert.equal(cloud.timelineLayout, false);
+
+  const timeline = selectSuites("pull_request", [
+    "apps/web/e2e/layout/video-playback-overlay.spec.ts",
+  ]);
+  assert.deepEqual(timeline.planned, ["smoke"]);
+  assert.equal(timeline.timelineLayout, true);
 });
 
 test("shadow diff against the legacy gate is recorded for schedule changes", () => {
@@ -377,6 +526,7 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
     assert.equal(outputs.ml_cpu, "true");
     assert.equal(readShadow(cwd, outputs).mlCpu, true);
     assert.equal(outputs.run_suites, "true");
+    assert.equal(outputs.timeline_layout, "true");
     const requiredManifest = JSON.parse(outputs.required);
     assert.equal(requiredManifest.classification, "app-code");
     assert.equal(
@@ -432,6 +582,7 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
     assert.equal(pushOutputs.ml_cpu, "true");
     assert.equal(pushShadow.mlCpu, true);
     assert.equal(pushOutputs.run_suites, "true");
+    assert.equal(pushOutputs.timeline_layout, "true");
     assertFullDispatch(pushOutputs.matrix);
 
     const sharedBase = git("rev-parse", "HEAD");
@@ -546,6 +697,7 @@ test("large PR reports use files while suite dispatch and final audit outputs st
       "run_suites",
       "selection_mode",
       "shadow_path",
+      "timeline_layout",
     ]);
     assert.ok(Buffer.byteLength(result.stdout) < 32 * 1024);
     for (const [key, value] of Object.entries(outputs))
@@ -646,6 +798,8 @@ test("bounded smoke runs without retries and forbids flaky passes", () => {
   assert.ok(smoke, "smoke suite must exist in the contract");
   assert.equal(smoke.flakyPolicy, "forbid");
   assert.match(smoke.command, /--retries=0/);
+  assert.doesNotMatch(smoke.command, /健康检查/);
+  assert.match(smoke.command, /正确凭证\|错密码\|未登录访问/);
   assert.equal(
     SUITE_CONTRACT.some((entry) => entry.flakyPolicy === "forbid" && entry.suite !== "smoke"),
     false,
@@ -718,8 +872,10 @@ test("the required manifest audits every effective job and the bundled Worker in
       const expected = mode === "legacy" ? [...functional, "layout-stress"] : broadened;
       assert.equal(out.docs_only, "false");
       assert.equal(out.run_suites, "true");
-      if (mode === "legacy") assert.deepEqual(ids(out.matrix), expected);
-      else assertFullDispatch(out.matrix);
+      if (mode === "legacy") {
+        assert.deepEqual(ids(out.matrix), expected);
+        assert.ok(JSON.parse(out.matrix).include.every((entry) => !("dedicatedVideo" in entry)));
+      } else assertFullDispatch(out.matrix);
       assert.deepEqual(requiredIds(out.required), withWorkerReceipt(expected));
       if (mode !== "legacy") {
         const smoke = JSON.parse(out.required).suites.find(({ suite }) => suite === "smoke");
@@ -735,6 +891,12 @@ test("the required manifest audits every effective job and the bundled Worker in
       if (mode !== undefined) env.E2E_SELECTION_MODE = mode;
       const out = run(env, [appBase]);
       assert.equal(out.docs_only, "false");
+      const { gates, timelineLayout } = readShadow(cwd, out);
+      assert.equal(timelineLayout, true);
+      assert.deepEqual(gates.planned.suites, broadened);
+      assert.equal(gates.planned.name, "broad");
+      assert.equal(gates.effective.name, mode === "legacy" ? "legacy" : "broad");
+      assert.deepEqual(ids(out.matrix).toSorted(), gates.effective.suites.toSorted());
       assert.deepEqual(
         requiredIds(out.required).sort(),
         withWorkerReceipt(ids(out.matrix)).sort(),
@@ -771,6 +933,32 @@ test("the required manifest audits every effective job and the bundled Worker in
     assert.equal(firstSuite, "smoke");
     assert.deepEqual(selectedPoints.toSorted(), pointcloud.toSorted());
     assert.deepEqual(requiredIds(pointcloudPr.required), ["smoke", ...pointcloud]);
+    assert.equal(pointcloudPr.timeline_layout, "false");
+
+    const unitBase = git("rev-parse", "HEAD");
+    mkdirSync(join(cwd, "apps/api/tests"), { recursive: true });
+    writeFileSync(join(cwd, "apps/api/tests/test_pytest_sharding.py"), "pass\n");
+    git("add", "apps/api/tests");
+    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "unit");
+    const unit = run({ GITHUB_EVENT_NAME: "pull_request" }, [unitBase]);
+    assert.equal(unit.docs_only, "false");
+    assert.equal(unit.ml_cpu, "true");
+    assert.equal(unit.run_suites, "false");
+    assert.equal(unit.timeline_layout, "false");
+    assert.deepEqual(ids(unit.matrix), []);
+    const unitManifest = JSON.parse(unit.required);
+    assert.equal(unitManifest.classification, "test-only");
+    assert.deepEqual(unitManifest.suites, []);
+    assert.ok(unitManifest.reason.trim());
+    assert.equal(auditE2ERequirements({ requiredSuites: unitManifest, statusDir: cwd }).ok, true);
+    const unitLegacy = run({ GITHUB_EVENT_NAME: "pull_request", E2E_SELECTION_MODE: "legacy" }, [
+      unitBase,
+    ]);
+    assert.equal(unitLegacy.docs_only, "false");
+    assert.equal(unitLegacy.timeline_layout, "true");
+    assert.equal(unitLegacy.run_suites, "true");
+    assert.deepEqual(ids(unitLegacy.matrix), [...functional, "layout-stress"]);
+    assert.deepEqual(requiredIds(unitLegacy.required), withWorkerReceipt(ids(unitLegacy.matrix)));
 
     const docsBase = git("rev-parse", "HEAD");
     assert.equal(run({ GITHUB_EVENT_NAME: "pull_request" }, [docsBase]).docs_only, "false");
@@ -788,6 +976,7 @@ test("the required manifest audits every effective job and the bundled Worker in
     assert.equal(docsPlanned.docs_only, "true");
     assert.equal(docsPlanned.ml_cpu, "false");
     assert.equal(docsPlanned.run_suites, "false");
+    assert.equal(docsPlanned.timeline_layout, "false");
     const docsManifest = JSON.parse(docsPlanned.required);
     assert.equal(docsManifest.classification, "docs-only");
     assert.deepEqual(docsManifest.suites, []);
@@ -798,6 +987,7 @@ test("the required manifest audits every effective job and the bundled Worker in
     ]);
     assert.equal(docsLegacy.run_suites, "true");
     assert.equal(docsLegacy.docs_only, "true");
+    assert.equal(docsLegacy.timeline_layout, "false");
     assert.deepEqual(ids(docsLegacy.matrix), [...functional]);
     assert.deepEqual(requiredIds(docsLegacy.required), withWorkerReceipt(ids(docsLegacy.matrix)));
 
