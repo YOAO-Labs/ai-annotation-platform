@@ -63,12 +63,11 @@ def config():
     )
 
 
-def report_file(tmp_path):
+def build_report(receipt, *, image_id: str | None = None):
     from yoao_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
     from yoao_lifecycle_contract import memory_cycle_evidence
     from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
-    receipt = json.loads((tmp_path / "state" / "receipt.json").read_text())
     manifest = receipt["config"]["manifest"]
     registry = receipt["registry_id"]
     resource = receipt["config"]["gpu_resource_id"]
@@ -95,16 +94,16 @@ def report_file(tmp_path):
         )
         for i in (1, 2)
     ]
-    report = build_managed_lifecycle_evidence(
-        backend_name="libreyolo",
+    return build_managed_lifecycle_evidence(
+        backend_name=manifest["plugin_id"],
         deployment={
             "git_commit": "a" * 40,
-            "image_id": "sha256:" + "d" * 64,
+            "image_id": image_id or ("sha256:" + "d" * 64),
             "runtime_versions": versions,
             "pool_topology": {
                 "registry_id": registry,
                 "gpu_resource_id": resource,
-                "pools": {"models": {"cap": 1}},
+                "pools": manifest["pools"],
             },
         },
         artifacts=[
@@ -146,11 +145,16 @@ def report_file(tmp_path):
             "active_requests": 0,
             "builders": 0,
             "borrowers": 0,
-            "pools": {"models": {"resident": False}},
+            "pools": {name: {"resident": False} for name in manifest["pools"]},
         },
         runtime_ephemera_clean=True,
         generated_at="2026-07-30T12:00:00Z",
     )
+
+
+def report_file(tmp_path):
+    receipt = json.loads((tmp_path / "state" / "receipt.json").read_text())
+    report = build_report(receipt)
     path = tmp_path / "gpu-evidence.json"
     path.write_text(json.dumps(report, ensure_ascii=False))
     return path
@@ -264,9 +268,130 @@ class LocalDocker:
         self.started_at = "boot-1"
         self.created = False
         self.candidate_token = None
+        self.image_digest = "sha256:" + "d" * 64
+        self.manifest = None
+        self.qualification_command: tuple[str, ...] | None = (
+            "yoao-libreyolo",
+            "qualify",
+        )
+        self.qualification_runs: list[dict] = []
+        self.qualification_writer = None
 
     def image_id(self, config):
-        return "sha256:" + "d" * 64
+        return self.image_digest
+
+    def inspect_image_manifest(self, image):
+        manifest = self.manifest or config().manifest
+        if manifest.artifact != image:
+            manifest = manifest.bind_artifact(image)
+        return manifest, self.image_digest, self.qualification_command
+
+    def run_qualification(self, run_cfg):
+        run_cfg.validate()
+        context = json.loads(run_cfg.context_file.read_text(encoding="utf-8"))
+        env_text = run_cfg.env_file.read_text(encoding="utf-8")
+        env = dict(line.split("=", 1) for line in env_text.splitlines() if "=" in line)
+        self.qualification_runs.append(
+            {"config": run_cfg, "context": context, "env": env}
+        )
+        self.events.append("qualify")
+        if self.qualification_writer is not None:
+            self.qualification_writer(run_cfg, context, env)
+            return
+        from yoao_backend_runtime.lifecycle_evidence import (
+            build_managed_lifecycle_evidence,
+        )
+        from yoao_lifecycle_contract import memory_cycle_evidence
+        from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
+
+        versions = {
+            key: str(value).lower() if isinstance(value, bool) else str(value)
+            for key, value in LIBRE_CUDA_RUNTIME.items()
+        }
+        versions.update(
+            plugin_id=context["plugin_id"],
+            plugin_version=context["plugin_version"],
+            artifact=context["artifact"],
+            asset_manifest_sha256=context["asset_manifest_sha256"],
+            registry_id=context["registry_id"],
+            gpu_resource_id=context["gpu_resource_id"],
+            driver_version="580.65",
+        )
+        cycles = [
+            memory_cycle_evidence(
+                cycle=i,
+                generation=str(i * 2),
+                context_samples_mb=[100] * 5,
+                loaded_samples_mb=[1100] * 3,
+                unloaded_samples_mb=[120] * 5,
+            )
+            for i in (1, 2)
+        ]
+        report = build_managed_lifecycle_evidence(
+            backend_name=context["plugin_id"],
+            deployment={
+                "git_commit": "a" * 40,
+                "image_id": context["image_id"],
+                "runtime_versions": versions,
+                "pool_topology": {
+                    "registry_id": context["registry_id"],
+                    "gpu_resource_id": context["gpu_resource_id"],
+                    "pools": context["pools"],
+                },
+            },
+            artifacts=[
+                {
+                    "kind": "weight",
+                    "name": "weight",
+                    "size_bytes": 1,
+                    "sha256": "a" * 64,
+                    "approval_ref": context["model_approval_ref"] or "通过",
+                },
+                {
+                    "kind": "fixture",
+                    "name": "fixture",
+                    "size_bytes": 1,
+                    "sha256": "a" * 64,
+                    "approval_ref": context["fixture_approval_ref"] or "通过",
+                },
+            ],
+            gpu={
+                "uuid": context["physical_gpu_uuid"],
+                "total_memory_mb": 24576,
+                "driver_version": "580.65",
+                "runtime_version": "13.2",
+                "visible_device_count": 1,
+            },
+            cycles=cycles,
+            contract_checks=dict.fromkeys(
+                (
+                    "managed_lifecycle_advertised",
+                    "real_inference",
+                    "provider_or_device_gpu",
+                    "busy_unload_rejected",
+                    "cancel_accounting",
+                    "stale_generation_rejected",
+                    "token_replay_rejected",
+                    "partial_headers_rejected",
+                    "full_cleanup",
+                ),
+                True,
+            ),
+            final_residency={
+                "state": "unloaded",
+                "gpu_loaded": False,
+                "evictable": False,
+                "active_requests": 0,
+                "builders": 0,
+                "borrowers": 0,
+                "pools": {name: {"resident": False} for name in context["pools"]},
+            },
+            runtime_ephemera_clean=True,
+            generated_at="2026-07-30T12:00:00Z",
+        )
+        (run_cfg.output_dir / "report.json").write_text(
+            json.dumps(report, ensure_ascii=False), encoding="utf-8"
+        )
 
     def ensure_started(self, config):
         self.events.append("start")

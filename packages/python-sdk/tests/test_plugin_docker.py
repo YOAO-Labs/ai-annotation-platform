@@ -10,8 +10,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from yoao._plugin_docker import ContainerConfig, Docker
+from yoao._plugin_docker import ContainerConfig, Docker, QualificationRunConfig
 from yoao.errors import SDKError
+from yoao_inference_contract.plugin import (
+    PLUGIN_MANIFEST_OCI_LABEL,
+    PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+)
 
 
 def config():
@@ -516,3 +520,206 @@ def test_startup_disconnect_waits_for_healthy_response(monkeypatch):
             allow_ready.set()
             server.shutdown()
             serving.join(timeout=5)
+
+
+def _oci_manifest_label(*, device: str = "cuda") -> str:
+    return json.dumps(
+        {
+            "plugin_id": "libreyolo",
+            "version": "1.0",
+            "publisher": "example",
+            "license": "Apache-2.0",
+            "sdk_compatibility": ">=1",
+            "entrypoint": [
+                "yoao-libreyolo",
+                "serve",
+                "--host",
+                "0.0.0.0",
+                "--port",
+                "8000",
+            ],
+            "capabilities": ["inference", "detection"],
+            "models": [
+                {
+                    "id": "detect",
+                    "task": "detect",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image"],
+                    "supported_geometric_outputs": ["bbox"],
+                }
+            ],
+            "pools": {"models": {"cap": 1}},
+            "resource": {
+                "device": device,
+                "memory_mb": 4096,
+                "gpu_memory_mb": 2048 if device == "cuda" else 0,
+            },
+            "asset_manifest_sha256": "a" * 64,
+            "allowed_asset_sources": ["https://assets.example"],
+        }
+    )
+
+
+def _qualification_config():
+    return QualificationRunConfig(
+        image="example.invalid/plugin@sha256:" + "b" * 64,
+        command=("yoao-libreyolo", "qualify", "--cycles", "2"),
+        gpu_uuid="GPU-12345678-1234-1234-1234-123456789abc",
+        memory_mb=4096,
+        cpus=2,
+        env_file=Path("/private/state/.qualify-1/qualify.env"),
+        context_file=Path("/private/state/.qualify-1/context.json"),
+        output_dir=Path("/private/state/.qualify-1/output"),
+        data_target="/var/lib/aap-libreyolo",
+        assets_dir=Path("/private/state/data/assets"),
+        fixture_file=Path("/private/fixtures/sample.jpg"),
+    )
+
+
+def test_inspect_image_labels_verifies_digest_before_reading_labels(monkeypatch):
+    image = "example.invalid/plugin@sha256:" + "b" * 64
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if "{{json .RepoDigests}}" in argv:
+            out = json.dumps(["example.invalid/plugin@sha256:" + "c" * 64])
+        else:
+            raise AssertionError(f"must not inspect labels on digest mismatch: {argv}")
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    with pytest.raises(SDKError, match="approved digest"):
+        Docker().inspect_image_labels(image)
+    assert len(calls) == 1
+
+    calls.clear()
+    with pytest.raises(SDKError, match="sha256 digest"):
+        Docker().inspect_image_labels("example.invalid/plugin:latest")
+    assert calls == []
+
+
+def test_inspect_image_manifest_reads_cpu_and_cuda_labels(monkeypatch):
+    image = "example.invalid/plugin@sha256:" + "b" * 64
+    image_id = "sha256:" + "d" * 64
+    labels: dict[str, str] | None = {
+        PLUGIN_MANIFEST_OCI_LABEL: _oci_manifest_label(device="cpu")
+    }
+
+    def run(argv, **kwargs):
+        if "{{json .RepoDigests}}" in argv:
+            out = json.dumps([image])
+        elif "{{.Id}}" in argv:
+            out = image_id
+        elif "{{json .Config.Labels}}" in argv:
+            out = json.dumps(labels)
+        else:
+            raise AssertionError(argv)
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    manifest, observed_id, qcmd = Docker().inspect_image_manifest(image)
+    assert observed_id == image_id
+    assert manifest.artifact == image
+    assert manifest.resource.device == "cpu"
+    assert qcmd is None
+
+    labels = {
+        PLUGIN_MANIFEST_OCI_LABEL: _oci_manifest_label(device="cuda"),
+        PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL: json.dumps(
+            ["yoao-libreyolo", "qualify"]
+        ),
+    }
+    manifest, observed_id, qcmd = Docker().inspect_image_manifest(image)
+    assert observed_id == image_id
+    assert manifest.resource.device == "cuda"
+    assert qcmd == ("yoao-libreyolo", "qualify")
+
+    labels = None
+    assert Docker().inspect_image_labels(image) == (image_id, {})
+    with pytest.raises(SDKError, match=PLUGIN_MANIFEST_OCI_LABEL):
+        Docker().inspect_image_manifest(image)
+
+    labels = {PLUGIN_MANIFEST_OCI_LABEL: '{"artifact":"' + image + '"}'}
+    with pytest.raises(SDKError, match=PLUGIN_MANIFEST_OCI_LABEL):
+        Docker().inspect_image_manifest(image)
+
+    labels = {
+        PLUGIN_MANIFEST_OCI_LABEL: _oci_manifest_label(device="cuda"),
+        PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL: json.dumps(["sh", "-c", "id"]),
+    }
+    with pytest.raises(SDKError, match=PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL):
+        Docker().inspect_image_manifest(image)
+
+
+def test_run_qualification_isolates_container_and_mounts_only_declared_paths(
+    monkeypatch,
+):
+    qcfg = _qualification_config()
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        out = json.dumps([qcfg.image]) if "{{json .RepoDigests}}" in argv else ""
+        return SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    monkeypatch.setattr(Docker, "_user", staticmethod(lambda: "1000:1000"))
+
+    Docker().run_qualification(qcfg)
+    assert len(calls) == 2
+    assert calls[0] == [
+        "docker",
+        "image",
+        "inspect",
+        "--format",
+        "{{json .RepoDigests}}",
+        qcfg.image,
+    ]
+    cmd = calls[1]
+    assert cmd[:4] == ["docker", "container", "run", "--rm"]
+    assert cmd[cmd.index("--network") + 1] == "none"
+    assert cmd[cmd.index("--user") + 1] == "1000:1000"
+    assert cmd[cmd.index("--gpus") + 1] == f"device={qcfg.gpu_uuid}"
+    assert cmd[cmd.index("--memory") + 1] == "4096m"
+    assert cmd[cmd.index("--cpus") + 1] == "2"
+    assert cmd[cmd.index("--cap-drop") + 1] == "ALL"
+    assert cmd[cmd.index("--security-opt") + 1] == "no-new-privileges"
+    assert cmd[cmd.index("--env-file") + 1] == str(qcfg.env_file)
+    assert cmd[cmd.index("--entrypoint") + 1] == "yoao-libreyolo"
+    assert cmd[cmd.index("--") + 1 :] == [qcfg.image, "qualify", "--cycles", "2"]
+
+    mounts = [cmd[index + 1] for index, token in enumerate(cmd) if token == "--mount"]
+    assert mounts == [
+        f"type=bind,src={qcfg.context_file},dst=/var/lib/aap-qualification/context.json,readonly",
+        f"type=bind,src={qcfg.output_dir},dst=/var/lib/aap-qualification/output",
+        f"type=bind,src={qcfg.assets_dir},dst={qcfg.data_target}/assets,readonly",
+        f"type=bind,src={qcfg.fixture_file},dst=/var/lib/aap-qualification/fixture,readonly",
+    ]
+    joined = " ".join(cmd)
+    for forbidden in ("/data/token", "gpu-keyring.json", "docker.sock"):
+        assert forbidden not in joined
+    assert not any(
+        mount.startswith("type=bind,src=/private/state/data,") for mount in mounts
+    )
+
+
+def test_qualification_run_config_rejects_unsafe_inputs():
+    qcfg = _qualification_config()
+    for bad in (
+        replace(qcfg, image="example.invalid/plugin:latest"),
+        replace(qcfg, command=("bash", "-c", "id")),
+        replace(qcfg, command=("python3", "-c", "import os")),
+        replace(qcfg, gpu_uuid="all"),
+        replace(qcfg, memory_mb=0),
+        replace(qcfg, cpus=0),
+        replace(qcfg, env_file=Path("relative/env")),
+        replace(qcfg, context_file=Path("/tmp/a,b/context.json")),
+        replace(qcfg, output_dir=Path("/var/run/docker.sock")),
+        replace(qcfg, data_target="relative/target"),
+        replace(qcfg, assets_dir=Path("/var/run/docker.sock")),
+        replace(qcfg, fixture_file=Path("/tmp/fix,ture.jpg")),
+    ):
+        with pytest.raises(SDKError):
+            bad.validate()

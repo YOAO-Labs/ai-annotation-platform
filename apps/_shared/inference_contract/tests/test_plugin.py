@@ -7,10 +7,15 @@ from pydantic import ValidationError
 
 from yoao_inference_contract.execution import freeze_json
 from yoao_inference_contract.plugin import (
+    PLUGIN_MANIFEST_OCI_LABEL,
+    PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
     PluginActivateRequest,
+    PluginImageManifest,
     PluginInstallation,
     PluginLifecycleQualification,
     PluginManifest,
+    parse_oci_plugin_manifest,
+    parse_oci_qualification_command,
     plugin_is_active,
     validate_oci_digest_reference,
 )
@@ -234,3 +239,133 @@ def test_lifecycle_qualification_hashes_canonical_ascii_json():
         PluginLifecycleQualification(report={**report, "cycle": 2}, sha256=digest)
     with pytest.raises(ValidationError):
         PluginLifecycleQualification(report={"cycle": float("nan")}, sha256=digest)
+
+
+def image_manifest():
+    value = manifest()
+    value.pop("artifact")
+    return value
+
+
+def test_oci_label_constants_and_plugin_image_manifest_binding():
+    assert PLUGIN_MANIFEST_OCI_LABEL == "io.yoao.plugin.manifest"
+    assert (
+        PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL == "io.yoao.plugin.qualification-command"
+    )
+    raw = image_manifest()
+    artifact = manifest()["artifact"]
+    parsed_image = PluginImageManifest.model_validate(raw)
+    bound = parsed_image.bind_artifact(artifact)
+    direct = PluginManifest.model_validate(manifest())
+    assert bound == direct
+    assert bound.model_dump(mode="json") == direct.model_dump(mode="json")
+
+    with pytest.raises(ValidationError):
+        PluginImageManifest.model_validate(manifest())
+    with pytest.raises(ValueError):
+        parsed_image.bind_artifact("registry.example/plugin:latest")
+
+
+def test_parse_oci_plugin_manifest_accepts_valid_and_rejects_malformed():
+    artifact = manifest()["artifact"]
+    raw_json = json.dumps(image_manifest(), separators=(",", ":"))
+    parsed = parse_oci_plugin_manifest(raw_json, artifact=artifact)
+    assert parsed == PluginManifest.model_validate(manifest())
+
+    with pytest.raises(ValidationError):
+        parse_oci_plugin_manifest(json.dumps(manifest()), artifact=artifact)
+
+    missing_field = image_manifest()
+    missing_field.pop("plugin_id")
+    with pytest.raises(ValidationError):
+        parse_oci_plugin_manifest(json.dumps(missing_field), artifact=artifact)
+
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        parse_oci_plugin_manifest(
+            raw_json[:-1] + ',"version":"2.0"}', artifact=artifact
+        )
+
+    nested_dup = raw_json.replace('"models":{"cap":1}', '"models":{"cap":1,"cap":2}')
+    assert nested_dup != raw_json
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        parse_oci_plugin_manifest(nested_dup, artifact=artifact)
+
+    with pytest.raises(ValueError, match="non-finite"):
+        parse_oci_plugin_manifest('{"plugin_id":"x","version":NaN}', artifact=artifact)
+    with pytest.raises(ValueError, match="non-finite"):
+        parse_oci_plugin_manifest(
+            '{"plugin_id":"x","version":Infinity}', artifact=artifact
+        )
+
+    for bad_raw in (None, 123, "", "   ", "[]", '"hello"', "null"):
+        with pytest.raises(ValueError):
+            parse_oci_plugin_manifest(bad_raw, artifact=artifact)  # type: ignore[arg-type]
+
+    oversized = json.dumps({**image_manifest(), "publisher": "中" * 22000})
+    assert len(oversized.encode("utf-8")) > 65536
+    with pytest.raises(ValueError, match="65536"):
+        parse_oci_plugin_manifest(oversized, artifact=artifact)
+
+    with pytest.raises(ValueError):
+        parse_oci_plugin_manifest(raw_json, artifact="registry.example/plugin:latest")
+
+
+def test_parse_oci_qualification_command_accepts_fixed_commands_and_rejects_unsafe():
+    assert parse_oci_qualification_command(
+        json.dumps(["yoao-libreyolo", "qualify"])
+    ) == ("yoao-libreyolo", "qualify")
+    assert parse_oci_qualification_command(
+        json.dumps(
+            [
+                "python3",
+                "-m",
+                "plugin.qualify",
+                "--context",
+                "/var/lib/aap-qualification/context.json",
+            ]
+        )
+    ) == (
+        "python3",
+        "-m",
+        "plugin.qualify",
+        "--context",
+        "/var/lib/aap-qualification/context.json",
+    )
+
+    for shell in ("sh", "bash", "dash", "ash", "zsh", "ksh", "fish", "BASH"):
+        with pytest.raises(ValueError):
+            parse_oci_qualification_command(json.dumps([shell, "-c", "echo hi"]))
+
+    for python_inline in (
+        ["python", "-c", "print(1)"],
+        ["python3", "-c", "print(1)"],
+        ["python3.11", "-Ic", "print(1)"],
+        ["python3", "-cprint(1)"],
+    ):
+        with pytest.raises(ValueError):
+            parse_oci_qualification_command(json.dumps(python_inline))
+
+    for bad_cmd in (
+        [],
+        ["arg"] * 65,
+        [""],
+        [" yoao-libreyolo"],
+        ["yoao-libreyolo "],
+        ["yoao-libreyolo", "bad\narg"],
+        ["yoao-libreyolo", "bad\rarg"],
+        ["yoao-libreyolo", "bad\x00arg"],
+        ["/usr/bin/yoao-libreyolo"],
+        ["-flag"],
+        ["cmd;echo"],
+        [123],
+    ):
+        with pytest.raises(ValueError):
+            parse_oci_qualification_command(json.dumps(bad_cmd))
+
+    for bad_raw in (None, 42, "", "   ", "{}", '"yoao-libreyolo"', "[NaN]"):
+        with pytest.raises(ValueError):
+            parse_oci_qualification_command(bad_raw)  # type: ignore[arg-type]
+
+    oversized = json.dumps(["yoao-libreyolo", "a" * 4100])
+    with pytest.raises(ValueError, match="4096"):
+        parse_oci_qualification_command(oversized)

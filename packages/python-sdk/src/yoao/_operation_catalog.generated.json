@@ -93669,6 +93669,36 @@
       "confirmation": true
     },
     {
+      "path": "yoao plugins inspect-image",
+      "alias": "plugins.inspect-image",
+      "parameters": [
+        {
+          "name": "image",
+          "kind": "option",
+          "options": [
+            "--image"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Digest-pinned local plugin image reference"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": false
+    },
+    {
       "path": "yoao plugins install",
       "alias": "plugins.install",
       "parameters": [
@@ -93693,6 +93723,61 @@
           "default": null,
           "type": "Path | None",
           "description": "Admin-approved GPU lifecycle report JSON"
+        },
+        {
+          "name": "qualify",
+          "kind": "option",
+          "options": [
+            "--qualify"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Generate and verify GPU lifecycle qualification using the image's OCI command"
+        },
+        {
+          "name": "fixture",
+          "kind": "option",
+          "options": [
+            "--fixture"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host fixture file for --qualify"
+        },
+        {
+          "name": "asset_dir",
+          "kind": "option",
+          "options": [
+            "--asset-dir"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host asset directory for --qualify"
+        },
+        {
+          "name": "model_approval_ref",
+          "kind": "option",
+          "options": [
+            "--model-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for model weights during --qualify"
+        },
+        {
+          "name": "fixture_approval_ref",
+          "kind": "option",
+          "options": [
+            "--fixture-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for fixture during --qualify"
         },
         {
           "name": "yes",
@@ -93795,10 +93880,131 @@
           "options": [
             "--config"
           ],
-          "required": true,
+          "required": false,
           "default": null,
-          "type": "Path",
+          "type": "Path | None",
           "description": "Approved deployment JSON file"
+        },
+        {
+          "name": "image",
+          "kind": "option",
+          "options": [
+            "--image"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Digest-pinned local plugin image reference"
+        },
+        {
+          "name": "name",
+          "kind": "option",
+          "options": [
+            "--name"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Registry display name for this installation"
+        },
+        {
+          "name": "url",
+          "kind": "option",
+          "options": [
+            "--url"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Plugin HTTP(S) endpoint URL reachable by core"
+        },
+        {
+          "name": "network",
+          "kind": "option",
+          "options": [
+            "--network"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Explicit non-host Docker network"
+        },
+        {
+          "name": "host_port",
+          "kind": "option",
+          "options": [
+            "--host-port"
+          ],
+          "required": false,
+          "default": null,
+          "type": "int | None",
+          "description": "Host port mapped to the plugin container"
+        },
+        {
+          "name": "container_port",
+          "kind": "option",
+          "options": [
+            "--container-port"
+          ],
+          "required": false,
+          "default": null,
+          "type": "int | None",
+          "description": "Container port (defaults from entrypoint --port or 8000)"
+        },
+        {
+          "name": "cpus",
+          "kind": "option",
+          "options": [
+            "--cpus"
+          ],
+          "required": false,
+          "default": null,
+          "type": "float | None",
+          "description": "CPU quota for the plugin container"
+        },
+        {
+          "name": "image_host",
+          "kind": "option",
+          "options": [
+            "--image-host"
+          ],
+          "required": false,
+          "default": null,
+          "type": "list[str] | None",
+          "description": "Approved image fetch hostname (repeatable)"
+        },
+        {
+          "name": "gpu_resource_id",
+          "kind": "option",
+          "options": [
+            "--gpu-resource-id"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Core GPU resource identifier"
+        },
+        {
+          "name": "physical_gpu_uuid",
+          "kind": "option",
+          "options": [
+            "--physical-gpu-uuid"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Physical NVIDIA GPU UUID"
+        },
+        {
+          "name": "gpu_verify_keyring",
+          "kind": "option",
+          "options": [
+            "--gpu-verify-keyring"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "JSON file mapping key_id to Ed25519 public key"
         },
         {
           "name": "state_dir",
@@ -93810,6 +94016,48 @@
           "default": null,
           "type": "Path",
           "description": "Private per-installation state directory"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Approve manifest resolved from OCI image label"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": true
+    },
+    {
+      "path": "yoao plugins prepare-assets",
+      "alias": "plugins.prepare-assets",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": null
         },
         {
           "name": "json_output",
@@ -93827,8 +94075,8 @@
       "confirmation": false
     },
     {
-      "path": "yoao plugins prepare-assets",
-      "alias": "plugins.prepare-assets",
+      "path": "yoao plugins qualify",
+      "alias": "plugins.qualify",
       "parameters": [
         {
           "name": "state_dir",
@@ -93839,7 +94087,62 @@
           "required": true,
           "default": null,
           "type": "Path",
-          "description": null
+          "description": "Private per-installation state directory"
+        },
+        {
+          "name": "fixture",
+          "kind": "option",
+          "options": [
+            "--fixture"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host fixture file mounted read-only"
+        },
+        {
+          "name": "asset_dir",
+          "kind": "option",
+          "options": [
+            "--asset-dir"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host asset directory mounted read-only"
+        },
+        {
+          "name": "model_approval_ref",
+          "kind": "option",
+          "options": [
+            "--model-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for model weights"
+        },
+        {
+          "name": "fixture_approval_ref",
+          "kind": "option",
+          "options": [
+            "--fixture-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for fixture"
+        },
+        {
+          "name": "out",
+          "kind": "option",
+          "options": [
+            "--out"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Write verified report to this path without updating state-dir"
         },
         {
           "name": "json_output",
@@ -94006,6 +94309,61 @@
           "default": null,
           "type": "Path | None",
           "description": "Admin-approved GPU lifecycle report JSON"
+        },
+        {
+          "name": "qualify",
+          "kind": "option",
+          "options": [
+            "--qualify"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Generate and verify GPU lifecycle qualification using the image's OCI command"
+        },
+        {
+          "name": "fixture",
+          "kind": "option",
+          "options": [
+            "--fixture"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host fixture file for --qualify"
+        },
+        {
+          "name": "asset_dir",
+          "kind": "option",
+          "options": [
+            "--asset-dir"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host asset directory for --qualify"
+        },
+        {
+          "name": "model_approval_ref",
+          "kind": "option",
+          "options": [
+            "--model-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for model weights during --qualify"
+        },
+        {
+          "name": "fixture_approval_ref",
+          "kind": "option",
+          "options": [
+            "--fixture-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for fixture during --qualify"
         },
         {
           "name": "yes",

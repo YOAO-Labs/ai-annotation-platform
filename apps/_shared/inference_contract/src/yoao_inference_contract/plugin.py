@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 from collections.abc import Mapping
 from typing import Any, Literal
@@ -25,6 +26,14 @@ from pydantic import (
 
 from .execution import thaw_json
 
+PLUGIN_MANIFEST_OCI_LABEL = "io.yoao.plugin.manifest"
+PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL = "io.yoao.plugin.qualification-command"
+
+_MAX_OCI_MANIFEST_BYTES = 65536
+_MAX_OCI_QUALIFICATION_COMMAND_BYTES = 4096
+_EXECUTABLE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
+_SHELL_EXECUTABLES = frozenset({"sh", "bash", "dash", "ash", "zsh", "ksh", "fish"})
+
 _OCI_DIGEST_REFERENCE = (
     r"^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?"
     r"(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*"
@@ -37,6 +46,48 @@ def validate_oci_digest_reference(value: str) -> str:
     if not isinstance(value, str) or re.fullmatch(_OCI_DIGEST_REFERENCE, value) is None:
         raise ValueError("invalid OCI digest-pinned image reference")
     return value
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _finite_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError("JSON numbers must be finite")
+    return number
+
+
+def _reject_json_constant(value: str) -> Any:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _loads_strict_json(raw: str, *, max_bytes: int, label: str) -> Any:
+    if not isinstance(raw, str) or not raw:
+        raise ValueError(f"{label} must be a nonempty JSON string")
+    try:
+        encoded = raw.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(f"{label} must be valid UTF-8") from exc
+    if len(encoded) > max_bytes:
+        raise ValueError(f"{label} exceeds {max_bytes} bytes")
+    if not raw.strip():
+        raise ValueError(f"{label} must be a nonempty JSON string")
+    try:
+        return json.loads(
+            raw,
+            object_pairs_hook=_no_duplicate_keys,
+            parse_float=_finite_json_float,
+            parse_constant=_reject_json_constant,
+        )
+    except RecursionError as exc:
+        raise ValueError(f"{label} JSON nesting depth exceeded") from exc
 
 
 class PluginResourceRequirements(BaseModel):
@@ -100,14 +151,13 @@ class PluginPoolTopology(BaseModel):
     cap: int = Field(gt=0, strict=True)
 
 
-class PluginManifest(BaseModel):
+class PluginImageManifest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     plugin_id: str = Field(pattern=r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$", max_length=128)
     version: str = Field(min_length=1, max_length=128)
     publisher: str = Field(min_length=1, max_length=255)
     license: str = Field(min_length=1, max_length=255)
-    artifact: str = Field(pattern=_OCI_DIGEST_REFERENCE)
     sdk_compatibility: str = Field(min_length=1, max_length=255)
     entrypoint: list[str] = Field(min_length=1)
     capabilities: list[Literal["inference", "detection", "managed_models"]] = Field(
@@ -150,6 +200,69 @@ class PluginManifest(BaseModel):
         ):
             raise ValueError("managed model runtime must match the instance device")
         return self
+
+    def bind_artifact(self, artifact: str) -> PluginManifest:
+        validated = validate_oci_digest_reference(artifact)
+        return PluginManifest.model_validate(
+            {**self.model_dump(mode="python"), "artifact": validated}
+        )
+
+
+class PluginManifest(PluginImageManifest):
+    artifact: str = Field(pattern=_OCI_DIGEST_REFERENCE)
+
+
+def parse_oci_plugin_manifest(raw: str, *, artifact: str) -> PluginManifest:
+    """Parse an OCI manifest label and bind it to the verified digest-pinned artifact."""
+    validated_artifact = validate_oci_digest_reference(artifact)
+    parsed = _loads_strict_json(
+        raw,
+        max_bytes=_MAX_OCI_MANIFEST_BYTES,
+        label=PLUGIN_MANIFEST_OCI_LABEL,
+    )
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{PLUGIN_MANIFEST_OCI_LABEL} must contain a JSON object")
+    return PluginImageManifest.model_validate(parsed).bind_artifact(validated_artifact)
+
+
+def parse_oci_qualification_command(raw: str) -> tuple[str, ...]:
+    """Parse an OCI qualification command label as a fixed non-shell argument vector."""
+    parsed = _loads_strict_json(
+        raw,
+        max_bytes=_MAX_OCI_QUALIFICATION_COMMAND_BYTES,
+        label=PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+    )
+    if not isinstance(parsed, list) or not (1 <= len(parsed) <= 64):
+        raise ValueError(
+            f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} must be a JSON list of 1 to 64 arguments"
+        )
+    if any(
+        type(arg) is not str
+        or not arg
+        or arg.strip() != arg
+        or any(c in arg for c in "\x00\r\n")
+        for arg in parsed
+    ):
+        raise ValueError(
+            f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} arguments must be nonempty canonical strings"
+        )
+    executable = parsed[0]
+    if (
+        _EXECUTABLE_NAME.fullmatch(executable) is None
+        or executable.lower() in _SHELL_EXECUTABLES
+        or (
+            executable.lower().startswith("python")
+            and any(
+                arg == "-c"
+                or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:])
+                for arg in parsed[1:]
+            )
+        )
+    ):
+        raise ValueError(
+            f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} declares a disallowed executable"
+        )
+    return tuple(parsed)
 
 
 class PluginResourceBinding(BaseModel):

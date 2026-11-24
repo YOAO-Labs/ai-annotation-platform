@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import subprocess
@@ -19,7 +20,14 @@ from pathlib import Path
 import httpx
 
 from yoao.errors import SDKError
-from yoao_inference_contract.plugin import validate_oci_digest_reference
+from yoao_inference_contract.plugin import (
+    PLUGIN_MANIFEST_OCI_LABEL,
+    PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+    PluginManifest,
+    parse_oci_plugin_manifest,
+    parse_oci_qualification_command,
+    validate_oci_digest_reference,
+)
 
 _GPU = re.compile(
     r"^GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
@@ -137,6 +145,72 @@ class ContainerConfig:
         return hashlib.sha256(
             json.dumps(fields, separators=(",", ":")).encode()
         ).hexdigest()
+
+
+def _validate_mount_path(path: Path, label: str) -> None:
+    text = str(path)
+    if (
+        not path.is_absolute()
+        or "," in text
+        or "docker.sock" in text
+        or any(c in text for c in "\x00\r\n")
+    ):
+        raise SDKError(f"{label} must have a safe absolute path")
+
+
+@dataclass(frozen=True)
+class QualificationRunConfig:
+    image: str
+    command: tuple[str, ...]
+    gpu_uuid: str
+    memory_mb: int
+    cpus: float
+    env_file: Path
+    context_file: Path
+    output_dir: Path
+    data_target: str
+    assets_dir: Path | None = None
+    fixture_file: Path | None = None
+
+    def validate(self) -> None:
+        try:
+            validate_oci_digest_reference(self.image)
+        except ValueError as exc:
+            raise SDKError("Plugin image must be pinned to a sha256 digest") from exc
+        if not isinstance(self.command, tuple) or not all(
+            isinstance(arg, str) for arg in self.command
+        ):
+            raise SDKError("Invalid approved qualification command")
+        try:
+            parse_oci_qualification_command(json.dumps(list(self.command)))
+        except (TypeError, ValueError) as exc:
+            raise SDKError("Invalid approved qualification command") from exc
+        if not isinstance(self.gpu_uuid, str) or not _GPU.fullmatch(self.gpu_uuid):
+            raise SDKError("One physical NVIDIA GPU UUID is required")
+        if (
+            type(self.memory_mb) is not int
+            or self.memory_mb <= 0
+            or isinstance(self.cpus, bool)
+            or not isinstance(self.cpus, (int, float))
+            or not math.isfinite(self.cpus)
+            or not 0 < self.cpus <= 256
+        ):
+            raise SDKError("Invalid container resource limits")
+        if (
+            not self.data_target.startswith("/")
+            or ":" in self.data_target
+            or "," in self.data_target
+            or "docker.sock" in self.data_target
+            or any(c in self.data_target for c in "\x00\r\n")
+        ):
+            raise SDKError("Invalid container data target")
+        _validate_mount_path(self.env_file, "Qualification env file")
+        _validate_mount_path(self.context_file, "Qualification context file")
+        _validate_mount_path(self.output_dir, "Qualification output directory")
+        if self.assets_dir is not None:
+            _validate_mount_path(self.assets_dir, "Qualification asset directory")
+        if self.fixture_file is not None:
+            _validate_mount_path(self.fixture_file, "Qualification fixture file")
 
 
 class Docker:
@@ -306,16 +380,117 @@ class Docker:
             )
         return {"id": container_id, "name": config.name}
 
-    def _verify_image(self, config: ContainerConfig) -> None:
-        raw = self._run(
-            "image", "inspect", "--format", "{{json .RepoDigests}}", config.image
-        )
+    def _verify_image_reference(self, image: str) -> None:
+        raw = self._run("image", "inspect", "--format", "{{json .RepoDigests}}", image)
         try:
             digests = json.loads(raw)
         except ValueError as exc:
             raise SDKError("Unable to verify local image digest") from exc
-        if not isinstance(digests, list) or config.image not in digests:
+        if not isinstance(digests, list) or image not in digests:
             raise SDKError("Local image does not have the approved digest")
+
+    def _verify_image(self, config: ContainerConfig) -> None:
+        self._verify_image_reference(config.image)
+
+    def inspect_image_labels(self, image: str) -> tuple[str, dict[str, str]]:
+        try:
+            validate_oci_digest_reference(image)
+        except ValueError as exc:
+            raise SDKError("Plugin image must be pinned to a sha256 digest") from exc
+        self._verify_image_reference(image)
+        image_id = self._run("image", "inspect", "--format", "{{.Id}}", image)
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+            raise SDKError("Docker returned an invalid image ID")
+        raw_labels = self._run(
+            "image", "inspect", "--format", "{{json .Config.Labels}}", image
+        )
+        try:
+            labels = json.loads(raw_labels)
+        except ValueError as exc:
+            raise SDKError("Unable to read local image labels") from exc
+        if labels is None:
+            return image_id, {}
+        if not isinstance(labels, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in labels.items()
+        ):
+            raise SDKError("Local image returned invalid labels")
+        return image_id, labels
+
+    def inspect_image_manifest(
+        self, image: str
+    ) -> tuple[PluginManifest, str, tuple[str, ...] | None]:
+        image_id, labels = self.inspect_image_labels(image)
+        raw_manifest = labels.get(PLUGIN_MANIFEST_OCI_LABEL)
+        if raw_manifest is None:
+            raise SDKError(f"Local image does not declare {PLUGIN_MANIFEST_OCI_LABEL}")
+        try:
+            manifest = parse_oci_plugin_manifest(raw_manifest, artifact=image)
+        except ValueError as exc:
+            raise SDKError(
+                f"Local image declares an invalid {PLUGIN_MANIFEST_OCI_LABEL} label"
+            ) from exc
+        raw_command = labels.get(PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL)
+        qualification_command: tuple[str, ...] | None = None
+        if raw_command is not None:
+            try:
+                qualification_command = parse_oci_qualification_command(raw_command)
+            except ValueError as exc:
+                raise SDKError(
+                    f"Local image declares an invalid {PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} label"
+                ) from exc
+        return manifest, image_id, qualification_command
+
+    def run_qualification(self, config: QualificationRunConfig) -> None:
+        config.validate()
+        self._verify_image_reference(config.image)
+        mounts = [
+            "--mount",
+            f"type=bind,src={config.context_file},dst=/var/lib/aap-qualification/context.json,readonly",
+            "--mount",
+            f"type=bind,src={config.output_dir},dst=/var/lib/aap-qualification/output",
+        ]
+        if config.assets_dir is not None:
+            mounts.extend(
+                [
+                    "--mount",
+                    f"type=bind,src={config.assets_dir},dst={config.data_target}/assets,readonly",
+                ]
+            )
+        if config.fixture_file is not None:
+            mounts.extend(
+                [
+                    "--mount",
+                    f"type=bind,src={config.fixture_file},dst=/var/lib/aap-qualification/fixture,readonly",
+                ]
+            )
+        self._run(
+            "container",
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--user",
+            self._user(),
+            "--gpus",
+            f"device={config.gpu_uuid}",
+            "--memory",
+            f"{config.memory_mb}m",
+            "--cpus",
+            str(config.cpus),
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--env-file",
+            str(config.env_file),
+            *mounts,
+            "--entrypoint",
+            config.command[0],
+            "--",
+            config.image,
+            *config.command[1:],
+        )
 
     def image_id(self, config: ContainerConfig) -> str:
         config.validate()
