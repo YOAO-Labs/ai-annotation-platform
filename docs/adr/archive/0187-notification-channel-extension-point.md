@@ -1,9 +1,9 @@
 # 0187 — 通知渠道扩展点与跨扩展清单分层
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
-- **Deciders:** 待维护者确认（M3a 设计决定，代理起草）
-- **Supersedes:** —（沿用 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md) 的单一写入 owner 与按需拆出原则，兼容 [ADR-0180](0180-installable-inference-plugins.md) 推理插件与 [ADR-0025](0025-webhook-event-envelope-versioning.md) 事件信封）
+- **Deciders:** 项目维护者确认采纳（M3a 设计决定，代理起草并按维护者意见定稿）
+- **Supersedes:** —（沿用 [ADR-0186](0186-modular-monolith-and-on-demand-extraction.md) 的单一写入 owner 与按需拆出原则，兼容 [ADR-0180](../0180-installable-inference-plugins.md) 推理插件与 [ADR-0025](../0025-webhook-event-envelope-versioning.md) 事件信封）
 
 ## Context
 
@@ -103,7 +103,7 @@
    - 请求体（封闭对象，JSON 体积 `<= 32 KiB`）：
      - `protocol_version`: `"yoao-notification-channel/v1"`
      - `channel_id`: string
-     - `envelope`: **沿用 [ADR-0025](0025-webhook-event-envelope-versioning.md) 的 5 字段顶层信封形状**（`event_version: "1.0"`、`event`、`delivery_id`、`occurred_at`、`data`）。`event` 取自 Notifications 允许外发的事件名（不耦合 `apps/api/app/schemas/event_envelope.py:12-21` 中的 8 项 Webhook 占位 `Literal`）；`delivery_id` 为本次投递行主键 UUID，全部重试保持不变。
+     - `envelope`: **沿用 [ADR-0025](../0025-webhook-event-envelope-versioning.md) 的 5 字段顶层信封形状**（`event_version: "1.0"`、`event`、`delivery_id`、`occurred_at`、`data`）。`event` 取自 Notifications 允许外发的事件名（不耦合 `apps/api/app/schemas/event_envelope.py:12-21` 中的 8 项 Webhook 占位 `Literal`）；`delivery_id` 为本次投递行主键 UUID，全部重试保持不变。
      - `recipient_address`: 用户当前绑定的 JSON 对象（`<= 2 KiB`）。
      - `locale`: BCP-47 语言标签（默认 `"zh-CN"`）。
    - **载荷脱敏与显式白名单投影（硬约束）**：外部 `envelope.data` 必须按 `notification_type` 经显式字段白名单生成，只包含结构化定位元数据（如 `notification_id`、`target_type`、`target_id`、`project_id`、`project_name`、`task_display_id`、`reject_reason_type`、`actor_name`、`action_url`）。**严禁透传**评论正文、反馈正文、`task.rejected` 的 `reject_reason`、`batch.*` 的 `reason`、`bug_report.*` 的 `snippet`/`resolution`、`export.*` 的原始 `error`/`download_url` 或用户邮箱等敏感/自由文本字段。
@@ -186,7 +186,7 @@
 
 ## Alternatives Considered（详）
 
-**安装身份方案 B（宿主级中心扩展注册表 `plugin_installations`）**：若新建中心表承接推理与通知两类安装身份，Inference 的激活/停用/退役事务必须在 SQL 内跨边界锁定 `plugin_installations` 与 `public.ml_backend_registry` / `public.ml_backend_pool_members` / `public.trained_model_versions` / `public.project_model_releases`，直接违反 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md)“跨边界无私表读写”与“凭据按域隔离”硬约束；若不迁入 Inference，中心表沦为只有通知渠道的空壳抽象。否决。
+**安装身份方案 B（宿主级中心扩展注册表 `plugin_installations`）**：若新建中心表承接推理与通知两类安装身份，Inference 的激活/停用/退役事务必须在 SQL 内跨边界锁定 `plugin_installations` 与 `public.ml_backend_registry` / `public.ml_backend_pool_members` / `public.trained_model_versions` / `public.project_model_releases`，直接违反 [ADR-0186](0186-modular-monolith-and-on-demand-extraction.md)“跨边界无私表读写”与“凭据按域隔离”硬约束；若不迁入 Inference，中心表沦为只有通知渠道的空壳抽象。否决。
 
 **清单方案 B（立即重写 `PluginManifest` 并迁移推理 SQL）**：Inference 安装器与冻结 SQL 刚通过 M1a/M1b 验收；在第二个扩展点跑通前破坏 Inference 线格式与收据兼容性收益为负。保留 Inference v1 兼容并从新扩展点启用 `yoao-extension-manifest/v1` 风险更低。否决。
 
@@ -199,7 +199,7 @@
 ## Notes
 
 - 关联计划：`docs/plans/1795366269_platform-pluginization.md`（M3a / M3b / M3c）。
-- 关联 ADR：[ADR-0015](archive/0015-ml-backend-url-validation.md)、[ADR-0025](0025-webhook-event-envelope-versioning.md)、[ADR-0180](0180-installable-inference-plugins.md)、[ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md)。
+- 关联 ADR：[ADR-0015](0015-ml-backend-url-validation.md)、[ADR-0025](../0025-webhook-event-envelope-versioning.md)、[ADR-0180](../0180-installable-inference-plugins.md)、[ADR-0186](0186-modular-monolith-and-on-demand-extraction.md)。
 - 关联现有代码：
   - `apps/_shared/inference_contract/src/yoao_inference_contract/plugin.py:154-212`
   - `apps/inference/src/yoao_inference/sql/0388_inference_plugin_installation.sql:68,233-237`
@@ -218,4 +218,4 @@
   - `apps/api/app/application/task_review.py:388-407`
   - `apps/api/app/services/notification.py:136-137,189-197`
   - `packages/python-sdk/src/yoao/notification_models.py:45-65`
-- 触发切换 `Accepted` 条件：维护者确认上述设计边界后切为 `Accepted`（归档至 `docs/adr/archive/`），随后按 M3b（Notifications/Labeling/Diagnostics owner SQL、偏好 v2、API/SDK 同步与投递 worker）→ M3c（独立语言最小飞书私信插件、假飞书 API 隔离验收，以及维护者真实飞书测试应用验证一次）推进。
+- 采纳状态：已由维护者确认采纳并归档至 `docs/adr/archive/`，据此推进 M3b（Notifications/Labeling/Diagnostics owner SQL、偏好 v2、API/SDK 同步与投递 worker）→ M3c（独立语言最小飞书私信插件、假飞书 API 隔离验收，以及维护者真实飞书测试应用验证一次）。
