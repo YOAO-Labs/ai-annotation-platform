@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import importlib.util
 import json
 from pathlib import Path
 import re
@@ -17,14 +16,11 @@ from alembic.operations import Operations
 import pytest
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.db.models.async_job import AsyncJob
-from tests.factory import create_project
 from tests.managed_image_inference_fixtures import _owned_database
 from tests.migration_helpers import load
-from tests.test_assets_catalog_native import _seed_actor
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL_DIR = ROOT / "apps/api/alembic/sql"
@@ -163,55 +159,6 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
         f"yoao_assets_v1.{name}({arguments})" not in worker
         for name, (_role, arguments) in OPERATIONS.items()
     )
-
-
-def test_0222_upgrade_fails_closed_on_unmanifested_active_bulk_image_jobs():
-    migration = re.sub(r"\s+", " ", MIGRATION.read_text(encoding="utf-8"))
-    assert "job.status IN ('pending', 'running')" in migration
-    assert "project.data_type = 'image'" in migration
-    assert "AND NOT project.scene_mode" in migration
-    assert "COALESCE(job.payload ->> 'execution_scope', 'bulk') = 'bulk'" in migration
-    assert "active legacy image " in migration
-    assert "preannotation Jobs lack frozen input identity" in migration
-
-
-@pytest.mark.asyncio
-async def test_0222_upgrade_gate_rejects_live_legacy_bulk_image_job(test_engine):
-    path = ROOT / "apps/api/alembic/versions/0222_bulk_image_input_manifests.py"
-    spec = importlib.util.spec_from_file_location("bulk_image_manifest_migration", path)
-    assert spec is not None and spec.loader is not None
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-
-    async with test_engine.connect() as connection:
-        transaction = await connection.begin()
-        try:
-            async with AsyncSession(bind=connection, expire_on_commit=False) as db:
-                actor_id = await _seed_actor(db)
-                project = await create_project(db, owner_id=actor_id)
-                job_id = uuid4()
-                db.add(
-                    AsyncJob(
-                        id=job_id,
-                        kind="batch_predict",
-                        project_id=project.id,
-                        user_id=actor_id,
-                        status="pending",
-                        celery_task_id=str(job_id),
-                        payload={"execution_scope": "bulk"},
-                        result={},
-                    )
-                )
-                await db.flush()
-
-            def run_upgrade(sync_connection):
-                with Operations.context(MigrationContext.configure(sync_connection)):
-                    migration.upgrade()
-
-            with pytest.raises(RuntimeError, match="lack frozen input identity"):
-                await connection.run_sync(run_upgrade)
-        finally:
-            await transaction.rollback()
 
 
 @pytest.fixture

@@ -302,27 +302,6 @@ test("incomplete numeric draft blocks save and retains the last applied query", 
     .toBe(2);
 });
 
-test("deep restored expression stays visible as an error and never becomes an unfiltered query", async ({
-  page,
-  filtering,
-}) => {
-  let expression: unknown = { field: "task.status", op: "eq", value: "pending" };
-  for (let depth = 0; depth < 40; depth += 1) expression = { op: "and", rules: [expression] };
-  const raw = envelope(expression);
-  const requests: string[] = [];
-  const errors: string[] = [];
-  page.on("request", (request) => {
-    if (request.url().endsWith("/tasks/query") && request.method() === "POST")
-      requests.push(request.url());
-  });
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(url(filtering.image.project_id, { filter: raw, keep: "filter-test" }));
-  await expect(page.getByRole("alert").filter({ hasText: "筛选条件嵌套超过 32 层" })).toBeVisible();
-  expect(new URL(page.url()).searchParams.get("filter")).toBe(raw);
-  expect(requests).toEqual([]);
-  expect(errors).toEqual([]);
-});
-
 test("grouped saved views persist creation and edits, cancel navigation, and copy independently", async ({
   page,
   request,

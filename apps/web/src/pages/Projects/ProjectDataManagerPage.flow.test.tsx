@@ -388,19 +388,16 @@ describe("ProjectDataManagerPage task data", () => {
     for (let index = 0; index < 1000; index += 1) {
       filter = { op: "and", rules: [filter] };
     }
-    const search = updateDataManagerUrl("", {
-      lens: "tasks",
-      view: "builtin:all",
-      query: "",
-      filter,
-      sort: [{ field: "task.created_at", direction: "asc" }],
-      columns: ["display_id"],
-      selected: null,
-    }).toString();
+    const raw = JSON.stringify({ v: 1, value: filter });
+    const search = new URLSearchParams({ filter: raw, keep: "external-link" });
 
-    renderDataManager(`/projects/p1/data-manager?${search}`);
+    renderDataManager(`/projects/p1/data-manager?${search}`, <LocationProbe />);
 
-    await waitFor(() => expect(screen.getByText(/筛选条件嵌套超过/)).toBeInTheDocument());
+    expect(
+      await screen.findByText(/筛选条件嵌套超过 32 层/, { selector: '[role="alert"]' }),
+    ).toBeVisible();
+    expect(currentSearch().get("filter")).toBe(raw);
+    expect(currentSearch().get("keep")).toBe("external-link");
     expect(captured.taskQueries).toHaveLength(0);
     expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
   });

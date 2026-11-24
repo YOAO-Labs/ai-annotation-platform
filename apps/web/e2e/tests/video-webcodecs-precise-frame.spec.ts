@@ -249,6 +249,18 @@ test.describe("video webcodecs precise-frame pipeline", () => {
           }),
         ).toBe(true);
       }
+      if (scenario.fixture === "h264-vfr") {
+        const pts = expectations.frames.slice(0, 4).map((frame) => frame.pts_ms ?? NaN);
+        for (const [i, [min, max]] of [
+          [32, 35],
+          [65, 68],
+          [32, 35],
+        ].entries()) {
+          const delta = pts[i + 1] - pts[i];
+          expect(delta).toBeGreaterThanOrEqual(min);
+          expect(delta).toBeLessThanOrEqual(max);
+        }
+      }
 
       for (const target of scenario.targets) {
         await seekToFrame(page, target);
