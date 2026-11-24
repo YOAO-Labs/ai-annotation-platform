@@ -767,13 +767,9 @@ test("the required manifest audits every effective job and the bundled Worker in
       "pointcloud",
     );
     const pointcloudPr = run({ GITHUB_EVENT_NAME: "pull_request" }, [pointcloudBase]);
-    assert.deepEqual(ids(pointcloudPr.matrix), [
-      "smoke",
-      "pointcloud-1",
-      "pointcloud-3",
-      "pointcloud-4",
-      "pointcloud-2",
-    ]);
+    const [firstSuite, ...selectedPoints] = ids(pointcloudPr.matrix);
+    assert.equal(firstSuite, "smoke");
+    assert.deepEqual(selectedPoints.toSorted(), pointcloud.toSorted());
     assert.deepEqual(requiredIds(pointcloudPr.required), ["smoke", ...pointcloud]);
 
     const docsBase = git("rev-parse", "HEAD");

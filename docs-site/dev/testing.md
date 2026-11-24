@@ -48,6 +48,8 @@ pnpm dev:worktree -- exec --mode test -- \
 
 工作树的运行、维护和资源隔离测试只运行一次，与四个 API 分片并行。工作树测试失败不会阻止 API 分片执行或上传 JUnit；在需要应用检查的 PR 上，`Backend tests` 要求工作树测试和四个分片都成功。
 
+pytest 先收集全部 API 测试模块，再按模块分片。如果四份 `pytest-results.xml` 只有相同的 `collection failure`，API 用例并未执行。验证覆盖时应核对每个分片的用例结果，并将收集错误、跳过和执行失败分开统计。
+
 ### 前端：Vitest + MSW (`apps/web`)
 
 <span id="常用命令-1" aria-hidden="true"></span>
@@ -65,7 +67,7 @@ pnpm dev:worktree -- exec --mode e2e -- \
 
 按 [E2E README](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/apps/web/e2e/README.md) 选择 spec、项目和专项启动器。独立构建产物验收不用开发服务器或浏览器注入状态代替。验证写入时先按方法、资源 ID 和路径捕获**实际**请求，再断言响应、持久状态和刷新恢复。
 
-CI 选中视频专项时，将 `video-pipeline-*` 分片排在通用 Chromium 分片前面；没有选中的视频测试不会因此加入。浏览器矩阵最多同时运行 11 个套件。
+CI 只给已选中的浏览器套件排序。选中了 `smoke` 就先运行它，其余套件按 `scripts/e2e-job-durations.json` 中的历史耗时从长到短排队，并发上限为 11。耗时相同的套件保持原顺序；没有历史数据的套件按原顺序排在最后。更新这份数据时，使用所有分片均成功的完整矩阵，记录每个 job 从启动到结束的耗时，包含环境准备。不要用失败后提前终止的耗时。
 
 `test:e2e:mask-native` 和 `test:e2e:mask-native-editor` 自行创建并监督隔离环境，直接从仓库根运行 `pnpm --filter web <脚本>`，不要套在 `dev:worktree exec` 内。
 
