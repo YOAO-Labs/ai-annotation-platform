@@ -1,0 +1,24 @@
+name: Start test MinIO
+description: Start the pinned MinIO service in this job's Compose project.
+inputs:
+  project-name:
+    description: Compose project to start and retire on this runner.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Pull and start MinIO
+      shell: bash
+      env:
+        MINIO_PROJECT: ${{ inputs.project-name }}
+      run: |
+        minio=(docker compose --project-name "$MINIO_PROJECT" --file .github/e2e-minio.yml)
+        for attempt in 1 2 3; do
+          if "${minio[@]}" pull minio; then break; fi
+          if [ "$attempt" -eq 3 ]; then exit 1; fi
+          sleep "$((attempt * 5))"
+        done
+        if ! "${minio[@]}" up --detach --pull never --wait --wait-timeout 30 minio; then
+          "${minio[@]}" logs minio
+          exit 1
+        fi

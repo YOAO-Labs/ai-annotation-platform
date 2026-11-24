@@ -1,0 +1,19 @@
+name: Set up backend test Python
+description: Install the locked API test dependencies with this run's verified Plugin SDK.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+    - name: Install uv
+      shell: bash
+      run: pip install uv
+    - uses: actions/download-artifact@v4
+      with:
+        name: plugin-sdk-runtime
+        path: .artifacts/python/plugin-sdk
+    - name: Sync API test dependencies
+      shell: bash
+      working-directory: apps/api
+      run: uv sync --locked --extra test
