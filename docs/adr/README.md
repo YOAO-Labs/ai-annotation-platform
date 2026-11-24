@@ -40,6 +40,7 @@
 
 ### 待决（Proposed / Draft）
 
+- [0187](0187-notification-channel-extension-point.md) — 通知渠道扩展点与跨扩展清单分层（M3a 草案，待维护者确认）
 - [0180](0180-installable-inference-plugins.md) — 可安装推理插件与组合式检测开发包（实施与 GPU 验收中）
 - [0166](0166-workspace-locked-authority-snapshots.md) — Workspace 锁定权限读取与会话快照（限定本地定向验收通过）
 - [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）

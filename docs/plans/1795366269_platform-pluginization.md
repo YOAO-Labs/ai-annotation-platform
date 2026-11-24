@@ -1,6 +1,6 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：M0、M1a、M2a、M2b、M2c 已完成；M1b 本地交付项（OCI 清单读取、资格报告生成集成、超管文档分层与隔离 CPU 安装／退役验收）已通过，PyPI 正式发布仍待维护者单独授权。
+> 状态：M0、M1a、M2a、M2b、M2c 已完成；M1b 本地交付项已通过（PyPI 发布待维护者授权）；M3a 设计决定已起草为 [ADR-0187](../adr/0187-notification-channel-extension-point.md)（Proposed，待维护者确认后实施 M3b／M3c）。
 >
 > 创建日期：2026-11-23。
 >
@@ -170,4 +170,5 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 - **M2b 已通过隔离验收。** 从[Workspace 六项首批](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)扩展到[完整进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。新 checkout 完成登录、建项目、导入、真实 CPU 插件预标注、标注、审核和通知；三个实际普通 LOGIN 在新装、重放授权和非空恢复后均无私表权限。保留服务已分别冷启取证，已登记 S3／SFTP 的 12 个场景均通过，包含复制中断后的接管和原版本读回。各档提交、回执及模型权重等未覆盖范围见[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)。
 - **M2c 已切换维护者日常环境。** 主 checkout 跟踪 `dev`，`annotation` 原地迁移，保留原存储身份；宿主 API/Web、八个 worker 和单实例 Beat 已启用。实测和未覆盖项见[日常迁移回执](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md#m2c)。
 - **M1b 本地交付项已通过。** 新增 OCI 镜像标签 `io.yoao.plugin.manifest` 与 `io.yoao.plugin.qualification-command` 契约及 `yoao plugins inspect-image`／`qualify`、`prepare --image` 与 `install`/`upgrade --qualify` 流程；超管插件指南拆分为“操作步骤”和“安全原理”两层，内部术语与历史迁移迁入[插件安装生命周期](../../docs-site/dev/concepts/plugin-installation-lifecycle.md)。隔离环境已用独立安装的 wheel、真实 `yoao_inference` owner 与强制路由走通免手写 `deployment.json` 的 CPU 插件安装与退役，且确认 GPU 门禁、安装身份与排空语义未放宽；实测回执与未覆盖范围（PyPI 发布与实机物理 GPU 资格命令运行）见 [M1b 运行账本](evidence/1795366269_platform-pluginization/m1b-run-ledger.md)。
-- M1b 的 PyPI 正式发布仍需维护者单独授权；M1c、M3、M4 尚未实施。
+- **M3a 草案已起草。** 架构决定记录在 [ADR-0187](../adr/0187-notification-channel-extension-point.md)（Proposed）：插件安装身份由领域 owner 各自维护并共享便携契约；跨扩展点清单拆分为 `yoao-extension-manifest/v1` 通用核心与 `extension` 能力专属块（保留 Inference v1 零破坏兼容）；通知渠道定义 `yoao-notification-channel/v1` 双档接入、ADR-0025 白名单脱敏信封、动态 `external` 偏好命名空间、独立外部投递 outbox 及投递前实时复核边界。
+- M1b 的 PyPI 正式发布仍需维护者单独授权；M3a 确认后推进 M3b 与 M3c；M1c、M4 尚未实施。
