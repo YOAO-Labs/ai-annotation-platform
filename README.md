@@ -27,7 +27,7 @@
 </div>
 
 <p align="center">
-  <img src="./docs-site/public/home/ai-assisted-annotation-poster.webp" alt="YOAO 图像 AI 辅助标注工作台" width="100%">
+  <img src="./docs/assets/readme/ai-assisted-annotation-poster.webp" alt="YOAO 图像 AI 辅助标注工作台" width="100%">
 </p>
 
 YOAO 是一个开源、可私有化部署的多模态 AI 辅助数据标注平台，覆盖**图像、视频与 3D 点云**的完整生产链路。
@@ -46,15 +46,15 @@ YOAO 是一个开源、可私有化部署的多模态 AI 辅助数据标注平�
 <table>
   <tr>
     <td width="33%" align="center">
-      <img src="./docs-site/.vitepress/theme/assets/home/hero/video-track.webp" alt="视频轨迹与时间轴工作台" width="100%">
+      <img src="./docs/assets/readme/video-track.webp" alt="视频轨迹与时间轴工作台" width="100%">
       <br><sub>视频轨迹工作台</sub>
     </td>
     <td width="33%" align="center">
-      <img src="./docs-site/.vitepress/theme/assets/home/hero/pointcloud.webp" alt="3D 点云与多视角相机联动工作台" width="100%">
+      <img src="./docs/assets/readme/pointcloud.webp" alt="3D 点云与多视角相机联动工作台" width="100%">
       <br><sub>3D 点云与多相机联动</sub>
     </td>
     <td width="33%" align="center">
-      <img src="./docs-site/.vitepress/theme/assets/home/hero/data-manager.webp" alt="Data Manager 项目数据管理" width="100%">
+      <img src="./docs/assets/readme/data-manager.webp" alt="Data Manager 项目数据管理" width="100%">
       <br><sub>Data Manager 数据管理</sub>
     </td>
   </tr>

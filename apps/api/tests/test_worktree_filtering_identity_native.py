@@ -84,7 +84,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
     manifest_path = state_path(backend.root, "e2e", "data", "filtering.json")
     owner_engine = runtime_engine = None
     runs = []
-    media = ROOT / "docs-site/public/home/sam-tools/smart-point.webm"
+    media = ROOT / "apps/api/fixture-media/smart-point.webm"
     media_hash = hashlib.sha256(media.read_bytes()).hexdigest()
     try:
         await asyncio.to_thread(backend.prepare)

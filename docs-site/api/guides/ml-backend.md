@@ -164,7 +164,7 @@ ML Backend 必须实现：
 | `GET /health`   | 健康检查                                                                       |
 | `POST /predict` | 推理（请求/响应见 [ML Backend 协议](../../dev/reference/ml-backend-protocol)） |
 
-参考实现：`docs-site/dev/examples/echo-ml-backend/`。
+参考实现：`examples/ml-backend/echo-ml-backend/`。
 
 ## 能力目录（capabilities）
 

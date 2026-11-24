@@ -235,10 +235,11 @@ const DOCS_ONLY = [
 ];
 
 const DOCS_ONLY_EXCLUSIONS = [
+  /^examples\//,
   /^docs-site\/dev\/examples\//,
   /^docs-site\/\.vitepress\//,
   /^docs-site\/.*\.(py|mjs|cjs|ts|tsx|sh)$/,
-  /^(apps|packages|scripts)\/.*\.md$/,
+  /^(apps|packages|scripts|examples)\/.*\.md$/,
 ];
 
 function isDocsOnlyPath(path) {
@@ -259,6 +260,7 @@ function classifyPaths(paths) {
         topLevel === ".github" ||
         topLevel === "scripts" ||
         topLevel === "packages" ||
+        topLevel === "examples" ||
         topLevel === "docs-site"
       )
         return topLevel;
@@ -268,9 +270,15 @@ function classifyPaths(paths) {
   const unknownPaths = appCode.filter((path) => {
     const topLevel = path.split("/")[0];
     return (
-      !["apps", "packages", "scripts", ".github", "docs-site", "docker-compose.yml"].includes(
-        topLevel,
-      ) &&
+      ![
+        "apps",
+        "packages",
+        "scripts",
+        ".github",
+        "examples",
+        "docs-site",
+        "docker-compose.yml",
+      ].includes(topLevel) &&
       !["package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc", ".env.example"].includes(
         path,
       )
@@ -286,9 +294,15 @@ function classifyPaths(paths) {
     unknownPaths: appCode.filter((path) => {
       const topLevel = path.split("/")[0];
       return (
-        !["apps", "packages", "scripts", ".github", "docs-site", "docker-compose.yml"].includes(
-          topLevel,
-        ) &&
+        ![
+          "apps",
+          "packages",
+          "scripts",
+          ".github",
+          "examples",
+          "docs-site",
+          "docker-compose.yml",
+        ].includes(topLevel) &&
         ![
           "package.json",
           "pnpm-lock.yaml",

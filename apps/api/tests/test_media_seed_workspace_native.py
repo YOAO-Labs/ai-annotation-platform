@@ -119,7 +119,7 @@ async def test_media_seed_creates_linked_assets_and_preserves_repeat(
             (labels / (name + ".txt")).write_text("0 0.5 0.5 0.5 0.5\n")
         options = {"fixture": tmp_path}
     else:
-        video = ROOT / "docs-site/public/home/sam-tools/smart-point.webm"
+        video = ROOT / "apps/api/fixture-media/smart-point.webm"
         media_hash = hashlib.sha256(video.read_bytes()).hexdigest()
         options = {"video": video}
 

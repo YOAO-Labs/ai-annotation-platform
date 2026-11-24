@@ -1104,7 +1104,7 @@ result 映射（统一 adapter，不新增 prediction 表）：`ocr_text` → `a
 
 **真实 OCR 参考实现**：[RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)提供 `ocr-det`、`ocr-rec` 和 `ocr-e2e`，资产需独立审核和准备。
 
-**协议形态参考实现（无真实推理）**：[`docs-site/dev/examples/mock-v2-backend/`](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/docs-site/dev/examples/mock-v2-backend) —— `/setup` 暴露 YOLO 风格多任务 `models[]`、PaddleOCR / DocLayout、点 / 框 / exemplar 交互分割及视频 tracker 条目；`/predict` 按 `context.type` 返回固定几何、OCR 文本属性或逐帧追踪结果。可在该示例目录用 `uvicorn main:app --port 9100` 启动，平台仍通过正常探测和绑定读取其能力。固定响应只用于理解协议，不代表真实模型结果。
+**协议形态参考实现（无真实推理）**：[`examples/ml-backend/mock-v2-backend/`](https://github.com/YOAO-Labs/YOAO/tree/main/examples/ml-backend/mock-v2-backend) —— `/setup` 暴露 YOLO 风格多任务 `models[]`、PaddleOCR / DocLayout、点 / 框 / exemplar 交互分割及视频 tracker 条目；`/predict` 按 `context.type` 返回固定几何、OCR 文本属性或逐帧追踪结果。可在该示例目录用 `uvicorn main:app --port 9100` 启动，平台仍通过正常探测和绑定读取其能力。固定响应只用于理解协议，不代表真实模型结果。
 
 **最小 v2.1 参考实现**：见[可运行 echo](#_8-最小-echo-backend-示例)。
 
@@ -1283,7 +1283,7 @@ v2.1 推荐 backend 使用结构化错误体。平台代理会保留上游 4xx�
 
 ## 8. 最小 echo backend 示例
 
-完整源码见[接入教程的 Echo 示例](/dev/ml-backend/starter#step-1-跑通-echo-示例)，也可从[样板目录](https://github.com/YOAO-Labs/ai-annotation-platform/tree/dev/docs-site/dev/examples/echo-ml-backend)直接运行。教程的源码片段由文档构建检查与 `main.py` 逐字一致。
+完整源码见[接入教程的 Echo 示例](/dev/ml-backend/starter#step-1-跑通-echo-示例)，也可从[样板目录](https://github.com/YOAO-Labs/YOAO/tree/main/examples/ml-backend/echo-ml-backend)直接运行。教程的源码片段由文档构建检查与 `main.py` 逐字一致。
 
 ## 9. 接入 checklist
 

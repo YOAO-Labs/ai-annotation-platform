@@ -18,7 +18,7 @@ export function auditTestRoots(repositoryRoot, registry) {
       (entry) => entry.isFile() && /^(?:test_.+|.+_test)\.py$/.test(entry.name),
     );
   const discovered = [];
-  for (const parent of ["apps", "apps/_shared", "packages", "docs-site/dev/examples"]) {
+  for (const parent of ["apps", "apps/_shared", "packages", "examples/ml-backend"]) {
     if (!existsSync(join(repositoryRoot, parent))) continue;
     for (const entry of readdirSync(join(repositoryRoot, parent), { withFileTypes: true })) {
       const path = `${parent}/${entry.name}/tests`;

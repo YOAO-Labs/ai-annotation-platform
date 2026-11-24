@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const PLANS_DIR = resolve(here, "../../docs/plans");
+const PLANS_DIR = resolve(here, "../docs/plans");
 
 const STALE_DAYS = 30;
 const now = Date.now();

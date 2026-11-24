@@ -4366,10 +4366,7 @@ async def _build_video_task(db, payload, scope, admission_id, runtime):
     ):
         raise HTTPException(422, detail="expected E2E-owned project and dataset")
 
-    source_path = (
-        Path(__file__).resolve().parents[5]
-        / "docs-site/public/home/sam-tools/smart-point.webm"
-    )
+    source_path = Path(__file__).resolve().parents[3] / "fixture-media/smart-point.webm"
     video = source_path.read_bytes()
     dataset = await db.get(Dataset, image_item.dataset_id)
     if dataset is None or dataset.created_by is None:

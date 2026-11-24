@@ -123,25 +123,25 @@ jobs:
         id: setup-uv
         run: pip install uv
       - name: echo-ml-backend contract tests
-        working-directory: docs-site/dev/examples/echo-ml-backend
+        working-directory: examples/ml-backend/echo-ml-backend
         run: uv run --extra test pytest -q --junitxml=echo-test-results.xml
       - name: mock-v2-backend contract tests
         if: ${{ !cancelled() && steps.setup-uv.outcome == 'success' }}
-        working-directory: docs-site/dev/examples/mock-v2-backend
+        working-directory: examples/ml-backend/mock-v2-backend
         run: uv run --extra test pytest -q --junitxml=mock-v2-test-results.xml
       - name: Upload echo example results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: echo-example-test-results
-          path: docs-site/dev/examples/echo-ml-backend/echo-test-results.xml
+          path: examples/ml-backend/echo-ml-backend/echo-test-results.xml
           if-no-files-found: error
       - name: Upload mock v2 example results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: mock-v2-example-test-results
-          path: docs-site/dev/examples/mock-v2-backend/mock-v2-test-results.xml
+          path: examples/ml-backend/mock-v2-backend/mock-v2-test-results.xml
           if-no-files-found: error
 
   python-sdk-pytest:

@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ADR_DIR = resolve(here, "../../docs/adr");
+const ADR_DIR = resolve(here, "../docs/adr");
 const ARCHIVE_DIR = join(ADR_DIR, "archive");
 
 const SKIP = new Set(["README.md", "TEMPLATE.md"]);

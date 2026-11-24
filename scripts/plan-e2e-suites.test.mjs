@@ -235,6 +235,8 @@ test("shadow selection classifies docs-only changes and proposes no app suites",
 
 test("executable docs examples and docs build config are app code, not docs-only", () => {
   for (const path of [
+    "examples/ml-backend/echo-ml-backend/main.py",
+    "examples/ml-backend/echo-ml-backend/README.md",
     "docs-site/dev/examples/protocol-demo.py",
     "docs-site/.vitepress/config.ts",
     "docs-site/dev/examples/data/fixture.json",

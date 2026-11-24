@@ -26,13 +26,13 @@ jobs:
         run: pnpm --filter docs-site check:snippets
       - name: ADR numbering and status
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter docs-site check:adr
+        run: node scripts/check-adr.mjs
       - name: Plans freshness
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter docs-site check:plans
+        run: node scripts/check-plans-freshness.mjs
       - name: Changelog consistency
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter docs-site check:changelog
+        run: node scripts/check-changelog-version.mjs
       - name: Frontmatter metadata
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm --filter docs-site check:frontmatter

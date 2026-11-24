@@ -60,4 +60,4 @@ After implementing each plan, complete all three steps:
 
 The `validate` job in `docs-validate.yml` warns about plans older than 30 days without a `## Outcome` section; it does not block merging. For a plan that will never have an outcome (an abandoned exploration), add `> Status: abandoned` at the top of the file.
 
-`docs-site/scripts/check-plans-freshness.mjs` scans only active plans in the root directory. Archived files are excluded from stale-plan reminders.
+`scripts/check-plans-freshness.mjs` scans only active plans in the root directory. Archived files are excluded from stale-plan reminders.

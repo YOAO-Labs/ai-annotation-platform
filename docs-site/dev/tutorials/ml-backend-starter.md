@@ -146,10 +146,10 @@ yoao-plugin build --base-image image@sha256:<真实摘要> \
 
 ## Step 1：跑通 echo 示例
 
-echo 示例位于仓库 `docs-site/dev/examples/echo-ml-backend/`，不到 100 行、零外部重依赖（仅 `fastapi` + `pydantic`），整目录拷贝即可作为 starter：
+echo 示例位于仓库 `examples/ml-backend/echo-ml-backend/`，不到 100 行、零外部重依赖（仅 `fastapi` + `pydantic`），整目录拷贝即可作为 starter：
 
 ```bash
-cd docs-site/dev/examples/echo-ml-backend
+cd examples/ml-backend/echo-ml-backend
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
@@ -165,7 +165,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 ::: details Echo backend 完整源码
 
-<!-- snippet:docs-site/dev/examples/echo-ml-backend/main.py -->
+<!-- snippet:examples/ml-backend/echo-ml-backend/main.py -->
 
 ```python
 """Echo ML backend — 协议 v2.1 参考实现（最小可跑版）。
@@ -359,7 +359,7 @@ async def predict(req: PredictRequest):
     return {"results": results}
 ```
 
-完成自己的图像读取、模型推理封装和安全检查后，才能形成可用的 OCR backend；上面的片段本身不是完整实现。固定 demo 输出可对照 `docs-site/dev/examples/mock-v2-backend/` 的 `ppocr` 条目与 `_demo_shapes("ocr")`。
+完成自己的图像读取、模型推理封装和安全检查后，才能形成可用的 OCR backend；上面的片段本身不是完整实现。固定 demo 输出可对照 `examples/ml-backend/mock-v2-backend/` 的 `ppocr` 条目与 `_demo_shapes("ocr")`。
 
 > 建议同步给自己的 backend 写 contract tests（fastapi `TestClient` 即可，无需起服务），两个示例目录下的 `tests/test_contract.py` 可直接当模板抄。
 
