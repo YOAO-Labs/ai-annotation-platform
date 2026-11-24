@@ -22,8 +22,11 @@ from tests import live_provider_guard
 from tests.test_export_storage import record as zip_record, reference as zip_ref
 from tests.test_image_pyramid_storage import reference as pyramid_ref
 from tests.test_key_removal_accounting import MarkerProvider
-from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
 from tests.test_video_derivative_storage import reference as video_ref
+from tests.write_accounting_fixtures import (
+    accounting_factory as accounting_factory,
+    write_accounting_databases as write_accounting_databases,
+)
 
 KINDS = ("pyramid", "video", "zip")
 PRODUCERS = {

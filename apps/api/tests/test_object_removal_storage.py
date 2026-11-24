@@ -22,7 +22,10 @@ from tests import live_provider_guard
 from tests.test_avatar_storage import record as avatar_record, reference as avatar_ref
 from tests.test_bug_attachment_storage import record as bug_record, reference as bug_ref
 from tests.test_export_media_removal_accounting import Provider
-from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
+from tests.write_accounting_fixtures import (
+    accounting_factory as accounting_factory,
+    write_accounting_databases as write_accounting_databases,
+)
 
 DATA = b"saved object bytes"
 

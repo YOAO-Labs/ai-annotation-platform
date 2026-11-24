@@ -1,4 +1,4 @@
-"""Committed mutation facts for the conditional, training and export writers."""
+"""Independent commits for tests that persist only storage mutation facts."""
 
 from contextlib import AsyncExitStack
 
