@@ -231,3 +231,48 @@ async def test_channel_http_client_setup_deliver_verify_and_oversize_guard():
     )
     assert oversize_deliver.outcome == "retryable"
     assert oversize_deliver.reason == "response_too_large"
+
+
+@pytest.mark.asyncio
+async def test_pinned_transport_wraps_raw_httpcore_stream(monkeypatch) -> None:
+    import httpcore
+
+    class _RawHttpcoreStream:
+        def __init__(self, body: bytes) -> None:
+            self._body = body
+            self.closed = False
+
+        async def __aiter__(self):
+            yield self._body
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    stream = _RawHttpcoreStream(
+        b'{"protocol_version":"yoao-notification-channel/v1",'
+        b'"channel_id":"feishu","display_name":"Feishu",'
+        b'"capabilities":["deliver"],'
+        b'"address_schema":{"type":"object","properties":{"open_id":{"type":"string"}},'
+        b'"required":["open_id"],"additionalProperties":false}}'
+    )
+
+    class _FakePool:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        async def handle_async_request(self, req):
+            return httpcore.Response(
+                status=200,
+                headers=[(b"content-type", b"application/json")],
+                content=stream,
+            )
+
+        async def aclose(self) -> None:
+            return None
+
+    monkeypatch.setattr(httpcore, "AsyncConnectionPool", _FakePool)
+    client = NotificationChannelHttpClient(resolver=lambda h: ["93.184.216.34"])
+    setup = await client.setup("https://plugin.example.com", "tok_123")
+
+    assert setup.channel_id == "feishu"
+    assert stream.closed is True

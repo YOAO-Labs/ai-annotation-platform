@@ -221,6 +221,18 @@ class NotificationChannelHttpClient:
             retries=0,
         )
 
+        class _PinnedResponseStream(httpx.AsyncByteStream):
+            def __init__(self, stream) -> None:
+                self._stream = stream
+
+            async def __aiter__(self):
+                async for part in self._stream:
+                    yield part
+
+            async def aclose(self) -> None:
+                if hasattr(self._stream, "aclose"):
+                    await self._stream.aclose()
+
         class _PinnedTransport(httpx.AsyncBaseTransport):
             async def handle_async_request(
                 self, request: httpx.Request
@@ -241,7 +253,7 @@ class NotificationChannelHttpClient:
                 return httpx.Response(
                     status_code=resp.status,
                     headers=resp.headers,
-                    stream=resp.stream,
+                    stream=_PinnedResponseStream(resp.stream),
                     extensions=resp.extensions,
                 )
 
