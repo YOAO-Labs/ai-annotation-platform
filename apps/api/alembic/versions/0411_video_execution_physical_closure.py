@@ -17,19 +17,24 @@ def _execute(statement: str) -> None:
 
 
 def upgrade() -> None:
-    for statement in (_SQL / "0411_video_execution_physical_closure.sql").read_text(
-        encoding="utf-8"
-    ).split("-- aap-statement-break"):
+    for statement in (
+        (_SQL / "0411_video_execution_physical_closure.sql")
+        .read_text(encoding="utf-8")
+        .split("-- aap-statement-break")
+    ):
         if statement.strip():
             _execute(statement.strip())
 
 
 def downgrade() -> None:
-    statements = (_SQL / "0409_video_execution_settlement.sql").read_text(
-        encoding="utf-8"
-    ).split("-- aap-statement-break")
+    statements = (
+        (_SQL / "0409_video_execution_settlement.sql")
+        .read_text(encoding="utf-8")
+        .split("-- aap-statement-break")
+    )
     definition = next(
-        statement for statement in statements
+        statement
+        for statement in statements
         if statement.strip().startswith(
             "CREATE OR REPLACE FUNCTION aap_jobs_v1.video_execution_step("
         )

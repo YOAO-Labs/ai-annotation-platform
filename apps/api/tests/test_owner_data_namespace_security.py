@@ -193,7 +193,9 @@ async def test_column_grant_is_still_rejected(test_engine):
     async with _owner(_owner_dsn(dsn)) as owner:
         await owner.execute(f'CREATE TABLE public."{table}" (id integer)')
         try:
-            await owner.execute(f'GRANT SELECT (id) ON TABLE public."{table}" TO {_ROLE}')
+            await owner.execute(
+                f'GRANT SELECT (id) ON TABLE public."{table}" TO {_ROLE}'
+            )
             await _assert_inventory_rejected(dsn)
         finally:
             await owner.execute(f'DROP TABLE IF EXISTS public."{table}"')
@@ -263,9 +265,7 @@ async def test_database_temp_grant_is_still_rejected(test_engine):
         try:
             await _assert_inventory_rejected(dsn)
         finally:
-            await owner.execute(
-                f'REVOKE TEMP ON DATABASE "{database}" FROM {_ROLE}'
-            )
+            await owner.execute(f'REVOKE TEMP ON DATABASE "{database}" FROM {_ROLE}')
     await _assert_inventory_matches(dsn)
 
 

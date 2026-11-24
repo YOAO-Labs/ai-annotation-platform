@@ -137,6 +137,14 @@ class AssetsTaskMediaSummaryReader(TaskMediaSummaryReader):
             if row.file_type == "video"
         }
 
+    async def current_image_summary(
+        self, item_id: uuid.UUID
+    ) -> tuple[int | None, int | None] | None:
+        row = (await self._read((item_id,))).get(item_id)
+        if row is None or row.file_type != "image":
+            return None
+        return row.width, row.height
+
     async def current_video_summary(
         self, item_id: uuid.UUID
     ) -> tuple[int | None, int | None, dict[str, Any]] | None:

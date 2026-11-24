@@ -109,8 +109,11 @@ def real_source(
         )
         _wait_http(ready, service, "registered Assets Source", "/ready")
         yield SimpleNamespace(
-            origin=origin, tokens=tokens, encryption_key=key,
-            connections_token=connections, storage_origin=storage_origin,
+            origin=origin,
+            tokens=tokens,
+            encryption_key=key,
+            connections_token=connections,
+            storage_origin=storage_origin,
             process=service.process,
         )
 

@@ -149,7 +149,7 @@ def configured_app(config):
                         key: value
                         for key, value in storage_values.items()
                         if key != "inputs_bucket"
-                    }
+                    },
                 ),
             )
             try:

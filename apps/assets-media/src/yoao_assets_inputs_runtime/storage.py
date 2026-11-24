@@ -60,6 +60,10 @@ def _if_match(value):
     return '"' + value.strip('"') + '"'
 
 
+class _Stopped(BaseException):
+    """Internal cooperative stop raised only after _run sets the stop event."""
+
+
 async def _run(function, *args):
     """Stop between requests and finish the current bounded S3 call on cancellation."""
     stop = threading.Event()
@@ -77,6 +81,8 @@ async def _run(function, *args):
                 break
         try:
             task.result()
+        except _Stopped:
+            pass
         except BaseException as late:
             combined = builtins.BaseExceptionGroup(
                 "Accepted input I/O was cancelled and then failed", [cancelled, late]
@@ -89,7 +95,7 @@ async def _run(function, *args):
 
 def _check_stop(stop):
     if stop.is_set():
-        raise c.InputFailure("timeout")
+        raise _Stopped()
 
 
 class S3InputStorage:

@@ -12,7 +12,10 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.project_access import get_workspace_project
-from tests.test_workspace_project_authority_locking import _assert_private_denied, _world
+from tests.test_workspace_project_authority_locking import (
+    _assert_private_denied,
+    _world,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -39,9 +42,12 @@ async def test_project_read_observes_committed_changes_and_missing_project(
             )
             assert project.id == world["project_id"]
             assert project.name == "Current project"
-            assert await get_workspace_project(
-                db, actor_id=actor_id, project_id=uuid.uuid4()
-            ) is None
+            assert (
+                await get_workspace_project(
+                    db, actor_id=actor_id, project_id=uuid.uuid4()
+                )
+                is None
+            )
 
 
 async def test_restricted_api_task_access_uses_read_only_owner_snapshots(test_engine):

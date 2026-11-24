@@ -28,7 +28,11 @@ def _key(selector_name, *, exact_length=None):
             if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o022:
                 raise ValueError("invalid capability key")
             value = stream.read(4097)
-        if not 32 <= len(value) <= 4096 or exact_length is not None and len(value) != exact_length:
+        if (
+            not 32 <= len(value) <= 4096
+            or exact_length is not None
+            and len(value) != exact_length
+        ):
             raise ValueError("invalid capability key")
         return value
     except (OSError, ValueError):
@@ -71,7 +75,12 @@ def issue(run_id, write_id, expires_in, origin):
     expires = int(time.time()) + expires_in
     master = _key("AAP_PRIVATE_FIXTURE_MEDIA_PROXY_SIGNING_KEY_FILE")
     run_key = hmac.new(master, _KEY_DOMAIN + run_id.bytes, hashlib.sha256).digest()
-    query = urlencode({"expires": expires, "signature": _signature(run_key, run_id, write_id, expires)})
+    query = urlencode(
+        {
+            "expires": expires,
+            "signature": _signature(run_key, run_id, write_id, expires),
+        }
+    )
     return f"{origin}/v1/fixture-native-output/{run_id}/{write_id}?{query}"
 
 
@@ -81,16 +90,21 @@ def issue_ready(run_id, expires_in, origin, *, run_key):
         raise ValueError("invalid fixture native readiness key")
     expires = int(time.time()) + expires_in
     signature = hmac.new(
-        run_key, _READY_DOMAIN + run_id.bytes + expires.to_bytes(8, "big"), hashlib.sha256
+        run_key,
+        _READY_DOMAIN + run_id.bytes + expires.to_bytes(8, "big"),
+        hashlib.sha256,
     ).hexdigest()
     return f"{origin}/v1/fixture-native-output-ready/{run_id}?{urlencode({'expires': expires, 'signature': signature})}"
 
 
 def verify_ready(run_id, expires, signature):
     if (
-        not isinstance(run_id, uuid.UUID) or type(expires) is not int
-        or not isinstance(signature, str) or len(signature) != 64
-        or expires <= int(time.time()) or expires > int(time.time()) + _MAX_SECONDS
+        not isinstance(run_id, uuid.UUID)
+        or type(expires) is not int
+        or not isinstance(signature, str)
+        or len(signature) != 64
+        or expires <= int(time.time())
+        or expires > int(time.time()) + _MAX_SECONDS
     ):
         return False
     key = _key("AAP_PRIVATE_FIXTURE_MEDIA_PROXY_VERIFY_KEY_FILE", exact_length=32)

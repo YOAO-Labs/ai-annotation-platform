@@ -4,8 +4,7 @@ import { test, expect } from "../fixtures/seed";
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
 test.describe("mask lock bypass", () => {
-  test("锁定 annotation 经 mask 工具不可修改", async ({ page, request, seed }) => {
-    const data = await seed.owned();
+  test("锁定 annotation 经 mask 工具不可修改", async ({ page, request, owned: data, seed }) => {
     await seed.advanceTask({
       taskId: data.task_ids[0],
       toStatus: "pending",

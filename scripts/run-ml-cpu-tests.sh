@@ -108,7 +108,11 @@ run_pytest() {
   local dir="$1" venv="$2"
   shift 2
   log "pytest $dir $*"
-  local report="$ROOT/.artifacts/test-results/ml-cpu/$suite/${dir//\//-}.xml"
+  local report_name="${dir//\//-}"
+  if [ "$report_name" = "." ]; then
+    report_name="$suite"
+  fi
+  local report="$ROOT/.artifacts/test-results/ml-cpu/$suite/${report_name}.xml"
   run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "--junitxml=$report" "$@"
 }
 

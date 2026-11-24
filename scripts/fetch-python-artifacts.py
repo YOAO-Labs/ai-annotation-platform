@@ -26,6 +26,10 @@ def checked(data, expected, label):
 
 
 def fetch(manifest, sha256, output, packages=()):
+    if not isinstance(manifest, str) or not manifest.strip():
+        raise ValueError("manifest path or URL is required")
+    if not isinstance(sha256, str) or not HEX.fullmatch(sha256):
+        raise ValueError("invalid SHA256 for manifest")
     parsed = urlsplit(manifest)
     if parsed.scheme in ("http", "https", "file"):
 

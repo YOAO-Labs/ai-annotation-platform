@@ -77,7 +77,11 @@ async def admitted_original(database, storage, operation, request, finish_operat
     if not isinstance(permit, c.OriginalRead):
         raise c.ImageFailure("invalid_response")
     failure = None
-    evidence = {"write_started": False, "permit": permit} if permit.ownership == "fixture" else None
+    evidence = (
+        {"write_started": False, "permit": permit}
+        if permit.ownership == "fixture"
+        else None
+    )
     context = _fixture_original.set(evidence)
     try:
         yield storage.bind_original(permit)

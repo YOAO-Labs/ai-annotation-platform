@@ -38,18 +38,20 @@ _PAYLOAD = b"owned-native-bytes"
 
 def _scope(name="a", *, version="saved-version"):
     output_id = uuid4()
-    target = NativePyramidSavedTarget.model_validate({
-        "schema": 2,
-        "purpose": "media-cache",
-        "location_id": str(uuid4()),
-        "config_revision": 1,
-        "binding_generation": 2,
-        "endpoint_url": f"http://store-{name}:9000",
-        "bucket": f"cache-{name}",
-        "key_prefix": "team/_aap_managed/media-cache/",
-        "prefix": f"team/_aap_managed/media-cache/image-pyramids/objects/{output_id}/",
-        "storage_identity": "b" * 64,
-    })
+    target = NativePyramidSavedTarget.model_validate(
+        {
+            "schema": 2,
+            "purpose": "media-cache",
+            "location_id": str(uuid4()),
+            "config_revision": 1,
+            "binding_generation": 2,
+            "endpoint_url": f"http://store-{name}:9000",
+            "bucket": f"cache-{name}",
+            "key_prefix": "team/_aap_managed/media-cache/",
+            "prefix": f"team/_aap_managed/media-cache/image-pyramids/objects/{output_id}/",
+            "storage_identity": "b" * 64,
+        }
+    )
     claim = NativePyramidRetirementClaim(
         output_id=output_id,
         lease_token=uuid4(),
@@ -58,21 +60,33 @@ def _scope(name="a", *, version="saved-version"):
         after_operation_id=None,
     )
     member = NativePyramidSavedMember(
-        operation_id=uuid4(), relative_key="tiles/0/0/0.webp",
-        sha256=hashlib.sha256(_PAYLOAD).hexdigest(), size_bytes=len(_PAYLOAD),
-        etag='"saved-etag"', version_id=version,
+        operation_id=uuid4(),
+        relative_key="tiles/0/0/0.webp",
+        sha256=hashlib.sha256(_PAYLOAD).hexdigest(),
+        size_bytes=len(_PAYLOAD),
+        etag='"saved-etag"',
+        version_id=version,
     )
     page = NativePyramidRetirementPage(
-        output_id=output_id, lease_token=claim.lease_token, page_id=uuid4(),
+        output_id=output_id,
+        lease_token=claim.lease_token,
+        page_id=uuid4(),
         lease_expires_at=claim.lease_expires_at,
-        after_operation_id=member.operation_id, items=[member], exhausted=False,
+        after_operation_id=member.operation_id,
+        items=[member],
+        exhausted=False,
     )
     return SimpleNamespace(claim=claim, page=page, member=member, target=target)
 
 
 def _signed(
-    method, target, *, member=None, kind=None,
-    key_marker=None, upload_id_marker=None,
+    method,
+    target,
+    *,
+    member=None,
+    kind=None,
+    key_marker=None,
+    upload_id_marker=None,
 ):
     path = "/" + quote(target.bucket, safe="-_.~")
     headers = {}
@@ -81,24 +95,34 @@ def _signed(
         query = {} if member.version_id is None else {"versionId": member.version_id}
         headers["if-match"] = member.etag
     else:
-        query = dict(prefix_listing_query(
-            target.prefix, kind,
-            key_marker=key_marker, upload_id_marker=upload_id_marker,
-        ))
+        query = dict(
+            prefix_listing_query(
+                target.prefix,
+                kind,
+                key_marker=key_marker,
+                upload_id_marker=upload_id_marker,
+            )
+        )
     request = AWSRequest(
-        method=method, url=target.endpoint_url + path,
-        params=query, headers=headers,
+        method=method,
+        url=target.endpoint_url + path,
+        params=query,
+        headers=headers,
     )
     S3SigV4QueryAuth(
         Credentials("test-native-key", "test-native-secret"),
-        "s3", "us-east-1", expires=120,
+        "s3",
+        "us-east-1",
+        expires=120,
     ).add_auth(request)
     query = dict(parse_qsl(urlsplit(request.url).query, keep_blank_values=True))
     issued = datetime.strptime(query["X-Amz-Date"], "%Y%m%dT%H%M%SZ").replace(
         tzinfo=timezone.utc
     )
     return NativePyramidSignedRequest(
-        method=method, url=request.url, headers=headers,
+        method=method,
+        url=request.url,
+        headers=headers,
         expires_at=issued + timedelta(seconds=int(query["X-Amz-Expires"])),
     )
 
@@ -113,25 +137,35 @@ class _Signer:
         assert request.page_id == scope.page.page_id
         assert request.lease_token == scope.claim.lease_token
         return self.replacement or NativePyramidIoReferences(
-            mode="retirement_members", scope_id=scope.page.page_id,
-            scope_token=scope.claim.lease_token, output_id=scope.claim.output_id,
+            mode="retirement_members",
+            scope_id=scope.page.page_id,
+            scope_token=scope.claim.lease_token,
+            output_id=scope.claim.output_id,
             storage_ref=scope.target,
-            members=[NativePyramidSignedMember(
-                member=NativePyramidIoMember.model_validate(scope.member.model_dump()),
-                head=_signed("HEAD", scope.target, member=scope.member),
-                get=_signed("GET", scope.target, member=scope.member),
-                delete=_signed("DELETE", scope.target, member=scope.member),
-            )],
+            members=[
+                NativePyramidSignedMember(
+                    member=NativePyramidIoMember.model_validate(
+                        scope.member.model_dump()
+                    ),
+                    head=_signed("HEAD", scope.target, member=scope.member),
+                    get=_signed("GET", scope.target, member=scope.member),
+                    delete=_signed("DELETE", scope.target, member=scope.member),
+                )
+            ],
         )
 
     async def retirement_prefix_reference(self, request):
         scope = self.scopes[request.output_id]
         return NativePyramidPrefixIoReference(
-            scope_id=request.page_id, scope_token=request.lease_token,
-            output_id=request.output_id, storage_ref=scope.target,
+            scope_id=request.page_id,
+            scope_token=request.lease_token,
+            output_id=request.output_id,
+            storage_ref=scope.target,
             kind=request.kind,
             request=_signed(
-                "GET", scope.target, kind=request.kind,
+                "GET",
+                scope.target,
+                kind=request.kind,
                 key_marker=request.key_marker,
                 upload_id_marker=request.upload_id_marker,
             ),
@@ -179,8 +213,13 @@ class _S3:
         scope = self.scopes[request.url.host]
         if request.url.path == "/" + scope.target.bucket:
             assert request.method == "GET"
-            kind = ("versions" if "versions" in request.url.params else
-                    "uploads" if "uploads" in request.url.params else "objects")
+            kind = (
+                "versions"
+                if "versions" in request.url.params
+                else "uploads"
+                if "uploads" in request.url.params
+                else "objects"
+            )
             if kind == "uploads":
                 assert "prefix" not in request.url.params
                 assert request.url.params["max-uploads"] == "100"
@@ -192,7 +231,11 @@ class _S3:
                 payload = payload.pop(0)
             return self._response(200, payload)
         assert request.url.path == (
-            "/" + scope.target.bucket + "/" + scope.target.prefix + scope.member.relative_key
+            "/"
+            + scope.target.bucket
+            + "/"
+            + scope.target.prefix
+            + scope.member.relative_key
         )
         assert request.headers["if-match"] == scope.member.etag
         assert request.url.params.get("versionId") == scope.member.version_id
@@ -215,8 +258,10 @@ class _S3:
             else:
                 headers[key] = value
         return self._response(
-            200, self.payload if request.method == "GET" else b"",
-            headers=headers, close_error=self.close_get_error and request.method == "GET",
+            200,
+            self.payload if request.method == "GET" else b"",
+            headers=headers,
+            close_error=self.close_get_error and request.method == "GET",
         )
 
 
@@ -239,9 +284,7 @@ async def _store(*scopes):
     signer = _Signer(scopes)
     s3 = _S3(scopes)
     async with httpx.AsyncClient(transport=httpx.MockTransport(s3)) as http:
-        store = SignedNativeRetirementStore(
-            SimpleNamespace(), signer=signer, http=http
-        )
+        store = SignedNativeRetirementStore(SimpleNamespace(), signer=signer, http=http)
         yield store, signer, s3
 
 
@@ -254,13 +297,22 @@ async def _delete(store, scope):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("version", [None, "null", "saved-version"])
-async def test_saved_targets_and_versions_drive_every_request_without_a_fixed_store(version):
+async def test_saved_targets_and_versions_drive_every_request_without_a_fixed_store(
+    version,
+):
     a, b = _scope("a", version=version), _scope("b", version=version)
     async with _store(a, b) as (store, _, s3):
         await _delete(store, a)
         await _delete(store, b)
-    assert [request.url.host for request in s3.calls] == ["store-a"] * 4 + ["store-b"] * 4
-    assert [request.method for request in s3.calls] == ["HEAD", "GET", "DELETE", "HEAD"] * 2
+    assert [request.url.host for request in s3.calls] == ["store-a"] * 4 + [
+        "store-b"
+    ] * 4
+    assert [request.method for request in s3.calls] == [
+        "HEAD",
+        "GET",
+        "DELETE",
+        "HEAD",
+    ] * 2
     assert not any(s3.present.values())
     assert all(body.closed for body in s3.bodies)
 
@@ -270,31 +322,50 @@ async def test_saved_targets_and_versions_drive_every_request_without_a_fixed_st
 async def test_substituted_saved_scope_is_rejected_before_physical_io(substitution):
     scope = _scope()
     async with _store(scope) as (store, signer, s3):
-        original = await signer.retirement_references(SimpleNamespace(
-            output_id=scope.claim.output_id, page_id=scope.page.page_id,
-            lease_token=scope.claim.lease_token,
-        ))
+        original = await signer.retirement_references(
+            SimpleNamespace(
+                output_id=scope.claim.output_id,
+                page_id=scope.page.page_id,
+                lease_token=scope.claim.lease_token,
+            )
+        )
         if substitution == "target":
-            signer.replacement = original.model_copy(update={
-                "storage_ref": scope.target.model_copy(update={"bucket": "foreign-bucket"})
-            })
+            signer.replacement = original.model_copy(
+                update={
+                    "storage_ref": scope.target.model_copy(
+                        update={"bucket": "foreign-bucket"}
+                    )
+                }
+            )
         else:
             member = original.members[0]
-            signer.replacement = original.model_copy(update={"members": [
-                member.model_copy(update={"member": member.member.model_copy(
-                    update={"sha256": "c" * 64}
-                )})
-            ]})
+            signer.replacement = original.model_copy(
+                update={
+                    "members": [
+                        member.model_copy(
+                            update={
+                                "member": member.member.model_copy(
+                                    update={"sha256": "c" * 64}
+                                )
+                            }
+                        )
+                    ]
+                }
+            )
         with pytest.raises(NativeStorageError):
             await _delete(store, scope)
         assert s3.calls == []
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("headers", [
-    {"etag": '"foreign"'}, {"content-length": "1"},
-    {"x-amz-version-id": "foreign-version"},
-])
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"etag": '"foreign"'},
+        {"content-length": "1"},
+        {"x-amz-version-id": "foreign-version"},
+    ],
+)
 async def test_head_receipt_mismatch_never_reads_or_deletes(headers):
     scope = _scope(version=None)
     async with _store(scope) as (store, _, s3):
@@ -386,17 +457,25 @@ async def test_successful_delete_response_still_requires_observed_absence():
         s3.remove_on_delete = False
         with pytest.raises(NativeStorageError):
             await _delete(store, scope)
-        assert [request.method for request in s3.calls] == ["HEAD", "GET", "DELETE", "HEAD"]
+        assert [request.method for request in s3.calls] == [
+            "HEAD",
+            "GET",
+            "DELETE",
+            "HEAD",
+        ]
         assert s3.present[scope.claim.output_id]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("kind", "entries"), [
-    ("versions", "<Version><Key>foreign</Key></Version>"),
-    ("versions", "<DeleteMarker><Key>foreign</Key></DeleteMarker>"),
-    ("objects", "<Contents><Key>foreign</Key></Contents>"),
-    ("objects", "<CommonPrefixes><Prefix>foreign/</Prefix></CommonPrefixes>"),
-])
+@pytest.mark.parametrize(
+    ("kind", "entries"),
+    [
+        ("versions", "<Version><Key>foreign</Key></Version>"),
+        ("versions", "<DeleteMarker><Key>foreign</Key></DeleteMarker>"),
+        ("objects", "<Contents><Key>foreign</Key></Contents>"),
+        ("objects", "<CommonPrefixes><Prefix>foreign/</Prefix></CommonPrefixes>"),
+    ],
+)
 async def test_terminal_probe_refuses_foreign_material_without_deleting(kind, entries):
     scope = _scope()
     async with _store(scope) as (store, _, s3):
@@ -410,12 +489,16 @@ async def test_terminal_probe_refuses_foreign_material_without_deleting(kind, en
 @pytest.mark.parametrize("corruption", ["truncated", "bucket", "prefix", "malformed"])
 async def test_terminal_probe_requires_complete_exact_scope_xml(corruption):
     scope = _scope()
-    options = {"truncated": {"truncated": "true"}, "bucket": {"bucket": "foreign"},
-               "prefix": {"prefix": "foreign/"}}
+    options = {
+        "truncated": {"truncated": "true"},
+        "bucket": {"bucket": "foreign"},
+        "prefix": {"prefix": "foreign/"},
+    }
     async with _store(scope) as (store, _, s3):
         s3.listing["versions"] = (
-            b"<malformed" if corruption == "malformed" else
-            _xml(scope, "versions", **options[corruption])
+            b"<malformed"
+            if corruption == "malformed"
+            else _xml(scope, "versions", **options[corruption])
         )
         with pytest.raises(NativeStorageError):
             await store.verify_prefix_absent(scope.claim, scope.page, threading.Event())
@@ -452,7 +535,9 @@ def _multipart_page(scope, uploads, *, marker=None, next_marker=None):
             f"<NextUploadIdMarker>{escape(next_marker[1])}</NextUploadIdMarker>"
         )
     return _xml(
-        scope, "uploads", entries=entries,
+        scope,
+        "uploads",
+        entries=entries,
         truncated="true" if next_marker is not None else "false",
     )
 
@@ -486,13 +571,16 @@ async def test_multipart_cursor_cannot_skip_unproven_namespace_material(corrupti
             last = _multipart_page(scope, [first], marker=first, next_marker=first)
         elif corruption == "skipped":
             last = _multipart_page(
-                scope, [second], marker=first,
+                scope,
+                [second],
+                marker=first,
                 next_marker=("z-unseen/object", "unseen-upload"),
             )
         else:
             last = _multipart_page(scope, [], marker=second)
         s3.listing["uploads"] = [
-            _multipart_page(scope, [first], next_marker=first), last,
+            _multipart_page(scope, [first], next_marker=first),
+            last,
         ]
         with pytest.raises(NativeStorageError):
             await store.verify_prefix_absent(scope.claim, scope.page, threading.Event())

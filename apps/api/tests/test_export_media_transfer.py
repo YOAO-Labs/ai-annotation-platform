@@ -542,7 +542,9 @@ async def test_nested_read_and_close_failure_remains_unsettled(runtime):
         await runtime.copy()
     assert storage_access.failure_unsettled(caught.value)
     assert any("source read failed" in str(item) for item in caught.value.exceptions)
-    assert any("source body close failed" in str(item) for item in caught.value.exceptions)
+    assert any(
+        "source body close failed" in str(item) for item in caught.value.exceptions
+    )
     assert runtime.execution_entries == 1
     assert not any(permit.settled for permit in runtime.permits)
 
@@ -588,8 +590,7 @@ async def test_revocation_preserves_unconfirmed_permit_settlement_error(runtime)
     assert caught.value.code == "access_revoked"
     assert storage_access.failure_unsettled(caught.value)
     assert any(
-        "database settlement uncertain" in note
-        for note in caught.value.__notes__
+        "database settlement uncertain" in note for note in caught.value.__notes__
     )
     assert runtime.execution_entries == 1
     assert not any(permit.settled for permit in runtime.permits)

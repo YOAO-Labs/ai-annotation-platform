@@ -11,15 +11,25 @@ branch_labels = depends_on = None
 
 
 def upgrade() -> None:
-    resource = Path(__file__).resolve().parents[1] / "sql" / "0505_saved_outputs_source.sql"
-    for statement in resource.read_text(encoding="utf-8").split("-- aap-statement-break"):
-        op.execute(sa.text(statement.replace(":", r"\:")).execution_options(no_parameters=True))
+    resource = (
+        Path(__file__).resolve().parents[1] / "sql" / "0505_saved_outputs_source.sql"
+    )
+    for statement in resource.read_text(encoding="utf-8").split(
+        "-- aap-statement-break"
+    ):
+        op.execute(
+            sa.text(statement.replace(":", r"\:")).execution_options(no_parameters=True)
+        )
 
 
 def downgrade() -> None:
     op.execute("DROP TRIGGER trg_avatar_source_write ON public.avatar_uploads")
-    op.execute("DROP TRIGGER trg_bug_attachment_source_write ON public.bug_attachment_uploads")
-    op.execute("DROP TRIGGER trg_audit_archive_source_write ON public.audit_archive_outputs")
+    op.execute(
+        "DROP TRIGGER trg_bug_attachment_source_write ON public.bug_attachment_uploads"
+    )
+    op.execute(
+        "DROP TRIGGER trg_audit_archive_source_write ON public.audit_archive_outputs"
+    )
     for name in (
         "_guard_saved_output_write()",
         "saved_output_write_status(uuid,text,text)",

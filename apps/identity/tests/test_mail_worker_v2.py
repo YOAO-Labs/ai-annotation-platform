@@ -249,6 +249,9 @@ async def test_started_poller_waits_for_isolated_bindings_then_claims_without_a_
     class SettingsData:
         isolated = False
 
+        async def claim_smtp_test(self):
+            return None
+
         async def mail_delivery_policy(self, _, *, require_isolated_role=False):
             if require_isolated_role and not self.isolated:
                 refused.set()

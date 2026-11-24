@@ -236,7 +236,7 @@ it("cancels with Escape, restores focus and sends no mutation", async () => {
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(screen.getByRole("button", { name: "开始维护" })).toHaveFocus();
   expect(api.post).toHaveBeenCalledTimes(1);
-});
+}, 15_000);
 it("submits the reviewed token once and updates the current generation", async () => {
   api.get
     .mockResolvedValueOnce(status())

@@ -12,7 +12,9 @@ from app.services import storage_access
 from app.services.content_snapshot import ContentError
 
 _MISSING = frozenset({"404", "NoSuchKey", "NoSuchVersion", "NotFound"})
-_PRECONDITIONS = frozenset({"409", "412", "PreconditionFailed", "ConditionalRequestConflict"})
+_PRECONDITIONS = frozenset(
+    {"409", "412", "PreconditionFailed", "ConditionalRequestConflict"}
+)
 
 
 def _missing(exc):
@@ -25,7 +27,9 @@ def _error(kind, exc):
 
         prefix = "avatar_storage_"
     elif kind == "bug":
-        from app.services.bug_attachment_storage import BugAttachmentStorageError as error
+        from app.services.bug_attachment_storage import (
+            BugAttachmentStorageError as error,
+        )
 
         prefix = "bug_attachment_storage_"
     elif kind == "archive":
@@ -47,7 +51,10 @@ def _error(kind, exc):
     elif exc.status_code == 410:
         suffix, status = "expired", 409
     elif exc.code == "output_integrity_mismatch" or exc.storage_code in _PRECONDITIONS:
-        suffix, status = ("invalid_receipt" if kind == "avatar" else "integrity_mismatch"), 409
+        suffix, status = (
+            ("invalid_receipt" if kind == "avatar" else "integrity_mismatch"),
+            409,
+        )
     else:
         suffix, status = "identity_changed", 409
     result = error(prefix + suffix, status_code=status)
@@ -82,11 +89,19 @@ class SavedOutput:
         if kind == "avatar":
             self.proof = {"token": receipt.token}
         elif kind == "member":
-            self.proof = {"bundle_id": str(receipt.id), "member_id": str(UUID(relative[:-4]))}
+            self.proof = {
+                "bundle_id": str(receipt.id),
+                "member_id": str(UUID(relative[:-4])),
+            }
             self.key = ref["key_prefix"] + relative
             self.expected = receipt.inventory["objects"][self.key]
         else:
-            name = {"bug": "upload_id", "zip": "output_id", "archive": "archive_id", "media": "bundle_id"}[kind]
+            name = {
+                "bug": "upload_id",
+                "zip": "output_id",
+                "archive": "archive_id",
+                "media": "bundle_id",
+            }[kind]
             self.proof = {name: str(receipt.id)}
         if kind not in {"member", "media"}:
             self.expected = {"sha256": receipt.sha256, "size_bytes": receipt.size_bytes}
@@ -109,8 +124,12 @@ class SavedOutput:
                 "CAST(:actor AS uuid), CAST(:report AS uuid), CAST(:key AS text))"
             ),
             {
-                "operation": self.operation, "family": self.kind, "id": self.receipt.id,
-                "actor": actor_id, "report": report_id, "key": key,
+                "operation": self.operation,
+                "family": self.kind,
+                "id": self.receipt.id,
+                "actor": actor_id,
+                "report": report_id,
+                "key": key,
             },
         ):
             raise ContentError("storage_operation_changed")
@@ -119,12 +138,20 @@ class SavedOutput:
         proof = self._proof()
         if self.kind == "bug":
             proof["actor_id"] = str(self.actor_id)
-        attempt = accounting.begin(self.key, self.expected) if accounting is not None else None
+        attempt = (
+            accounting.begin(self.key, self.expected)
+            if accounting is not None
+            else None
+        )
         try:
             client = _client("write", self.timeout)
             try:
                 result = client.upload(
-                    "outputs", self.kind + "_write", proof, body, length=self.expected["size_bytes"]
+                    "outputs",
+                    self.kind + "_write",
+                    proof,
+                    body,
+                    length=self.expected["size_bytes"],
                 )
             except SavedIOError as exc:
                 if not exc.unsettled and exc.code != "output_write_already_started":
@@ -139,21 +166,32 @@ class SavedOutput:
                     ) from None
             if (
                 set(result) != {"etag", "version_id"}
-                or not isinstance(result["etag"], str) or not 0 < len(result["etag"]) <= 1024
+                or not isinstance(result["etag"], str)
+                or not 0 < len(result["etag"]) <= 1024
                 or result["version_id"] is not None
-                and (not isinstance(result["version_id"], str) or not 0 < len(result["version_id"]) <= 1024)
+                and (
+                    not isinstance(result["version_id"], str)
+                    or not 0 < len(result["version_id"]) <= 1024
+                )
             ):
                 raise SavedIOError("invalid_response", status_code=502, unsettled=True)
             version = result["version_id"]
             if attempt is not None:
                 attempt.evidence.update(
-                    physical_outcome="written", physical_size_bytes=self.expected["size_bytes"],
-                    returned_version=version, full_readback=version not in {None, "null"},
+                    physical_outcome="written",
+                    physical_size_bytes=self.expected["size_bytes"],
+                    returned_version=version,
+                    full_readback=version not in {None, "null"},
                 )
             return version
         except SavedIOError as exc:
-            if attempt is not None and exc.storage_code in {"412", "PreconditionFailed"}:
-                attempt.evidence.update(physical_outcome="not_written", current_delta_bytes=0)
+            if attempt is not None and exc.storage_code in {
+                "412",
+                "PreconditionFailed",
+            }:
+                attempt.evidence.update(
+                    physical_outcome="not_written", current_delta_bytes=0
+                )
             raise _error(self.kind, exc) from None
 
     def write_path(self, path, *, accounting=None):
@@ -164,7 +202,9 @@ class SavedOutput:
         try:
             digest = sha256()
             client = _client("read", self.timeout)
-            with client.download("outputs", self.kind + "_read", self._proof()) as response:
+            with client.download(
+                "outputs", self.kind + "_read", self._proof()
+            ) as response:
                 if response.length != self.expected["size_bytes"]:
                     raise SavedIOError("output_integrity_mismatch")
                 for chunk in response.iter_bytes():
@@ -185,7 +225,9 @@ class SavedOutput:
         try:
             return self.read_bytes(), f'"{self.expected["sha256"]}"'
         except Exception as exc:
-            if getattr(exc, "code", None) == "avatar_storage_missing" and not storage_access.failure_unsettled(exc):
+            if getattr(
+                exc, "code", None
+            ) == "avatar_storage_missing" and not storage_access.failure_unsettled(exc):
                 return None
             raise
 
@@ -204,7 +246,9 @@ class SavedOutput:
         if download_name is not None:
             proof["download_name"] = download_name
         try:
-            return _client("read", self.timeout).command("outputs", self.kind + "_sign", proof)["url"]
+            return _client("read", self.timeout).command(
+                "outputs", self.kind + "_sign", proof
+            )["url"]
         except SavedIOError as exc:
             raise _error(self.kind, exc) from None
 
@@ -212,13 +256,17 @@ class SavedOutput:
         if accounting is not None:
             accounting.begin(self.key, {"version_id": version})
         try:
-            _client("cleanup", self.timeout).command("outputs", self.kind + "_delete", self._proof())
+            _client("cleanup", self.timeout).command(
+                "outputs", self.kind + "_delete", self._proof()
+            )
         except SavedIOError as exc:
             raise _error(self.kind, exc) from None
 
     def list_media(self):
         try:
-            return _client("read", self.timeout).command("outputs", "media_list", self._proof())["verified"]
+            return _client("read", self.timeout).command(
+                "outputs", "media_list", self._proof()
+            )["verified"]
         except SavedIOError as exc:
             raise _error(self.kind, exc) from None
 
@@ -227,6 +275,8 @@ class SavedOutput:
             for key, version in versions.items():
                 accounting.begin(key, {"version_id": version})
         try:
-            return _client("cleanup", self.timeout).command("outputs", "media_delete", self._proof())["removed"]
+            return _client("cleanup", self.timeout).command(
+                "outputs", "media_delete", self._proof()
+            )["removed"]
         except SavedIOError as exc:
             raise _error(self.kind, exc) from None

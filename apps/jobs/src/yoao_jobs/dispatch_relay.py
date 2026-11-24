@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 import os
@@ -171,12 +172,14 @@ class JobsDispatchRelay:
                 ) as (connection, arguments, needs_publish):
                     if needs_publish:
                         try:
-                            accepted_id = await self._publisher.publish_envelope(lease.envelope)
+                            accepted_id = await self._publisher.publish_envelope(
+                                lease.envelope
+                            )
                         except JobsQueueNotSent as exc:
                             try:
                                 await refuse_publication(connection, arguments)
                             except Exception as recording:
-                                raise ExceptionGroup(
+                                raise builtins.ExceptionGroup(
                                     "Jobs pre-request refusal and owner recording failed",
                                     [exc, recording],
                                 ) from None

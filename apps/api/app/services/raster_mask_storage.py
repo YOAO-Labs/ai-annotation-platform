@@ -35,7 +35,6 @@ from yoao_assets_mask_content.contract import (
     RleContent,
 )
 
-from app.db.models.dataset import DatasetItem
 from app.services.project_access import get_workspace_project
 from app.db.models.project import Project
 from app.db.models.raster_mask_upload import RasterMaskUpload
@@ -797,14 +796,19 @@ async def validate_mask_geometry_for_task(
                 reason="raster_mask_dataset_item_required",
                 message="raster mask requires a primary dataset item",
             )
-        item = await db.get(DatasetItem, task.dataset_item_id, populate_existing=True)
-        if item is None or item.file_type != "image":
+        from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
+
+        summary = await AssetsTaskMediaSummaryReader(db).current_image_summary(
+            task.dataset_item_id
+        )
+        if summary is None:
             raise RasterMaskContractError(
                 status_code=422,
                 reason="raster_mask_image_required",
                 message="raster mask requires an image dataset item",
             )
-        validate_image_mask_dimensions(geometry, item.width, item.height)
+        width, height = summary
+        validate_image_mask_dimensions(geometry, width, height)
         return
 
     if geom_type in {"video_mask", "video_track_mask"}:

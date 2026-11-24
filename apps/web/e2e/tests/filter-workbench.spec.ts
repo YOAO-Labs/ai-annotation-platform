@@ -238,7 +238,9 @@ test("persisted image hide remains restorable and does not change geometry", asy
   let visiblePixels = 0;
   await expect.poll(async () => (visiblePixels = await paintedPixels())).toBeGreaterThan(0);
   const row = page.getByTestId("box-list-item-" + annotationId);
-  await row.getByRole("button", { name: "更多操作", exact: true }).hover();
+  const moreActions = row.getByRole("button", { name: "更多操作", exact: true });
+  await moreActions.click();
+  await expect(moreActions).toHaveAttribute("aria-expanded", "true");
   const hide = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH" &&
@@ -253,7 +255,8 @@ test("persisted image hide remains restorable and does not change geometry", asy
   await expect(stage).toBeVisible();
   await expect(stage).toHaveAttribute("data-image-ready", "true");
   await expect.poll(paintedPixels).toBeLessThan(visiblePixels);
-  await row.getByRole("button", { name: "更多操作", exact: true }).hover();
+  await moreActions.click();
+  await expect(moreActions).toHaveAttribute("aria-expanded", "true");
   const show = page.waitForResponse(
     (response) =>
       response.request().method() === "PATCH" &&
@@ -308,7 +311,9 @@ test("persisted video hide survives reload and restores the current-frame canvas
     await expect
       .poll(async () => (before = await annotationPaintedPixels(stage)))
       .toBeGreaterThan(0);
-    await row.getByRole("button", { name: "更多操作", exact: true }).hover();
+    const moreActions = row.getByRole("button", { name: "更多操作", exact: true });
+    await moreActions.click();
+    await expect(moreActions).toHaveAttribute("aria-expanded", "true");
     const hide = page.waitForResponse(
       (response) =>
         response.request().method() === "PATCH" &&
@@ -320,7 +325,8 @@ test("persisted video hide survives reload and restores the current-frame canvas
     await page.reload();
     await readyVideoStage(page);
     await expect.poll(() => annotationPaintedPixels(stage)).toBeLessThan(before);
-    await row.getByRole("button", { name: "更多操作", exact: true }).hover();
+    await moreActions.click();
+    await expect(moreActions).toHaveAttribute("aria-expanded", "true");
     await expect(row.getByRole("button", { name: "显示", exact: true })).toHaveAttribute(
       "aria-pressed",
       "true",

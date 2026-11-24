@@ -893,7 +893,9 @@ BEGIN
             p_permit, (verification.anchor ->> 'location_id')::uuid, 'managed_original_verification'
         ) THEN RETURN NULL; END IF;
         ref := verification.configuration -> 'saved_ref';
-        target := yoao_assets_v1._media_io_target(ref, verification.anchor ->> 'object_key', 'datasets');
+        IF ref -> 'schema' NOT IN ('1'::jsonb, '2'::jsonb) THEN RETURN NULL; END IF;
+        target := yoao_assets_v1._media_io_target(
+            ref || jsonb_build_object('schema', 2), verification.anchor ->> 'object_key', 'datasets');
         IF target IS NULL OR target ->> 'bucket' IS DISTINCT FROM verification.anchor ->> 'bucket'
            OR ref ->> 'storage_identity' IS DISTINCT FROM verification.anchor ->> 'storage_identity'
            OR ref ->> 'location_id' IS DISTINCT FROM verification.anchor ->> 'location_id'
@@ -936,7 +938,9 @@ BEGIN
         THEN RETURN NULL; END IF;
     END CASE;
     ref := attempt.target -> 'saved_ref';
-    target := yoao_assets_v1._media_io_target(ref, attempt.target ->> 'object_key', 'datasets', true);
+    IF ref -> 'schema' NOT IN ('1'::jsonb, '2'::jsonb) THEN RETURN NULL; END IF;
+    target := yoao_assets_v1._media_io_target(
+        ref || jsonb_build_object('schema', 2), attempt.target ->> 'object_key', 'datasets', true);
     IF target IS NULL OR target ->> 'bucket' IS DISTINCT FROM attempt.target ->> 'bucket'
        OR ref ->> 'storage_identity' IS DISTINCT FROM attempt.target ->> 'storage_identity'
        OR ref ->> 'location_id' IS DISTINCT FROM attempt.target ->> 'location_id'

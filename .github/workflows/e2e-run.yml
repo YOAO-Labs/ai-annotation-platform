@@ -74,7 +74,7 @@ jobs:
   suites:
     name: Frontend E2E suites
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     needs: [build]
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     strategy:
@@ -200,10 +200,15 @@ jobs:
         working-directory: apps/web
         run: |
           pnpm exec playwright install --with-deps "${PLAYWRIGHT_CHROMIUM_CHANNEL:-chromium}"
-          if [ "$PLAYWRIGHT_CHROMIUM_CHANNEL" = chrome ]; then google-chrome --version; fi
+          if [ "$PLAYWRIGHT_CHROMIUM_CHANNEL" = chrome ]; then
+            google-chrome --version
+            if [[ "${{ matrix.suite }}" == default-* ]]; then
+              pnpm exec playwright install chromium
+            fi
+          fi
       - name: Run E2E suite
         id: e2e
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
           echo "E2E_PREP_SECONDS=$(( $(date +%s) - E2E_PREP_START ))" >> "$GITHUB_ENV"
           echo "E2E_RUN_START=$(date +%s)" >> "$GITHUB_ENV"

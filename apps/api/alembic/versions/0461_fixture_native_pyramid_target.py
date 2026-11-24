@@ -13,7 +13,9 @@ _SQL = Path(__file__).resolve().parents[1] / "sql"
 
 
 def upgrade() -> None:
-    source = (_SQL / "0461_fixture_native_pyramid_target.sql").read_text(encoding="utf-8")
+    source = (_SQL / "0461_fixture_native_pyramid_target.sql").read_text(
+        encoding="utf-8"
+    )
     for statement in source.split("-- aap-statement-break"):
         if statement.strip():
             op.execute(
