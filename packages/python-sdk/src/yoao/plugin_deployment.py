@@ -19,7 +19,7 @@ import shutil
 import stat
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
@@ -31,7 +31,7 @@ from yoao._plugin_docker import (
     QualificationRunConfig,
     _validate_entrypoint,
 )
-from yoao._plugin_receipt import ReceiptStore, _check_private
+from yoao._plugin_receipt import ReceiptStore, _check_private, atomic_write_private
 from yoao.errors import SDKError, APIStatusError, InstallError
 from yoao_inference_contract.plugin import (
     PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
@@ -167,12 +167,21 @@ class LocalPluginDeploymentInput(BaseModel):
         return self
 
 
+class ResolvedLocalPluginConfig(NamedTuple):
+    config: LocalPluginConfig
+    from_oci_label: bool
+
+
+def _data_target(plugin_id: str) -> str:
+    return _DATA_TARGET if plugin_id == "libreyolo" else "/var/lib/aap-plugin"
+
+
 def _default_container_port(entrypoint: Sequence[str]) -> int:
     if entrypoint.count("--port") == 1:
         index = entrypoint.index("--port")
         if index + 1 < len(entrypoint):
             raw_port = entrypoint[index + 1]
-            if raw_port.isdigit():
+            if raw_port.isascii() and raw_port.isdigit():
                 port = int(raw_port)
                 if 1 <= port <= 65535 and str(port) == raw_port:
                     return port
@@ -181,14 +190,15 @@ def _default_container_port(entrypoint: Sequence[str]) -> int:
 
 def resolve_local_plugin_config(
     spec: LocalPluginDeploymentInput, docker: Docker | None = None
-) -> tuple[LocalPluginConfig, bool]:
+) -> ResolvedLocalPluginConfig:
     if spec.manifest is not None:
         manifest = spec.manifest
         from_oci_label = False
-    else:
-        assert spec.image is not None
+    elif spec.image is not None:
         manifest, _, _ = (docker or Docker()).inspect_image_manifest(spec.image)
         from_oci_label = True
+    else:
+        raise SDKError("Specify exactly one of manifest or image")
     container_port = (
         spec.container_port
         if spec.container_port is not None
@@ -207,7 +217,7 @@ def resolve_local_plugin_config(
         gpu_verify_keyring=spec.gpu_verify_keyring,
         image_hosts=spec.image_hosts,
     )
-    return config, from_oci_label
+    return ResolvedLocalPluginConfig(config=config, from_oci_label=from_oci_label)
 
 
 def inspect_image(image: str, docker: Docker | None = None) -> dict[str, Any]:
@@ -259,22 +269,7 @@ def _validate_output_path(path: Path) -> Path:
 
 def _atomic_write_private(path: Path, content: str) -> None:
     target = _validate_output_path(path)
-    fd, temporary = tempfile.mkstemp(prefix=".qualification-", dir=target.parent)
-    try:
-        os.chmod(temporary, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, target)
-        dir_fd = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    atomic_write_private(target, content, prefix=".qualification-")
 
 
 class LocalPluginDeployment:
@@ -532,11 +527,7 @@ class LocalPluginDeployment:
         data = self.store.directory / "data"
         data.mkdir(mode=0o700, exist_ok=True)
         _check_private(data, directory=True)
-        data_target = (
-            _DATA_TARGET
-            if config.manifest.plugin_id == "libreyolo"
-            else "/var/lib/aap-plugin"
-        )
+        data_target = _data_target(config.manifest.plugin_id)
         if provision:
             self._private_file(data / "token", receipt["token"])
             if config.physical_gpu_uuid:
@@ -831,17 +822,15 @@ class LocalPluginDeployment:
         else:
             default_assets = self.store.directory / "data" / "assets"
             try:
-                st = default_assets.lstat()
+                default_assets.lstat()
             except FileNotFoundError:
-                st = None
+                assets_dir = None
             except OSError as exc:
                 raise SDKError("Unable to inspect plugin asset directory") from exc
-            if (
-                st is not None
-                and not stat.S_ISLNK(st.st_mode)
-                and stat.S_ISDIR(st.st_mode)
-            ):
-                assets_dir = default_assets.resolve()
+            else:
+                assets_dir = _checked_host_path(
+                    default_assets, directory=True, label="Plugin asset directory"
+                )
 
         fixture_file: Path | None = None
         if opts.fixture is not None:
@@ -851,11 +840,11 @@ class LocalPluginDeployment:
 
         config = LocalPluginConfig.model_validate(receipt["config"])
         resource = result.installation.resource
-        assert resource.gpu_resource_id is not None
-        assert resource.physical_gpu_uuid is not None
-        data_target = (
-            _DATA_TARGET if manifest.plugin_id == "libreyolo" else "/var/lib/aap-plugin"
-        )
+        if resource.gpu_resource_id is None or resource.physical_gpu_uuid is None:
+            raise SDKError(
+                "GPU qualification requires a reserved GPU resource and UUID"
+            )
+        data_target = _data_target(manifest.plugin_id)
         pools_payload = {
             name: pool.model_dump(mode="json") for name, pool in manifest.pools.items()
         }

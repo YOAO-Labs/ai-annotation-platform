@@ -27,6 +27,7 @@ from yoao_inference_contract.plugin import (
     parse_oci_plugin_manifest,
     parse_oci_qualification_command,
     validate_oci_digest_reference,
+    validate_oci_qualification_command,
 )
 
 _GPU = re.compile(
@@ -45,8 +46,15 @@ def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None
             for arg in entrypoint
         )
         or not _NAME.fullmatch(entrypoint[0])
-        or entrypoint[0] in {"sh", "bash", "dash", "ash", "zsh", "ksh", "fish"}
-        or (entrypoint[0].startswith("python") and "-c" in entrypoint[1:])
+        or entrypoint[0].lower() in {"sh", "bash", "dash", "ash", "zsh", "ksh", "fish"}
+        or (
+            entrypoint[0].lower().startswith("python")
+            and any(
+                arg == "-c"
+                or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:])
+                for arg in entrypoint[1:]
+            )
+        )
     ):
         raise ValueError("Invalid approved plugin entrypoint")
     if "--port" in entrypoint:
@@ -182,8 +190,8 @@ class QualificationRunConfig:
         ):
             raise SDKError("Invalid approved qualification command")
         try:
-            parse_oci_qualification_command(json.dumps(list(self.command)))
-        except (TypeError, ValueError) as exc:
+            validate_oci_qualification_command(self.command)
+        except ValueError as exc:
             raise SDKError("Invalid approved qualification command") from exc
         if not isinstance(self.gpu_uuid, str) or not _GPU.fullmatch(self.gpu_uuid):
             raise SDKError("One physical NVIDIA GPU UUID is required")

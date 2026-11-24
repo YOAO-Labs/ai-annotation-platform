@@ -27,6 +27,24 @@ def _check_private(path: Path, *, directory: bool) -> None:
         )
 
 
+def atomic_write_private(path: Path, content: str, *, prefix: str = ".tmp-") -> None:
+    fd, temporary = tempfile.mkstemp(prefix=prefix, dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        dir_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
 class ReceiptStore:
     """A single local receipt, serialized across concurrent operator commands."""
 
@@ -73,18 +91,8 @@ class ReceiptStore:
         return value
 
     def save(self, value: dict[str, Any]) -> None:
-        fd, temporary = tempfile.mkstemp(prefix=".receipt-", dir=self.directory)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as stream:
-                json.dump(value, stream, sort_keys=True, separators=(",", ":"))
-                stream.flush()
-                os.fsync(stream.fileno())
-            os.replace(temporary, self.path)
-            dir_fd = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(dir_fd)
-            finally:
-                os.close(dir_fd)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+        atomic_write_private(
+            self.path,
+            json.dumps(value, sort_keys=True, separators=(",", ":")),
+            prefix=".receipt-",
+        )

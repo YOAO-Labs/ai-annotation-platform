@@ -72,6 +72,32 @@ def _reject_json_constant(_value: str) -> None:
     raise ValueError("JSON numbers must be finite")
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def read_strict_json_object(path: Path, *, error_message: str) -> dict[str, Any]:
+    """Read a JSON object strictly (UTF-8, finite numbers, unique keys)."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(
+            raw,
+            object_pairs_hook=_no_duplicate_keys,
+            parse_float=_finite_json_float,
+            parse_constant=_reject_json_constant,
+        )
+    except (OSError, UnicodeError, ValueError, RecursionError):
+        raise SDKError(error_message) from None
+    if not isinstance(data, dict):
+        raise SDKError(error_message)
+    return data
+
+
 def read_json_body(path: Path, model_type: type[ModelT]) -> ModelT:
     """Read typed request JSON without including input values in failures."""
     try:

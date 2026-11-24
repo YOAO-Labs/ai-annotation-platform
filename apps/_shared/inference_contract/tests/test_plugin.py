@@ -18,6 +18,7 @@ from yoao_inference_contract.plugin import (
     parse_oci_qualification_command,
     plugin_is_active,
     validate_oci_digest_reference,
+    validate_oci_qualification_command,
 )
 
 
@@ -299,7 +300,7 @@ def test_parse_oci_plugin_manifest_accepts_valid_and_rejects_malformed():
 
     for bad_raw in (None, 123, "", "   ", "[]", '"hello"', "null"):
         with pytest.raises(ValueError):
-            parse_oci_plugin_manifest(bad_raw, artifact=artifact)  # type: ignore[arg-type]
+            parse_oci_plugin_manifest(bad_raw, artifact=artifact)
 
     oversized = json.dumps({**image_manifest(), "publisher": "中" * 22000})
     assert len(oversized.encode("utf-8")) > 65536
@@ -364,8 +365,14 @@ def test_parse_oci_qualification_command_accepts_fixed_commands_and_rejects_unsa
 
     for bad_raw in (None, 42, "", "   ", "{}", '"yoao-libreyolo"', "[NaN]"):
         with pytest.raises(ValueError):
-            parse_oci_qualification_command(bad_raw)  # type: ignore[arg-type]
+            parse_oci_qualification_command(bad_raw)
 
     oversized = json.dumps(["yoao-libreyolo", "a" * 4100])
     with pytest.raises(ValueError, match="4096"):
         parse_oci_qualification_command(oversized)
+
+    compact_args = ["yoao-libreyolo", *("arg" for _ in range(63))]
+    compact_raw = json.dumps(compact_args, separators=(",", ":"))
+    assert len(compact_raw.encode("utf-8")) <= 4096
+    parsed_compact = parse_oci_qualification_command(compact_raw)
+    assert validate_oci_qualification_command(parsed_compact) == tuple(compact_args)

@@ -6,6 +6,7 @@ import stat
 from uuid import uuid4
 
 import pytest
+from pydantic import ValidationError
 
 from yoao.errors import SDKError
 from yoao.plugin_deployment import (
@@ -766,6 +767,16 @@ def test_resolve_local_plugin_config_from_oci_label_and_port_inference():
     resolved_default, _ = resolve_local_plugin_config(slim_input, docker=docker)
     assert resolved_default.container_port == 8000
 
+    unicode_port_manifest = base.manifest.model_copy(
+        update={
+            "entrypoint": ["yoao-libreyolo", "serve", "--port", "²"],
+        }
+    )
+    docker.manifest = unicode_port_manifest
+    with pytest.raises(ValidationError, match="entrypoint port differs"):
+        resolve_local_plugin_config(slim_input, docker=docker)
+    docker.manifest = no_port_manifest
+
     legacy_raw = base.model_dump(mode="json")
     legacy_raw.pop("container_port")
     legacy_input = LocalPluginDeploymentInput.model_validate(legacy_raw)
@@ -864,6 +875,13 @@ def test_qualify_writes_output_without_mutating_receipt_and_cleans_workdir(tmp_p
         deployment.qualify(
             QualificationOptions(asset_dir=symlink_assets), output_path=out_file
         )
+
+    assets.rmdir()
+    assets.symlink_to(custom_assets)
+    with pytest.raises(SDKError, match="symlink"):
+        deployment.qualify(output_path=out_file)
+    assets.unlink()
+    assets.mkdir(mode=0o700)
 
     with pytest.raises(SDKError, match="newline"):
         deployment.qualify(

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import typer
@@ -13,6 +12,7 @@ from yoao.cli._output import (
     get_client,
     print_learning_result,
     read_json_body,
+    read_strict_json_object,
 )
 from yoao.errors import SDKError, InstallError
 
@@ -35,13 +35,10 @@ def _deployment_module():
     return plugin_deployment
 
 
-def _deployment_types():
-    module = _deployment_module()
-    return module.LocalPluginConfig, module.LocalPluginDeployment
-
-
 def _deployment(client, state_dir: Path):
-    return _deployment_types()[1](client.plugins, client._http._origin, state_dir)
+    return _deployment_module().LocalPluginDeployment(
+        client.plugins, client._http._origin, state_dir
+    )
 
 
 def _inspect_image(image: str):
@@ -52,22 +49,11 @@ def _resolve_local_plugin_config(spec):
     return _deployment_module().resolve_local_plugin_config(spec)
 
 
-def _no_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON key: {key}")
-        result[key] = value
-    return result
-
-
 def _read_keyring_file(path: Path) -> dict[str, str]:
-    try:
-        raw = path.read_text(encoding="utf-8")
-        data = json.loads(raw, object_pairs_hook=_no_duplicate_keys)
-    except (OSError, UnicodeError, ValueError) as exc:
-        raise SDKError("Unable to read GPU verification keyring JSON file") from exc
-    if not isinstance(data, dict) or any(
+    data = read_strict_json_object(
+        path, error_message="Unable to read GPU verification keyring JSON file"
+    )
+    if any(
         not isinstance(key, str) or not isinstance(value, str)
         for key, value in data.items()
     ):
@@ -385,7 +371,7 @@ def migrate_state(
 ) -> None:
     """Update a legacy receipt only after Registry and local ownership checks."""
     with cli_errors(json_output):
-        _deployment_types()
+        _deployment_module()
         from yoao_inference_contract.plugin import PluginManifest
 
         body = read_json_body(manifest, PluginManifest)
@@ -426,7 +412,7 @@ def approve_assets(
 ) -> None:
     """Replace decisions and measure available bytes for the owned active installation."""
     with cli_errors(json_output):
-        _deployment_types()
+        _deployment_module()
         from yoao_inference_contract.plugin_assets import (
             PluginAssetChoices,
             PluginAssetDescriptor,

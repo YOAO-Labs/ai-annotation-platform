@@ -710,7 +710,9 @@ def test_qualification_run_config_rejects_unsafe_inputs():
     for bad in (
         replace(qcfg, image="example.invalid/plugin:latest"),
         replace(qcfg, command=("bash", "-c", "id")),
+        replace(qcfg, command=("BASH", "-c", "id")),
         replace(qcfg, command=("python3", "-c", "import os")),
+        replace(qcfg, command=("python3", "-Ic", "import os")),
         replace(qcfg, gpu_uuid="all"),
         replace(qcfg, memory_mb=0),
         replace(qcfg, cpus=0),
@@ -723,3 +725,11 @@ def test_qualification_run_config_rejects_unsafe_inputs():
     ):
         with pytest.raises(SDKError):
             bad.validate()
+
+    for bad_entry in (
+        ("BASH", "-c", "id"),
+        ("python3", "-Ic", "import os"),
+        ("python3", "-cimport os"),
+    ):
+        with pytest.raises(SDKError, match="entrypoint"):
+            replace(config(), entrypoint=bad_entry).validate()

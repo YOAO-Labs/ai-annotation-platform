@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 from uuid import UUID
 
@@ -68,7 +68,7 @@ def _reject_json_constant(value: str) -> Any:
     raise ValueError(f"non-finite JSON constant: {value}")
 
 
-def _loads_strict_json(raw: str, *, max_bytes: int, label: str) -> Any:
+def _loads_strict_json(raw: object, *, max_bytes: int, label: str) -> Any:
     if not isinstance(raw, str) or not raw:
         raise ValueError(f"{label} must be a nonempty JSON string")
     try:
@@ -212,7 +212,7 @@ class PluginManifest(PluginImageManifest):
     artifact: str = Field(pattern=_OCI_DIGEST_REFERENCE)
 
 
-def parse_oci_plugin_manifest(raw: str, *, artifact: str) -> PluginManifest:
+def parse_oci_plugin_manifest(raw: object, *, artifact: str) -> PluginManifest:
     """Parse an OCI manifest label and bind it to the verified digest-pinned artifact."""
     validated_artifact = validate_oci_digest_reference(artifact)
     parsed = _loads_strict_json(
@@ -225,28 +225,28 @@ def parse_oci_plugin_manifest(raw: str, *, artifact: str) -> PluginManifest:
     return PluginImageManifest.model_validate(parsed).bind_artifact(validated_artifact)
 
 
-def parse_oci_qualification_command(raw: str) -> tuple[str, ...]:
-    """Parse an OCI qualification command label as a fixed non-shell argument vector."""
-    parsed = _loads_strict_json(
-        raw,
-        max_bytes=_MAX_OCI_QUALIFICATION_COMMAND_BYTES,
-        label=PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
-    )
-    if not isinstance(parsed, list) or not (1 <= len(parsed) <= 64):
+def validate_oci_qualification_command(command: Sequence[object]) -> tuple[str, ...]:
+    """Validate a qualification argument vector as a fixed non-shell command."""
+    if (
+        isinstance(command, (str, bytes, bytearray))
+        or not isinstance(command, Sequence)
+        or not (1 <= len(command) <= 64)
+    ):
         raise ValueError(
-            f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} must be a JSON list of 1 to 64 arguments"
+            f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} must be a list of 1 to 64 arguments"
         )
     if any(
         type(arg) is not str
         or not arg
         or arg.strip() != arg
         or any(c in arg for c in "\x00\r\n")
-        for arg in parsed
+        for arg in command
     ):
         raise ValueError(
             f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} arguments must be nonempty canonical strings"
         )
-    executable = parsed[0]
+    argv = tuple(str(arg) for arg in command)
+    executable = argv[0]
     if (
         _EXECUTABLE_NAME.fullmatch(executable) is None
         or executable.lower() in _SHELL_EXECUTABLES
@@ -255,14 +255,28 @@ def parse_oci_qualification_command(raw: str) -> tuple[str, ...]:
             and any(
                 arg == "-c"
                 or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:])
-                for arg in parsed[1:]
+                for arg in argv[1:]
             )
         )
     ):
         raise ValueError(
             f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} declares a disallowed executable"
         )
-    return tuple(parsed)
+    return argv
+
+
+def parse_oci_qualification_command(raw: object) -> tuple[str, ...]:
+    """Parse an OCI qualification command label as a fixed non-shell argument vector."""
+    parsed = _loads_strict_json(
+        raw,
+        max_bytes=_MAX_OCI_QUALIFICATION_COMMAND_BYTES,
+        label=PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+    )
+    if not isinstance(parsed, list):
+        raise ValueError(
+            f"{PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} must be a JSON list of 1 to 64 arguments"
+        )
+    return validate_oci_qualification_command(parsed)
 
 
 class PluginResourceBinding(BaseModel):
