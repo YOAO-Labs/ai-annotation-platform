@@ -61,17 +61,17 @@ last_reviewed: 2026-10-26
 
 平台仓库包含核心前后端、独立训练执行器、共享协议包和平台 API SDK。插件作者 SDK 和官方推理插件分别在独立仓库维护：
 
-| 目录                                                                                             | 语言                 | 技术栈与职责                                                                               | 入口 / 核心包                 |
-| ------------------------------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------------------------------------ | ----------------------------- |
-| `apps/api`                                                                                       | Python 3.11+         | FastAPI + SQLAlchemy 2.0 + Alembic + Celery（平台核心 API 与异步任务队列）                 | `app/main.py`                 |
-| `apps/web`                                                                                       | TypeScript           | React 18 + Vite + Zustand + TanStack Query + Konva + Three.js（前端 SPA）                  | `src/main.tsx`                |
-| `apps/training-executor`                                                                         | Python 3.11+         | 独立拉取式在线学习训练守护进程（OS `flock` 协调同一资源的执行器，支持 YOLO11 / LibreYOLO） | `training_executor/worker.py` |
-| `apps/storage-agent`                                                                             | Python 3.11+         | 跨网络只读站点存储 Agent（零入站端口、一次性配对、出站 HTTPS 命令轮询与分块上传）          | `storage_agent/cli.py`        |
-| [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK)                                            | Python 3.10+ / 3.11+ | 自定义推理插件的作者工具 `yoao-plugin`、推理运行时与 Mask 工具                             | `packages/inference/`         |
-| [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)                                        | 按插件固定 Python    | 六个官方推理插件及各自的构建输入；平台使用另行核验的镜像                                   | `plugins/inference/`          |
-| `apps/_shared/{protocol_v2,task_contract,training_contract,filesystem_read,site_agent_contract}` | Python 3.10+ / 3.11+ | 平台共享协议、任务及训练契约与只读文件原语；推理运行时与 Mask 工具归独立 Plugin-SDK 仓库   | 各子包源码                    |
-| `packages/python-sdk`                                                                            | Python 3.11+         | 官方 Python SDK（`yoao-sdk`）、`yoao` CLI 与 Textual TUI 监控面板                          | `src/yoao/`                   |
-| `docs-site`                                                                                      | TypeScript           | Vue 3 + VitePress 文档站与自动化契约/图表/媒体校验脚本                                     | `.vitepress/config.ts`        |
+| 目录                                                                                             | 语言                        | 技术栈与职责                                                                               | 入口 / 核心包                                         |
+| ------------------------------------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------- |
+| `apps/api`                                                                                       | Python 3.11+                | FastAPI + SQLAlchemy 2.0 + Alembic + Celery（平台核心 API 与异步任务队列）                 | `app/main.py`                                         |
+| `apps/web`                                                                                       | TypeScript                  | React 18 + Vite + Zustand + TanStack Query + Konva + Three.js（前端 SPA）                  | `src/main.tsx`                                        |
+| `apps/training-executor`                                                                         | Python 3.11+                | 独立拉取式在线学习训练守护进程（OS `flock` 协调同一资源的执行器，支持 YOLO11 / LibreYOLO） | `training_executor/worker.py`                         |
+| `apps/storage-agent`                                                                             | Python 3.11+                | 跨网络只读站点存储 Agent（零入站端口、一次性配对、出站 HTTPS 命令轮询与分块上传）          | `storage_agent/cli.py`                                |
+| [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK)                                            | Python 3.10+ / 3.11+        | 自定义推理插件的作者工具 `yoao-plugin`、推理运行时与 Mask 工具                             | `packages/inference/`                                 |
+| [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins)                                        | 按插件固定 Python / Node.js | 六个官方推理插件与官方通知渠道插件（飞书私信）及各自的构建输入；平台使用另行核验的镜像     | `plugins/inference/`、`plugins/notification-channel/` |
+| `apps/_shared/{protocol_v2,task_contract,training_contract,filesystem_read,site_agent_contract}` | Python 3.10+ / 3.11+        | 平台共享协议、任务及训练契约与只读文件原语；推理运行时与 Mask 工具归独立 Plugin-SDK 仓库   | 各子包源码                                            |
+| `packages/python-sdk`                                                                            | Python 3.11+                | 官方 Python SDK（`yoao-sdk`）、`yoao` CLI 与 Textual TUI 监控面板                          | `src/yoao/`                                           |
+| `docs-site`                                                                                      | TypeScript                  | Vue 3 + VitePress 文档站与自动化契约/图表/媒体校验脚本                                     | `.vitepress/config.ts`                                |
 
 ## 关键参考文件
 

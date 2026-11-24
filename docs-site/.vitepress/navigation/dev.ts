@@ -11,6 +11,7 @@ export function createDevSidebar(
         { text: "本地开发", link: "/dev/tutorials/local-dev" },
         { text: "第一个贡献", link: "/dev/tutorials/first-contribution" },
         { text: "ML Backend 接入教程", link: "/dev/ml-backend/starter" },
+        { text: "通知渠道插件接入教程", link: "/dev/tutorials/notification-channel-plugin" },
       ],
     },
     {
