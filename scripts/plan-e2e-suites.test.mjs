@@ -38,6 +38,24 @@ test("every legacy PR retains all functional shards, Mask and AI suites, and poi
 
 const broadened = ["smoke", ...core, ...specialties, ...video, ...pointcloud, "layout-stress"];
 
+function assertFullDispatch(matrix) {
+  const suites = JSON.parse(matrix).include.map(({ suite }) => suite);
+  assert.equal(suites[0], "smoke");
+  assert.deepEqual(
+    suites.filter((suite) => video.includes(suite)),
+    video,
+  );
+  assert.deepEqual(
+    suites.filter((suite) => !video.includes(suite)),
+    ["smoke", ...functional, "layout-stress"],
+  );
+  const firstDefault = suites.indexOf(core[0]);
+  for (const shard of video) {
+    const slot = suites.indexOf(shard);
+    assert.ok(slot < 11 && slot < firstDefault, `${shard} dispatched too late at index ${slot}`);
+  }
+}
+
 const withWorkerReceipt = (suites) =>
   suites.flatMap((suite) => (suite === "mask-native" ? [suite, "mask-worker"] : [suite]));
 
@@ -377,10 +395,7 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
         .map(({ suite }) => suite),
       pointcloud,
     );
-    assert.deepEqual(
-      JSON.parse(outputs.matrix).include.map((entry) => entry.suite),
-      [...broadened],
-    );
+    assertFullDispatch(outputs.matrix);
     assert.deepEqual(
       JSON.parse(outputs.legacy).include.map((entry) => entry.suite),
       ["layout-stress"],
@@ -419,10 +434,7 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
     assert.equal(pushOutputs.ml_cpu, "true");
     assert.equal(pushShadow.mlCpu, true);
     assert.equal(pushOutputs.run_suites, "true");
-    assert.deepEqual(
-      JSON.parse(pushOutputs.matrix).include.map((entry) => entry.suite),
-      [...broadened],
-    );
+    assertFullDispatch(pushOutputs.matrix);
 
     const sharedBase = git("rev-parse", "HEAD");
     mkdirSync(join(cwd, "apps/_shared/protocol_v2/src"), { recursive: true });
@@ -522,10 +534,7 @@ test("large PR reports use files while suite dispatch and final audit outputs st
     assert.equal(shadow.mlCpu, true);
     assert.equal(outputs.ml_cpu, "true");
     assert.equal(outputs.run_suites, "true");
-    assert.deepEqual(
-      JSON.parse(outputs.matrix).include.map(({ suite }) => suite),
-      broadened,
-    );
+    assertFullDispatch(outputs.matrix);
     assert.deepEqual(
       JSON.parse(outputs.required).suites.map(({ suite }) => suite),
       withWorkerReceipt(broadened),
@@ -591,10 +600,7 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
       matrixLine && legacyLine && shadowPathLine,
       "CLI must emit matrix/legacy/shadow_path lines",
     );
-    assert.deepEqual(
-      JSON.parse(matrixLine.slice("matrix=".length)).include.map(({ suite }) => suite),
-      [...broadened],
-    );
+    assertFullDispatch(matrixLine.slice("matrix=".length));
     assert.deepEqual(
       JSON.parse(legacyLine.slice("legacy=".length)).include.map(({ suite }) => suite),
       [...functional, "layout-stress"],
@@ -688,7 +694,8 @@ test("the required manifest audits every effective job and the bundled Worker in
       const expected = mode === "legacy" ? [...functional, "layout-stress"] : broadened;
       assert.equal(out.docs_only, "false");
       assert.equal(out.run_suites, "true");
-      assert.deepEqual(ids(out.matrix), expected, `push mode=${JSON.stringify(mode)}`);
+      if (mode === "legacy") assert.deepEqual(ids(out.matrix), expected);
+      else assertFullDispatch(out.matrix);
       assert.deepEqual(requiredIds(out.required), withWorkerReceipt(expected));
       if (mode !== "legacy") {
         const smoke = JSON.parse(out.required).suites.find(({ suite }) => suite === "smoke");
@@ -705,8 +712,8 @@ test("the required manifest audits every effective job and the bundled Worker in
       const out = run(env, [appBase]);
       assert.equal(out.docs_only, "false");
       assert.deepEqual(
-        requiredIds(out.required),
-        withWorkerReceipt(ids(out.matrix)),
+        requiredIds(out.required).sort(),
+        withWorkerReceipt(ids(out.matrix)).sort(),
         `PR app mode=${JSON.stringify(mode)}`,
       );
     }
@@ -718,9 +725,25 @@ test("the required manifest audits every effective job and the bundled Worker in
         E2E_SCHEDULE_SCOPE: "full",
       });
       assert.equal(out.docs_only, "false", event);
-      assert.deepEqual(requiredIds(out.required), withWorkerReceipt(ids(out.matrix)), event);
-      assert.deepEqual(ids(out.matrix), broadened, event);
+      assert.deepEqual(requiredIds(out.required), withWorkerReceipt(broadened), event);
+      assertFullDispatch(out.matrix);
     }
+
+    const pointcloudBase = git("rev-parse", "HEAD");
+    mkdirSync(join(cwd, "apps/web/e2e/tests"), { recursive: true });
+    writeFileSync(join(cwd, "apps/web/e2e/tests/workbench-pointcloud-routing.spec.ts"), "test\n");
+    git("add", "apps/web/e2e/tests");
+    git(
+      "-c",
+      "core.hooksPath=/dev/null",
+      "-c",
+      "commit.gpgsign=false",
+      "commit",
+      "-m",
+      "pointcloud",
+    );
+    const pointcloudPr = run({ GITHUB_EVENT_NAME: "pull_request" }, [pointcloudBase]);
+    assert.deepEqual(ids(pointcloudPr.matrix), ["smoke", ...pointcloud]);
 
     const docsBase = git("rev-parse", "HEAD");
     assert.equal(run({ GITHUB_EVENT_NAME: "pull_request" }, [docsBase]).docs_only, "false");

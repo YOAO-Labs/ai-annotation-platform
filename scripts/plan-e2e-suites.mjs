@@ -655,7 +655,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ...(suite === "mask-native" ? [{ suite: "mask-worker", planned: true }] : []),
   ]);
   const docsOnlySkip = selectionMode !== "legacy" && docsOnly;
-  console.log(`matrix=${JSON.stringify(gate)}`);
+  const dispatchEarly = ({ suite }) => suite === "smoke" || suite.startsWith("video-pipeline-");
+  const matrix =
+    selectionMode === "legacy"
+      ? legacyGate
+      : {
+          include: [
+            ...plannedEntries.filter(dispatchEarly),
+            ...plannedEntries.filter((entry) => !dispatchEarly(entry)),
+          ],
+        };
+  console.log(`matrix=${JSON.stringify(matrix)}`);
   console.log(`legacy=${JSON.stringify(legacyGate)}`);
   console.log(
     `required=${JSON.stringify(
