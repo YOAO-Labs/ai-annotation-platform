@@ -38,7 +38,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- `yoao plugins` 支持从固定摘要的 OCI 镜像标签 `io.yoao.plugin.manifest` 读取插件清单，提供 `yoao plugins inspect-image` 离线核验，并允许 `yoao plugins prepare` 通过 `--image` 参数或精简配置跳过手写完整 `manifest`（从标签读取清单时强制确认；仍完整兼容原有含内联 `manifest` 的 `--config`）。
+- `yoao plugins` 新增 `qualify` 子命令，并在 `install` 与 `upgrade` 中支持 `--qualify`（搭配可选 `--fixture`、`--asset-dir`、`--model-approval-ref`、`--fixture-approval-ref`），可在 `--network none` 隔离容器中执行镜像声明的 `io.yoao.plugin.qualification-command` 生成并校验 GPU 生命周期资格报告，不挂载 `data/token` 或签名密钥环，且不放宽任何现有 GPU 资格门禁、安装身份或排空语义。
+
 ### Changed
+
+- 超级管理员模型服务文档的“可安装推理插件”章节拆分为“操作步骤”和“安全原理”两层，移除面向运维的内部实现术语；插件安装状态机、OCI 标签规范、资格容器隔离约束与历史本地收据迁移说明移至开发者概念文档 [插件安装生命周期](docs-site/dev/concepts/plugin-installation-lifecycle.md)。
 
 - 原件身份与完整下载在返回 HTTP 409 时记录脱敏结构化警告日志，并在任务解析阶段复用既有 1 秒有界 `DatasetItem FOR SHARE` 等待（保留所有冲突与绑定漂移保护，不引入原件身份自动重试）；前端透出 `x-request-id` 与并发占用业务码，在「重读原图」横幅次级文案展示错误码与请求回执，并将脱敏读取诊断与手动重读后的原件摘要纳入反馈采集。
 - 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。新拓扑已在隔离部署验证；旧安装不会自动切换，升级前须核对[进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)与[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)。

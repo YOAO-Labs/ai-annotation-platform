@@ -128,10 +128,9 @@ stateDiagram-v2
   prepared --> active : "POST /activate"
   prepared --> retired : "POST /cancel-prepared（从未启动）"
   active --> disabled : "POST /disable"
-  disabled --> active : "POST /activate（restart 替换）"
-  disabled --> quiesced : "POST /quiesce（返回 safe_to_stop）"
-  quiesced --> active : "POST /activate（restart 新容器）"
-  quiesced --> retired : "POST /retire"
+  disabled --> disabled : "POST /quiesce（写入 safe_to_stop 证明）"
+  disabled --> active : "POST /activate（restart 新容器）"
+  disabled --> retired : "POST /retire（需当前修订证明）"
   retired --> [*]
 ```
 
