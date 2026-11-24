@@ -172,6 +172,9 @@ async def prepare_feedback_reply_notifications(
         target_id=root.id,
         payload=_feedback_payload(root=root, actor=actor, reply_id=reply.id),
         defer_publish=True,
+        operation_id=reply.id,
+        project_id=root.project_id,
+        task_id=root.task_id,
     )
 
 
@@ -209,6 +212,8 @@ async def prepare_feedback_status_notifications(
             to_status=to_status,
         ),
         defer_publish=True,
+        project_id=root.project_id,
+        task_id=root.task_id,
     )
 
 
@@ -245,6 +250,9 @@ async def prepare_annotation_comment_mention_notifications(
             "annotation_id": str(comment.annotation_id),
         },
         defer_publish=True,
+        operation_id=comment.id,
+        project_id=task.project_id,
+        task_id=task.id,
     )
 
 
@@ -286,4 +294,7 @@ async def prepare_feedback_comment_mention_notifications(
             "actor_name": actor.name,
         },
         defer_publish=True,
+        operation_id=comment.id,
+        project_id=task.project_id,
+        task_id=task.id,
     )

@@ -17,13 +17,14 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yoao_notifications.preferences import (
     KNOWN_NOTIFICATION_TYPES,
     NotificationPreferenceManager,
 )
+from yoao_notifications.preferences_contract import NotificationPreferenceChannelError
 from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
 from app.deps import get_db, get_current_user
 from app.schemas.notification import NotificationList, NotificationOut, UnreadCount
@@ -36,6 +37,7 @@ class NotificationPreferenceItem(BaseModel):
     in_app: bool = True
     email: bool = False
     toast: bool = False
+    external_channels: dict[str, bool] = Field(default_factory=dict)
 
 
 class NotificationPreferencesOut(BaseModel):
@@ -46,6 +48,7 @@ class NotificationPreferenceUpdate(BaseModel):
     type: str
     in_app: bool | None = None
     toast: bool | None = None
+    external_channels: dict[str, bool] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -54,6 +57,15 @@ class NotificationPreferenceUpdate(BaseModel):
             for key in ("in_app", "toast"):
                 if key in data and data[key] is None:
                     raise ValueError(f"{key} must be a boolean, not null")
+            if "external_channels" in data:
+                ext = data["external_channels"]
+                if ext is None or not isinstance(ext, dict):
+                    raise ValueError(
+                        "external_channels must be a channel->boolean map, not null"
+                    )
+                for channel_id, enabled in ext.items():
+                    if not isinstance(channel_id, str) or type(enabled) is not bool:
+                        raise ValueError("external_channels values must be booleans")
         return data
 
 
@@ -208,9 +220,11 @@ async def update_preference(
         raise HTTPException(
             status_code=400, detail=f"unknown notification type: {data.type}"
         )
-    if data.in_app is None and data.toast is None:
+    has_external = bool(data.external_channels)
+    if data.in_app is None and data.toast is None and not has_external:
         raise HTTPException(
-            status_code=400, detail="at least one of in_app or toast is required"
+            status_code=400,
+            detail="at least one of in_app, toast, or external_channels is required",
         )
 
     patch: dict[str, bool] = {}
@@ -218,9 +232,19 @@ async def update_preference(
         patch["in_app"] = data.in_app
     if data.toast is not None:
         patch["toast"] = data.toast
-    await NotificationPreferenceManager(NotificationPreferencesPostgresData(db)).patch(
-        user.id, data.type, patch
-    )
+    try:
+        await NotificationPreferenceManager(
+            NotificationPreferencesPostgresData(db)
+        ).patch(
+            user.id,
+            data.type,
+            patch,
+            external_channels=data.external_channels if has_external else None,
+        )
+    except NotificationPreferenceChannelError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     await db.commit()
     await NotificationService(db).publish_sync(user.id, reason="preferences")
     return {"ok": True}

@@ -48,12 +48,18 @@ from yoao_notifications.terminal_append_postgres import (
 )
 from yoao_notifications.inbox_query_postgres import NotificationInboxQueryPostgresData
 from yoao_notifications.delivery_read import (
+    PRIVATE_MIGRATION_JOB_KINDS,
     NotificationDeliveryReadPolicy,
     notification_project_id,
 )
 from yoao_notifications.delivery_read_postgres import (
     NotificationDeliveryReadPostgresData,
 )
+from yoao_notifications.channel_contract import project_external_envelope_data
+from yoao_notifications.channel_store_postgres import (
+    NotificationChannelStorePostgresData,
+)
+from yoao_notifications.preferences_policy import is_external_deliverable
 from app.services.notification_publication import publish_notification_request
 
 
@@ -62,6 +68,18 @@ log = logging.getLogger(__name__)
 
 def _notification_project_id(row: Notification) -> uuid.UUID | None:
     return notification_project_id(row)
+
+
+def _extract_payload_uuid(payload: dict | None, key: str) -> uuid.UUID | None:
+    if not isinstance(payload, dict):
+        return None
+    raw = payload.get(key)
+    if raw is None:
+        return None
+    try:
+        return uuid.UUID(str(raw))
+    except (TypeError, ValueError):
+        return None
 
 
 class NotificationService:
@@ -113,6 +131,57 @@ class NotificationService:
                 ).find_terminal_notification(user_id, type, target_id)
         return result is not None
 
+    async def _enqueue_external_channels(
+        self,
+        *,
+        operation_id: uuid.UUID,
+        notification_id: uuid.UUID | None,
+        recipient_id: uuid.UUID,
+        notification_type: str,
+        target_type: str,
+        target_id: uuid.UUID,
+        project_id: uuid.UUID | None,
+        task_id: uuid.UUID | None,
+        payload: dict,
+    ) -> None:
+        if not is_external_deliverable(notification_type):
+            return
+        if (
+            target_type == "async_job"
+            and payload.get("kind") in PRIVATE_MIGRATION_JOB_KINDS
+        ):
+            return
+        eff_project_id = project_id or _extract_payload_uuid(payload, "project_id")
+        eff_task_id = task_id or (
+            target_id
+            if target_type == "task"
+            else _extract_payload_uuid(payload, "task_id")
+        )
+        envelope_data = project_external_envelope_data(
+            notification_type=notification_type,
+            notification_id=notification_id,
+            target_type=target_type,
+            target_id=target_id,
+            project_id=eff_project_id,
+            task_id=eff_task_id,
+            payload=payload,
+        )
+        request: dict[str, object] = {
+            "operation_id": str(operation_id),
+            "recipient_id": str(recipient_id),
+            "notification_type": notification_type,
+            "target_type": target_type,
+            "target_id": str(target_id),
+            "envelope_data": envelope_data,
+        }
+        if notification_id is not None:
+            request["notification_id"] = str(notification_id)
+        if eff_project_id is not None:
+            request["project_id"] = str(eff_project_id)
+        if eff_task_id is not None:
+            request["task_id"] = str(eff_task_id)
+        await NotificationChannelStorePostgresData(self.db).enqueue_deliveries(request)
+
     async def notify(
         self,
         *,
@@ -122,6 +191,9 @@ class NotificationService:
         target_id: uuid.UUID,
         payload: dict | None = None,
         defer_publish: bool = True,
+        operation_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
     ) -> Notification | None:
         """Write one notification; publication defaults to deferred.
 
@@ -133,27 +205,42 @@ class NotificationService:
         legacy immediate publish and is only correct when the row is already
         committed or the caller never commits afterwards.
         """
-        if await self._is_in_app_muted(user_id, type):
-            return None
-
-        notification_id = uuid.uuid4()
         notification_payload = payload or {}
-        appended = await NotificationAppendManager(
-            NotificationAppendPostgresData(self.db)
-        ).append(
-            AppendNotificationRequest(
-                schema="aap-notification-append/v1",
-                operation="append",
-                id=notification_id,
-                user_id=user_id,
-                type=type,
-                target_type=target_type,
-                target_id=target_id,
-                payload=notification_payload,
+        muted = await self._is_in_app_muted(user_id, type)
+
+        row: Notification | None = None
+        notification_id: uuid.UUID | None = None
+        if not muted:
+            notification_id = uuid.uuid4()
+            appended = await NotificationAppendManager(
+                NotificationAppendPostgresData(self.db)
+            ).append(
+                AppendNotificationRequest(
+                    schema="aap-notification-append/v1",
+                    operation="append",
+                    id=notification_id,
+                    user_id=user_id,
+                    type=type,
+                    target_type=target_type,
+                    target_id=target_id,
+                    payload=notification_payload,
+                )
             )
+            row = await self._attach_notification_snapshot(appended.notification)
+
+        await self._enqueue_external_channels(
+            operation_id=operation_id or notification_id or uuid.uuid4(),
+            notification_id=notification_id,
+            recipient_id=user_id,
+            notification_type=type,
+            target_type=target_type,
+            target_id=target_id,
+            project_id=project_id,
+            task_id=task_id,
+            payload=notification_payload,
         )
-        row = await self._attach_notification_snapshot(appended.notification)
-        if not defer_publish:
+
+        if row is not None and not defer_publish:
             await self.publish_committed([row])
         return row
 
@@ -185,33 +272,51 @@ class NotificationService:
         if self.db.autoflush:
             await self.db.flush()
         connection = await self.db.connection()
+        appended = None
         async with connection.begin_nested():
             with self.db.no_autoflush:
                 existing = await NotificationDeliveryReadPostgresData(
                     self.db, Notification
                 ).find_terminal_notification(user_id, type, target_id)
-            if existing is not None:
+                existing_external = await NotificationChannelStorePostgresData(
+                    self.db
+                ).has_terminal_delivery(user_id, type, target_id)
+            if existing is not None or existing_external:
                 return None
 
-            if await self._is_in_app_muted(user_id, type):
-                return None
+            muted = await self._is_in_app_muted(user_id, type)
+            notification_id: uuid.UUID | None = None
+            if not muted:
+                request = TerminalNotificationRequest(
+                    schema=TERMINAL_APPEND_PROTOCOL,
+                    operation="append_job_terminal",
+                    id=uuid.uuid4(),
+                    user_id=user_id,
+                    type=type,
+                    target_id=target_id,
+                    payload=payload,
+                )
+                appended = await NotificationTerminalAppendManager(
+                    NotificationTerminalAppendPostgresData(self.db)
+                ).append(request)
+                if not appended.created:
+                    return None
+                notification_id = appended.notification.id
 
-            request = TerminalNotificationRequest(
-                schema=TERMINAL_APPEND_PROTOCOL,
-                operation="append_job_terminal",
-                id=uuid.uuid4(),
-                user_id=user_id,
-                type=type,
+            await self._enqueue_external_channels(
+                operation_id=target_id,
+                notification_id=notification_id,
+                recipient_id=user_id,
+                notification_type=type,
+                target_type="async_job",
                 target_id=target_id,
+                project_id=_extract_payload_uuid(payload, "project_id"),
+                task_id=None,
                 payload=payload,
             )
-            appended = await NotificationTerminalAppendManager(
-                NotificationTerminalAppendPostgresData(self.db)
-            ).append(request)
 
-        if not appended.created:
+        if appended is None:
             return None
-
         return await self._attach_notification_snapshot(appended.notification)
 
     async def notify_many(
@@ -223,6 +328,9 @@ class NotificationService:
         target_id: uuid.UUID,
         payload: dict | None = None,
         defer_publish: bool = True,
+        operation_id: uuid.UUID | None = None,
+        project_id: uuid.UUID | None = None,
+        task_id: uuid.UUID | None = None,
     ) -> list[Notification]:
         """Write a de-duplicated fan-out, publishing once for the whole batch.
 
@@ -233,6 +341,7 @@ class NotificationService:
         the committed rows (see :meth:`notify`).
         """
 
+        batch_operation_id = operation_id or uuid.uuid4()
         out: list[Notification] = []
         seen: set[uuid.UUID] = set()
         for uid in user_ids:
@@ -246,6 +355,9 @@ class NotificationService:
                 target_id=target_id,
                 payload=payload,
                 defer_publish=True,
+                operation_id=batch_operation_id,
+                project_id=project_id,
+                task_id=task_id,
             )
             if row is not None:
                 out.append(row)

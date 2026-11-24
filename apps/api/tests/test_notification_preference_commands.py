@@ -178,6 +178,7 @@ async def test_asgi_preference_commit_is_visible_before_real_redis_sync(
             "in_app": False,
             "email": False,
             "toast": True,
+            "external_channels": {},
         }
         assert by_type["task.approved"]["toast"] is False
 

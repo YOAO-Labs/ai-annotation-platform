@@ -154,6 +154,8 @@ async def _start_member(execution, attempt, session_factory):
                     "project_id": str(attempt.project_id),
                     "retry_job_id": str(attempt.job_id),
                 },
+                operation_id=attempt.job_id,
+                project_id=attempt.project_id,
             )
         await db.commit()
         if pending is not None:

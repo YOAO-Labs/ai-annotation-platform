@@ -586,6 +586,23 @@
 | GET | `/trained-models/{version_id}/decisions` |
 | POST | `/trained-models/{version_id}/decisions` |
 
+## `notification_channels.py`
+
+| Method | Path |
+|---|---|
+| GET | `/admin/notification-channels` |
+| POST | `/admin/notification-channels` |
+| GET | `/admin/notification-channels/{channel_id}` |
+| POST | `/admin/notification-channels/{channel_id}/probe` |
+| PATCH | `/admin/notification-channels/{channel_id}` |
+| POST | `/admin/notification-channels/{channel_id}/enable` |
+| POST | `/admin/notification-channels/{channel_id}/disable` |
+| POST | `/admin/notification-channels/{channel_id}/retire` |
+| GET | `/notification-channels` |
+| PUT | `/notification-channels/{channel_id}/binding` |
+| POST | `/notification-channels/{channel_id}/verify-address` |
+| DELETE | `/notification-channels/{channel_id}/binding` |
+
 ## `notifications.py`
 
 | Method | Path |
@@ -1262,4 +1279,4 @@
 
 ---
 
-_共 118 模块 / 755 路由_
+_共 119 模块 / 767 路由_

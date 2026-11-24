@@ -16960,6 +16960,24 @@
         "title": "DecisionCreate",
         "type": "object"
       },
+      "DeleteChannelBindingOut": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeleteChannelBindingOut",
+        "type": "object"
+      },
       "DeleteUserPayload": {
         "description": "可选转交目标 —— 当 target 仍持有未完成任务时必填。",
         "properties": {
@@ -19569,6 +19587,134 @@
           }
         },
         "title": "ExportRequestBody",
+        "type": "object"
+      },
+      "ExtensionManifestV1": {
+        "additionalProperties": false,
+        "description": "Image-embedded universal extension manifest (without artifact or source_tier).",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entrypoint",
+            "type": "array"
+          },
+          "extension": {
+            "$ref": "#/components/schemas/NotificationChannelExtensionBlock"
+          },
+          "extension_point": {
+            "const": "notification_channel",
+            "title": "Extension Point",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "license": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "License",
+            "type": "string"
+          },
+          "manifest_schema": {
+            "const": "yoao-extension-manifest/v1",
+            "title": "Manifest Schema",
+            "type": "string"
+          },
+          "plugin_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "protocol_version": {
+            "const": "yoao-notification-channel/v1",
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "publisher": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Publisher",
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ExtensionResourceV1"
+          },
+          "version": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_schema",
+          "extension_point",
+          "plugin_id",
+          "version",
+          "publisher",
+          "license",
+          "protocol_version",
+          "entrypoint",
+          "capabilities",
+          "resource",
+          "extension"
+        ],
+        "title": "ExtensionManifestV1",
+        "type": "object"
+      },
+      "ExtensionResourceV1": {
+        "additionalProperties": false,
+        "properties": {
+          "memory_mb": {
+            "exclusiveMinimum": 0.0,
+            "title": "Memory Mb",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "memory_mb"
+        ],
+        "title": "ExtensionResourceV1",
         "type": "object"
       },
       "FailedPredictionItem": {
@@ -33780,6 +33926,514 @@
         "title": "NormalizedCameraBbox",
         "type": "object"
       },
+      "NotificationChannelAdminListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationChannelAdminOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "NotificationChannelAdminListOut",
+        "type": "object"
+      },
+      "NotificationChannelAdminOut": {
+        "properties": {
+          "address_schema": {
+            "additionalProperties": true,
+            "title": "Address Schema",
+            "type": "object"
+          },
+          "auth_token_sha256": {
+            "title": "Auth Token Sha256",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "consecutive_auth_errors": {
+            "title": "Consecutive Auth Errors",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "endpoint_url": {
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "mode": {
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel_id",
+          "display_name",
+          "source_tier",
+          "mode",
+          "status",
+          "revision",
+          "endpoint_url",
+          "auth_token_sha256",
+          "protocol_version",
+          "capabilities",
+          "address_schema",
+          "rate_limit_per_minute",
+          "consecutive_auth_errors",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NotificationChannelAdminOut",
+        "type": "object"
+      },
+      "NotificationChannelExtensionBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "address_schema": {
+            "additionalProperties": true,
+            "title": "Address Schema",
+            "type": "object"
+          },
+          "allowed_egress_hosts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Egress Hosts",
+            "type": "array"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "address_schema"
+        ],
+        "title": "NotificationChannelExtensionBlock",
+        "type": "object"
+      },
+      "NotificationChannelProbeOut": {
+        "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "health_detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Detail"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "setup_ok": {
+            "title": "Setup Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "healthy",
+          "setup_ok"
+        ],
+        "title": "NotificationChannelProbeOut",
+        "type": "object"
+      },
+      "NotificationChannelRegisterIn": {
+        "properties": {
+          "auth_token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "endpoint_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtensionManifestV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "default": "direct",
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "default": 60,
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "default": "active",
+            "enum": [
+              "prepared",
+              "active"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint_url",
+          "auth_token"
+        ],
+        "title": "NotificationChannelRegisterIn",
+        "type": "object"
+      },
+      "NotificationChannelTransitionIn": {
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "NotificationChannelTransitionIn",
+        "type": "object"
+      },
+      "NotificationChannelUpdateIn": {
+        "properties": {
+          "auth_token": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Token"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "endpoint_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Url"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "rate_limit_per_minute": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Per Minute"
+          },
+          "source_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "official",
+                  "third_party"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Tier"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "NotificationChannelUpdateIn",
+        "type": "object"
+      },
       "NotificationList": {
         "properties": {
           "items": {
@@ -33865,6 +34519,13 @@
             "title": "Email",
             "type": "boolean"
           },
+          "external_channels": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "External Channels",
+            "type": "object"
+          },
           "in_app": {
             "default": true,
             "title": "In App",
@@ -33888,6 +34549,20 @@
       },
       "NotificationPreferenceUpdate": {
         "properties": {
+          "external_channels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Channels"
+          },
           "in_app": {
             "anyOf": [
               {
@@ -63605,6 +64280,197 @@
         "title": "UserBrief",
         "type": "object"
       },
+      "UserChannelBindingUpsertIn": {
+        "properties": {
+          "address": {
+            "additionalProperties": true,
+            "title": "Address",
+            "type": "object"
+          },
+          "locale": {
+            "default": "zh-CN",
+            "title": "Locale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "title": "UserChannelBindingUpsertIn",
+        "type": "object"
+      },
+      "UserNotificationChannelBindingOut": {
+        "properties": {
+          "address": {
+            "additionalProperties": true,
+            "title": "Address",
+            "type": "object"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "locale": {
+            "title": "Locale",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "channel_id",
+          "address",
+          "locale",
+          "updated_at"
+        ],
+        "title": "UserNotificationChannelBindingOut",
+        "type": "object"
+      },
+      "UserNotificationChannelListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserNotificationChannelOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "UserNotificationChannelListOut",
+        "type": "object"
+      },
+      "UserNotificationChannelOut": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "address_schema": {
+            "additionalProperties": true,
+            "title": "Address Schema",
+            "type": "object"
+          },
+          "bound": {
+            "title": "Bound",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "locale": {
+            "default": "zh-CN",
+            "title": "Locale",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "disabled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "channel_id",
+          "display_name",
+          "source_tier",
+          "status",
+          "capabilities",
+          "address_schema",
+          "bound"
+        ],
+        "title": "UserNotificationChannelOut",
+        "type": "object"
+      },
       "UserOut": {
         "properties": {
           "avatar_ref": {
@@ -64241,6 +65107,39 @@
           "height"
         ],
         "title": "VerifiedScanContent",
+        "type": "object"
+      },
+      "VerifyChannelAddressOut": {
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "provider_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Message Id"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "title": "VerifyChannelAddressOut",
         "type": "object"
       },
       "VerifyEmailRequest": {
@@ -71999,6 +72898,418 @@
         "summary": "Get Topology",
         "tags": [
           "admin-ml-integrations"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels": {
+      "get": {
+        "operationId": "list_admin_notification_channels_api_v1_admin_notification_channels_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_retired",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Retired",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Admin Notification Channels",
+        "tags": [
+          "notification-channels"
+        ]
+      },
+      "post": {
+        "operationId": "register_admin_notification_channel_api_v1_admin_notification_channels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelRegisterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}": {
+      "get": {
+        "operationId": "get_admin_notification_channel_api_v1_admin_notification_channels__channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      },
+      "patch": {
+        "operationId": "update_admin_notification_channel_api_v1_admin_notification_channels__channel_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/disable": {
+      "post": {
+        "operationId": "disable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/enable": {
+      "post": {
+        "operationId": "enable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/probe": {
+      "post": {
+        "operationId": "probe_admin_notification_channel_api_v1_admin_notification_channels__channel_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelProbeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probe Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/retire": {
+      "post": {
+        "operationId": "retire_admin_notification_channel_api_v1_admin_notification_channels__channel_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Admin Notification Channel",
+        "tags": [
+          "notification-channels"
         ]
       }
     },
@@ -86352,6 +87663,181 @@
         "summary": "Global Catalog",
         "tags": [
           "model-catalog"
+        ]
+      }
+    },
+    "/api/v1/notification-channels": {
+      "get": {
+        "operationId": "list_user_notification_channels_api_v1_notification_channels_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserNotificationChannelListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List User Notification Channels",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/notification-channels/{channel_id}/binding": {
+      "delete": {
+        "operationId": "delete_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteChannelBindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User Notification Channel Binding",
+        "tags": [
+          "notification-channels"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserChannelBindingUpsertIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserNotificationChannelBindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert User Notification Channel Binding",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/notification-channels/{channel_id}/verify-address": {
+      "post": {
+        "operationId": "verify_user_notification_channel_address_api_v1_notification_channels__channel_id__verify_address_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyChannelAddressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify User Notification Channel Address",
+        "tags": [
+          "notification-channels"
         ]
       }
     },

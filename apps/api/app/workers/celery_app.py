@@ -22,6 +22,7 @@ celery_app = Celery(
         "app.workers.dataset_import_delivery",
         "app.workers.jobs_dispatch",
         "app.workers.notification_delivery",
+        "app.workers.notification_channel_delivery",
         "app.workers.cleanup",
         "app.workers.avatar_cleanup",
         "app.workers.bug_attachment_cleanup",
@@ -246,6 +247,12 @@ def _build_beat_schedule():
             "task": "app.workers.jobs_dispatch.recover_job_dispatches",
             "schedule": timedelta(seconds=5),
             "options": {"queue": "jobs.recovery", "expires": 5},
+        },
+        "relay-notification-channel-deliveries": {
+            "task": "app.workers.notification_channel_delivery.relay_notification_channel_deliveries",
+            "schedule": timedelta(
+                seconds=settings.notification_channel_sweep_interval_seconds
+            ),
         },
         **(
             {

@@ -41,6 +41,7 @@ from app.api.v1 import (
     mask_qc,
     point_cloud_quality,
     mask_formats,
+    notification_channels,
     notifications,
     predictions,
     projects,
@@ -196,6 +197,7 @@ api_router.include_router(annotation_feedbacks.router, tags=["annotation-feedbac
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(bug_reports.router, tags=["bug-reports"])
 api_router.include_router(notifications.router, tags=["notifications"])
+api_router.include_router(notification_channels.router, tags=["notification-channels"])
 api_router.include_router(predictions.router, tags=["predictions"])
 api_router.include_router(async_jobs.router, tags=["async-jobs"])
 api_router.include_router(mask_qc.router, tags=["mask-qc"])

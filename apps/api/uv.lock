@@ -3486,6 +3486,9 @@ publication-client = [
 requires-dist = [
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
+    { name = "cryptography", marker = "extra == 'channels'", specifier = ">=43.0.0" },
+    { name = "cryptography", marker = "extra == 'test'", specifier = ">=43.0.0" },
+    { name = "httpx", marker = "extra == 'channels'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.10.0" },
@@ -3505,7 +3508,7 @@ requires-dist = [
     { name = "yoao-identity-admission", extras = ["http"], marker = "extra == 'websocket'", editable = "../_shared/identity_admission" },
     { name = "yoao-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
 ]
-provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
+provides-extras = ["postgres", "runtime", "publication-client", "channels", "websocket", "test"]
 
 [[package]]
 name = "yoao-owner-data"
