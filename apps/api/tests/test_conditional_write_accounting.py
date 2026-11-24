@@ -29,7 +29,10 @@ from tests.test_comment_attachment_storage import (
 )
 from tests.test_guide_asset_storage import record as guide_record, RAW as GUIDE
 from tests.test_raster_object_storage import record as raster_record, RAW as RLE
-from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
+from tests.write_accounting_fixtures import (
+    accounting_factory as accounting_factory,
+    write_accounting_databases as write_accounting_databases,
+)
 
 
 CASES = ("avatar", "comment", "guide", "raster")

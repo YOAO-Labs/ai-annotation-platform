@@ -30,7 +30,10 @@ from app.services import (
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_s3_target import Target
 from tests.test_auxiliary_training_storage import make_case
-from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
+from tests.write_accounting_fixtures import (
+    accounting_factory as accounting_factory,
+    write_accounting_databases as write_accounting_databases,
+)
 
 KINDS = ("active", "report", "log")
 PRODUCERS = {
