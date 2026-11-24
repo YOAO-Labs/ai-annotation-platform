@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-import inspect
 import os
 from urllib.parse import urlsplit
 
@@ -13,16 +12,13 @@ from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
 from app.config import settings
+from tests.identity_e2e_support import ROOT
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     endpoint_url,
 )
-from tests.test_identity_embedded_acl import (
-    exercise_embedded_http,
-    seeded_embedded_accounts,
-)
-from tests.test_identity_embedded_acl_live import _PROBE_HEAD, _PROBE_TAIL
-from tests.test_identity_e2e_replay import ROOT
+from tests.test_identity_embedded_acl import seeded_embedded_accounts
+from tests.test_identity_embedded_acl_live import write_embedded_probe
 from tests.workspace_import_cli_helpers import WorkspaceImportCli
 
 pytestmark = [
@@ -97,14 +93,7 @@ async def test_installed_api_uses_generated_runtime_without_owner_fallback(
     endpoint = urlsplit(endpoint_url())
     assert endpoint.hostname and endpoint.port
     source = tmp_path / "generated-runtime-probe"
-    source.mkdir(mode=0o700)
-    probe = source / "probe.py"
-    probe.write_text(
-        _PROBE_HEAD.replace('== "legacy_runtime"', "== sys.argv[4]")
-        + inspect.getsource(exercise_embedded_http)
-        + _PROBE_TAIL
-    )
-    probe.chmod(0o400)
+    write_embedded_probe(source)
     async with generated_parent_runtime(test_engine, resources, monkeypatch) as backend:
         cli = WorkspaceImportCli(
             test_engine,

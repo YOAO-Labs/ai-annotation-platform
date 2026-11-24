@@ -31,6 +31,17 @@ pytestmark = [
 ]
 
 
+def write_embedded_probe(source):
+    source.mkdir(mode=0o700)
+    probe = source / "probe.py"
+    probe.write_text(
+        _PROBE_HEAD + inspect.getsource(exercise_embedded_http) + _PROBE_TAIL,
+        encoding="utf-8",
+    )
+    probe.chmod(0o444)
+    source.chmod(0o755)
+
+
 async def test_installed_api_keeps_embedded_bindings_after_private_acl_closure(
     test_engine, embedded, tmp_path, record_property
 ):
@@ -39,12 +50,7 @@ async def test_installed_api_keeps_embedded_bindings_after_private_acl_closure(
     endpoint = urlsplit(endpoint_url())
     assert endpoint.hostname and endpoint.port
     source = tmp_path / "embedded-identity-probe"
-    source.mkdir(mode=0o755)
-    probe = source / "probe.py"
-    probe.write_text(
-        _PROBE_HEAD + inspect.getsource(exercise_embedded_http) + _PROBE_TAIL
-    )
-    probe.chmod(0o444)
+    write_embedded_probe(source)
     cli = WorkspaceImportCli(
         test_engine,
         tmp_path,
@@ -66,6 +72,7 @@ async def test_installed_api_keeps_embedded_bindings_after_private_acl_closure(
                     actor.email,
                     str(target.id),
                     target.email,
+                    "legacy_runtime",
                 ),
             )
             record_property("identity_embedded_acl_cold", run.evidence)
@@ -95,7 +102,7 @@ async def assert_storage_denied():
     engine = create_async_engine(settings.database_url)
     try:
         async with engine.connect() as db:
-            assert await db.scalar(text("SELECT current_user")) == "legacy_runtime"
+            assert await db.scalar(text("SELECT current_user")) == sys.argv[4]
             assert not await db.scalar(text("SELECT has_table_privilege(current_user,'public.users','SELECT,INSERT,UPDATE,DELETE')"))
             assert not await db.scalar(text("SELECT has_any_column_privilege(current_user,'public.users','SELECT,INSERT,UPDATE,REFERENCES')"))
     finally:
