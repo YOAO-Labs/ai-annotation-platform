@@ -11,10 +11,10 @@
 
 1. **推理插件安装身份与清单绑定在 Inference 领域内**：`public.ml_backend_registry.extra_params->'plugin'` 由 `apps/inference/src/yoao_inference/sql/0388_inference_plugin_installation.sql:68,233` 及其后续 15 个推理插件围栏迁移（`0390`–`0395`、`0398`–`0403`、`0410`、`0412`–`0413`）维护；公开清单 `PluginImageManifest` / `PluginManifest`（`apps/_shared/inference_contract/src/yoao_inference_contract/plugin.py:154-212`）把通用元数据（`plugin_id`、`version`、`publisher`、`license`、`artifact`、`entrypoint`）和推理专属字段（`sdk_compatibility`、`models`、`pools`、`resource.device`、`resource.gpu_memory_mb`、`asset_manifest_sha256`、`managed_model_compatibility`、`allowed_asset_sources`）平铺在同一对象中。通知渠道插件不需要 GPU、模型池或 Python Plugin-SDK，无法直接复用推理扁平清单。
 2. **Notifications 模块已有固定 owner 函数、偏好合同与最小权限发布器，但存在四处需在设计期闭合的缺口**：
-   - **偏好合同封闭**：`apps/notifications/src/yoao_notifications/preferences.policy.json:1-40`、`apps/notifications/src/yoao_notifications/preferences_contract.py:23-82`、`apps/api/alembic/sql/0311_notifications_preferences.sql:1-277`（`bo0474` 切入 `yoao_notifications_v1` 命名空间，保留既有 `aap-*` 线协议标识）及 `packages/python-sdk/src/yoao/notification_models.py:45-65` 目前只允许读写 `in_app` 与 `toast`，`email` 预留未消费。
+   - **偏好合同封闭**：`apps/notifications/src/yoao_notifications/preferences.policy.json:1-40`、`apps/notifications/src/yoao_notifications/preferences_contract.py:23-82`、`apps/api/alembic/sql/0311_notifications_preferences.sql:1-277`（`bo0474` 切入 `yoao_notifications_v1` 命名空间，见 `apps/api/alembic/sql/0474_owner_namespaces.json`，保留既有 v1 `aap-notification-preferences/v1` 线协议标识）及 `packages/python-sdk/src/yoao/notification_models.py:45-65` 目前只允许读写 `in_app` 与 `toast`，`email` 预留未消费。
    - **既有 Redis outbox 不可混用**：`public.notification_delivery_outbox`（`apps/api/alembic/sql/0241_deactivation_notifications.sql:3-34`、`apps/notifications/src/yoao_notifications/sql/0484_notifications_terminal_outbox.sql:1-8`）以 `notification_id` 为单列主键，专用于账号注销与异步作业终态的 Redis Pub/Sub 交接，其隔离账号 `yoao_notification_publish_client` 启动时对权限做失败关闭核验（`apps/notifications/src/yoao_notifications/notification_delivery_postgres.py:110-151`）。该表无法承接 `1 事件 × N 渠道` 扇出，也不能把外部 HTTP 密钥暴露给仅持 Redis 权限的发布器。
    - **`in_app` 静音短路**：`apps/api/app/services/notification.py:136-137,196-197` 在 `in_app = false` 时直接返回而不写入事件记录，若沿用该顺序会导致“关闭站内信但开启飞书”失效或无去重键。
-   - **可见性复核与自由文本泄露缺口**：`NotificationDeliveryReadPolicy`（`apps/notifications/src/yoao_notifications/delivery_read.py:65-229`）与 `apps/notifications/src/yoao_notifications/sql/0325_notifications_delivery_read.sql:49-306` 仅校验项目成员与导出权限；对无 `project_id` 的 `bug_report.*`（`apps/api/app/api/v1/bug_reports.py:321-334,456-486`）默认放行（fail-open），且未校验 `task.*`、`batch.*`、`feedback.*`、`annotation.comment_mentioned` 目标是否被删除或撤权（`task_access.assert_task_visible` 在 API 层，Notifications 角色当前无权直读 Labeling/Diagnostics 私表）。同时站内载荷在 `task_review.py:399`（`reject_reason`）、`batches.py:381`（`reason`）、`bug_reports.py:332,466`（`resolution`/`snippet`）与 `export.py:347,351`（`download_url`/`error`）包含自由文本或原始链接，外部渠道必须经白名单投影脱敏。
+   - **可见性复核与自由文本泄露缺口**：`NotificationDeliveryReadPolicy`（`apps/notifications/src/yoao_notifications/delivery_read.py:65-229`）与 `apps/notifications/src/yoao_notifications/sql/0325_notifications_delivery_read.sql:49-306` 仅校验项目成员与导出权限；对无 `project_id` 的 `bug_report.*`（`apps/api/app/api/v1/bug_reports.py:321-334,456-486`）默认放行（fail-open），且未校验 `task.*`、`batch.*`、`feedback.*`、`annotation.comment_mentioned` 目标是否被删除或撤权（`task_access.assert_task_visible` 在 API 层，Notifications 角色当前无权直读 Labeling/Diagnostics 私表）。同时站内载荷在 `apps/api/app/application/task_review.py:399`（`reject_reason`）、`apps/api/app/api/v1/batches.py:381`（`reason`）、`apps/api/app/api/v1/bug_reports.py:332,466`（`resolution`/`snippet`）与 `apps/api/app/workers/export.py:347,351`（`download_url`/`error`）包含自由文本或原始链接，外部渠道必须经白名单投影脱敏。
 
 本 ADR 在实施 M3b（平台侧）与 M3c（飞书插件侧）之前，冻结安装身份归属、跨扩展清单分层、以及通知渠道扩展点的协议、安全、数据模型与投递边界。
 
@@ -34,7 +34,7 @@
 
 1. **写所有权归领域 owner**：
    - **Inference** 继续作为推理插件安装身份的唯一写入 owner（`public.ml_backend_registry.extra_params->'plugin'` 与 `yoao_inference_topology_v1`），不迁移到宿主表，不改动已有 GPU 围栏、路由代次与训练发布外键。
-   - **Notifications** 作为通知渠道安装/注册身份的唯一写入 owner，在 `yoao_notifications_v1` schema 下维护私有表（渠道表、用户地址绑定表、外部投递 outbox 表）。普通 API 与 worker 账号只持有 `yoao_notifications_v1.*` 固定 `SECURITY DEFINER` 函数的 `EXECUTE` 权限，不直读私表。数据库命名空间统一采用 `yoao_notifications_v1`（对齐 `bo0474` 命名切换），既有 `aap-*` 线协议标识继续冻结不变。
+   - **Notifications** 作为通知渠道安装/注册身份的唯一写入 owner，在 `yoao_notifications_v1` schema 下维护私有表（渠道表、用户地址绑定表、外部投递 outbox 表）。普通 API 与 worker 账号只持有 `yoao_notifications_v1.*` 固定 `SECURITY DEFINER` 函数的 `EXECUTE` 权限，不直读私表。数据库命名空间统一采用 `yoao_notifications_v1`（对齐 `bo0474` 命名切换），既有冻结的 `aap-*` v1 线协议标识保持不变；M3b 新引入的偏好 v2 线协议直接定为 `yoao-notification-preferences/v2`。
 2. **共享契约而非共享表**：跨扩展点复用同一套便携生命周期语义（四状态 `prepared` / `active` / `disabled` / `retired`、CAS `revision`、固定 `@sha256:` OCI 摘要引用、禁止宿主 API 挂载 Docker socket、停用/退役保留历史、直连档与安装档双轨接入）。
 3. **跨领域视图留待 M4a 只读聚合**：待三个及以上扩展点落地后，如超管界面需要“全部已安装扩展”总览，只通过聚合各 owner 只读投影实现，不引入第二写入权威。
 
@@ -122,7 +122,7 @@
   - `external_channel_id_pattern`: `"^[a-z][a-z0-9_-]{1,31}$"`
   - `external_deliverable_types`: 明确列出允许外发的通知类型，**排除** `user.deactivation_requested`、`user.deactivation_completed`、内部迁移作业及未登记的 `feedback.reconcile_drift`。
 - `public.notification_preferences.channels` JSONB 保持既有顶层键 `in_app` / `toast` / `email` 不变，外部渠道开关统一存于嵌套对象 `channels -> 'external' -> <channel_id>`。
-- **协调升级至 `aap-notification-preferences/v2`**（M3b 在同一变更波次同步更新 `preferences_contract.py`、`yoao_notifications_v1.preference_command`、`infra/docker/notification-preferences-grants.sql`、`apps/api/app/api/v1/notifications.py:34-58,211-214`、`packages/python-sdk/src/yoao/notification_models.py:45-65`、OpenAPI 快照、`apps/web/src/api/notifications.ts` 与 `apps/api/tests/test_notification_preference_commands.py:176-181`）：
+- **协调升级至 `yoao-notification-preferences/v2`**（M3b 在同一变更波次同步更新 `preferences_contract.py`、`yoao_notifications_v1.preference_command`、`infra/docker/notification-preferences-grants.sql`、`apps/api/app/api/v1/notifications.py:34-58,211-214`、`packages/python-sdk/src/yoao/notification_models.py:45-65`、OpenAPI 快照、`apps/web/src/api/notifications.ts` 与 `apps/api/tests/test_notification_preference_commands.py:176-181`）：
   - `GET /notification-preferences` 在每条偏好上新增封闭字段 `external_channels: dict[str, bool]`，仅投影 `status IN ('active', 'disabled')` 的已登记渠道（**绝不暴露未核验的 `prepared` 渠道**），且非 `external_deliverable_types` 条目返回空对象 `{}`。
   - `PUT /notification-preferences` 允许只提交 `external_channels`（放宽 `in_app` / `toast` 至少必填其一的旧限制，要求 `in_app` / `toast` / `external_channels` 至少提供一项），并拒绝为非 `external_deliverable_types` 类型或 `prepared`/`retired` 渠道开启外部开关。
   - SQL 在单次 `UPDATE` 中先合并顶层 `in_app`/`toast` 再以 `jsonb_set(..., '{external}', COALESCE(channels->'external', '{}'::jsonb) || v_external_patch, true)` 合并外部键，确保混合请求与并发标签页互不覆盖。
@@ -175,7 +175,7 @@
 
 负向：
 
-- **M3b 需协调更新偏好协议消费方**：升级 `aap-notification-preferences/v2` 与 `external_channels` 字段需要同步更新 API、Python SDK 模型/目录、前端偏好类型、授权 SQL 与既有严格等值测试。
+- **M3b 需协调更新偏好协议消费方**：升级至 `yoao-notification-preferences/v2` 与 `external_channels` 字段需要同步更新 API、Python SDK 模型/目录、前端偏好类型、授权 SQL 与既有严格等值测试。
 - **Labeling 与 Diagnostics 需新增窄只读可见性函数**：为避免 Notifications 越界读私表，M3b 需在 `yoao_labeling_v1` 与 `yoao_diagnostics_v1` 各补齐一个只读可见性能力并授权给 Notifications 投递角色。
 - **清单解析过渡期双轨**：`io.yoao.plugin.manifest` 需按是否存在 `manifest_schema` 区分 Inference v1 与 `yoao-extension-manifest/v1`，直至推理插件在未来大版本迁入 `extension_point = "inference"`。
 
