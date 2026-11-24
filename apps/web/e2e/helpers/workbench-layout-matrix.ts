@@ -239,14 +239,11 @@ export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixK
             await expect(workspace(page)).toHaveAttribute("data-compact", "true");
             await layoutCommand(page, "任务队列");
             const queue = page.locator('[data-workbench-panel="task-queue"]');
-            await expect(queue).toHaveAttribute("aria-hidden", "false");
+            await expect(queue).toBeVisible();
             await sameCanvas();
             await layoutCommand(page, "讨论");
-            await expect(page.locator('[data-workbench-panel="discussion"]')).toHaveAttribute(
-              "aria-hidden",
-              "false",
-            );
-            await expect(queue).toHaveAttribute("aria-hidden", "true");
+            await expect(page.locator('[data-workbench-panel="discussion"]')).toBeVisible();
+            await expect(queue).toBeHidden();
             await sameCanvas();
             await page.setViewportSize(finalViewport);
             await expect(workspace(page)).toHaveAttribute("data-compact", "false");
