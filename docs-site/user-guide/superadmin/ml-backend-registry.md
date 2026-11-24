@@ -2,7 +2,7 @@
 audience: [super_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-11-23
+last_reviewed: 2026-11-24
 ---
 
 # 模型服务注册（全局注册表） {#ml-backend-注册-全局注册表}
@@ -98,13 +98,20 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 
 ## 可安装推理插件
 
-插件由超级管理员在可访问 Docker 的部署机用 `yoao plugins` 安装，不自动发现插件；平台 API 不访问 Docker socket。安装器支持显式 CPU 和单卡 CUDA 配置、多个模型及命名模型池，不再限定为检测服务。需要非 host Docker 网络和已加载的固定 OCI 摘要镜像；CUDA 另需 NVIDIA Container Toolkit 和明确授权的物理 GPU。服务运行在隔离 Docker 进程，不挂载核心数据库、Redis 或 GPU 签发私钥。
+超级管理员在可访问 Docker 的部署机上运行 `yoao plugins` 安装推理插件。安装器支持 CPU 与单卡 CUDA 配置、多模型目录以及命名模型池。
 
-部署命令须由非 root Docker 管理员执行；托管容器沿用操作者的 UID/GID，不强制使用镜像的默认 `USER`。私有状态目录须由该操作者持有并保持 `0700`，不要为匹配镜像默认 UID 而放宽权限或添加共享 ACL。
+### 操作步骤
 
-使用 Python 3.11 及以上，从可信来源取得包含 SDK、`plugins` extra 及其完整依赖的 wheelhouse（包括 `yoao-inference-contract`、`yoao-task-contract`、`yoao-lifecycle-contract` 和训练契约），或使用包含这些 wheel 的私有索引；不要假定包已发布到 PyPI。SDK 独立于平台仓库分发，部署 extra 不包含 backend runtime、FastAPI、Torch 或模型框架；仅安装核心 SDK 或 `cli` extra 不会隐式安装插件管理依赖。
+#### 1. 准备部署机与 CLI
 
-必要的第一方便携契约应从可信渠道按显式 manifest 与 SHA256 核验取得，契约源码仍由平台维护；历史公开制品不代表新发行名已经发布。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 提供自定义插件作者抽象与能力工具，[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。插件开发 SDK 与管理员使用的 API SDK 分包，安装管理无需安装模型开发运行时。第一方 wheel 不是完整离线依赖包，也不包含模型权重或 OCI 镜像，更不自动授予托管 GPU 资格。
+确认部署机满足以下前置条件：
+
+- 以可访问 Docker 的**非 root 用户**操作，不要使用 `root` 运行安装器。
+- 准备一个非 `host` 的 Docker 网络（例如 `aap-plugins`），并确保平台 API 和 worker 可访问插件映射出的宿主端口（不能使用 loopback）。
+- 将目标插件的固定摘要镜像（`<ref@sha256:...>`）加载到部署机 Docker。
+- 安装 CUDA 插件时，另需 NVIDIA Container Toolkit、目标物理卡的完整 `GPU-...` UUID、平台配置好的 `gpu_resource_id`，以及验签公钥文件（key ID 到 Ed25519 公钥 unpadded base64url 的 JSON 映射，不要放入签发私钥）。
+
+`yoao-sdk` 及其第一方便携契约尚未发布到 PyPI。使用 Python 3.11 及以上，从经核验的 wheelhouse 或私有索引安装 `yoao-sdk[plugins]`，然后通过环境变量注入超级管理员凭据（不要把 API 密钥写入镜像或配置文件）：
 
 ```bash
 python -m venv .venv
@@ -114,143 +121,147 @@ export YOAO_BASE_URL="https://platform.example"
 export YOAO_API_KEY="<超级管理员 API 密钥>"
 ```
 
-API 密钥使用私密方式注入，不要提交或写入镜像。以可访问 Docker 的非 root 用户运行安装器；每个安装使用独立私有状态目录，保存原始收据、随机业务 Token、配置、公钥文件和资产以便故障恢复，不要共享、提交或删除。以下是完整 `deployment.json` **结构示例，不是可部署的真实制品**：将占位摘要、公钥、资源、来源和主机替换为经审核的真实值；`manifest` 以作者生成并经管理员审批的完整 manifest 为准。
+为每个插件安装准备独立的私有状态目录（权限 `0700`）。状态目录保存本机收据、独立业务 Token、公钥文件和数据目录，不要共享、提交或手工删除。
+
+#### 2. 检查镜像声明
+
+先在本机只读核验固定摘要镜像，查看镜像内嵌的 `io.yoao.plugin.manifest`、实际 `image_id` 以及可选的 CUDA 资格命令 `io.yoao.plugin.qualification-command`：
+
+```bash
+yoao plugins inspect-image --image registry.example/my-plugin@sha256:<64位摘要> --json
+```
+
+核对发布的模型能力、资源预算、启动入口和授权资产来源，确认符合部署要求后再继续。
+
+#### 3. 安装 CPU 插件
+
+镜像已包含 `io.yoao.plugin.manifest` 标签时，可直接用 CLI 参数执行 `prepare`、安装并查看状态，无需手写 JSON 文件：
+
+```bash
+yoao plugins prepare \
+  --image registry.example/rapidocr@sha256:<64位摘要> \
+  --name "RapidOCR CPU" \
+  --url http://172.17.0.1:18005 \
+  --network aap-plugins \
+  --host-port 18005 \
+  --cpus 4 \
+  --image-host media.example \
+  --state-dir ./rapidocr-state \
+  --yes --json
+
+yoao plugins install --state-dir ./rapidocr-state --yes --json
+yoao plugins status --state-dir ./rapidocr-state --json
+```
+
+当 `entrypoint` 未包含 `--port` 或需要显式指定端口时，补充 `--container-port <端口>`（例如 RapidOCR 监听 `8005`）。也可以使用精简 `deployment.json` 代替命令行参数（省略 `"manifest"`，并在 `entrypoint` 含 `--port` 时可省略 `"container_port"`）：
 
 ```json
 {
-  "name": "LibreYOLO detection",
-  "url": "http://172.17.0.1:18000",
-  "manifest": {
-    "plugin_id": "libreyolo",
-    "version": "0.1.0",
-    "publisher": "实际发布者",
-    "license": "实际制品许可证",
-    "artifact": "registry.example/libreyolo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    "sdk_compatibility": "0.1.0",
-    "entrypoint": ["my-libreyolo-plugin", "serve", "--host", "0.0.0.0", "--port", "8000"],
-    "capabilities": ["inference", "detection", "managed_models"],
-    "models": [
-      {
-        "id": "detect",
-        "task": "detect",
-        "is_interactive": false,
-        "supported_prompts": ["none"],
-        "supported_inputs": ["full_image", "crop"],
-        "supported_geometric_outputs": ["bbox"]
-      }
-    ],
-    "pools": { "models": { "cap": 1 } },
-    "resource": { "device": "cuda", "memory_mb": 16384, "gpu_memory_mb": 8192 },
-    "asset_manifest_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    "managed_model_compatibility": [
-      {
-        "framework": "libreyolo",
-        "format": "libreyolo-native-state-dict-1.0",
-        "runtime_device": "cuda"
-      }
-    ],
-    "allowed_asset_sources": ["https://assets.example"]
-  },
-  "gpu_resource_id": "gpu-worker-1",
-  "physical_gpu_uuid": "GPU-12345678-1234-1234-1234-123456789abc",
+  "name": "RapidOCR CPU",
+  "url": "http://172.17.0.1:18005",
+  "image": "registry.example/rapidocr@sha256:<64位摘要>",
   "network": "aap-plugins",
-  "host_port": 18000,
-  "container_port": 8000,
+  "host_port": 18005,
   "cpus": 4,
-  "gpu_verify_keyring": { "key-1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
   "image_hosts": ["media.example"]
 }
 ```
 
-`gpu_resource_id` 必须是平台配置的实际逐卡资源，`physical_gpu_uuid` 是该卡完整 UUID；安装器只将该卡暴露给容器，并绑定容器内逻辑 `cuda:0`，不按宿主机 ordinal 猜测。`memory_mb` 和 `gpu_memory_mb` 分别为 RAM 与显存预算（MiB），显存不得超过资源可分配量；`cpus` 为 CPU 上限。URL 必须从平台容器可达、指向该宿主端口，不能用 loopback；示例 bridge 地址须按实际网络替换。`image_hosts` 是可获取推理图片的主机名，`allowed_asset_sources` 是受控资产下载实际使用且获授权的完整 HTTP(S) origin，可含多个；二者不是同一白名单。公钥是 key ID 到 Ed25519 公钥的 unpadded base64url 映射，不能使用示例零值。安装器将其写入私有 `data/gpu-keyring.json`，并在可写数据目录之上独立只读挂载该文件；资格报告同样只读挂载。不要将签发私钥放入配置或状态目录。
-
-`models` 是获准能力的最小投影，不是第二份完整模型目录：模型 ID、任务、交互性、提示、输入和几何输出必须与实际 `/setup.models` 一致；分类可具有空的几何输出列表。`pools` 是命名池及正整数容量，须与 `/setup`、带新鲜挑战的 `/health` 和 CUDA 报告一致。未知能力、多报或漏报模型／池都会拒绝激活。
-
-需要加载用户训练 checkpoint 的插件，还须显式声明受控模型兼容性。原生 Ultralytics 权重使用 `format: null`；具名导出格式使用对应的非空字符串。这里的 `null` 不是任意格式通配符，缺字段也不能代替它。平台只接受批准清单、实际观测和模型回执一致的框架、格式及 CPU／CUDA 运行设备。
-
-| 运行配置 | 安装配置与证明                                                                                                                                                                                                                |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CPU      | `resource.device` 为 `cpu`，`gpu_memory_mb` 为 `0`；不配置 GPU 资源、UUID 或公钥，不提交 GPU 报告，也不申请 GPU 设备。安装器为所有 CPU 插件设置 `NVIDIA_VISIBLE_DEVICES=void` 和空的 `CUDA_VISIBLE_DEVICES`，不按插件名豁免。 |
-| CUDA     | 显式绑定一张物理卡、显存预算和验签公钥；提交与实际镜像、资产、驱动、运行时及全部命名池相符的报告。容器内设备为 `cuda:0`。                                                                                                     |
-
-ORT 报告还须记录每轮每个实际业务 session 的完整 provider 链，并使数量与 factory 拓扑及新鲜运行观测一致；两轮都漏报同一 session 也不能通过。严格 CUDA 插件拒绝整条 session 回退到 CPU，并关闭 ORT 的运行时整 session 重试回退；这不等于承诺所有算子都在 GPU 执行，合法的 CPU 算子分区仍可存在。Torch 报告不需要伪造 ORT session 字段。
+使用精简配置执行预留时，在 `--json` 模式下同样传入 `--yes` 以确认批准镜像内嵌的 manifest：
 
 ```bash
-yoao plugins prepare --config deployment.json --state-dir ./plugin-state --json
-# 仅 LibreYOLO 提供此安装器资产准备命令；其他插件按自己的获准资产流程准备
-yoao plugins prepare-assets --state-dir ./plugin-state --json
-# 管理员先审核与该安装身份、镜像和 GPU 绑定的完整共享生命周期报告
-yoao plugins install --state-dir ./plugin-state --qualification gpu-report.json --yes --json
-yoao plugins status --state-dir ./plugin-state --json
+yoao plugins prepare --config deployment.json --state-dir ./rapidocr-state --yes --json
 ```
 
-`prepare` 预留不可接流的安装身份、Registry 和资源绑定；`prepare-assets` 只执行 LibreYOLO 提供的显式资产准备流程，不是所有插件的通用下载器。使用相同状态目录和配置重试，勿另造身份。安装器检查真实 Docker 镜像摘要、镜像和容器 ID、启动身份及资源绑定，再提交可信管理员的启动收据；这不是远程密码学证明。CUDA 必须另提交管理员审核通过的完整共享生命周期报告及摘要，绑定此次预留的 Registry、镜像、资产、实际 GPU、驱动、运行时和全部池，包含真实推理、取消和两次冷态释放。`--yes` 表示管理员批准安装及所提供的报告，不替代审核；本地 `yoao-plugin check --qualify-local` 的报告不等于平台托管资格报告。平台还会验证实际受认证端点。安装完成不会自动为任何项目启用或发布模型；项目负责人须显式启用该服务，受控模型另行部署、加载试用并人工发布，详见[模型回流与默认预标](../online-learning/models)。
+若目标镜像尚未写入 OCI 标签，继续使用包含完整 `"manifest"` 对象的传统 `deployment.json` 执行 `yoao plugins prepare --config deployment.json --state-dir ./plugin-state --json`。CPU 插件安装时不需要也不允许传入 `--qualification` 或 `--qualify`。
 
-RapidOCR CPU 镜像使用独立 CPU ORT 依赖，不安装 GPU ORT 或 NVIDIA wheel。按 [RapidOCR 插件说明](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)中的资产流程核验并准备所需权重，用作者工具生成 manifest；该工具当前要求默认 `RAPIDOCR_POOL_CAP=3`，不默默为其他容量生成固定值。将 `container_port` 设为镜像实际监听的 `8005`，准备后直接执行 `yoao plugins install --state-dir ./rapidocr-state --yes --json`，不传 `--qualification`。服务保留 det／rec／e2e 完整目录；未获准准备的变体明确失败，不自动下载其他权重。其 headless OpenCV 替代仍有上游 `pip check` metadata 不匹配，不能把真实运行通过描述为普通 pip 依赖检查全绿。
+#### 4. 安装 CUDA 插件
 
-托管 CUDA 实例应使用目标资源的 `enforce` GPU 准入配置；这与服务池 router 的 off／observe／enforce 模式是两套控制。签名初始化和排空可能等待旧控制 Token 的有效期结束，SDK 为激活和排空使用 300 秒请求超时。网络中断或超时不代表平台操作已回滚：先读取安装状态，再用原状态目录恢复，不能另建身份或直接停止容器。
+CUDA 插件在 `prepare` 时额外绑定物理 GPU、资源 ID 与验签公钥文件（或写入精简/完整 `deployment.json`）：
 
-安装器等待健康端点就绪时，启动中的短暂断连或 503 不算启动成功；60 秒内仍未就绪便停止提交激活，保留启动身份供原目录恢复。平台激活会先完成受认证的持久路由控制绑定；CUDA 再建立 GPU 准入，随后才将安装标记为 active。绑定未确认时不会先开放接流。路由控制和业务请求各自验证所属凭据，不能拿业务 Bearer 绕过控制权限。停用和卸载沿用已记录的启动文件，不为退出重写运行配置。
+```bash
+yoao plugins prepare \
+  --image registry.example/libreyolo@sha256:<64位摘要> \
+  --name "LibreYOLO CUDA" \
+  --url http://172.17.0.1:18000 \
+  --network aap-plugins \
+  --host-port 18000 \
+  --cpus 4 \
+  --image-host media.example \
+  --gpu-resource-id gpu-worker-1 \
+  --physical-gpu-uuid GPU-12345678-1234-1234-1234-123456789abc \
+  --gpu-verify-keyring ./gpu-keyring.json \
+  --state-dir ./libreyolo-state \
+  --yes --json
 
-安装 API 以 `/api/v1/admin/ml-integrations/plugins/installations` 为集合：`POST` 到**集合本身**预留；`GET` 和 `GET /{installation_id}` 查看；`POST /{installation_id}/activate`、`disable`、`quiesce`、`retire` 执行状态变更。动作需要当前 `expected_revision`；并发冲突时先重新读取，勿覆盖其他管理员操作。预留的安装 UUID 是重试幂等键，重复请求必须匹配原意图和凭据。
+# 仅 LibreYOLO 提供此安装器资产准备命令；其他插件按各自的获准资产流程准备权重
+yoao plugins prepare-assets --state-dir ./libreyolo-state --json
+```
 
-安装和项目启用不授予预训练模型权利。超级管理员须审核插件发布的 selection descriptor，按该安装的制品、资产清单和每个完整变体明确批准；目录中未批准或本地资产不可用的规格仍可查看，但不可用于推理。既有安装不会自动获得批准，历史 GPU 报告也不能替代这一步。受控训练模型仍遵循原有部署和发布规则。
+当镜像声明了 `io.yoao.plugin.qualification-command` 时，可以二选一完成 GPU 资格验证与安装：
 
-对已经激活的安装，使用原私有状态目录和插件提供的 descriptor 文件。`choices.json` 是含 `approved` 数组的 JSON 对象，每项为 `{"model_id":"...","variants":{...}}`；只列出实际批准的完整规格，空数组撤销全部批准。先读取修订，再以该修订提交，冲突时重新读取并审核：
+- **一步完成资格验证并安装**：
+
+  ```bash
+  yoao plugins install --state-dir ./libreyolo-state --qualify \
+    --fixture ./fixtures.json --asset-dir ./assets \
+    --model-approval-ref "ticket-101" --fixture-approval-ref "ticket-102" \
+    --yes --json
+  ```
+
+- **先生成并审核报告，再执行安装**：不传 `--out` 会直接将通过校验的报告绑定到该状态目录；传入 `--out report.json` 仅导出报告供审核，不改写本地状态。
+
+  ```bash
+  yoao plugins qualify --state-dir ./libreyolo-state --fixture ./fixtures.json --out ./gpu-report.json --json
+  yoao plugins install --state-dir ./libreyolo-state --qualification ./gpu-report.json --yes --json
+  ```
+
+如果采用外部已审核的完整生命周期报告，直接执行 `yoao plugins install --state-dir ./plugin-state --qualification ./gpu-report.json --yes --json`。随后用 `yoao plugins status --state-dir ./plugin-state --json` 核对激活状态，并确认目标 GPU 资源已处于 `enforce` 准入模式（它与服务池路由模式相互独立）。
+
+#### 5. 审批预训练模型资产
+
+插件激活后，预训练模型默认不可用于推理。先查询当前审批修订（首次决策为 `0`），再使用插件提供的 selection descriptor 和批准列表 `choices.json` 提交审批：
 
 ```bash
 yoao plugins asset-approvals --state-dir ./plugin-state --json
-yoao plugins approve-assets --state-dir ./plugin-state --descriptor selections.json \
-  --choices choices.json --expected-revision 0 --yes --json
+yoao plugins approve-assets --state-dir ./plugin-state \
+  --descriptor selections.json --choices choices.json \
+  --expected-revision 0 --yes --json
 ```
 
-首次决策修订为 `0`；后续提交使用读取到的修订。安装器核对原安装收据和运行容器身份，在该容器内执行固定的 Python 标准库测量程序，逐文件核验实际挂载数据的 SHA256 与大小；不会改为读取可能已被替换的宿主机同名目录。镜像须提供 `python3`，不需要安装平台 SDK，测量程序不会导入模型或初始化 CUDA。测量固定目录描述符并拒绝符号链接，缺失或不匹配的资产不会被标记为可用。测量结果是提交时的管理员本地观测，不会持续重新计算文件摘要；须保护数据目录，并在文件变化后重新测量提交。批准和可用是不同状态；准备或更换文件后须重新测量提交，重启后的新容器身份也须重新测量。该流程不下载权重，也不要求 CPU 安装具备 CUDA；发布者的资源描述和软件许可本身不构成管理员批准。
+`choices.json` 为包含 `approved` 数组的 JSON 对象，每项格式为 `{"model_id": "...", "variants": {...}}`。只列出需要开放的完整规格；传入空数组会撤销全部预训练审批。本地权重文件变更或插件重启后，都必须用原状态目录重新执行 `approve-assets`。
 
-已有 LibreYOLO 安装同样需要此批准：使用该插件发布的预训练描述与对应安装身份生成 selection descriptor，审核完整规格和每个资产后，用原状态目录执行上述读取与提交。对于当前版本已支持的安装，不要新建安装、改写原 manifest 或重新制作旧 GPU 资格报告；原容器和收据无法核验时先恢复安装所有权，不能把历史报告当作本地资产清单。如果历史 manifest 尚无 `models` 和 `pools`，必须先完成下面的[历史清单与本地收据迁移](#历史清单与本地收据迁移)；旧版隔离运行环境在迁移前保持原状，不能由本批准流程自动补齐能力。
+#### 6. 启用项目与日常维护
 
-同一服务池中各实例的批准和本地资产可用状态可能不同；平台只在符合该规格的可接流成员中按原有权重路由，未批准或不可用的成员不会参与选择。执行前会再次检查实际选中的实例，因此撤销批准后已排队但尚未派发的工作不能继续使用该规格。
+安装和审批完成后，不会自动对任何项目开放。项目负责人需在「项目设置 → 模型服务」显式启用对应服务池；需要部署自训模型时，按[模型回流与默认预标](../online-learning/models)完成加载试用和人工发布。
 
-旧文本预标请求未指定模型时，平台按模型声明的文本输出形态确定唯一规格：`box` 对应检测，`mask`／`both` 对应支持该输出的分割模型。若声明不能唯一确定模型，仍拒绝派发；确定后仍逐实例检查完整变体的资产批准和可用性。
-
-停用阻止新工作，但 **disabled 不等于 `safe_to_stop`**。必须完成 quiesce 并使用当前证明修订，只有 `safe_to_stop` 收据才允许停止对应容器；超时、未知状态、HTTP 断开或 Jobs 已结束都不是排空证明。下列命令由安装器执行停用、排空证明、停止拥有的容器，以及依赖检查与退役：
-
-存在 Tracker 范围时，`disable` 之前必须在后端仍可达、原配置仍有效时取得该范围的实际退役证明。任务显示已完成／失败／取消、逻辑 scope 已关闭或 inflight 为零都不能替代证明；否则停用返回 409 并保留原状态。先停止新的业务提交，等待任务正常结束或通过既有取消流程处置，再由执行 owner 完成范围退役后重试同一安装操作。`quiesce`、退役和已有 `safe_to_stop` 收据的重放也会再次核对，不能先停止容器再补证明。
-
-真实请求断连后，不确定工作租约仍占用显存承诺。安装 owner 只有在相关许可有效期与租约硬期限均过去，并取得当前实例的新鲜空闲证明后，才能结清这些租约并继续签名排空；原生请求、构建或模型借用未退出时不会提前释放。等待超时应保留原状态目录，按结构化错误及重试信息恢复同一安装操作，不删除 Redis 租约或退出围栏。
+日常生命周期维护均在原私有状态目录执行：
 
 ```bash
+# 停用新工作并等待安全排空后停止容器
 yoao plugins disable --state-dir ./plugin-state --yes --json
+
+# 保留原安装与模型目录，排空并替换为新容器进程（重启后须重新 approve-assets 并手动恢复服务池成员接流）
+yoao plugins restart --state-dir ./plugin-state --yes --json
+
+# 升级到新摘要镜像：先在新状态目录 prepare（以及资产准备），再执行 upgrade；旧实例保持不变
+yoao plugins upgrade --from-state ./old-state --state-dir ./new-state --qualify --yes --json
+
+# 安全退役并保留历史记录（未启动过的预留也会通过此命令安全取消）
 yoao plugins uninstall --state-dir ./plugin-state --yes --json
 ```
 
-失败保留私有状态并查状态后重试，勿手工停止未知身份。活动发布或冻结的重试依赖会阻止退役；退役保留 Registry、部署和历史发布快照。对于仅预留且从未尝试启动的安装，直接执行上述 `uninstall`：仅在无启动尝试或启动收据、且确认本地不存在对应容器时，安装器才会使用 `cancel-prepared` 取消预留；未知容器或启动历史不能假定未执行。排空证明绑定完整容器 ID，同名替代实例不得使用旧证明；恢复检查拒绝共享或未知 PID 命名空间。无效资格报告和镜像检查失败不会固定候选，可修正后重试。
+升级 CPU 插件时省略 `--qualify` 与 `--qualification`。命令因网络中断或超时失败时，保留原状态目录，先运行 `status` 查看权威状态再重试，不要手工强停或重建容器。
 
-GPU 资源修复任务可依据 owner 核验的“从未启动”闭合证明回收已取消的预留，不要求不存在的进程提供健康响应。真正启动过的实例仍须完成终止证明，并等待相关 Token 时限后收口；不要通过清空账本或重命名资源绕过等待。多池终止回执必须包含全部且不重复的获准池，顺序可以不同，其他身份、代际与卸载字段仍须匹配。
+### 安全原理
 
-需要保留同一安装及模型目录、仅替换运行进程时，使用 `yoao plugins restart --state-dir ./plugin-state --yes --json`。它先完成上述终止证明及停止，再用原制品和资格创建新的容器与启动身份；历史证明保留。GPU 激活须等待既有签名许可有效期，reset 与 enforce 各自保留完整等待窗口；结构化超时不表示候选可以改换身份。中断后继续同一命令，不手工启动候选或替换容器。重启不会自动恢复已排空的服务池成员，须由管理员显式恢复。意外退出或外部重启不等于终止证明，无法核验原进程身份时拒绝自动接管；执行安装器期间应独占该安装的 Docker 管理操作。
+- **平台 API 不碰 Docker**：插件容器由管理员在部署机本地运行，平台 API 不挂载 Docker socket；插件容器也不接触平台数据库、Redis 或 GPU 签发私钥。
+- **固定摘要与显式授权**：安装器只接受内容寻址的 `@sha256:...` 固定摘要镜像，并要求非 root 运行、`0700` 私有状态目录和非 `host` 网络。即使 manifest 来自镜像标签，也必须由管理员核对摘要并通过 `--yes` 显式批准，不能凭浮动标签自动发现或升级。图片下载白名单（`image_hosts`）与资产下载源白名单（`allowed_asset_sources`）分开控制，避免越权访问。
+- **安装、项目启用与资产审批三道独立门禁**：安装成功只代表服务实例通过了平台验活与能力核对，不会自动向项目开放；项目负责人决定哪些项目启用该服务池；预训练模型权重须按完整变体显式审批，并由安装器直接在运行容器内核验真实文件摘要与大小后才允许路由派发。
+- **CUDA 上线前须通过真机资格验证**：`qualify` 在断网、非 root、单卡隔离的临时容器中执行实机推理、取消与冷态显存释放检查，且不挂载业务 Token 或验签公钥文件。平台还会把报告与预留身份、真实驱动、显存和运行时版本交叉校验；开发机本地 `yoao-plugin check --qualify-local` 不能替代托管资格。
+- **先证明排空再停容器，退役保留历史**：停用只阻止新工作进入，不代表在途任务已退出。安装器必须拿到平台签发的安全停机确认后才停止对应容器；升级总是创建新实例身份而不是覆盖正在运行的旧实例；退役受活动发布和冻结任务保护，并完整保留注册记录与历史快照。
 
-重启返回 active 只确认安装已激活，不代表新容器的预训练资产已重新测量，也不代表服务池已恢复接流或项目策略已启用。用同一私有状态目录读取当前批准修订，重新执行 `approve-assets`，在新容器内测量并提交经过审核的规格；确认成员和能力后，再通过服务池管理显式 resume 已排空的成员。项目启用仍由项目负责人单独管理。CUDA 资源可能仍在等待许可时限及其后的新鲜健康证明；查看 GPU 资源的 owner 就绪状态，不能仅凭进程或物理 GPU 空闲判断可接流，也不要清空账本缩短等待。
-
-新进程的路由 incarnation 不能直接沿用旧进程。宿主只有在原终止证明已结算、旧容器与 boot 已记为停止，且新容器、boot、端点、资格和安装修订均匹配时，才授权这一次替换握手；存在未结束或不确定的路由执行时拒绝。失败重试保留原控制 ID、挑战和 epoch，完整握手后才能继续 GPU 初始化及激活，不把“新进程空闲”单独当作旧进程已退出。
-
-路由绑定失败留下的管理围栏不会因 GPU 排空而消失。GPU owner 可依据持久化安装终止意图取得仅用于签名终止排空的端点许可；此许可不能执行预测或普通生命周期请求。完成实际排空、账本结算和安装证明后可以退役并停止对应进程，未确认的路由控制及历史尝试仍保留，不宣称路由已恢复。
-
-升级须在新状态目录用新制品重新 `prepare`，按该插件自己的流程准备资产；CUDA 另需审核新报告。之后使用 `yoao plugins upgrade --from-state ./old-state --state-dir ./new-state --qualification new-report.json --yes --json`，CPU 不传报告参数。升级创建新的安装及 Registry 身份，旧身份保持不变。项目负责人显式启用新服务并完成模型部署、试用及人工发布；旧安装须满足依赖和排空条件才能退役。历史模型版本回滚也须在已验证的新插件部署上重新部署并人工发布，不能重新激活退役的旧 CPU 实例。
-
-### 历史清单与本地收据迁移
-
-旧 manifest 没有完整的获准模型能力和池容量，不能根据插件名、已有文件或新的默认值自动补齐。迁移 `bo0401` 要求管理员逐项核对不可变镜像并批准 inventory；有未知、缺失或不匹配的历史记录时整次升级拒绝，不会先把它们改为无效记录。
-
-1. 在维护窗口停止旧版 API、Inference owner 和相关 worker，保存数据库及私有安装状态的受控备份；先安排仍依赖旧镜像的执行与恢复路径。
-2. 准备绝对路径 JSON 文件，顶层为 `{"schema":1,"installations":[...]}`。每项包含 `installation_id`、`registry_id`、`artifact`、`image_id`、完整 `old_manifest`、`old_manifest_sha256`、`asset_manifest_sha256`、获准 `models`、`pools` 和可追溯的 `approval_ref`。UUID、原 manifest、OCI 制品、资产摘要及已有启动镜像必须精确相符，清单须完整覆盖历史安装。
-3. `old_manifest_sha256` 使用 `json.dumps(old_manifest, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)` 的 ASCII 字节计算 SHA-256。通过部署原有的、已确认目标数据库的迁移入口执行 `alembic -x plugin_capabilities_inventory=/absolute/path/inventory.json upgrade head`。没有历史安装时不需要填造 inventory。
-4. Registry 迁移完成后，对每个本地状态目录显式执行 `yoao plugins migrate-state --state-dir ./plugin-state --manifest approved-manifest.json --image-id sha256:<已核验镜像ID> --yes --json`。命令重新核验权威 Registry、镜像及已有容器／启动身份，只更新获准能力投影；不改 Docker 所有权标签、资源绑定、旧资格或数据目录。
-
-迁移保留原 manifest 及批准来源；本地收据只在同一私有文件内保存不含 Token 的旧状态快照，供协调回退核验，不生成第二份永久凭据。数据库降级遇到新增、删除或已改变的安装会拒绝，不能通过丢弃记录强行回退。
-
-**收据迁移不等于旧镜像取得新资格。** 旧不可变镜像缺少新运行声明时，仍可凭精确身份、新鲜挑战和完整 residency 安全停用／退役；新激活（包括重新创建进程后的激活）仍须满足当前声明和资格门禁。不要先停止仍需恢复的旧实例，再假定 `migrate-state` 能使旧镜像重新激活；应先完成经批准的新制品交接，或保留原先匹配的隔离宿主恢复环境。
-
-旧 CPU 状态目录若保存了未限制 GPU 可见性的环境文件，查询与按原身份排空不会改写该文件；重新创建进程则会拒绝配置不一致。完成受控退役后，使用新状态目录与安装身份部署，不手改旧文件来维持标签或启动摘要。
+关于 OCI 标签 schema、资格容器挂载约定、状态机并发控制、路由替换、资产探针实现、异常恢复与历史清单迁移，见开发文档[推理插件安装、资格与生命周期](../../dev/concepts/plugin-installation-lifecycle)。
 
 ## 服务池管理（超管）
 

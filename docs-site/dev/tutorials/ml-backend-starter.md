@@ -3,7 +3,7 @@ title: ML Backend 接入教程
 audience: [dev]
 type: tutorial
 status: stable
-last_reviewed: 2026-11-23
+last_reviewed: 2026-11-24
 ---
 
 # ML Backend 接入教程：自定义插件与 HTTP 契约
@@ -122,7 +122,22 @@ yoao-plugin build --base-image image@sha256:<真实摘要> \
   --entrypoint my-color-region-plugin --tag registry.example/my-detector:release --push
 ```
 
-`--push` 可省略。作者按公开推理 manifest schema 描述自己的能力、资源、启动参数和数据目录，绑定镜像可检查的实际 RepoDigest；SDK 生成镜像的可写数据目录为 `/var/lib/aap-inference`。不能用 LibreYOLO 的专属 manifest 工具为不相关的自定义插件生成身份。模型来源与许可证分别审核，清单展示不授予下载、启用或再分发权限。管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)审核制品和资格，安装不会自动为项目启用。
+`--push` 可省略。SDK 生成镜像的可写数据目录为 `/var/lib/aap-inference`。不能用 LibreYOLO 的专属 manifest 工具为不相关的自定义插件生成身份。模型来源与许可证分别审核，清单展示不授予下载、启用或再分发权限。
+
+为了让超级管理员无需手写整段 `manifest` 就能通过 `yoao plugins inspect-image` 和 `yoao plugins prepare --image` 安装，在镜像中写入以下两个 OCI label：
+
+- **`io.yoao.plugin.manifest`（推荐必配）**：UTF-8 编码的严格有限 JSON 对象（上限 64 KiB，不允许重复键），包含 13 个归镜像所有的字段：`plugin_id`、`version`、`publisher`、`license`、`sdk_compatibility`、`entrypoint`、`capabilities`、`models`、`pools`、`resource`、`asset_manifest_sha256`、`managed_model_compatibility`、`allowed_asset_sources`。**不要写入 `artifact` 字段**。镜像无法嵌入自身内容寻址的 `RepoDigest`，安装器会在核验本机摘要后绑定管理员指定的 `<ref@sha256:...>`。
+- **`io.yoao.plugin.qualification-command`（CUDA 可选）**：UTF-8 编码的 JSON 字符串数组 `[executable, ...args]`（上限 4 KiB、最多 64 个参数，禁止 `sh`/`bash` 等 shell 和 `python -c`）。声明后，管理员可直接用 `yoao plugins qualify` 或 `yoao plugins install --qualify` 在断网单卡隔离容器中运行该命令；安装器会把预留上下文只读挂载到 `/var/lib/aap-qualification/context.json`，资产只读挂载到 `{data_target}/assets`，可选夹具挂载到 `/var/lib/aap-qualification/fixture`，并读取命令输出到 `/var/lib/aap-qualification/output/report.json` 的生命周期报告。
+
+在构建镜像的 Dockerfile 中声明两个标签的最小示意如下（将字段替换为真实值）：
+
+```dockerfile
+LABEL io.yoao.plugin.manifest='{"plugin_id":"my-detector","version":"0.1.0","publisher":"实际发布者","license":"MIT","sdk_compatibility":"0.1.0","entrypoint":["my-color-region-plugin","serve","--host","0.0.0.0","--port","8000"],"capabilities":["inference","detection"],"models":[{"id":"colors","task":"detect","is_interactive":false,"supported_prompts":["none"],"supported_inputs":["full_image"],"supported_geometric_outputs":["bbox"]}],"pools":{"models":{"cap":1}},"resource":{"device":"cpu","memory_mb":2048,"gpu_memory_mb":0},"asset_manifest_sha256":"0000000000000000000000000000000000000000000000000000000000000000","managed_model_compatibility":[],"allowed_asset_sources":[]}'
+# CUDA 插件另可声明镜像内建资格命令：
+# LABEL io.yoao.plugin.qualification-command='["my-gpu-plugin","qualify","--context","/var/lib/aap-qualification/context.json","--out","/var/lib/aap-qualification/output/report.json"]'
+```
+
+管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)核验镜像摘要、manifest 和资格后完成安装，安装不会自动为项目启用。标签校验规则、资格隔离边界和完整生命周期语义见[推理插件安装、资格与生命周期](/dev/concepts/plugin-installation-lifecycle)。
 
 安装实例退役时，CPU 实例的不可逆终止排空使用认证的 `/lifecycle/terminal-drain`，并绑定注册实例和当前 boot；GPU 终止排空使用 `/lifecycle/terminal-drain-signed`，除业务 token 外还要求平台签发的 GPU DRAIN 许可。两种路径都等待真实模型借用和构建退出后卸载；业务 token 不能代替 GPU 许可，也不能重启已终止的实例。
 
