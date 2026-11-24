@@ -655,16 +655,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ...(suite === "mask-native" ? [{ suite: "mask-worker", planned: true }] : []),
   ]);
   const docsOnlySkip = selectionMode !== "legacy" && docsOnly;
-  const dispatchEarly = ({ suite }) => suite === "smoke" || suite.startsWith("video-pipeline-");
-  const matrix =
-    selectionMode === "legacy"
-      ? legacyGate
-      : {
-          include: [
-            ...plannedEntries.filter(dispatchEarly),
-            ...plannedEntries.filter((entry) => !dispatchEarly(entry)),
-          ],
-        };
+  let matrix = gate;
+  if (selectionMode === "planned") {
+    const { jobSeconds } = JSON.parse(
+      readFileSync(new URL("./e2e-job-durations.json", import.meta.url), "utf8"),
+    );
+    const priority = ({ suite }) => {
+      if (suite === "smoke") return Infinity;
+      return Object.hasOwn(jobSeconds, suite) ? jobSeconds[suite] : -1;
+    };
+    matrix = { include: plannedEntries.toSorted((a, b) => priority(b) - priority(a)) };
+  }
   console.log(`matrix=${JSON.stringify(matrix)}`);
   console.log(`legacy=${JSON.stringify(legacyGate)}`);
   console.log(

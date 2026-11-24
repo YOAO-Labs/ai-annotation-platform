@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,22 +38,20 @@ test("every legacy PR retains all functional shards, Mask and AI suites, and poi
 
 const broadened = ["smoke", ...core, ...specialties, ...video, ...pointcloud, "layout-stress"];
 
+const { jobSeconds } = JSON.parse(
+  readFileSync(new URL("./e2e-job-durations.json", import.meta.url), "utf8"),
+);
+
 function assertFullDispatch(matrix) {
-  const suites = JSON.parse(matrix).include.map(({ suite }) => suite);
-  assert.equal(suites[0], "smoke");
+  const { include } = JSON.parse(matrix);
+  const bySuite = (a, b) => a.suite.localeCompare(b.suite);
+  assert.deepEqual(include.toSorted(bySuite), SUITE_CONTRACT.toSorted(bySuite));
+  assert.equal(include[0].suite, "smoke");
+  const seconds = include.slice(1).map(({ suite }) => jobSeconds[suite] ?? -1);
   assert.deepEqual(
-    suites.filter((suite) => video.includes(suite)),
-    video,
+    seconds,
+    seconds.toSorted((a, b) => b - a),
   );
-  assert.deepEqual(
-    suites.filter((suite) => !video.includes(suite)),
-    ["smoke", ...functional, "layout-stress"],
-  );
-  const firstDefault = suites.indexOf(core[0]);
-  for (const shard of video) {
-    const slot = suites.indexOf(shard);
-    assert.ok(slot < 11 && slot < firstDefault, `${shard} dispatched too late at index ${slot}`);
-  }
 }
 
 const withWorkerReceipt = (suites) =>
@@ -468,6 +466,32 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
   }
 });
 
+test("CLI dispatch preserves selection order for tied and unmeasured jobs", (t) => {
+  const cwd = mkdtempSync(join(tmpdir(), "e2e-partial-history-"));
+  t.after(() => rmSync(cwd, { recursive: true, force: true }));
+  for (const file of ["plan-e2e-suites.mjs", "test-suites.json"]) {
+    copyFileSync(new URL(`./${file}`, import.meta.url), join(cwd, file));
+  }
+  writeFileSync(
+    join(cwd, "e2e-job-durations.json"),
+    JSON.stringify({ jobSeconds: { "mask-native": 10, "mask-readonly": 10, "layout-stress": 20 } }),
+  );
+  const stdout = execFileSync(process.execPath, ["plan-e2e-suites.mjs"], {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GITHUB_EVENT_NAME: "push",
+      E2E_SELECTION_MODE: "planned",
+      E2E_SHADOW_PATH: join(cwd, "shadow.json"),
+    },
+  });
+  const matrix = stdout.split("\n").find((line) => line.startsWith("matrix="));
+  const suites = JSON.parse(matrix.slice("matrix=".length)).include.map(({ suite }) => suite);
+  const first = ["smoke", "layout-stress", "mask-readonly", "mask-native"];
+  assert.deepEqual(suites, [...first, ...broadened.filter((suite) => !first.includes(suite))]);
+});
+
 test("large PR reports use files while suite dispatch and final audit outputs stay bounded", () => {
   const cwd = mkdtempSync(join(tmpdir(), "e2e-large-plan-"));
   const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
@@ -743,7 +767,14 @@ test("the required manifest audits every effective job and the bundled Worker in
       "pointcloud",
     );
     const pointcloudPr = run({ GITHUB_EVENT_NAME: "pull_request" }, [pointcloudBase]);
-    assert.deepEqual(ids(pointcloudPr.matrix), ["smoke", ...pointcloud]);
+    assert.deepEqual(ids(pointcloudPr.matrix), [
+      "smoke",
+      "pointcloud-1",
+      "pointcloud-3",
+      "pointcloud-4",
+      "pointcloud-2",
+    ]);
+    assert.deepEqual(requiredIds(pointcloudPr.required), ["smoke", ...pointcloud]);
 
     const docsBase = git("rev-parse", "HEAD");
     assert.equal(run({ GITHUB_EVENT_NAME: "pull_request" }, [docsBase]).docs_only, "false");
