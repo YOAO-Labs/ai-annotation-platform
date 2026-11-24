@@ -55,7 +55,7 @@ Identity 整模块冷验收另使用当前源码的非 editable Identity 安装�
 
 ## Python SDK：仓内契约和发行物
 
-在仓库根目录安装 `uv`，按 CI 的 `Stage verified Plugin-SDK artifacts` 步骤将已校验的运行时 wheel 放入 `.artifacts/python/plugin-sdk/`，然后运行：
+在仓库根目录安装 `uv`，按[本地开发环境搭建](../tutorials/local-dev)将已校验的 `yoao-backend-runtime` wheel 放入 `.artifacts/python/plugin-sdk/`，然后运行：
 
 ```bash
 python3.11 scripts/test-sdk-distributions.py "$(mktemp -d)/sdk-reports"

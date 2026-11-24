@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const cpuSuites = JSON.parse(
@@ -684,4 +684,19 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   writeFileSync(shadowPath, `${JSON.stringify(shadow)}\n`);
   console.log(`shadow_path=${shadowPath}`);
   console.log(`ml_cpu=${mlCpu}`);
+  const summaryPath = process.argv[3];
+  if (summaryPath) {
+    const suites = gate.include.map(({ suite }) => suite).join(", ") || "(none)";
+    appendFileSync(
+      summaryPath,
+      [
+        `### CI test selection (${selectionMode})`,
+        `Application tests: ${docsOnly ? "not required (docs-only PR)" : "selected"}`,
+        `E2E: ${suites}`,
+        `ML CPU: ${mlCpu ? "selected" : "not selected"}`,
+        "See the `e2e-selection-report` artifact for changed paths and selection reasons.",
+        "",
+      ].join("\n\n"),
+    );
+  }
 }

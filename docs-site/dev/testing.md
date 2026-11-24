@@ -26,6 +26,8 @@ last_reviewed: 2026-11-23
 
 [测试归属清单](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/scripts/test-suites.json)是 Python 测试根与 CI owner／ML CPU 套件的来源。用 `node scripts/test-suite-inventory.mjs` 查未登记测试根，`bash scripts/run-ml-cpu-tests.sh list` 列 ML CPU 套件。各包分别收集，不在仓库根混跑所有 Python 测试。`--collect-only`、`vitest list`、`playwright test --list` 只证明当前选择，不证明执行通过。
 
+`CI test planning` 按 PR 相对基线的完整差异选择检查。只改 `README.md`、`DEV.md`、路线图或文档目录内的普通 Markdown 时，默认保留文档构建、SDK 文档片段和变更文件检查，不启动应用测试。文档中的可执行示例、站点配置、依赖锁或任何未识别路径都不享受这个豁免。提交到 `dev` 后仍执行完整检查；定时工作流单独验证浏览器套件。
+
 ## 2. 隔离并运行
 
 按[独立工作树前置条件](./how-to/worktree-environments#前置条件)准备共享 PostgreSQL、MinIO 和此 checkout 的 API 环境。测试必须使用启动器核验归属的数据库、Redis、桶与角色；库名后缀不能证明归属。需要真实 worker 时显式加 `--with-worker`。不要把 owner DB 凭据交给普通 API 或浏览器。
@@ -41,6 +43,8 @@ pnpm dev:worktree -- exec --mode test -- \
 ```
 
 替换为相应测试文件或 `文件::用例`。复验 CI 分片时，从该次 Job 读取 `--shard-index`、`--shard-count` 和其他选项，保留 JUnit。需要独立提交或并发锁时，使用独立连接及可退役测试资源，不能用外层 SAVEPOINT 冒充真实 commit。
+
+`Plugin SDK test dependency` 从 Actions 变量 `YOAO_SDK_MANIFEST` 指定的 URL 读取清单，用 `YOAO_SDK_MANIFEST_SHA256` 验证清单，再验证并分发 `yoao-backend-runtime` wheel。四个 API 分片与 `Python SDK tests` 使用同一次运行的制品。准备失败表示测试未执行，不是用例失败；非纯文档 PR 缺少任何成功分片，`Backend tests` 都不会通过。设置分支保护前，先在产品 PR 确认四份 `backend-test-results-*` 和 `python-sdk-test-results` 包含实际用例结果。
 
 ### 前端：Vitest + MSW (`apps/web`)
 

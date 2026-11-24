@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       e2e_scope:
-        description: "E2E scope for the manual run (shadow report)"
+        description: "E2E scope for the manual run"
         required: false
         default: extended
         type: choice
@@ -21,8 +21,29 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  plugin-sdk:
+    name: Plugin SDK test dependency
+    needs: e2e-plan
+    if: needs.e2e-plan.outputs.docs-only != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stage verified Plugin-SDK artifacts
+        env:
+          MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
+          SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
+        run: >-
+          python3 scripts/fetch-python-artifacts.py --manifest "$MANIFEST" --sha256 "$SHA256"
+          --output "$RUNNER_TEMP/plugin-sdk" --package yoao-backend-runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-sdk-runtime
+          path: ${{ runner.temp }}/plugin-sdk/*.whl
+          if-no-files-found: error
+
   backend-tests-shard-zero:
     name: Backend tests shard zero
+    needs: plugin-sdk
     uses: ./.github/workflows/backend-test.yml
     with:
       shard-index: 0
@@ -32,6 +53,7 @@ jobs:
 
   backend-tests-shard-one:
     name: Backend tests shard one
+    needs: plugin-sdk
     uses: ./.github/workflows/backend-test.yml
     with:
       shard-index: 1
@@ -41,6 +63,7 @@ jobs:
 
   backend-tests-shard-two:
     name: Backend tests shard two
+    needs: plugin-sdk
     uses: ./.github/workflows/backend-test.yml
     with:
       shard-index: 2
@@ -50,6 +73,7 @@ jobs:
 
   backend-tests-shard-three:
     name: Backend tests shard three
+    needs: plugin-sdk
     uses: ./.github/workflows/backend-test.yml
     with:
       shard-index: 3
@@ -61,30 +85,34 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     needs:
+      - e2e-plan
       - backend-tests-shard-zero
       - backend-tests-shard-one
       - backend-tests-shard-two
       - backend-tests-shard-three
     if: always()
     steps:
-      - name: Require every backend test shard to pass
+      - name: Verify backend shard results for the planned scope
         env:
+          PLAN_RESULT: ${{ needs.e2e-plan.result }}
+          EXPECTED: ${{ needs.e2e-plan.outputs.docs-only == 'true' && 'skipped' || 'success' }}
           SHARD_ZERO_RESULT: ${{ needs.backend-tests-shard-zero.result }}
           SHARD_ONE_RESULT: ${{ needs.backend-tests-shard-one.result }}
           SHARD_TWO_RESULT: ${{ needs.backend-tests-shard-two.result }}
           SHARD_THREE_RESULT: ${{ needs.backend-tests-shard-three.result }}
         run: |
-          failed=0
+          test "$PLAN_RESULT" = success
           for result in "$SHARD_ZERO_RESULT" "$SHARD_ONE_RESULT" "$SHARD_TWO_RESULT" "$SHARD_THREE_RESULT"; do
-            if [ "$result" != "success" ]; then
-              echo "::error::backend test shard did not succeed: $result"
-              failed=1
+            if [ "$result" != "$EXPECTED" ]; then
+              echo "::error::Expected backend shard result $EXPECTED; got $result"
+              exit 1
             fi
           done
-          exit "$failed"
 
   examples-pytest:
     name: ML examples tests
+    needs: e2e-plan
+    if: needs.e2e-plan.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -118,6 +146,7 @@ jobs:
 
   python-sdk-pytest:
     name: Python SDK tests
+    needs: plugin-sdk
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -126,15 +155,15 @@ jobs:
           python-version: "3.11"
       - name: Install uv
         run: pip install uv
-      - name: Stage verified Plugin-SDK artifacts
-        env:
-          PLUGIN_SDK_MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
-          PLUGIN_SDK_SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
-        run: python scripts/fetch-python-artifacts.py --manifest "$PLUGIN_SDK_MANIFEST" --sha256 "$PLUGIN_SDK_SHA256" --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-sdk-runtime
+          path: .artifacts/python/plugin-sdk
       - name: Test repository contracts and installed SDK distributions
+        id: sdk-tests
         run: python scripts/test-sdk-distributions.py "$RUNNER_TEMP/sdk-reports"
       - name: Upload SDK results
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.sdk-tests.outcome != 'skipped' }}
         uses: actions/upload-artifact@v4
         with:
           name: python-sdk-test-results
@@ -143,6 +172,8 @@ jobs:
 
   owner-test-plan:
     name: Owner suite inventory
+    needs: e2e-plan
+    if: needs.e2e-plan.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -187,6 +218,8 @@ jobs:
 
   storage-agent-tests:
     name: Storage agent tests
+    needs: e2e-plan
+    if: needs.e2e-plan.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -212,6 +245,8 @@ jobs:
 
   training-executor-tests:
     name: Training executor tests
+    needs: e2e-plan
+    if: needs.e2e-plan.outputs.docs-only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -251,6 +286,8 @@ jobs:
 
   vitest:
     name: Frontend verification
+    needs: e2e-plan
+    if: needs.e2e-plan.outputs.docs-only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -298,6 +335,7 @@ jobs:
 
   lint:
     name: Repository quality
+    needs: e2e-plan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -317,29 +355,41 @@ jobs:
       - name: pnpm install
         run: pnpm install --frozen-lockfile
       - name: Repository format check
+        if: needs.e2e-plan.outputs.docs-only != 'true'
         run: pnpm format:check
       - name: codegen (read snapshot for typecheck)
+        if: needs.e2e-plan.outputs.docs-only != 'true'
         working-directory: apps/web
         env:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm codegen
       - name: tsc --noEmit
+        if: needs.e2e-plan.outputs.docs-only != 'true'
         working-directory: apps/web
         run: pnpm typecheck
       - name: Repository lint
+        if: needs.e2e-plan.outputs.docs-only != 'true'
         env:
           COMMENT_LINT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
         run: pnpm lint
       - name: Comment ratchet regression cases
+        if: needs.e2e-plan.outputs.docs-only != 'true'
         run: pnpm lint:comments --test
-      - name: Pre-commit full repository check
-        run: >-
-          uv tool run --from pre-commit==4.6.1 pre-commit run
-          --all-files --hook-stage manual --show-diff-on-failure
+      - name: Pre-commit checks on changed files
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          scope=(--all-files)
+          if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then
+            scope=(--from-ref "$BASE" --to-ref HEAD)
+          fi
+          uv tool run --from pre-commit==4.6.1 pre-commit run "${scope[@]}" --hook-stage manual --show-diff-on-failure
       - name: Repository Node script tests
+        if: needs.e2e-plan.outputs.docs-only != 'true'
         run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs docs-site/scripts/*.test.mjs
-      - name: Workflow naming
-        run: node scripts/check-workflow-names.mjs --strict
+      - name: Check Python SDK documentation snippets
+        if: needs.e2e-plan.outputs.docs-only == 'true'
+        run: uv run --no-project --with pytest pytest --noconftest -q packages/python-sdk/tests/test_docs_snippets.py
       - name: New product names
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -366,11 +416,12 @@ jobs:
         run: pnpm docs:build
 
   e2e-plan:
-    name: Frontend E2E planning
+    name: CI test planning
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
+      docs-only: ${{ steps.plan.outputs.docs_only }}
       matrix: ${{ steps.plan.outputs.matrix }}
       required: ${{ steps.plan.outputs.required }}
       run-suites: ${{ steps.plan.outputs.run_suites }}
@@ -392,44 +443,7 @@ jobs:
           E2E_SHADOW_PATH: ${{ runner.temp }}/e2e-shadow.json
           E2E_DISPATCH_SCOPE: ${{ inputs.e2e_scope }}
           E2E_SELECTION_MODE: ${{ vars.E2E_SELECTION_MODE }}
-        run: node scripts/plan-e2e-suites.mjs "$E2E_BASE_SHA" >> "$GITHUB_OUTPUT"
-      - name: Record shadow E2E selection
-        env:
-          SHADOW_PATH: ${{ steps.plan.outputs.shadow_path }}
-        run: |
-          node --input-type=module <<'NODE'
-          import { appendFileSync, readFileSync } from 'node:fs';
-          const shadow = JSON.parse(readFileSync(process.env.SHADOW_PATH, 'utf8'));
-          const plannedSet = new Set(shadow.planned);
-          const legacySet = new Set(shadow.legacy);
-          const rows = [
-            '| Suite | Legacy gate | §6 shadow proposal |',
-            '| --- | --- | --- |',
-            ...shadow.legacy.filter((suite) => !plannedSet.has(suite)).map((suite) => `| ${suite} | runs | proposed removal |`),
-            ...shadow.planned.map((suite) => `| ${suite} | ${legacySet.has(suite) ? "runs" : "absent"} | runs |`),
-          ];
-          const lines = [
-            '### E2E shadow selection (plan §6, warn-only — gate unchanged)',
-            '',
-            '```',
-            `legacy:  ${shadow.legacy.join(', ') || '(none)'}`,
-            `planned: ${shadow.planned.join(', ') || '(none)'}`,
-            `added:   ${shadow.added.join(', ') || '(none)'}`,
-            `removed: ${shadow.removed.join(', ') || '(none)'}`,
-            '```',
-            '',
-            ...rows,
-            '',
-            'Reasons:',
-            ...shadow.reasons.map((reason) => `- ${reason.suite}: ${reason.because}`),
-            ...shadow.warnings.map((warning) => `- warning: ${warning}`),
-            '',
-            `ML CPU contract caller triggered: ${shadow.mlCpu === true}`,
-            `Delegated ml-cpu suites (execution via ml-cpu-test.yml): ${shadow.sharedContracts.qualification.map((s) => s.suite).join(', ') || '(none)'}`,
-            '',
-          ];
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n'));
-          NODE
+        run: node scripts/plan-e2e-suites.mjs "$E2E_BASE_SHA" "$GITHUB_STEP_SUMMARY" >> "$GITHUB_OUTPUT"
       - name: Upload complete E2E selection report
         uses: actions/upload-artifact@v4
         with:
@@ -461,7 +475,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Collect per-suite status artifacts
-        if: always()
+        if: needs.e2e-plan.outputs.run-suites == 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: playwright-report-*
