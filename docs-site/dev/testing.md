@@ -93,6 +93,8 @@ CI 只给已选中的浏览器套件排序。选中了 `smoke` 就先运行它�
 
 API 的 SAVEPOINT、ASGI 客户端和角色夹具由 `apps/api/tests/conftest.py` 提供。完整 E2E 数据只由独立 owner 通道准备和清理，真实业务仍走受限 API。契约与权限见 [Identity 夹具](/api/guides/identity-operator-data#门控-e2e-夹具)及 [Workspace 夹具](/api/guides/workspace-runtime#门控-e2e-夹具)。
 
+条件写入、训练写入和导出媒体传输的存储记账用例需要从另一条连接读取已提交的流水，不能用同一事务内的 SAVEPOINT 代替。每个模块复用一个已迁移的私有数据库；每条用例使用独立连接工厂，结束时只清除自己创建的 `storage_usage_mutations` 行。用例失败、仍有连接或发现未登记的流水时，下一条用例使用新库。其他会写入持久数据的模块不能直接套用这个夹具。
+
 夹具按本次运行已登记的资源与对象版本清理。忙锁、待写入和未知归属应保留责任及回执，不能扫桶、跳过清理或强删作业。运行级夹具清理失败与工作树资源销毁是不同结果。具体夹具实现以拥有它的测试和 runner 为准；旧案例与治理经过见[历史记录](https://github.com/YOAO-Labs/ai-annotation-platform/blob/5f2da55125d9ce647e07ee5351b5f6ee71153a7f/docs-site/dev/testing.md?plain=1)。
 
 <span id="module-boundary-acceptance" aria-hidden="true"></span>
