@@ -174,6 +174,8 @@ class Settings(BaseSettings):
         "connector_host_allowlist",
         "notification_channel_host_allowlist",
         "notification_channel_allow_insecure_http_hosts",
+        "format_adapter_host_allowlist",
+        "format_adapter_allow_insecure_http_hosts",
         mode="before",
     )
     @classmethod
@@ -284,6 +286,10 @@ class Settings(BaseSettings):
         default=5, ge=1, le=60
     )
     notification_channel_sweep_interval_seconds: int = Field(default=10, ge=2, le=300)
+    format_adapter_encryption_key: str = Field(default="", repr=False)
+    format_adapter_encryption_key_file: str = ""
+    format_adapter_host_allowlist: Annotated[list[str], NoDecode] = []
+    format_adapter_allow_insecure_http_hosts: Annotated[list[str], NoDecode] = []
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
     identity_recovery_database_url: str = Field(default="", repr=False)

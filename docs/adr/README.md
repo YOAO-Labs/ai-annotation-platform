@@ -79,6 +79,7 @@
 
 ### 已采纳（Accepted，归档）
 
+- [0188](archive/0188-format-adapter-extension-point.md) — 格式适配器扩展点与纯值对象契约
 - [0187](archive/0187-notification-channel-extension-point.md) — 通知渠道扩展点与跨扩展清单分层
 - [0186](archive/0186-modular-monolith-and-on-demand-extraction.md) — 模块化单体部署、语言无关契约与按需拆出
 - [0181](archive/0181-workbench-interaction-and-rendering-contracts.md) — 工作台交互、帧身份与渲染边界

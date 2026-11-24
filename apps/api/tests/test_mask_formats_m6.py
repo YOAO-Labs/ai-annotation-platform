@@ -22,7 +22,8 @@ from app.schemas.native_json import decode_native_json
 from app.services.exporting.cache import compute_cache_key
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
-from app.services.mask_formats.contracts import StagedObject
+from app.services.mask_formats.contracts import FormatProjectContext, StagedObject
+from app.services.mask_formats.runtime import format_host
 from yoao_assets_source.archive import (
     ArchiveLimits,
     ArchiveSafetyError,
@@ -130,7 +131,7 @@ async def test_empty_native_preflight_rejects_invalid_identity(
     with pytest.raises(ValueError):
         await registry.get("native_json").preflight_import(
             None,
-            project=SimpleNamespace(data_type="image"),
+            project=FormatProjectContext(project_id=uuid.uuid4(), data_type="image"),
             staged=staged,
             mapping={},
             options={},
@@ -460,9 +461,10 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
     local_file = tmp_path / "annotations.json"
     local_file.write_bytes(payload)
     adapter = registry.get("native_json")
+    host, project_ctx = format_host(db_session, project)
     result = await adapter.execute_import_item(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=StagedObject(
             object_key=object_key,
             sha256=digest,

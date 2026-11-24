@@ -54,6 +54,10 @@ MANIFEST = BuiltinModuleManifest(
             tags=("point-cloud-quality",),
         ),
         RouterMount(module_path="app.api.v1.mask_formats", tags=("mask-formats",)),
+        RouterMount(
+            module_path="app.api.v1.format_adapter_plugins",
+            tags=("format-adapters",),
+        ),
     ),
     celery_includes=(
         "app.workers.cleanup",
@@ -126,6 +130,7 @@ MANIFEST = BuiltinModuleManifest(
             ("public", "mask_gc_write_permit_secrets"),
             ("yoao_labeling_v1", "video_execution_checkpoint_mask_sets"),
             ("yoao_labeling_v1", "video_writer_receipts"),
+            ("yoao_labeling_v1", "format_adapter_plugins"),
         ),
     ),
     compose_overlays=(

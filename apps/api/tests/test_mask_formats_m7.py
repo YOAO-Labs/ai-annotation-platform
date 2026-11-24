@@ -23,6 +23,7 @@ from app.services.exporting.service import ExportService
 from app.services.exporting.packaging import build_export_zip
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import StagedObject
+from app.services.mask_formats.runtime import format_host
 from app.services.mask_formats.image_codecs import (
     binary_png_bytes,
     binary_png_to_coco,
@@ -239,10 +240,11 @@ async def test_coco_annotation_adapter_round_trip_and_unknown_mapping(
     path.write_text(json.dumps(payload), encoding="utf-8")
     staged = StagedObject("key", "a" * 64, str(path), path.stat().st_size)
     adapter = registry.get("coco")
+    host, project_ctx = format_host(db_session, project)
 
     unknown = await adapter.preflight_import(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=staged,
         mapping={},
         options={},
@@ -252,8 +254,8 @@ async def test_coco_annotation_adapter_round_trip_and_unknown_mapping(
 
     mapping = {"labels": {"vehicle": "car"}}
     plan = await adapter.preflight_import(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=staged,
         mapping=mapping,
         options={},
@@ -268,8 +270,8 @@ async def test_coco_annotation_adapter_round_trip_and_unknown_mapping(
         lambda: storage_service.delete_object(build_rle_reference(rle)["object_key"])
     )
     result = await adapter.execute_import_item(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=staged,
         plan=plan,
         item_index=0,
@@ -366,9 +368,10 @@ async def test_png_exports_keep_overlap_and_indexed_requires_explicit_policy(
         }
 
     indexed = registry.get("indexed-png")
+    host, project_ctx = format_host(db_session, project)
     blocked = await indexed.preflight_export(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         scope={"project_id": str(project.id)},
         options={"indexed_overlap_policy": "error"},
     )
@@ -379,8 +382,8 @@ async def test_png_exports_keep_overlap_and_indexed_requires_explicit_policy(
     )
 
     lossy = await indexed.preflight_export(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         scope={"project_id": str(project.id)},
         options={"indexed_overlap_policy": "z_order"},
     )
@@ -540,10 +543,11 @@ async def test_image_import_adapters_preflight_external_packages(
         ("indexed-png", indexed_path, "lossless"),
         ("yolo-seg", yolo_path, "lossy"),
     ]
+    host, project_ctx = format_host(db_session, project)
     for format_id, path, expected_loss in cases:
         plan = await registry.get(format_id).preflight_import(
-            db_session,
-            project=project,
+            host,
+            project=project_ctx,
             staged=StagedObject(
                 f"key-{format_id}", "a" * 64, str(path), path.stat().st_size
             ),
@@ -690,9 +694,10 @@ async def test_indexed_png_preflight_rejects_256_instances(
         "app.services.mask_formats.image_export.load_coco_rle",
         AsyncMock(return_value=rle),
     )
+    host, project_ctx = format_host(db_session, project)
     plan = await registry.get("indexed-png").preflight_export(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         scope={"project_id": str(project.id)},
         options={"indexed_overlap_policy": "error"},
     )

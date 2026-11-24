@@ -37,8 +37,17 @@ from app.schemas.mask_format import (
 from app.services import storage_access
 from app.services.audit import AuditAction, AuditService
 from app.services.jobs_dispatch import publish_prepared_dispatch
+from yoao_labeling.format_adapter_security import (
+    FormatAdapterCryptoError,
+    FormatAdapterKeyNotConfigured,
+)
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
+from app.services.mask_formats.dynamic_registry import (
+    list_format_descriptors,
+    resolve_format_adapter,
+)
+from app.services.mask_formats.runtime import format_host
 from app.services.mask_formats.service import (
     MaskFormatError,
     batch_out,
@@ -109,11 +118,12 @@ async def _upload_storage_call(call, *args, **kwargs):
 )
 async def list_mask_formats(
     project: Project = Depends(require_project_visible),
+    db: AsyncSession = Depends(get_db),
 ) -> list[MaskFormatDescriptorOut]:
-    return [
-        adapter.descriptor.to_out()
-        for adapter in registry.list(media_type=project.data_type or "image")
-    ]
+    descriptors = await list_format_descriptors(
+        db, media_type=project.data_type or "image"
+    )
+    return [descriptor.to_out() for descriptor in descriptors]
 
 
 @router.post(
@@ -151,11 +161,17 @@ async def preflight_mask_format_export(
         "axis_frame": body.axis_frame,
         **body.options,
     }
+    host, project_ctx = format_host(db, project)
     for format_id in sorted(set(body.targets)):
         try:
             adapter = registry.get(format_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except ValueError:
+            try:
+                adapter = await resolve_format_adapter(db, format_id)
+            except (FormatAdapterKeyNotConfigured, FormatAdapterCryptoError) as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         descriptor = adapter.descriptor
         if (
             not descriptor.export_capability.supported
@@ -171,8 +187,8 @@ async def preflight_mask_format_export(
         try:
             plans.append(
                 await adapter.preflight_export(
-                    db,
-                    project=project,
+                    host,
+                    project=project_ctx,
                     scope=scope,
                     options=options,
                 )

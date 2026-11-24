@@ -20434,6 +20434,257 @@
         "title": "ForgotPasswordRequest",
         "type": "object"
       },
+      "FormatAdapterPluginRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "endpoint_url": {
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "format_id": {
+            "title": "Format Id",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "manifest_version": {
+            "title": "Manifest Version",
+            "type": "string"
+          },
+          "media_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Media Types",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "option_schema": {
+            "additionalProperties": true,
+            "title": "Option Schema",
+            "type": "object"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "format_id",
+          "display_name",
+          "source_tier",
+          "mode",
+          "status",
+          "revision",
+          "endpoint_url",
+          "protocol_version",
+          "adapter_version",
+          "manifest_version",
+          "media_types",
+          "capabilities",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FormatAdapterPluginRecord",
+        "type": "object"
+      },
+      "FormatAdapterProbeResponse": {
+        "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Version"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "format_id": {
+            "title": "Format Id",
+            "type": "string"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "manifest_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Version"
+          },
+          "media_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Media Types",
+            "type": "array"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "setup_ok": {
+            "title": "Setup Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "format_id",
+          "healthy",
+          "setup_ok"
+        ],
+        "title": "FormatAdapterProbeResponse",
+        "type": "object"
+      },
       "FramePose": {
         "properties": {
           "ego_rotation": {
@@ -45453,6 +45704,97 @@
         "title": "ReferenceReplicaUpdate",
         "type": "object"
       },
+      "RegisterFormatAdapterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "activate": {
+            "default": true,
+            "title": "Activate",
+            "type": "boolean"
+          },
+          "auth_token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "endpoint_url": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "mode": {
+            "default": "direct",
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint_url",
+          "auth_token"
+        ],
+        "title": "RegisterFormatAdapterRequest",
+        "type": "object"
+      },
       "RegisterRequest": {
         "properties": {
           "name": {
@@ -63900,6 +64242,21 @@
         "title": "TrajectoryResponse",
         "type": "object"
       },
+      "TransitionFormatAdapterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "TransitionFormatAdapterRequest",
+        "type": "object"
+      },
       "TriViewFloatState": {
         "additionalProperties": false,
         "description": "3D 三视图浮层位置、尺寸与折叠态。",
@@ -71009,6 +71366,367 @@
         "summary": "Retry Failed Prediction",
         "tags": [
           "predictions"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters": {
+      "get": {
+        "operationId": "list_format_adapter_plugins_api_v1_admin_format_adapters_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_retired",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Retired",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                  },
+                  "title": "Response List Format Adapter Plugins Api V1 Admin Format Adapters Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Format Adapter Plugins",
+        "tags": [
+          "format-adapters"
+        ]
+      },
+      "post": {
+        "operationId": "register_format_adapter_plugin_api_v1_admin_format_adapters_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}": {
+      "get": {
+        "operationId": "get_format_adapter_plugin_api_v1_admin_format_adapters__format_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/activate": {
+      "post": {
+        "operationId": "activate_format_adapter_plugin_api_v1_admin_format_adapters__format_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/disable": {
+      "post": {
+        "operationId": "disable_format_adapter_plugin_api_v1_admin_format_adapters__format_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/probe": {
+      "post": {
+        "operationId": "probe_format_adapter_plugin_api_v1_admin_format_adapters__format_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterProbeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probe Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/retire": {
+      "post": {
+        "operationId": "retire_format_adapter_plugin_api_v1_admin_format_adapters__format_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
         ]
       }
     },

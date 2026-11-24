@@ -2,37 +2,28 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.db.models.project import Project
-from app.schemas.native_json import NativeJsonEnvelope, decode_native_json
 from app.schemas.mask_format import (
     MaskFormatCode,
     MaskFormatPlan,
     MaskFormatPlanItem,
 )
-from app.services.annotations_import import import_native_json_annotations
+from app.schemas.native_json import NativeJsonEnvelope, decode_native_json
 from app.services.exporting.video import (
     VIDEO_BBOX_COMPATIBLE_SINGLE_FRAME_GEOMETRY_TYPES,
     VIDEO_TRACK_GEOMETRY_TYPES,
 )
-from app.services.labeling_core_read_relations import annotation_row, task_row
+from app.services.exporting.video_scope import VideoExportScope
 from app.services.mask_formats.contracts import (
+    FormatHostPort,
+    FormatProjectContext,
     MaskFormatDescriptor,
     StagedObject,
     canonical_digest,
 )
 from app.services.mask_formats.planning import _code, _plan, _worst_loss
-from app.services.task_matcher import resolve_task
-from app.services.exporting.video_scope import (
-    VideoExportScope,
-    clip_video_geometry,
-)
 
 
 _ALLOWED_GEOMETRY: dict[str, frozenset[str] | None] = {
@@ -93,75 +84,20 @@ class LegacyPackagingAdapter:
 
     async def preflight_export(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         scope: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
         video_scope = VideoExportScope.from_dict(scope.get("video_export_scope"))
-        task_query = select(task_row.id, task_row.file_path).where(
-            task_row.project_id == project.id
-        )
-        batch_id = scope.get("batch_id")
-        if batch_id:
-            task_query = task_query.where(task_row.batch_id == uuid.UUID(str(batch_id)))
-        if video_scope is not None:
-            task_query = task_query.where(task_row.id == video_scope.task_id)
-        task_rows = list(
-            (await db.execute(task_query.order_by(task_row.id).limit(100_001))).all()
-        )
-        if len(task_rows) > 100_000:
-            raise ValueError("format_preflight_task_budget_exceeded")
-
-        task_ids = [row.id for row in task_rows]
-        grouped: dict[uuid.UUID, dict[str, int]] = defaultdict(dict)
-        if task_ids and video_scope is not None:
-            annotation_rows = (
-                (
-                    await db.execute(
-                        select(annotation_row).where(
-                            annotation_row.task_id.in_(task_ids),
-                            annotation_row.is_active.is_(True),
-                            annotation_row.was_cancelled.is_(False),
-                        )
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            for annotation in annotation_rows:
-                geometry = clip_video_geometry(annotation.geometry, video_scope)
-                if geometry is None:
-                    continue
-                geometry_type = str(geometry.get("type") or "")
-                counts = grouped[annotation.task_id]
-                counts[geometry_type] = counts.get(geometry_type, 0) + 1
-        elif task_ids:
-            geometry_type = annotation_row.geometry["type"].astext
-            annotation_rows = (
-                await db.execute(
-                    select(
-                        annotation_row.task_id,
-                        geometry_type,
-                        func.count(annotation_row.id),
-                    )
-                    .where(
-                        annotation_row.task_id.in_(task_ids),
-                        annotation_row.is_active.is_(True),
-                        annotation_row.was_cancelled.is_(False),
-                    )
-                    .group_by(annotation_row.task_id, geometry_type)
-                )
-            ).all()
-            for task_id, geometry_type, count in annotation_rows:
-                grouped[task_id][str(geometry_type)] = int(count)
+        task_summaries = await host.list_export_task_geometries(scope=scope)
 
         allowed = _ALLOWED_GEOMETRY.get(self.descriptor.format_id)
         target_losses = tuple(_TARGET_LOSSES.get(self.descriptor.format_id, ()))
         items: list[MaskFormatPlanItem] = []
-        for task_id, file_path in task_rows:
-            geometry_counts = grouped.get(task_id, {})
+        for summary in task_summaries:
+            geometry_counts = summary.geometry_counts
             unsupported = sorted(
                 geometry_type
                 for geometry_type, count in geometry_counts.items()
@@ -181,12 +117,12 @@ class LegacyPackagingAdapter:
                     item_id=canonical_digest(
                         {
                             "format_id": self.descriptor.format_id,
-                            "task_id": str(task_id),
+                            "task_id": str(summary.task_id),
                             "geometry_counts": geometry_counts,
                         }
                     ),
-                    task_id=task_id,
-                    media_path=file_path,
+                    task_id=summary.task_id,
+                    media_path=summary.file_path,
                     loss_class=loss_class,
                     estimated_objects=object_count,
                     estimated_files=1,
@@ -256,9 +192,9 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
 
     async def preflight_import(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         staged: StagedObject,
         mapping: dict[str, Any],
         options: dict[str, Any],
@@ -270,19 +206,15 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
             match = block.task_match.model_dump(exclude_none=True)
             if "file_path" not in match and block.file_path:
                 match["file_path"] = block.file_path
-            task = await resolve_task(db, project.id, match)
+            task = await host.resolve_task(match)
             subset = _native_task_subset_bytes(envelope, source_index)
-            preview = await import_native_json_annotations(
-                db,
-                project.id,
+            preview = await host.preview_native_json(
                 subset,
-                operator_user_id=project.owner_id,
                 overwrite=bool(options.get("overwrite")),
-                dry_run=True,
             )
             skips = [
-                _code(_native_import_error_code(error.reason), reason=error.reason)
-                for error in preview.errors
+                _code(_native_import_error_code(reason), reason=reason)
+                for reason in preview.errors
             ]
             unknown_labels.update(
                 entry.class_name
@@ -296,7 +228,7 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
             items.append(
                 MaskFormatPlanItem(
                     item_id=canonical_digest(block.model_dump(mode="json")),
-                    task_id=task.id if task is not None else None,
+                    task_id=task.task_id if task is not None else None,
                     media_path=block.file_path or match.get("file_path"),
                     source_index=source_index,
                     loss_class=loss_class,
@@ -333,13 +265,13 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
 
     async def execute_import_item(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         staged: StagedObject,
         plan: MaskFormatPlan,
         item_index: int,
-        operator_user_id,
+        operator_user_id: uuid.UUID,
         mapping: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -358,16 +290,13 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
         match = block.task_match.model_dump(exclude_none=True)
         if "file_path" not in match and block.file_path:
             match["file_path"] = block.file_path
-        resolved = await resolve_task(db, project.id, match)
-        if resolved is None or resolved.id != item.task_id:
+        resolved = await host.resolve_task(match)
+        if resolved is None or resolved.task_id != item.task_id:
             raise ValueError("format_plan_task_conflict")
-        result = await import_native_json_annotations(
-            db,
-            project.id,
+        result = await host.commit_native_json(
             _native_task_subset_bytes(envelope, item.source_index),
             operator_user_id=operator_user_id,
             overwrite=bool((options or {}).get("overwrite")),
-            dry_run=False,
         )
         if result.errors or result.skipped:
             raise ValueError("format_execute_diverged_from_preflight")

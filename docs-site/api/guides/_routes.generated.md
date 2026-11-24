@@ -429,6 +429,18 @@
 | GET | `/tasks/{task_id}/content-identity` |
 | POST | `/projects/{project_id}/backfill-thumbnails` |
 
+## `format_adapter_plugins.py`
+
+| Method | Path |
+|---|---|
+| GET | `/admin/format-adapters` |
+| GET | `/admin/format-adapters/{format_id}` |
+| POST | `/admin/format-adapters` |
+| POST | `/admin/format-adapters/{format_id}/probe` |
+| POST | `/admin/format-adapters/{format_id}/activate` |
+| POST | `/admin/format-adapters/{format_id}/disable` |
+| POST | `/admin/format-adapters/{format_id}/retire` |
+
 ## `groups.py`
 
 | Method | Path |
@@ -1279,4 +1291,4 @@
 
 ---
 
-_共 119 模块 / 767 路由_
+_共 120 模块 / 774 路由_

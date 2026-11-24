@@ -15,6 +15,8 @@ from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
+from app.services.mask_formats.dynamic_registry import resolve_format_adapter
+from app.services.mask_formats.runtime import format_host
 from app.services.mask_formats.service import (
     cancel_import_execution,
     complete_import_batch,
@@ -86,8 +88,13 @@ async def run_mask_format_import(
             mapping_digest = batch.mapping_digest
             options_digest = batch.options_digest
             plan_digest = batch.plan_digest
+            try:
+                adapter = registry.get(format_id)
+                is_external = False
+            except ValueError:
+                adapter = await resolve_format_adapter(db, format_id)
+                is_external = True
 
-        adapter = registry.get(format_id)
         if (
             adapter.descriptor.adapter_version != adapter_version
             or adapter.descriptor.manifest_version != manifest_version
@@ -161,10 +168,19 @@ async def run_mask_format_import(
                     project = await get_workspace_project(db, project_id=project_id)
                     if project is None or requested_by_id is None:
                         raise RuntimeError("format import project or actor missing")
+                    host, project_ctx = format_host(db, project)
                     try:
+                        if is_external:
+                            adapter = await resolve_format_adapter(db, format_id)
+                            if (
+                                adapter.descriptor.adapter_version != adapter_version
+                                or adapter.descriptor.manifest_version
+                                != manifest_version
+                            ):
+                                raise ValueError("format_adapter_version_conflict")
                         item_result = await adapter.execute_import_item(
-                            db,
-                            project=project,
+                            host,
+                            project=project_ctx,
                             staged=staged,
                             plan=typed_plan,
                             item_index=item_index,

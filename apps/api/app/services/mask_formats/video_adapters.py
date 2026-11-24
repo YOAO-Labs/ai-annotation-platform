@@ -10,18 +10,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from PIL import Image
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.annotation import Annotation
-from app.db.models.project import Project
-from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan, MaskFormatPlanItem
-from app.services.annotations_import import import_native_json_annotations
-from app.services.labeling_core_read_relations import annotation_row
 from app.services.mask_formats.contracts import (
+    FormatHostPort,
+    FormatProjectContext,
     MaskFormatDescriptor,
+    ResolvedTaskInfo,
     StagedObject,
     canonical_digest,
 )
@@ -31,13 +27,7 @@ from app.services.mask_formats.image_codecs import (
     rasterize_coco_polygons,
 )
 from yoao_assets_source.archive import ArchiveLimits, SafeZipArchive
-from yoao_workspace.configuration_policy import lookup_classes_for_tool_unit
 from app.services.raster_mask_storage import build_rle_reference, load_coco_rle
-from app.services.task_matcher import (
-    resolve_task,
-    resolve_task_by_file_stem,
-    resolve_task_by_video_sequence,
-)
 from app.services.video_tracks import resolve_track_at_frame
 from app.services.exporting.video_scope import (
     VideoExportScope,
@@ -65,7 +55,7 @@ class ParsedVideoItem:
     width: int
     height: int
     tracks: list[ParsedVideoTrack]
-    task: Task | None = None
+    task: ResolvedTaskInfo | None = None
     frame_count: int | None = None
     losses: list[str] = field(default_factory=list)
     warnings: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
@@ -122,38 +112,12 @@ def _safe_track_id(value: Any, *, fallback: str) -> str:
     return canonical_digest(text)[:64]
 
 
-async def _resolve_video_task(
-    db: AsyncSession,
-    project_id: uuid.UUID,
-    sequence: str,
-) -> Task | None:
-    task = await resolve_task(db, project_id, {"file_path": sequence})
-    if task is not None:
-        return task
-    task, _reason = await resolve_task_by_file_stem(db, project_id, sequence)
-    if task is not None:
-        return task
-    return await resolve_task_by_video_sequence(db, project_id, sequence)
-
-
-async def _video_dimensions(
-    db: AsyncSession,
-    task: Task | None,
+def _video_dimensions(
+    task: ResolvedTaskInfo | None,
 ) -> tuple[int, int, int | None] | None:
-    if task is None or task.dataset_item_id is None:
+    if task is None or not task.width or not task.height:
         return None
-    from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
-
-    summary = await AssetsTaskMediaSummaryReader(db).current_video_summary(
-        task.dataset_item_id
-    )
-    if summary is None:
-        return None
-    width, height, video = summary
-    if not width or not height:
-        return None
-    frame_count = video.get("frame_count")
-    return int(width), int(height), int(frame_count) if frame_count else None
+    return int(task.width), int(task.height), task.frame_count
 
 
 def _ranges_for_missing(missing: list[int]) -> list[dict[str, Any]]:
@@ -237,8 +201,8 @@ def _coco_frame_mapping(image: dict[str, Any], frame_base: int) -> tuple[int, in
 
 
 async def _parse_coco_frames(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     options: dict[str, Any],
@@ -350,8 +314,8 @@ async def _parse_coco_frames(
 
     items: list[ParsedVideoItem] = []
     for sequence, images in sorted(sequence_images.items()):
-        task = await _resolve_video_task(db, project.id, sequence)
-        dims = await _video_dimensions(db, task)
+        task = await host.resolve_video_task(sequence)
+        dims = _video_dimensions(task)
         width = int(images[0].get("width") or 0)
         height = int(images[0].get("height") or 0)
         frame_count = dims[2] if dims else None
@@ -427,8 +391,8 @@ def _root_video_manifest(raw: Any) -> dict[str, dict[str, Any]]:
 
 
 async def _parse_davis(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     _options: dict[str, Any],
@@ -478,8 +442,8 @@ async def _parse_davis(
 
         items: list[ParsedVideoItem] = []
         for sequence, rows in sorted(frame_rows.items()):
-            task = await _resolve_video_task(db, project.id, sequence)
-            dims = await _video_dimensions(db, task)
+            task = await host.resolve_video_task(sequence)
+            dims = _video_dimensions(task)
             source_frames = list(
                 root_videos.get(sequence, {}).get("grid_source_frames") or []
             )
@@ -567,8 +531,8 @@ async def _parse_davis(
 
 
 async def _parse_youtube_vos(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     options: dict[str, Any],
@@ -596,8 +560,8 @@ async def _parse_youtube_vos(
                 video.get("objects"), dict
             ):
                 continue
-            task = await _resolve_video_task(db, project.id, sequence)
-            dims = await _video_dimensions(db, task)
+            task = await host.resolve_video_task(sequence)
+            dims = _video_dimensions(task)
             tracks: list[ParsedVideoTrack] = []
             width = height = 0
             sequence_frame_map = (
@@ -684,8 +648,8 @@ async def _parse_youtube_vos(
 
 
 async def _parse_mots(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     options: dict[str, Any],
@@ -781,8 +745,8 @@ async def _parse_mots(
                     "rle": rle,
                     "occluded": False,
                 }
-            task = await _resolve_video_task(db, project.id, sequence)
-            dims = await _video_dimensions(db, task)
+            task = await host.resolve_video_task(sequence)
+            dims = _video_dimensions(task)
             frame_count = (
                 dims[2]
                 if dims
@@ -842,30 +806,28 @@ class VideoMaskFormatAdapter:
 
     async def _items(
         self,
-        db: AsyncSession,
-        project: Project,
+        host: FormatHostPort,
+        project: FormatProjectContext,
         staged: StagedObject,
         mapping: dict[str, Any],
         options: dict[str, Any],
     ) -> list[ParsedVideoItem]:
-        items = await self._parser(db, project, staged, mapping, options)
+        items = await self._parser(host, project, staged, mapping, options)
         if len(items) > 100_000:
             raise ValueError("resource_budget_exceeded:max_import_items")
         return items
 
     async def preflight_import(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         staged: StagedObject,
         mapping: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
-        items = await self._items(db, project, staged, mapping, options)
-        allowed_classes = lookup_classes_for_tool_unit(
-            project.tool_bindings or {}, "region"
-        )
+        items = await self._items(host, project, staged, mapping, options)
+        allowed_classes = project.allowed_region_classes
         unknown_labels: set[str] = set()
         size_conflicts: list[dict[str, Any]] = []
         plan_items: list[MaskFormatPlanItem] = []
@@ -883,7 +845,7 @@ class VideoMaskFormatAdapter:
             unknown_labels.update(item_unknown)
             if item.task is None:
                 skips.append(_code("task_not_found", sequence=item.sequence))
-            dims = await _video_dimensions(db, item.task)
+            dims = _video_dimensions(item.task)
             if item.task is not None and dims is None:
                 skips.append(
                     _code("image_size_mismatch", reason="video dimensions unavailable")
@@ -923,7 +885,7 @@ class VideoMaskFormatAdapter:
             plan_items.append(
                 MaskFormatPlanItem(
                     item_id=_item_identity(item),
-                    task_id=item.task.id if item.task else None,
+                    task_id=item.task.task_id if item.task else None,
                     media_path=item.sequence,
                     source_index=index,
                     loss_class=loss_class,
@@ -981,9 +943,9 @@ class VideoMaskFormatAdapter:
 
     async def execute_import_item(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         staged: StagedObject,
         plan: MaskFormatPlan,
         item_index: int,
@@ -999,13 +961,13 @@ class VideoMaskFormatAdapter:
                 if plan_item.skips
                 else "not_selected",
             }
-        items = await self._items(db, project, staged, mapping, options)
+        items = await self._items(host, project, staged, mapping, options)
         if plan_item.source_index is None or plan_item.source_index >= len(items):
             raise ValueError("format_plan_source_index_conflict")
         item = items[plan_item.source_index]
         if _item_identity(item) != plan_item.item_id:
             raise ValueError("format_plan_item_digest_conflict")
-        if item.task is None or item.task.id != plan_item.task_id:
+        if item.task is None or item.task.task_id != plan_item.task_id:
             raise ValueError("format_plan_task_conflict")
         mask_objects: dict[str, dict[str, Any]] = {}
         annotations: list[dict[str, Any]] = []
@@ -1054,33 +1016,30 @@ class VideoMaskFormatAdapter:
                 }
             ],
         }
-        result = await import_native_json_annotations(
-            db,
-            project.id,
+        result = await host.commit_native_json(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(),
             operator_user_id=operator_user_id,
             overwrite=bool(options.get("overwrite")),
-            dry_run=False,
         )
         if result.errors or result.skipped:
             raise ValueError("format_execute_diverged_from_preflight")
         return {
             "status": "committed",
-            "task_id": str(item.task.id),
+            "task_id": str(item.task.task_id),
             "imported": result.imported,
             "skipped": 0,
         }
 
     async def preflight_export(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         scope: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
         base = await LegacyPackagingAdapter(self.descriptor).preflight_export(
-            db,
+            host,
             project=project,
             scope=scope,
             options=options,
@@ -1092,27 +1051,7 @@ class VideoMaskFormatAdapter:
         if overlap_policy not in {"error", "z_order", "larger_area", "smaller_area"}:
             raise ValueError("invalid video mask overlap policy")
         task_ids = [item.task_id for item in base.items if item.task_id is not None]
-        rows = (
-            (
-                await db.execute(
-                    select(annotation_row)
-                    .where(
-                        annotation_row.task_id.in_(task_ids),
-                        annotation_row.is_active.is_(True),
-                        annotation_row.was_cancelled.is_(False),
-                        annotation_row.geometry["type"].astext == "video_track_mask",
-                    )
-                    .order_by(annotation_row.task_id, annotation_row.id)
-                )
-            )
-            .scalars()
-            .all()
-            if task_ids
-            else []
-        )
-        grouped: dict[uuid.UUID, list[Annotation]] = defaultdict(list)
-        for annotation in rows:
-            grouped[annotation.task_id].append(annotation)
+        grouped = await host.list_export_video_masks(task_ids=task_ids)
         overlap_conflicts: list[dict[str, Any]] = []
         for task_id, task_annotations in grouped.items():
             hydrated: list[tuple[int, dict[str, Any], int]] = []

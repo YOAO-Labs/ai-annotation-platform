@@ -1,6 +1,6 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：M0、M1a、M2a、M2b、M2c、M3a、M3b、M4a 已完成；M1b 本地交付项已通过（PyPI 发布待维护者授权）；M3c 零依赖 Node.js 飞书私信插件及双档隔离验收已通过（真实飞书一次冒烟暂缓）；下一步待维护者确认 M4b 下一个扩展点选型。
+> 状态：M0、M1a、M2a、M2b、M2c、M3a、M3b、M4a、M4b、M4c 已完成；M1b 本地交付项已通过（PyPI 发布待维护者授权）；M3c 零依赖 Node.js 飞书私信插件及双档隔离验收已通过（真实飞书一次冒烟暂缓）；下一步为 M5 前端插件市场（含官方源与第三方插件安装）。
 >
 > 创建日期：2026-11-23。
 >
@@ -181,4 +181,5 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 - **M3b 已通过隔离验收。** 平台侧外部通知通道扩展点已落地并验证通过：包含 `apps/notifications` 便携契约／SSRF 连接期 IP 绑定护栏／独立 `NOTIFICATION_CHANNEL_ENCRYPTION_KEY` Fernet 失败关闭加密与有界 HTTP 客户端、Alembic 迁移 `bo0510` 与最小权限受限角色（`yoao_notification_channel_delivery_client` 精确 10 函数且零表权限，既有 `yoao_notification_publish_client` 不受影响）、`yoao-notification-preferences/v2`、业务同事务发件箱入队与投递 worker、超管／用户 12 条 REST 与 Python SDK 接口、Web 偏好 Hook 兼容及环境变量文档。隔离实测覆盖全部 7 条不变量与受限角色边界，详见 [M3b 运行账本](evidence/1795366269_platform-pluginization/m3b-run-ledger.md)。
 - **M3c 隔离验收已通过（真实飞书一次冒烟暂缓）。** 独立于 Python `Plugin-SDK` 的零依赖 Node.js 飞书私信参考插件归入独立插件仓库 `YOAO-Plugins`（`plugins/notification-channel/feishu-dm`，本地提交 `b8cc96f`），提供直连档裸进程与安装档非 root 只读 OCI 镜像（内嵌 `io.yoao.plugin.manifest`）两种运行形态；平台仓库配套[通知渠道插件接入教程](../../docs-site/dev/tutorials/notification-channel-plugin.md)与开发者索引更新。隔离环境已用 `YOAO-Plugins` 中的真实 Node.js 插件（直连档与受限容器安装档）配合飞书开放平台替身跑通全部 7 条不变量、token 过期自动刷新、清单跨语言校验与容器加固核验，详见 [M3c 运行账本](evidence/1795366269_platform-pluginization/m3c-run-ledger.md)。
 - **M4a 已通过验证。** 后端 11 个内置领域模块（`platform`、`identity`、`workspace`、`assets`、`labeling`、`inference`、`learning`、`jobs`、`notifications`、`audit`、`insights`）在 `apps/api/app/assembly/` 下以纯冻结清单声明路由、Celery 任务与 Beat 调度、Alembic ORM 模型与原生表排除项、Compose 叠加文件及工作区 owner 包，并直接驱动 `router.py`、`main.py`、`celery_app.py`、`native_schema.py` 与 `alembic/env.py`；不引入动态包扫描或空通用框架。OpenAPI 快照、路由无冲突／无动态段遮蔽、冷进程 218 表一致、可销毁 Postgres `alembic upgrade head` 与全部 26 份 `docker-compose*.yml` 服务一致性均已通过实测，详见 [M4a 运行账本](evidence/1795366269_platform-pluginization/m4a-run-ledger.md)。
-- M1b 的 PyPI 正式发布仍需维护者单独授权；M3c 真实飞书一次验证暂缓；下一步待维护者从格式适配器、训练器、数据源连接器中选定 **M4b** 扩展点，随后执行 **M4c** 对应 owner 收口；M5 前端插件市场尚未实施。
+- **M4b 与 M4c 已通过隔离验收。** 维护者选定**格式适配器**作为 M4b 扩展点，架构决定归档在 [ADR-0188](../adr/archive/0188-format-adapter-extension-point.md)（Accepted）。M4c 从公开 `MaskFormatAdapter` 契约与全部内置适配器彻底移除 `AsyncSession` 与 ORM 参数，改为纯值对象 `FormatProjectContext` 与窄端口 `FormatHostPort`，并经 `AssetsTaskMediaSummaryReader.current_image_summary` 闭合原 `DatasetItem` 直读缺口，由 AST 边界守卫锁定零回归。M4b 落地 `yoao-format-adapter/v1` 协议、`yoao_labeling_v1.format_adapter_plugins` 私有表与固定 owner SQL 能力（Alembic `bo0511`）、独立 `FORMAT_ADAPTER_ENCRYPTION_KEY` 失败关闭加密、连接期 IP 绑定 SSRF 护栏、7 条超管接口及动态格式目录与逐项复核执行；独立零依赖 Node.js LabelMe JSON 参考插件归入 `YOAO-Plugins`（`plugins/format-adapter/labelme-json`）。隔离环境已用真实 Postgres 16、受限 `application_role`、直连档裸进程与受管档非 root 只读 OCI 容器完成端到端预检、未知标签拦截、映射提交、导出渲染及停用／退役历史保留验收，详见 [M4b/M4c 运行账本](evidence/1795366269_platform-pluginization/m4bc-run-ledger.md)。
+- M1b 的 PyPI 正式发布仍需维护者单独授权；M3c 真实飞书一次验证暂缓；下一步进入 **M5 前端插件市场**（含官方源与第三方插件安装）。

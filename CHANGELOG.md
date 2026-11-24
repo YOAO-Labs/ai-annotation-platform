@@ -44,6 +44,7 @@
 - `yoao plugins` 新增 `qualify` 子命令，并在 `install` 与 `upgrade` 中支持 `--qualify`（搭配可选 `--fixture`、`--asset-dir`、`--model-approval-ref`、`--fixture-approval-ref`），可在 `--network none` 隔离容器中执行镜像声明的 `io.yoao.plugin.qualification-command` 生成并校验 GPU 生命周期资格报告，不挂载 `data/token` 或签名密钥环，且不放宽任何现有 GPU 资格门禁、安装身份或排空语义。
 - 新增外部通知通道扩展点平台侧支持（`yoao-notification-channel/v1`、`yoao-notification-preferences/v2` 与通用 `yoao-extension-manifest/v1` 展示元数据及平台权威 `source_tier`）：提供超管通道注册／探测／CAS 状态流转（`prepared`／`active`／`disabled`／`retired`）与用户地址绑定／解绑／限流测试发送 REST 与 Python SDK 接口；通道凭据须通过独立 `NOTIFICATION_CHANNEL_ENCRYPTION_KEY` 加密且未配置时失败关闭，出站请求实施连接期 IP 绑定 SSRF 护栏，业务事务内写入 `yoao_notifications_v1.notification_channel_deliveries` 发件箱并由后台投递 worker 按目标可见性、账号状态、偏好与绑定四重复核后以脱敏 5 字段信封投递。
 - 新增外部通知渠道插件开发者接入教程（`docs-site/dev/tutorials/notification-channel-plugin.md`），并与独立插件仓库 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 中的零依赖 Node.js 飞书私信参考插件（`plugins/notification-channel/feishu-dm`）完成直连档与非 root 只读容器安装档双档协议联通验证。
+- 新增外部格式适配器扩展点平台侧支持（`yoao-format-adapter/v1`，复用 `yoao-extension-manifest/v1` 与平台权威 `source_tier`）：从公开 `MaskFormatAdapter` 契约彻底剥离 `AsyncSession` 与 ORM 对象并闭合图片尺寸直读 `DatasetItem` 边界；新增 `yoao_labeling_v1.format_adapter_plugins` 私有表与固定 `SECURITY DEFINER` owner 能力、独立 `FORMAT_ADAPTER_ENCRYPTION_KEY` 失败关闭加密、连接期 IP 绑定 SSRF 护栏、7 条超管注册／探测／启停／退役接口及动态格式目录接入，并与独立插件仓库 `YOAO-Plugins` 中的零依赖 Node.js LabelMe JSON 参考插件（`plugins/format-adapter/labelme-json`）完成直连档与非 root 只读容器安装档双档实测。
 
 ### Changed
 
