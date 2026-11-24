@@ -1,12 +1,12 @@
 """Committed canonical image repair through real API, owners and RLE storage.
 
-Only physical original/object bytes and the ML transport are substituted. SQL
-authority, publication, request credentials, attempts, readers and adoption use
-their production implementations in an independently committed private schema.
+Celery sends to an in-memory media queue under a separate Jobs publication
+LOGIN. Requests and workers commit independently in a disposable database;
+original/object bytes and the ML transport are fixtures.
 """
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
@@ -16,6 +16,7 @@ import traceback
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
+from yoao_jobs.publication_postgres import PUBLICATION_FUNCTIONS
 from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
@@ -54,20 +55,24 @@ from app.services.raster_mask_storage import (
 )
 from app.utils.raster_mask_rle import encode_coco_rle
 from app.application import mask_repair_execution as worker
+from app.workers.jobs_dispatch import _verify_login
 from app.workers.video_tracker_dispatch import CeleryVideoTrackerJobDispatcher
 from tests._owned_s3 import patch_owned_client
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
     attach_managed,
     db_session as db_session,
-    input_world as input_world,
+    managed_database,
     sync_world as sync_world,
 )
 from tests.raster_mask_support import Objects
+from tests.test_grant_namespace_security import _login
 from tests.test_interactive_native_mask_endpoint import _setup
+from tests.test_jobs_quality_queue_binding import _messages, media_queue
 from tests.test_managed_image_inference import httpx_client as httpx_client
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
+from tests.test_prediction_inputs import input_storage_world
 from tests.test_prediction_reference_actions import api_key
 
 
@@ -102,6 +107,39 @@ def assert_reference(actual, rle):
     assert {key: actual[key] for key in expected} == expected
     assert set(actual) - set(expected) <= {"storage_encoding"}
     assert actual.get("storage_encoding") in {None, "identity"}
+
+
+@pytest.fixture
+async def input_world(test_engine, monkeypatch):
+    async with (
+        managed_database(test_engine.url) as engine,
+        _login(engine, "mask_publication") as (role, password),
+    ):
+        database = engine.dialect.identifier_preparer.quote_identifier(
+            engine.url.database
+        )
+        functions = ", ".join(
+            f"yoao_jobs_v1.{name}({arguments})"
+            for name, arguments in sorted(PUBLICATION_FUNCTIONS)
+        )
+        async with engine.begin() as owner:
+            await owner.exec_driver_sql(
+                f"REVOKE TEMP ON DATABASE {database} FROM PUBLIC"
+            )
+            await owner.exec_driver_sql(
+                f"GRANT CONNECT ON DATABASE {database} TO {role}"
+            )
+            await owner.exec_driver_sql(f"GRANT USAGE ON SCHEMA yoao_jobs_v1 TO {role}")
+            await owner.exec_driver_sql(
+                f"GRANT EXECUTE ON FUNCTION {functions} TO {role}"
+            )
+        url = engine.url.set(drivername="postgresql", username=role, password=password)
+        dsn = url.render_as_string(hide_password=False)
+        await _verify_login(dsn, PUBLICATION_FUNCTIONS)
+        monkeypatch.setattr(settings, "jobs_publication_database_url", dsn)
+        monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+        async with input_storage_world(engine, monkeypatch) as inputs:
+            yield inputs
 
 
 @pytest.fixture
@@ -177,7 +215,6 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         blobs=blobs,
         candidate=encode_coco_rle(pixels[:-1] + [0], 48, 32),
         calls=[],
-        dispatched=[],
         setup_value=_setup(["mask", "polygon"]),
         setup_during=None,
         during=None,
@@ -204,12 +241,6 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         return failure_result(kind, exc)
 
     monkeypatch.setattr(worker, "_candidate_failure_result", record_failure)
-
-    async def dispatch(batch_id, *, dispatcher, execution_id, rollback=False):
-        w.dispatched.append((batch_id, execution_id, rollback))
-        return execution_id
-
-    monkeypatch.setattr("app.api.v1.mask_qc.dispatch_repair_batch", dispatch)
 
     async def setup(registry_id):
         if w.setup_during:
@@ -291,7 +322,8 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         lambda _db: Execution(),
     )
     try:
-        yield w
+        with contextmanager(media_queue.__wrapped__)(monkeypatch) as w.queue:
+            yield w
     finally:
         if not w.expect_unsettled:
             await assert_inputs_retired(
@@ -343,7 +375,17 @@ async def execute(client, w, headers):
     body = response.json()
     assert_public(body)
     w.batch_id, w.job_id = uuid.UUID(body["id"]), uuid.UUID(body["async_job_id"])
+    await _published_execution(w, w.job_id, "run_mask_repair")
     return body
+
+
+async def _published_execution(w, job_id, task_name):
+    async with w.factory() as db:
+        execution_id = (await db.get(AsyncJob, job_id)).celery_task_id
+    assert _messages(w.queue) == [
+        (f"app.workers.mask_repair.{task_name}", execution_id, [str(w.batch_id)], {})
+    ]
+    return execution_id
 
 
 async def forward(w, *, job_id=None):
@@ -361,9 +403,9 @@ async def forward(w, *, job_id=None):
 
 
 async def rollback_worker(w, job_id):
-    async with w.factory() as db:
-        job = await db.get(AsyncJob, uuid.UUID(str(job_id)))
-        celery_task_id = job.celery_task_id
+    celery_task_id = await _published_execution(
+        w, uuid.UUID(str(job_id)), "rollback_mask_repair"
+    )
     await worker.run_mask_repair_rollback(
         str(w.batch_id),
         celery_task_id,
@@ -681,6 +723,7 @@ async def test_resume_renews_request_authority_but_preserves_plan_and_source(
     assert resumed.status_code == 202, resumed.text
     w.job_id = uuid.UUID(resumed.json()["async_job_id"])
     assert w.job_id != old_job
+    await _published_execution(w, w.job_id, "run_mask_repair")
     w.failure = None
     count = len(w.calls)
     await forward(w, job_id=old_job)
