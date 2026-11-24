@@ -4,13 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs-site/**"
-      - "docs/adr/**"
-      - "CHANGELOG.md"
-      - "docs/changelogs/**"
-      - "ROADMAP.md"
-      - "ROADMAP/**"
-      - "apps/api/openapi.snapshot.json"
+      - "scripts/build-docs-redirect.mjs"
       - ".github/workflows/docs-deploy.yml"
   workflow_dispatch:
 
@@ -32,19 +26,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: pnpm/action-setup@v4
-      - name: Install
-        run: pnpm install --frozen-lockfile
-      - name: Build VitePress (predev/prebuild 会同步 openapi snapshot)
-        env:
-          DOCS_BASE: /ai-annotation-platform/
-        run: pnpm --filter docs-site build
+      - name: Build static redirect bundle
+        run: node scripts/build-docs-redirect.mjs .tmp/docs-redirect
       - uses: actions/configure-pages@v5
         with:
           enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs-site/.vitepress/dist
+          path: .tmp/docs-redirect
 
   deploy:
     name: Docs deployment
