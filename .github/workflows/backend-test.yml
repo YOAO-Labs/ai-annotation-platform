@@ -111,6 +111,7 @@ jobs:
           uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
           --durations=30 --junitxml=pytest-results.xml
           --shard-index ${{ inputs.shard-index }} --shard-count ${{ inputs.shard-count }}
+          ${{ inputs.shard-count == 4 && '--shard-plan tests/ci-shard-plan.json' || '' }}
       - uses: pnpm/action-setup@v4
         if: inputs.shard-index == 0
       - uses: actions/setup-node@v4

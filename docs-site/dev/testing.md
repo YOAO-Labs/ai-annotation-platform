@@ -50,6 +50,10 @@ pnpm dev:worktree -- exec --mode test -- \
 
 pytest 先收集全部 API 测试模块，再按模块分片。如果四份 `pytest-results.xml` 只有相同的 `collection failure`，API 用例并未执行。验证覆盖时应核对每个分片的用例结果，并将收集错误、跳过和执行失败分开统计。
 
+复验四个 API 分片时，保留 CI 的 `--shard-plan tests/ci-shard-plan.json`。计划只移动耗时长的整模块；未列出和新增的模块仍按路径哈希分配。单独运行文件不需要计划，也不会拆开同一模块的用例。
+
+更新计划时，在被测提交上用 `pytest -o addopts= --collect-only -q` 保存逐用例清单，下载同一次完整运行的四份 `pytest-results.xml`。从 `apps/api` 运行 `.venv/bin/python -m tests.plan_shards --help` 查看生成参数；将标准输出交给 `pnpm exec prettier --parser json > tests/ci-shard-plan.json`。比较最慢分片的预计时间，优先选只需移动少数模块的方案。JUnit 耗时不含排队、依赖安装或覆盖率报告生成；缩短整轮 CI 需用下一次实际运行验证。
+
 ### 前端：Vitest + MSW (`apps/web`)
 
 <span id="常用命令-1" aria-hidden="true"></span>

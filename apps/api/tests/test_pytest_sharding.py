@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
@@ -19,7 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests import pytest_sharding
+from tests import plan_shards, pytest_sharding
 
 API_ROOT = Path(__file__).resolve().parents[1]
 
@@ -194,7 +195,28 @@ def test_real_pytest_shards_are_disjoint_and_cover_every_test(mini_suite: Path) 
         passed = _passed_nodeids(result)
         assert selected.isdisjoint(passed)
         selected |= passed
-    assert len(selected) == MINI_TOTAL
+    assert selected == {
+        f"test_shard_{module:02d}.py::test_case_{case}"
+        for module in range(MINI_MODULE_COUNT)
+        for case in range(MINI_TESTS_PER_MODULE)
+    }
+
+    plan = mini_suite / "plan.json"
+    plan.write_text(json.dumps({"shards": [["test_shard_00.py"], [], []]}))
+    planned = _run_sharded_pytest(
+        mini_suite,
+        "--shard-index",
+        "0",
+        "--shard-count",
+        "3",
+        "--shard-plan",
+        str(plan),
+    )
+    assert planned.returncode == 0, planned.stderr
+    moved = {f"test_shard_00.py::test_case_{i}" for i in range(MINI_TESTS_PER_MODULE)}
+    original = _passed_nodeids(runs[0])
+    assert original.isdisjoint(moved)
+    assert _passed_nodeids(planned) == original | moved
 
 
 def test_real_pytest_shard_is_stable_across_python_hash_seeds(mini_suite: Path) -> None:
@@ -214,11 +236,14 @@ def test_real_pytest_shard_is_stable_across_python_hash_seeds(mini_suite: Path) 
     [
         ("--shard-count", "2"),
         ("--shard-index", "2", "--shard-count", "2"),
+        ("--shard-plan", "plan.json"),
+        ("--shard-plan", "plan.json", "--shard-index", "0", "--shard-count", "3"),
     ],
 )
 def test_real_pytest_rejects_invalid_range_before_running(
     mini_suite: Path, args
 ) -> None:
+    (mini_suite / "plan.json").write_text(json.dumps({"shards": [[], []]}))
     result = _run_sharded_pytest(mini_suite, *args)
     assert result.returncode == 4, (
         f"expected UsageError exit code:\n{result.stdout}\n{result.stderr}"
@@ -232,3 +257,17 @@ def test_real_pytest_without_flags_keeps_all_tests(mini_suite: Path) -> None:
     assert result.returncode == 0, result.stdout + result.stderr
     assert "deselected" not in result.stdout
     assert len(_passed_nodeids(result)) == MINI_TOTAL
+
+
+def test_history_rejects_a_substituted_case_even_when_counts_match(tmp_path):
+    collection = tmp_path / "collection.txt"
+    report = tmp_path / "pytest-results.xml"
+    collection.write_text(
+        "tests/test_scope.py::test_allowed\ntests/test_scope.py::test_denied\n"
+    )
+    report.write_text(
+        '<testsuite><testcase classname="tests.test_scope" name="test_allowed" time="1"/>'
+        '<testcase classname="tests.test_scope" name="test_obsolete" time="2"/></testsuite>'
+    )
+    with pytest.raises(ValueError, match="JUnit cases differ"):
+        plan_shards.module_times(collection, [report])
