@@ -20,7 +20,7 @@ last_reviewed: 2026-10-19
 
 ## 一次性初始化（Setup）
 
-先从可信渠道取得候选 Plugin-SDK 制品清单路径或 URL，以及独立核验的清单 SHA256，分别设置为 `SDK_MANIFEST`、`SDK_MANIFEST_SHA256`。wheel 必须与清单位于同一目录；下面的暂存步骤校验摘要，不使用另一 checkout 的 editable SDK 源码，也不代表新发行名已经公开发布。
+平台 API 和 SDK 测试使用 [Plugin-SDK 的 runtime 快照](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/platform-ci-runtime-8daeb0cf02ac)。在仓库根目录运行下列命令；清单摘要固定在这里，清单中的 wheel 摘要与平台依赖锁一致。不需要另一份 SDK checkout。
 
 ```bash
 # 1. 安装前端与工作区依赖
@@ -28,7 +28,9 @@ pnpm install
 # pnpm install 会自动运行 prepare；若本机安装了 pre-commit，可执行 pre-commit install
 
 # 2. 安装后端 Python 环境（含测试依赖）
-python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
+SDK_MANIFEST=https://github.com/YOAO-Labs/Plugin-SDK/releases/download/platform-ci-runtime-8daeb0cf02ac/manifest.json
+SDK_MANIFEST_SHA256=5af0e5e8c3cb68436446b2f917193a024771ec2daf94de29fc35056da75ef8a5
+python3 scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
   --output .artifacts/python/plugin-sdk --package yoao-backend-runtime
 cd apps/api
 uv sync --locked --extra test
@@ -54,7 +56,7 @@ docker compose up -d --wait postgres redis minio mailpit
 # 先创建工作树；以下路径替换为实际输出的新 checkout 和源 checkout
 orca worktree create --name my-task --agent codex --setup skip --json
 cd /path/to/new-worktree
-python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
+python3 scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
   --output .artifacts/python/plugin-sdk --package yoao-backend-runtime
 ORCA_ROOT_PATH="/path/to/source-checkout" ORCA_WORKTREE_PATH="$PWD" bash scripts/orca-worktree-setup.sh
 
