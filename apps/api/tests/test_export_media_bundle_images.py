@@ -6,7 +6,6 @@ from unittest.mock import Mock
 import uuid
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
@@ -14,19 +13,18 @@ from app.db.models.export_output import ExportOutput
 from app.services import export_media_bundles as bundles
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
+from app.services import export_outputs, storage_access
 from app.services.exporting.lidar_sources import canonical_identity
 from app.services.reference_keys import reference_key
 from tests import test_export_media_bundle_models as models
-from tests import test_export_media_retirement as retirement_tests
-from tests.test_export_media_bundles import FakeDB, digest
+from tests.export_worker_native_fixtures import worker_db as worker_db
+from tests.test_export_media_bundles import FakeDB, create_zip, digest
 from tests.test_export_media_bundles import (
     fake_allocation_boundary as fake_allocation_boundary,
 )
+from tests.test_export_media_retirement import objects
 
 pytestmark = pytest.mark.usefixtures("fake_allocation_boundary")
-
-owned_db = models.owned_db
-gc_db = retirement_tests.gc_db
 
 
 def image_inputs(*, managed=2, references=1, repeat=True, targets=("coco",)):
@@ -170,13 +168,11 @@ async def test_empty_and_reference_only_bundles_keep_zero_inventory_and_one_shot
     claim = await bundles.claim(db, receipt.id)
     assert claim.lease_token is not None
     assert await bundles.claim(db, receipt.id) is None
-    row = await bundles.publish(db, claim)
-    assert bundles.snapshot(row).state == "ready"
-    assert row.expires_at == receipt.created_at + timedelta(days=7)
-    assert not await retirement.attempt_ended(retirement_tests.PolicyDB(), row)
-    assert await retirement.attempt_ended(
-        retirement_tests.PolicyDB(), row, current=row.expires_at
-    )
+    published = await bundles.publish(db, claim)
+    assert published.state == "ready"
+    assert published.expires_at == receipt.created_at + timedelta(days=7)
+    assert not await retirement.attempt_ended(db, published)
+    assert await retirement.attempt_ended(db, published, current=published.expires_at)
     db.commit.assert_not_awaited()
 
 
@@ -461,34 +457,34 @@ async def test_frozen_reference_json_and_documents_share_bounded_budget(monkeypa
 
 @pytest.mark.parametrize("managed,references", [(0, 0), (0, 2), (1, 1)])
 async def test_database_image_scopes_publish_exact_zip_pair_atomically(
-    gc_db, managed, references, monkeypatch
+    worker_db, managed, references, monkeypatch, tmp_path
 ):
-    db = gc_db
+    db = worker_db
     _, receipt, _, _ = await allocate(db, managed=managed, references=references)
     await db.commit()
     claim = await bundles.claim(db, receipt.id)
     await db.commit()
-    row = await db.get(Bundle, receipt.id)
-    output = await models._zip(db, row, created_at=row.created_at, format="coco")
-    await db.commit()
-    await bundles.publish(db, claim)
-    output.state = "ready"
-    await db.flush()
-    await db.rollback()
-    row = await db.scalar(
-        select(Bundle)
-        .where(Bundle.id == receipt.id)
-        .execution_options(populate_existing=True)
+    paired = await create_zip(db, receipt, tmp_path / "delivery.zip", format="coco")
+    revision = await storage_access.check(
+        db, uuid.UUID(paired.storage_ref["location_id"])
     )
+    await bundles.publish(db, claim)
+    await export_outputs.publish(db, paired, revision)
+    await db.rollback()
+    row = await db.get(Bundle, receipt.id)
     assert row.state == "building" and row.published_at is None
     output = await db.get(ExportOutput, receipt.zip_output_id)
+    assert output.state == "pending"
     await bundles.publish(db, claim)
-    output.state = "ready"
+    await export_outputs.publish(db, paired, revision)
     await db.commit()
+    await db.refresh(row)
+    await db.refresh(output)
+    assert row.state == output.state == "ready" and row.published_at is not None
     assert row.object_count == managed and row.size_bytes == managed * 11
     assert output.media_bundle_id == row.id and output.expires_at == row.expires_at
     assert row.input_snapshot == receipt.input_snapshot
-    client = retirement_tests.objects(monkeypatch, row)
+    client = objects(monkeypatch, row)
     assert (await retirement.cleanup(db))["deleted"] == 0
     assert not client.calls
     row.state, row.retired_at = "retiring", bundles.now()
@@ -501,11 +497,10 @@ async def test_database_image_scopes_publish_exact_zip_pair_atomically(
 
 @pytest.mark.parametrize("fault", ["zip_id", "job", "deadline"])
 async def test_database_reference_only_pair_cannot_change_reserved_identity_or_expiry(
-    gc_db, fault
+    db_session, fault
 ):
-    db = gc_db
+    db = db_session
     _, receipt, _, _ = await allocate(db, managed=0, references=1)
-    await db.commit()
     row = await db.get(Bundle, receipt.id)
     values = {"created_at": row.created_at, "format": "coco"}
     if fault == "zip_id":
@@ -513,29 +508,30 @@ async def test_database_reference_only_pair_cannot_change_reserved_identity_or_e
     elif fault == "job":
         values["job_id"] = uuid.uuid4()
     else:
-        values["expires_at"] = row.expires_at + timedelta(seconds=1)
-    with pytest.raises(IntegrityError):
+        values["expires_at"] = row.expires_at - timedelta(seconds=1)
+    with pytest.raises(IntegrityError) as mismatch:
         async with db.begin_nested():
             await models._zip(db, row, **values)
             await models._constraints(db)
+    assert mismatch.value.orig.__cause__.constraint_name == "ck_export_media_pair"
 
 
 @pytest.mark.parametrize("references", [0, 2])
 async def test_database_unpublished_empty_bundle_retires_without_deleting_pending_zip(
-    gc_db, references, monkeypatch
+    worker_db, references, monkeypatch
 ):
-    db = gc_db
+    db = worker_db
     _, receipt, _, _ = await allocate(db, managed=0, references=references)
     await db.commit()
     row = await db.get(Bundle, receipt.id)
-    output = await models._zip(db, row, created_at=row.created_at, format="coco")
+    await models._zip(db, row, created_at=row.created_at, format="coco")
     await db.commit()
-    client = retirement_tests.objects(monkeypatch, row)
+    client = objects(monkeypatch, row)
     assert (await retirement.cleanup(db))["deleted"] == 1
-    restored = await db.get(Bundle, row.id)
+    restored = await db.get(Bundle, receipt.id, populate_existing=True)
     assert restored.state == "deleted"
     assert restored.inventory == {"schema": 1, "objects": {}}
     assert restored.input_snapshot == receipt.input_snapshot
-    assert (await db.get(ExportOutput, output.id)).state == "pending"
+    assert (await db.get(ExportOutput, receipt.zip_output_id)).state == "pending"
     assert not any(method == "delete" for method, _ in client.calls)
     assert client.close_count == 1
