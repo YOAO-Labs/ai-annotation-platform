@@ -42,6 +42,7 @@
 
 - `yoao plugins` 支持从固定摘要的 OCI 镜像标签 `io.yoao.plugin.manifest` 读取插件清单，提供 `yoao plugins inspect-image` 离线核验，并允许 `yoao plugins prepare` 通过 `--image` 参数或精简配置跳过手写完整 `manifest`（从标签读取清单时强制确认；仍完整兼容原有含内联 `manifest` 的 `--config`）。
 - `yoao plugins` 新增 `qualify` 子命令，并在 `install` 与 `upgrade` 中支持 `--qualify`（搭配可选 `--fixture`、`--asset-dir`、`--model-approval-ref`、`--fixture-approval-ref`），可在 `--network none` 隔离容器中执行镜像声明的 `io.yoao.plugin.qualification-command` 生成并校验 GPU 生命周期资格报告，不挂载 `data/token` 或签名密钥环，且不放宽任何现有 GPU 资格门禁、安装身份或排空语义。
+- 新增外部通知通道扩展点平台侧支持（`yoao-notification-channel/v1`、`yoao-notification-preferences/v2` 与通用 `yoao-extension-manifest/v1` 展示元数据及平台权威 `source_tier`）：提供超管通道注册／探测／CAS 状态流转（`prepared`／`active`／`disabled`／`retired`）与用户地址绑定／解绑／限流测试发送 REST 与 Python SDK 接口；通道凭据须通过独立 `NOTIFICATION_CHANNEL_ENCRYPTION_KEY` 加密且未配置时失败关闭，出站请求实施连接期 IP 绑定 SSRF 护栏，业务事务内写入 `yoao_notifications_v1.notification_channel_deliveries` 发件箱并由后台投递 worker 按目标可见性、账号状态、偏好与绑定四重复核后以脱敏 5 字段信封投递。
 
 ### Changed
 

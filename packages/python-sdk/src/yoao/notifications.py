@@ -1,4 +1,4 @@
-"""Notification and per-account notification preference operations."""
+"""Notification, preference, and external notification channel operations."""
 
 from __future__ import annotations
 
@@ -7,20 +7,30 @@ from uuid import UUID
 
 from yoao._http import HttpTransport
 from yoao.notification_models import (
+    DeleteChannelBindingResult,
     NotificationActionResult,
+    NotificationChannelAdmin,
+    NotificationChannelAdminList,
+    NotificationChannelProbeResult,
+    NotificationChannelRegisterRequest,
+    NotificationChannelUpdateRequest,
     NotificationClearReadResult,
     NotificationMarkAllReadResult,
     NotificationPage,
     NotificationPreferenceUpdate,
     NotificationPreferences,
     NotificationUnreadCount,
+    UserChannelBindingUpsertRequest,
+    UserNotificationChannelBinding,
+    UserNotificationChannelList,
+    VerifyChannelAddressResult,
 )
 
 IdLike = str | UUID
 
 
 class Notifications:
-    """Read and manage notifications belonging to the authenticated account."""
+    """Read and manage notifications, preferences, and external notification channels."""
 
     def __init__(self, http: HttpTransport):
         self._http = http
@@ -82,3 +92,113 @@ class Notifications:
         )
         response = self._http.request("PUT", "/notification-preferences", json=body)
         return NotificationActionResult.model_validate(response.json())
+
+    def list_channels(self) -> UserNotificationChannelList:
+        """List active and disabled external notification channels with current bindings."""
+        response = self._http.request("GET", "/notification-channels")
+        return UserNotificationChannelList.model_validate(response.json())
+
+    def upsert_channel_binding(
+        self, channel_id: str, binding: UserChannelBindingUpsertRequest
+    ) -> UserNotificationChannelBinding:
+        """Bind or update the authenticated account's recipient address for a channel."""
+        response = self._http.request(
+            "PUT",
+            f"/notification-channels/{channel_id}/binding",
+            json=binding.model_dump(mode="json"),
+        )
+        return UserNotificationChannelBinding.model_validate(response.json())
+
+    def verify_channel_address(self, channel_id: str) -> VerifyChannelAddressResult:
+        """Trigger a channel plugin test message to verify the bound recipient address."""
+        response = self._http.request(
+            "POST", f"/notification-channels/{channel_id}/verify-address"
+        )
+        return VerifyChannelAddressResult.model_validate(response.json())
+
+    def delete_channel_binding(self, channel_id: str) -> DeleteChannelBindingResult:
+        """Delete the authenticated account's binding for an external channel."""
+        response = self._http.request(
+            "DELETE", f"/notification-channels/{channel_id}/binding"
+        )
+        return DeleteChannelBindingResult.model_validate(response.json())
+
+    def list_admin_channels(
+        self, *, include_retired: bool = False
+    ) -> NotificationChannelAdminList:
+        """List registered external notification channels (super_admin)."""
+        response = self._http.request(
+            "GET",
+            "/admin/notification-channels",
+            params={"include_retired": include_retired},
+        )
+        return NotificationChannelAdminList.model_validate(response.json())
+
+    def register_admin_channel(
+        self, channel: NotificationChannelRegisterRequest
+    ) -> NotificationChannelAdmin:
+        """Register an external notification channel after live /setup verification."""
+        response = self._http.request(
+            "POST",
+            "/admin/notification-channels",
+            json=channel.model_dump(mode="json", exclude_none=True),
+        )
+        return NotificationChannelAdmin.model_validate(response.json())
+
+    def get_admin_channel(self, channel_id: str) -> NotificationChannelAdmin:
+        """Read one external notification channel record (super_admin)."""
+        response = self._http.request(
+            "GET", f"/admin/notification-channels/{channel_id}"
+        )
+        return NotificationChannelAdmin.model_validate(response.json())
+
+    def probe_admin_channel(self, channel_id: str) -> NotificationChannelProbeResult:
+        """Run live /health and /setup probes for a registered notification channel."""
+        response = self._http.request(
+            "POST", f"/admin/notification-channels/{channel_id}/probe"
+        )
+        return NotificationChannelProbeResult.model_validate(response.json())
+
+    def update_admin_channel(
+        self, channel_id: str, update: NotificationChannelUpdateRequest
+    ) -> NotificationChannelAdmin:
+        """Update an external notification channel with CAS expected_revision."""
+        response = self._http.request(
+            "PATCH",
+            f"/admin/notification-channels/{channel_id}",
+            json=update.model_dump(mode="json", exclude_unset=True),
+        )
+        return NotificationChannelAdmin.model_validate(response.json())
+
+    def enable_admin_channel(
+        self, channel_id: str, *, expected_revision: int
+    ) -> NotificationChannelAdmin:
+        """Activate a prepared or disabled notification channel with CAS revision."""
+        response = self._http.request(
+            "POST",
+            f"/admin/notification-channels/{channel_id}/enable",
+            json={"expected_revision": expected_revision},
+        )
+        return NotificationChannelAdmin.model_validate(response.json())
+
+    def disable_admin_channel(
+        self, channel_id: str, *, expected_revision: int
+    ) -> NotificationChannelAdmin:
+        """Disable an active notification channel with CAS revision."""
+        response = self._http.request(
+            "POST",
+            f"/admin/notification-channels/{channel_id}/disable",
+            json={"expected_revision": expected_revision},
+        )
+        return NotificationChannelAdmin.model_validate(response.json())
+
+    def retire_admin_channel(
+        self, channel_id: str, *, expected_revision: int
+    ) -> NotificationChannelAdmin:
+        """Retire a prepared or disabled notification channel and wipe credentials."""
+        response = self._http.request(
+            "POST",
+            f"/admin/notification-channels/{channel_id}/retire",
+            json={"expected_revision": expected_revision},
+        )
+        return NotificationChannelAdmin.model_validate(response.json())

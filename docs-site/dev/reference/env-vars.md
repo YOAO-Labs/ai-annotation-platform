@@ -594,6 +594,14 @@ last_reviewed: 2026-11-24
 | `NOTIFICATION_PUBLICATION_TOKEN` | `—` | — |
 | `NOTIFICATION_PUBLICATION_TOKEN_FILE` | `—` | — |
 | `NOTIFICATION_PUBLISH_API_TOKEN_FILE` | `—` | overlay 宿主 secret：同一个即时发布 bearer，挂载到 publisher 和所需调用进程。 |
+| `NOTIFICATION_CHANNEL_ENCRYPTION_KEY` | `—` | 外部通知通道插件：Bearer 令牌 Fernet 加密密钥（与 SECRET_KEY 独立；未配置时写路径失败关闭）。 |
+| `NOTIFICATION_CHANNEL_ENCRYPTION_KEY_FILE` | `—` | — |
+| `NOTIFICATION_CHANNEL_HOST_ALLOWLIST` | `—` | 外部通知通道 SSRF 允许列表：私网主机的域名/IP/CIDR（留空仅允许公网 HTTPS）。 |
+| `NOTIFICATION_CHANNEL_ALLOW_INSECURE_HTTP_HOSTS` | `—` | 外部通知通道允许明文 http:// 的私网主机列表（仅限私网/容器网，留空强制 HTTPS）。 |
+| `NOTIFICATION_CHANNEL_DELIVERY_DATABASE_URL` | `—` | 可选：专用外部通知投递受限数据库账号（yoao_notification_channel_delivery_client）DSN。 |
+| `NOTIFICATION_CHANNEL_DELIVERY_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_CHANNEL_VERIFY_RATE_LIMIT_PER_MINUTE` | `5` | 每用户每通道 verify-address 限流上限（次/分钟，1..60）与 Beat 扫描间隔（秒，2..300）。 |
+| `NOTIFICATION_CHANNEL_SWEEP_INTERVAL_SECONDS` | `10` | — |
 
 ## 独立 Assets 来源服务（可选，不进入默认 Compose）
 

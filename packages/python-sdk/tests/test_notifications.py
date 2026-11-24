@@ -7,12 +7,15 @@ import pytest
 from yoao.errors import NotFoundError
 from yoao.notification_models import (
     Notification,
+    NotificationChannelRegisterRequest,
+    NotificationChannelUpdateRequest,
     NotificationClearReadResult,
     NotificationMarkAllReadResult,
     NotificationPage,
     NotificationPreferenceUpdate,
     NotificationPreferences,
     NotificationUnreadCount,
+    UserChannelBindingUpsertRequest,
 )
 from yoao.notifications import Notifications
 
@@ -210,9 +213,190 @@ def test_update_preference_sends_only_explicit_patch_fields(client, respx_mock):
         {"type": "task_assigned"},
         {"type": "task_assigned", "in_app": None},
         {"type": "task_assigned", "toast": None},
+        {"type": "task_assigned", "external_channels": None},
+        {"type": "task_assigned", "external_channels": {}},
         {"type": "task_assigned", "in_app": True, "typo": False},
     ],
 )
 def test_empty_null_or_unknown_preference_patch_is_rejected(data):
     with pytest.raises(ValueError):
         NotificationPreferenceUpdate.model_validate(data)
+
+
+def test_update_preference_allows_external_channels_only(client, respx_mock):
+    route = respx_mock.put(f"{API}/notification-preferences").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+    body = NotificationPreferenceUpdate(
+        type="task.rejected", external_channels={"feishu": True}
+    )
+
+    result = Notifications(client._http).update_preference(body)
+
+    assert result.ok is True
+    assert route.calls.last.request.content == (
+        b'{"type":"task.rejected","external_channels":{"feishu":true}}'
+    )
+
+
+def test_notification_channel_admin_and_user_operations(client, respx_mock):
+    notifications = Notifications(client._http)
+    admin_row = {
+        "id": str(uuid4()),
+        "channel_id": "feishu",
+        "display_name": "Feishu DM",
+        "description": "Internal bot",
+        "homepage": "https://plugins.example.com/feishu",
+        "source_tier": "third_party",
+        "mode": "direct",
+        "status": "active",
+        "revision": 1,
+        "endpoint_url": "https://feishu.example.com/plugin",
+        "auth_token_sha256": "a" * 64,
+        "protocol_version": "yoao-notification-channel/v1",
+        "capabilities": ["deliver", "verify_address"],
+        "address_schema": {
+            "type": "object",
+            "properties": {"open_id": {"type": "string"}},
+            "required": ["open_id"],
+            "additionalProperties": False,
+        },
+        "manifest": None,
+        "rate_limit_per_minute": 60,
+        "consecutive_auth_errors": 0,
+        "created_at": "2026-11-24T08:00:00Z",
+        "updated_at": "2026-11-24T08:00:00Z",
+        "disabled_at": None,
+        "retired_at": None,
+    }
+    respx_mock.get(f"{API}/admin/notification-channels").mock(
+        return_value=httpx.Response(200, json={"items": [admin_row]})
+    )
+    respx_mock.post(f"{API}/admin/notification-channels").mock(
+        return_value=httpx.Response(201, json=admin_row)
+    )
+    respx_mock.get(f"{API}/admin/notification-channels/feishu").mock(
+        return_value=httpx.Response(200, json=admin_row)
+    )
+    respx_mock.post(f"{API}/admin/notification-channels/feishu/probe").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "healthy": True,
+                "health_detail": {"status": "ok"},
+                "setup_ok": True,
+                "protocol_version": "yoao-notification-channel/v1",
+                "channel_id": "feishu",
+                "display_name": "Feishu DM",
+                "capabilities": ["deliver", "verify_address"],
+                "error": None,
+            },
+        )
+    )
+    respx_mock.patch(f"{API}/admin/notification-channels/feishu").mock(
+        return_value=httpx.Response(200, json={**admin_row, "revision": 2})
+    )
+    respx_mock.post(f"{API}/admin/notification-channels/feishu/disable").mock(
+        return_value=httpx.Response(
+            200, json={**admin_row, "status": "disabled", "revision": 3}
+        )
+    )
+    respx_mock.post(f"{API}/admin/notification-channels/feishu/enable").mock(
+        return_value=httpx.Response(
+            200, json={**admin_row, "status": "active", "revision": 4}
+        )
+    )
+    respx_mock.post(f"{API}/admin/notification-channels/feishu/retire").mock(
+        return_value=httpx.Response(
+            200, json={**admin_row, "status": "retired", "revision": 5}
+        )
+    )
+    respx_mock.get(f"{API}/notification-channels").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "channel_id": "feishu",
+                        "display_name": "Feishu DM",
+                        "description": "Internal bot",
+                        "homepage": "https://plugins.example.com/feishu",
+                        "source_tier": "third_party",
+                        "status": "active",
+                        "capabilities": ["deliver", "verify_address"],
+                        "address_schema": admin_row["address_schema"],
+                        "bound": True,
+                        "address": {"open_id": "ou_123"},
+                        "locale": "zh-CN",
+                        "verified_at": None,
+                        "updated_at": "2026-11-24T08:00:00Z",
+                    }
+                ]
+            },
+        )
+    )
+    respx_mock.put(f"{API}/notification-channels/feishu/binding").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "channel_id": "feishu",
+                "address": {"open_id": "ou_123"},
+                "locale": "zh-CN",
+                "verified_at": None,
+                "updated_at": "2026-11-24T08:00:00Z",
+            },
+        )
+    )
+    respx_mock.post(f"{API}/notification-channels/feishu/verify-address").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "ok": True,
+                "verified_at": "2026-11-24T08:01:00Z",
+                "provider_message_id": "om_1",
+            },
+        )
+    )
+    respx_mock.delete(f"{API}/notification-channels/feishu/binding").mock(
+        return_value=httpx.Response(200, json={"ok": True, "deleted": True})
+    )
+
+    assert notifications.list_admin_channels().items[0].channel_id == "feishu"
+    assert (
+        notifications.register_admin_channel(
+            NotificationChannelRegisterRequest(
+                endpoint_url="https://feishu.example.com/plugin",
+                auth_token="tok_secret",
+            )
+        ).channel_id
+        == "feishu"
+    )
+    assert notifications.get_admin_channel("feishu").revision == 1
+    assert notifications.probe_admin_channel("feishu").setup_ok is True
+    assert (
+        notifications.update_admin_channel(
+            "feishu",
+            NotificationChannelUpdateRequest(
+                expected_revision=1, display_name="Feishu Bot"
+            ),
+        ).revision
+        == 2
+    )
+    assert (
+        notifications.disable_admin_channel("feishu", expected_revision=2).status
+        == "disabled"
+    )
+    assert (
+        notifications.enable_admin_channel("feishu", expected_revision=3).status
+        == "active"
+    )
+    assert (
+        notifications.retire_admin_channel("feishu", expected_revision=4).status
+        == "retired"
+    )
+    assert notifications.list_channels().items[0].bound is True
+    assert notifications.upsert_channel_binding(
+        "feishu", UserChannelBindingUpsertRequest(address={"open_id": "ou_123"})
+    ).address == {"open_id": "ou_123"}
+    assert notifications.verify_channel_address("feishu").provider_message_id == "om_1"
+    assert notifications.delete_channel_binding("feishu").deleted is True

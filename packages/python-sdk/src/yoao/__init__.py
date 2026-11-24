@@ -243,8 +243,14 @@ from yoao.learning_automation_models import (
 )
 
 from yoao.notification_models import (
+    DeleteChannelBindingResult,
     Notification,
     NotificationActionResult,
+    NotificationChannelAdmin,
+    NotificationChannelAdminList,
+    NotificationChannelProbeResult,
+    NotificationChannelRegisterRequest,
+    NotificationChannelUpdateRequest,
     NotificationClearReadResult,
     NotificationMarkAllReadResult,
     NotificationPage,
@@ -252,6 +258,11 @@ from yoao.notification_models import (
     NotificationPreferences,
     NotificationPreferenceUpdate,
     NotificationUnreadCount,
+    UserChannelBindingUpsertRequest,
+    UserNotificationChannel,
+    UserNotificationChannelBinding,
+    UserNotificationChannelList,
+    VerifyChannelAddressResult,
 )
 
 from yoao.pipeline_models import (
@@ -1851,4 +1862,15 @@ __all__ = [
     "LidarExportPreflightRequest",
     "LidarExportIssue",
     "LidarExportPreflightResult",
+    "DeleteChannelBindingResult",
+    "NotificationChannelAdmin",
+    "NotificationChannelAdminList",
+    "NotificationChannelProbeResult",
+    "NotificationChannelRegisterRequest",
+    "NotificationChannelUpdateRequest",
+    "UserChannelBindingUpsertRequest",
+    "UserNotificationChannel",
+    "UserNotificationChannelBinding",
+    "UserNotificationChannelList",
+    "VerifyChannelAddressResult",
 ]

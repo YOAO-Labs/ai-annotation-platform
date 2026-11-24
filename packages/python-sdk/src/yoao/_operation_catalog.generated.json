@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 768,
+  "operation_count": 780,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -1891,6 +1891,55 @@
       "responses": {
         "204": {
           "description": "Successful Response"
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "DELETE /api/v1/notification-channels/{channel_id}/binding",
+      "method": "DELETE",
+      "path": "/api/v1/notification-channels/{channel_id}/binding",
+      "operation_id": "delete_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_delete",
+      "summary": "Delete User Notification Channel Binding",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.delete_channel_binding"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteChannelBindingOut"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -3882,6 +3931,105 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/TopologyResponse"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/notification-channels",
+      "method": "GET",
+      "path": "/api/v1/admin/notification-channels",
+      "operation_id": "list_admin_notification_channels_api_v1_admin_notification_channels_get",
+      "summary": "List Admin Notification Channels",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.list_admin_channels"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "include_retired",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Include Retired",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminListOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/notification-channels/{channel_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/notification-channels/{channel_id}",
+      "operation_id": "get_admin_notification_channel_api_v1_admin_notification_channels__channel_id__get",
+      "summary": "Get Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.get_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
               }
             }
           }
@@ -11836,6 +11984,35 @@
         }
       },
       "reason": "not-implemented"
+    },
+    {
+      "name": "GET /api/v1/notification-channels",
+      "method": "GET",
+      "path": "/api/v1/notification-channels",
+      "operation_id": "list_user_notification_channels_api_v1_notification_channels_get",
+      "summary": "List User Notification Channels",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.list_channels"
+      ],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserNotificationChannelListOut"
+              }
+            }
+          }
+        }
+      }
     },
     {
       "name": "GET /api/v1/notification-preferences",
@@ -28588,6 +28765,65 @@
       }
     },
     {
+      "name": "PATCH /api/v1/admin/notification-channels/{channel_id}",
+      "method": "PATCH",
+      "path": "/api/v1/admin/notification-channels/{channel_id}",
+      "operation_id": "update_admin_notification_channel_api_v1_admin_notification_channels__channel_id__patch",
+      "summary": "Update Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.update_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelUpdateIn"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "PATCH /api/v1/auth/me",
       "method": "PATCH",
       "path": "/api/v1/auth/me",
@@ -31960,6 +32196,281 @@
               "schema": {
                 "$ref": "#/components/schemas/HTTPValidationError"
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels",
+      "operation_id": "register_admin_notification_channel_api_v1_admin_notification_channels_post",
+      "summary": "Register Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.register_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "201": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelRegisterIn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/disable",
+      "operation_id": "disable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__disable_post",
+      "summary": "Disable Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.disable_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/enable",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/enable",
+      "operation_id": "enable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__enable_post",
+      "summary": "Enable Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.enable_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/probe",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/probe",
+      "operation_id": "probe_admin_notification_channel_api_v1_admin_notification_channels__channel_id__probe_post",
+      "summary": "Probe Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.probe_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelProbeOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/retire",
+      "operation_id": "retire_admin_notification_channel_api_v1_admin_notification_channels__channel_id__retire_post",
+      "summary": "Retire Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.retire_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelTransitionIn"
             }
           }
         }
@@ -37121,6 +37632,55 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ApiKeyCreated"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/notification-channels/{channel_id}/verify-address",
+      "method": "POST",
+      "path": "/api/v1/notification-channels/{channel_id}/verify-address",
+      "operation_id": "verify_user_notification_channel_address_api_v1_notification_channels__channel_id__verify_address_post",
+      "summary": "Verify User Notification Channel Address",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.verify_channel_address"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyChannelAddressOut"
               }
             }
           }
@@ -51594,6 +52154,65 @@
       }
     },
     {
+      "name": "PUT /api/v1/notification-channels/{channel_id}/binding",
+      "method": "PUT",
+      "path": "/api/v1/notification-channels/{channel_id}/binding",
+      "operation_id": "upsert_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_put",
+      "summary": "Upsert User Notification Channel Binding",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.upsert_channel_binding"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserNotificationChannelBindingOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UserChannelBindingUpsertIn"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "PUT /api/v1/notification-preferences",
       "method": "PUT",
       "path": "/api/v1/notification-preferences",
@@ -63320,6 +63939,124 @@
       ]
     },
     {
+      "name": "notifications.delete_channel_binding",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "delete_channel_binding",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "DeleteChannelBindingResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "DELETE /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "api_operations": [
+        "DELETE /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.disable_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "disable_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/disable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/disable"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.enable_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "enable_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/enable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/enable"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.get_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "get_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
       "name": "notifications.list",
       "module": "yoao.notifications",
       "class": "Notifications",
@@ -63367,6 +64104,50 @@
       "cli_aliases": [
         "notifications.list"
       ]
+    },
+    {
+      "name": "notifications.list_admin_channels",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "list_admin_channels",
+      "parameters": [
+        {
+          "name": "include_retired",
+          "kind": "keyword_only",
+          "annotation": "bool",
+          "required": false,
+          "default": false
+        }
+      ],
+      "return_type": "NotificationChannelAdminList",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/notification-channels"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/notification-channels"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.list_channels",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "list_channels",
+      "parameters": [],
+      "return_type": "UserNotificationChannelList",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/notification-channels"
+      ],
+      "api_operations": [
+        "GET /api/v1/notification-channels"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "notifications.mark_all_read",
@@ -63449,6 +64230,91 @@
       ]
     },
     {
+      "name": "notifications.probe_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "probe_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelProbeResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/probe"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/probe"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.register_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "register_admin_channel",
+      "parameters": [
+        {
+          "name": "channel",
+          "kind": "positional_or_keyword",
+          "annotation": "NotificationChannelRegisterRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.retire_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "retire_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/retire"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/retire"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
       "name": "notifications.unread_count",
       "module": "yoao.notifications",
       "class": "Notifications",
@@ -63468,6 +64334,39 @@
       "cli_aliases": [
         "notifications.unread-count"
       ]
+    },
+    {
+      "name": "notifications.update_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "update_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "update",
+          "kind": "positional_or_keyword",
+          "annotation": "NotificationChannelUpdateRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "PATCH /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "api_operations": [
+        "PATCH /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "notifications.update_preference",
@@ -63500,6 +64399,65 @@
       "cli_aliases": [
         "notifications.update-preference"
       ]
+    },
+    {
+      "name": "notifications.upsert_channel_binding",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "upsert_channel_binding",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "binding",
+          "kind": "positional_or_keyword",
+          "annotation": "UserChannelBindingUpsertRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "UserNotificationChannelBinding",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "PUT /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "api_operations": [
+        "PUT /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.verify_channel_address",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "verify_channel_address",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "VerifyChannelAddressResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/notification-channels/{channel_id}/verify-address"
+      ],
+      "api_operations": [
+        "POST /api/v1/notification-channels/{channel_id}/verify-address"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "pipelines.apply",
