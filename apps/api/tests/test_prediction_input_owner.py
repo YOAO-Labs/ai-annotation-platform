@@ -1,6 +1,7 @@
 """Exact prediction input ownership over real isolated SQL and controlled SDK I/O."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import timedelta
 import hashlib
@@ -215,40 +216,48 @@ class Storage:
         self.closed = True
 
 
-@pytest.fixture
-async def world(test_db_url, monkeypatch):
+@asynccontextmanager
+async def owner_database(test_db_url):
     from tests.managed_image_inference_fixtures import managed_database
 
     async with managed_database(test_db_url) as engine:
-        factory = async_sessionmaker(engine, expire_on_commit=False)
-        async with factory() as db:
+        async with async_sessionmaker(engine).begin() as db:
             await ensure_legacy_bindings(db)
-            await db.commit()
-        world = SimpleNamespace(
-            factory=factory,
-            objects={},
-            metadata={},
-            versions={},
-            current_versions={},
-            versioning="Enabled",
-            versioning_reads=[],
-            reads=[],
-            heads=[],
-            signed_versions=[],
-            delete_markers=[],
-            clients=[],
-            puts=[],
-            bodies=[],
-            deleted=[],
-            expirations=[],
-            started=None,
-            release=None,
-            after_put=None,
-            corrupt_read=False,
-            fail_close=False,
-            extra_version=False,
-            headers={},
-        )
+        yield engine
+
+
+def make_owner_world(engine):
+    return SimpleNamespace(
+        factory=async_sessionmaker(engine, expire_on_commit=False),
+        objects={},
+        metadata={},
+        versions={},
+        current_versions={},
+        versioning="Enabled",
+        versioning_reads=[],
+        reads=[],
+        heads=[],
+        signed_versions=[],
+        delete_markers=[],
+        clients=[],
+        puts=[],
+        bodies=[],
+        deleted=[],
+        expirations=[],
+        started=None,
+        release=None,
+        after_put=None,
+        corrupt_read=False,
+        fail_close=False,
+        extra_version=False,
+        headers={},
+    )
+
+
+@pytest.fixture
+async def world(test_db_url, monkeypatch):
+    async with owner_database(test_db_url) as engine:
+        world = make_owner_world(engine)
         monkeypatch.setattr(owner, "make_storage", lambda: Storage(world))
         yield world
 
