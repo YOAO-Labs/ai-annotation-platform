@@ -131,15 +131,18 @@ export async function expectRenderedGroups(
 export type LayoutMatrixKind = "image" | "video" | "3d";
 
 export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixKind[]) {
-  for (const reorders of [10, 50]) {
+  for (const lane of ["layout", "stress"] as const) {
+    const stress = lane === "stress";
     for (const mode of ["annotate", "review"] as const) {
       for (const kind of kinds) {
         test(
-          `${mode}:${kind} 连续${reorders + 4}次面板重排保留画布，跨视口和紧凑模式后刷新恢复`,
-          { tag: reorders === 50 ? "@stress" : "@layout" },
+          stress
+            ? `${mode}:${kind} 连续54次面板重排保留画布，跨视口和紧凑模式后刷新恢复`
+            : `${mode}:${kind} 重排与浮动面板保留画布，退出紧凑模式和刷新后恢复`,
+          { tag: `@${lane}` },
           async ({ page, seed }) => {
-            test.setTimeout(reorders === 50 ? 180_000 : 90_000);
-            const stageTimeout = reorders === 50 ? STRESS_STAGE_TIMEOUT_MS : undefined;
+            test.setTimeout(stress ? 180_000 : 90_000);
+            const stageTimeout = stress ? STRESS_STAGE_TIMEOUT_MS : undefined;
             const context: WorkspaceContext = `${mode}:${kind}`;
             const data = await seed.owned();
             let projectId = data.project_id;
@@ -183,27 +186,34 @@ export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixK
 
             await layoutCommand(page, "标准标注布局");
             const sameCanvas = await rememberCanvas(page, kind, stageTimeout);
-            const commands = [
-              "停靠到左侧",
-              "停靠到右侧",
-              "停靠到底部",
-              "与标注详情合并为标签",
-              "浮动面板",
-            ];
-            for (let operation = 0; operation < reorders; operation += 1) {
-              await test.step(`拖动重排 ${operation + 1}`, async () => {
-                if (operation === Math.floor(reorders / 2))
-                  await page.setViewportSize(finalViewport);
-                await panelCommand(
-                  page,
-                  operation === reorders - 1 ? "类别面板" : "讨论",
-                  commands[operation % commands.length],
-                );
+            if (stress) {
+              const commands = [
+                "停靠到左侧",
+                "停靠到右侧",
+                "停靠到底部",
+                "与标注详情合并为标签",
+                "浮动面板",
+              ];
+              for (let operation = 0; operation < 50; operation += 1) {
+                await test.step(`拖动重排 ${operation + 1}`, async () => {
+                  if (operation === 25) await page.setViewportSize(finalViewport);
+                  await panelCommand(
+                    page,
+                    operation === 49 ? "类别面板" : "讨论",
+                    commands[operation % commands.length],
+                  );
+                  await sameCanvas();
+                });
+              }
+              for (const command of ["停靠到左侧", "停靠到右侧", "停靠到底部", "停靠到左侧"]) {
+                await panelCommand(page, "任务队列", command);
                 await sameCanvas();
-              });
-            }
-            for (const command of ["停靠到左侧", "停靠到右侧", "停靠到底部", "停靠到左侧"]) {
-              await panelCommand(page, "任务队列", command);
+              }
+            } else {
+              await panelCommand(page, "讨论", "与标注详情合并为标签");
+              await sameCanvas();
+              await page.setViewportSize(finalViewport);
+              await panelCommand(page, "类别面板", "浮动面板");
               await sameCanvas();
             }
             await page.waitForTimeout(650);
@@ -228,8 +238,15 @@ export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixK
             await page.setViewportSize({ width: 1024, height: finalViewport.height });
             await expect(workspace(page)).toHaveAttribute("data-compact", "true");
             await layoutCommand(page, "任务队列");
+            const queue = page.locator('[data-workbench-panel="task-queue"]');
+            await expect(queue).toHaveAttribute("aria-hidden", "false");
             await sameCanvas();
             await layoutCommand(page, "讨论");
+            await expect(page.locator('[data-workbench-panel="discussion"]')).toHaveAttribute(
+              "aria-hidden",
+              "false",
+            );
+            await expect(queue).toHaveAttribute("aria-hidden", "true");
             await sameCanvas();
             await page.setViewportSize(finalViewport);
             await expect(workspace(page)).toHaveAttribute("data-compact", "false");

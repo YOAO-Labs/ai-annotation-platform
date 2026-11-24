@@ -325,22 +325,34 @@ test("业务失败可重试，保存中切题保持意图且迟到结果只归�
   await expect(page.getByTestId("continuous-creation-status")).toContainText("car");
   await expect(draft).toBeHidden();
   await queue.getByText(source.display_id, { exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`task=${data.task_ids[0]}`));
   await queue.getByText(target.display_id, { exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`task=${data.task_ids[1]}`));
   const selected = page.getByTestId(`box-list-item-${existing.id}`);
   await selected.click();
-  await expect(selected).toHaveClass(/!border-brand/);
+  const selectionCard = page.locator("[data-floating-panel]").filter({
+    has: page.getByText("选中对象", { exact: true }),
+  });
+  await selectionCard.getByText("更多信息", { exact: true }).click();
+  const selectedId = selectionCard.getByTitle(existing.id, { exact: true });
+  await expect(selectedId).toBeVisible();
   const response = page.waitForResponse(
     (item) =>
       item.request().method() === "POST" &&
       item.url().includes(`/tasks/${data.task_ids[0]}/annotations`),
   );
   release();
-  expect((await response).ok()).toBe(true);
-  await expect(selected).toHaveClass(/!border-brand/);
-  expect(await saved(request, data, data.task_ids[1])).toHaveLength(1);
+  const lateWrite = await response;
+  expect(lateWrite.ok()).toBe(true);
+  await lateWrite.finished();
+  expect(await saved(request, data, data.task_ids[1])).toMatchObject([
+    { id: existing.id, class_name: "person" },
+  ]);
   expect(await saved(request, data)).toHaveLength(2);
+  await expect(selectedId).toBeVisible();
   await page.unroute(path);
   await page.reload();
+  await expect(selected).toBeVisible();
   expect(await saved(request, data)).toHaveLength(2);
 });
 
