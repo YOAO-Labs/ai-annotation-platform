@@ -222,6 +222,9 @@ const legacyInclude = (eventName, paths) =>
 
 const DOCS_ONLY = [
   /^README\.md$/,
+  /^DEV\.md$/,
+  /^ROADMAP\.md$/,
+  /^ROADMAP\/.*\.md$/,
   /^CHANGELOG\.md$/,
   /^CONTRIBUTING\.md$/,
   /^SECURITY\.md$/,
@@ -613,6 +616,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       .filter(Boolean);
   }
   const dispatchScope = process.env.E2E_DISPATCH_SCOPE;
+  const selection = selectSuites(eventName, paths, { dispatchScope });
+  const docsOnly = selection.classification.docsOnly === true;
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
     "scripts/test-suites.json",
@@ -628,14 +633,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     mlCpu =
       changed.length === 0 ||
       changed.some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix))) ||
-      !classifyPaths(changed).docsOnly;
+      !docsOnly;
   } else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
 
   const selectionMode = (process.env.E2E_SELECTION_MODE ?? "").trim() || "planned";
   if (!["planned", "legacy"].includes(selectionMode))
     throw new Error(`Invalid E2E selection mode: ${selectionMode}`);
   const legacyGate = planE2ESuites(eventName, paths);
-  const selection = selectSuites(eventName, paths, { dispatchScope });
   const shadow = { ...shadowPlan(eventName, paths, { dispatchScope }), mlCpu };
   const plannedEntries = selection.planned
     .map((suite) => SUITE_CONTRACT.find((entry) => entry.suite === suite))
@@ -650,7 +654,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     },
     ...(suite === "mask-native" ? [{ suite: "mask-worker", planned: true }] : []),
   ]);
-  const docsOnlySkip = selectionMode !== "legacy" && selection.classification.docsOnly;
+  const docsOnlySkip = selectionMode !== "legacy" && docsOnly;
   console.log(`matrix=${JSON.stringify(gate)}`);
   console.log(`legacy=${JSON.stringify(legacyGate)}`);
   console.log(
@@ -673,6 +677,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
           },
     )}`,
   );
+  console.log(`docs_only=${docsOnly}`);
   console.log(`run_suites=${gate.include.length > 0}`);
   console.log(`selection_mode=${selectionMode}`);
   const shadowPath = process.env.E2E_SHADOW_PATH || "e2e-shadow.json";
