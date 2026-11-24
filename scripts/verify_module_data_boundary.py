@@ -1886,6 +1886,7 @@ PACKAGED_CURRENT_SQL = {
     "0489_prediction_retry_pipeline_failure.sql": "apps/labeling/src/yoao_labeling/sql",
     "0495_original_capabilities.sql": "apps/assets-source/src/yoao_assets_source",
     "0502_jobs_ordinary_ledger.sql": "apps/jobs/src/yoao_jobs/sql",
+    "0510_notification_channels.sql": "apps/notifications/src/yoao_notifications/sql",
 }
 INSIGHTS_STORAGE_SQL = (
     "0487_insights_perf_refresh.sql",
@@ -1910,6 +1911,7 @@ CURRENT_NAMESPACE_SQL = (
     "0507_training_saved_io.sql",
     "0508_migration_saved_io.sql",
     "0509_import_saved_io.sql",
+    "0510_notification_target_visibility.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -10558,7 +10560,7 @@ def main(
         )
         api_get_request = json.dumps(
             {
-                "schema": "aap-notification-preferences/v1",
+                "schema": "yoao-notification-preferences/v2",
                 "operation": "get",
                 "user_id": notification_preference_user_id,
             },

@@ -36,16 +36,23 @@ function assertClosedSchemaReferences(contract) {
 export async function selfCheck() {
   const { contract, policy } = await loadContract();
   assert.equal(contract.$schema, "https://json-schema.org/draft/2020-12/schema");
-  assert.equal(contract.title, "AAP notification preferences protocol");
+  assert.equal(contract.$id, "yoao-notification-preferences/v2");
+  assert.equal(contract.title, "YOAO notification preferences protocol");
   assertClosedSchemaReferences(contract);
   assert.ok(Array.isArray(policy.known_notification_types));
   assert.ok(Array.isArray(policy.default_toast_types));
+  assert.ok(Array.isArray(policy.external_deliverable_types));
   assert.ok(
     policy.default_toast_types.every((type) => policy.known_notification_types.includes(type)),
   );
+  assert.ok(
+    policy.external_deliverable_types.every((type) =>
+      policy.known_notification_types.includes(type),
+    ),
+  );
 
   const patch = {
-    schema: "aap-notification-preferences/v1",
+    schema: "yoao-notification-preferences/v2",
     operation: "patch",
     user_id: "00000000-0000-4000-8000-000000000001",
     type: "task.rejected",
@@ -72,7 +79,7 @@ async function verifyOwnerCommand() {
   }
 
   const request = (operation, fields = {}) => ({
-    schema: "aap-notification-preferences/v1",
+    schema: "yoao-notification-preferences/v2",
     operation,
     user_id: userId,
     ...fields,
@@ -91,13 +98,14 @@ async function verifyOwnerCommand() {
       assert.equal(item.in_app, true);
       assert.equal(item.email, false);
       assert.equal(item.toast, toastDefaults.has(item.type));
+      assert.equal(typeof item.external_channels, "object");
     }
 
     const created = await command(
       request("patch", { type: "task.rejected", patch: { in_app: false } }),
     );
     assert.deepEqual(created, {
-      schema: "aap-notification-preferences/v1",
+      schema: "yoao-notification-preferences/v2",
       ok: true,
       data: { operation: "patch", updated: true },
     });

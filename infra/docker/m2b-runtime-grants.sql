@@ -19,3 +19,4 @@
 \ir saved-outputs-runtime-grants.sql
 \ir migration-io-runtime-grants.sql
 \ir media-io-runtime-grants.sql
+\ir notification-channels-runtime-grants.sql

@@ -7,18 +7,23 @@ from collections.abc import Mapping
 from typing import Any, Protocol
 
 from .preferences_contract import (
+    PREFERENCES_PROTOCOL,
     GetPreferencesRequest,
     IsInAppMutedRequest,
-    NotificationPreferenceUnknownType,
+    NotificationPreferenceChannelError,
     NotificationPreferencesUnavailable,
+    NotificationPreferenceUnknownType,
     PatchPreferenceRequest,
     decode_get_preferences_reply,
     decode_is_in_app_muted_reply,
     decode_patch_preference_reply,
 )
 from .preferences_policy import (
+    EXTERNAL_DELIVERABLE_TYPES,
     KNOWN_NOTIFICATION_TYPES,
+    RESERVED_CHANNEL_IDS,
     default_toast_for,
+    is_external_deliverable,
 )
 
 
@@ -34,7 +39,7 @@ class NotificationPreferenceManager:
         reply = decode_get_preferences_reply(
             await self.data.command(
                 GetPreferencesRequest(
-                    schema="aap-notification-preferences/v1",
+                    schema=PREFERENCES_PROTOCOL,
                     operation="get",
                     user_id=user_id,
                 )
@@ -46,14 +51,19 @@ class NotificationPreferenceManager:
         self,
         user_id: uuid.UUID,
         notification_type: str,
-        patch: Mapping[str, bool],
+        patch: Mapping[str, bool] | None = None,
+        *,
+        external_channels: Mapping[str, bool] | None = None,
     ) -> None:
         request = PatchPreferenceRequest(
-            schema="aap-notification-preferences/v1",
+            schema=PREFERENCES_PROTOCOL,
             operation="patch",
             user_id=user_id,
             type=notification_type,
-            patch=dict(patch),
+            patch=dict(patch) if patch else {},
+            external_channels=(
+                dict(external_channels) if external_channels is not None else None
+            ),
         )
         decode_patch_preference_reply(
             await self.data.command(request), notification_type
@@ -63,7 +73,7 @@ class NotificationPreferenceManager:
         reply = decode_is_in_app_muted_reply(
             await self.data.command(
                 IsInAppMutedRequest(
-                    schema="aap-notification-preferences/v1",
+                    schema=PREFERENCES_PROTOCOL,
                     operation="is_in_app_muted",
                     user_id=user_id,
                     type=notification_type,
@@ -74,9 +84,13 @@ class NotificationPreferenceManager:
 
 
 __all__ = [
+    "EXTERNAL_DELIVERABLE_TYPES",
     "KNOWN_NOTIFICATION_TYPES",
+    "RESERVED_CHANNEL_IDS",
+    "NotificationPreferenceChannelError",
     "NotificationPreferenceManager",
     "NotificationPreferenceUnknownType",
     "NotificationPreferencesUnavailable",
     "default_toast_for",
+    "is_external_deliverable",
 ]

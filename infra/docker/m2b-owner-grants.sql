@@ -24,3 +24,4 @@ REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_assets_storage_v1 FROM PUBLIC;
 \ir training-saved-io-owner-grants.sql
 \ir migration-io-owner-grants.sql
 \ir import-saved-io-owner-grants.sql
+\ir notification-channels-owner-grants.sql

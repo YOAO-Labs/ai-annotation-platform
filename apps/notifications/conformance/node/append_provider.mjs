@@ -73,7 +73,7 @@ async function verifyOwnerAppend() {
       "SELECT yoao_notifications_v1.preference_command($1::jsonb) AS reply",
       [
         JSON.stringify({
-          schema: "aap-notification-preferences/v1",
+          schema: "yoao-notification-preferences/v2",
           operation: "is_in_app_muted",
           user_id: userId,
           type,

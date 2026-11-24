@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal, TypeAlias, Union
-import uuid
 
 from pydantic import (
     BaseModel,
@@ -19,7 +19,9 @@ from pydantic import (
     model_validator,
 )
 
-PREFERENCES_PROTOCOL = "aap-notification-preferences/v1"
+from .preferences_policy import is_valid_external_channel_id
+
+PREFERENCES_PROTOCOL = "yoao-notification-preferences/v2"
 PreferenceChannel: TypeAlias = Literal["in_app", "toast"]
 
 
@@ -28,7 +30,7 @@ class _ClosedModel(BaseModel):
 
 
 class PreferenceRequestBase(_ClosedModel):
-    protocol: Literal["aap-notification-preferences/v1"] = Field(alias="schema")
+    protocol: Literal["yoao-notification-preferences/v2"] = Field(alias="schema")
 
 
 class GetPreferencesRequest(PreferenceRequestBase):
@@ -40,7 +42,8 @@ class PatchPreferenceRequest(PreferenceRequestBase):
     operation: Literal["patch"]
     user_id: uuid.UUID
     type: StrictStr = Field(min_length=1, max_length=60)
-    patch: dict[PreferenceChannel, StrictBool]
+    patch: dict[PreferenceChannel, StrictBool] = Field(default_factory=dict)
+    external_channels: dict[StrictStr, StrictBool] | None = None
 
     @field_validator("type")
     @classmethod
@@ -49,10 +52,28 @@ class PatchPreferenceRequest(PreferenceRequestBase):
             raise ValueError("type must not contain control characters")
         return value
 
+    @field_validator("external_channels")
+    @classmethod
+    def valid_external_channel_ids(
+        cls, value: dict[str, bool] | None
+    ) -> dict[str, bool] | None:
+        if value is None:
+            return None
+        if len(value) > 32:
+            raise ValueError("external_channels has too many entries")
+        for channel_id in value:
+            if not is_valid_external_channel_id(channel_id):
+                raise ValueError(f"invalid external channel id: {channel_id!r}")
+        return value
+
     @model_validator(mode="after")
     def nonempty_patch(self) -> PatchPreferenceRequest:
-        if not self.patch:
-            raise ValueError("patch must contain at least one channel")
+        has_builtin = bool(self.patch)
+        has_external = bool(self.external_channels)
+        if not has_builtin and not has_external:
+            raise ValueError(
+                "patch or external_channels must contain at least one channel"
+            )
         return self
 
 
@@ -80,6 +101,7 @@ class PreferenceItem(_ClosedModel):
     in_app: StrictBool
     email: StrictBool
     toast: StrictBool
+    external_channels: dict[StrictStr, StrictBool] = Field(default_factory=dict)
 
 
 class GetPreferencesData(_ClosedModel):
@@ -98,7 +120,7 @@ class IsInAppMutedData(_ClosedModel):
 
 
 class _ReplyBase(_ClosedModel):
-    protocol: Literal["aap-notification-preferences/v1"] = Field(alias="schema")
+    protocol: Literal["yoao-notification-preferences/v2"] = Field(alias="schema")
     ok: Literal[True]
 
 
@@ -115,11 +137,16 @@ class IsInAppMutedReply(_ReplyBase):
 
 
 class PreferenceError(_ClosedModel):
-    code: Literal["invalid_request", "unknown_type"]
+    code: Literal[
+        "invalid_request",
+        "unknown_type",
+        "channel_not_deliverable",
+        "unknown_channel",
+    ]
 
 
 class PreferenceFailure(_ClosedModel):
-    protocol: Literal["aap-notification-preferences/v1"] = Field(alias="schema")
+    protocol: Literal["yoao-notification-preferences/v2"] = Field(alias="schema")
     ok: Literal[False]
     error: PreferenceError
 
@@ -128,6 +155,12 @@ class NotificationPreferenceUnknownType(ValueError):
     def __init__(self, notification_type: str):
         self.notification_type = notification_type
         super().__init__(f"unknown notification type: {notification_type}")
+
+
+class NotificationPreferenceChannelError(ValueError):
+    def __init__(self, code: str, detail: str):
+        self.code = code
+        super().__init__(detail)
 
 
 PreferenceMessage: TypeAlias = Union[
@@ -179,6 +212,16 @@ def decode_patch_preference_reply(
             raise NotificationPreferencesUnavailable() from None
         if failure.error.code == "unknown_type":
             raise NotificationPreferenceUnknownType(notification_type)
+        if failure.error.code == "channel_not_deliverable":
+            raise NotificationPreferenceChannelError(
+                "channel_not_deliverable",
+                f"notification type {notification_type!r} is not deliverable to external channels",
+            )
+        if failure.error.code == "unknown_channel":
+            raise NotificationPreferenceChannelError(
+                "unknown_channel",
+                "referenced external notification channel is unknown or unavailable",
+            )
         raise NotificationPreferencesUnavailable()
     return _decode(raw, PatchPreferenceReply)
 
@@ -191,5 +234,5 @@ def preferences_json_schema() -> dict[str, Any]:
     schema = _MESSAGE_ADAPTER.json_schema(by_alias=True)
     schema["$schema"] = "https://json-schema.org/draft/2020-12/schema"
     schema["$id"] = PREFERENCES_PROTOCOL
-    schema["title"] = "AAP notification preferences protocol"
+    schema["title"] = "YOAO notification preferences protocol"
     return schema
