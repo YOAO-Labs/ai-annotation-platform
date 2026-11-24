@@ -437,6 +437,15 @@ test("Login uses core, but changed ordinary product behavior uses its owning spe
     const entry = SUITE_CONTRACT.find((item) => item.suite === suite);
     assert.ok(entry.command.split(" ").includes(`e2e/tests/${spec}.spec.ts`), path);
   }
+
+  const templates = selectSuites("pull_request", [
+    "apps/web/src/pages/ProjectTemplates/ProjectTemplatesPage.tsx",
+  ]);
+  assert.deepEqual(templates.planned, ["smoke", "operational-lists", "annotation-guide"]);
+  const inspector = selectSuites("pull_request", [
+    "apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx",
+  ]);
+  assert.deepEqual(inspector.planned, ["smoke", "ai-request-worker", ...video]);
 });
 
 test("short dock layout follows shared layout code without scheduling long stress", () => {
@@ -452,7 +461,12 @@ test("short dock layout follows shared layout code without scheduling long stres
   }
   const short = selectSuites("pull_request", ["apps/web/e2e/tests/workbench-layout.spec.ts"]);
   assert.deepEqual(short.planned, ["smoke", "layout-short"]);
-  assert.equal(short.timelineLayout, true);
+  assert.equal(short.timelineLayout, false);
+  const floating = selectSuites("pull_request", [
+    "apps/web/src/pages/Workbench/shell/FloatingDock.tsx",
+  ]);
+  assert.deepEqual(floating.planned, ["smoke", "layout-short"]);
+  assert.equal(floating.timelineLayout, false);
   assert.deepEqual(
     selectSuites("pull_request", ["apps/web/e2e/tests/workbench-layout-matrix.spec.ts"]).planned,
     ["smoke", "layout-stress", "layout-short"],

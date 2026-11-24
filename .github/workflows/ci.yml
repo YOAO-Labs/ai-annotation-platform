@@ -118,6 +118,14 @@ jobs:
         id: minio
         with:
           project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - name: Prepare pinned MinIO client
+        id: mc
+        run: |
+          mkdir -p "$RUNNER_TEMP/minio-client"
+          docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml \
+            cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
+          chmod 700 "$RUNNER_TEMP/minio-client/mc"
+          echo "$RUNNER_TEMP/minio-client" >> "$GITHUB_PATH"
       - name: Worktree and local service maintenance unit tests
         if: ${{ !cancelled() && steps.python.outcome == 'success' }}
         working-directory: apps/api
@@ -130,15 +138,56 @@ jobs:
         working-directory: apps/api
         run: uv run python ../../scripts/test-orca-worktree-setup.py
       - name: Worktree resource isolation acceptance
-        if: ${{ !cancelled() && steps.minio.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.python.outcome == 'success' && steps.mc.outcome == 'success' }}
         working-directory: apps/api
+        run: uv run python -m pytest -q --tb=short ../../scripts/verify_worktree_isolation.py --junitxml=worktree-isolation-results.xml
+      - uses: actions/setup-node@v4
+        id: node
+        if: ${{ !cancelled() && steps.python.outcome == 'success' && steps.mc.outcome == 'success' }}
+        with:
+          node-version: "22"
+      - name: Verify task and dataset item playback cleanup over HTTP
+        id: playback
+        if: ${{ !cancelled() && steps.node.outcome == 'success' }}
+        env:
+          ENVIRONMENT: development
         run: |
-          mkdir -p "$RUNNER_TEMP/minio-client"
-          docker compose --project-name "$BACKEND_MINIO_PROJECT" --file ../../.github/e2e-minio.yml \
-            cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
-          chmod 700 "$RUNNER_TEMP/minio-client/mc"
-          export PATH="$RUNNER_TEMP/minio-client:$PATH"
-          uv run python -m pytest -q --tb=short ../../scripts/verify_worktree_isolation.py --junitxml=worktree-isolation-results.xml
+          packages=()
+          if ! command -v ffprobe >/dev/null || ! command -v ffmpeg >/dev/null; then
+            packages+=(ffmpeg)
+          fi
+          if [ ! -f /usr/share/color/icc/sRGB.icc ] && [ ! -f /usr/share/color/icc/sRGB.icm ] &&
+             [ ! -f /usr/share/color/icc/colord/sRGB.icc ]; then
+            packages+=(icc-profiles-free)
+          fi
+          if [ "${#packages[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends "${packages[@]}"
+          fi
+          PLAYWRIGHT_ML_FIXTURE_HOST=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
+          export PLAYWRIGHT_ML_FIXTURE_HOST
+          node scripts/dev-worktree.mjs exec --mode e2e -- \
+            node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=apps/api/original-playback-http-results.xml \
+            scripts/verify_original_playback_http.mjs
+          python - <<'PY'
+          from xml.etree import ElementTree
+          cases = list(ElementTree.parse("apps/api/original-playback-http-results.xml").iter("testcase"))
+          assert sorted(case.get("name") for case in cases) == [
+              "item original playback fixture cleanup", "task original playback fixture cleanup",
+          ]
+          assert not any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error"))
+          PY
+      - name: Retire playback fixture resources
+        id: retire-playback
+        if: ${{ always() && steps.playback.outcome != 'skipped' }}
+        env:
+          ENVIRONMENT: development
+        run: |
+          if [ -f .worktree/e2e/resources.json ]; then
+            confirmation=$(jq -er '.resources.confirmation' .worktree/e2e/resources.json)
+            node scripts/dev-worktree.mjs destroy --mode e2e --confirm "$confirmation"
+          fi
       - name: Upload worktree test results
         if: ${{ !cancelled() && steps.python.outcome == 'success' }}
         uses: actions/upload-artifact@v4
@@ -147,10 +196,11 @@ jobs:
           path: |
             apps/api/worktree-unit-results.xml
             apps/api/worktree-isolation-results.xml
+            apps/api/original-playback-http-results.xml
           if-no-files-found: error
           retention-days: 7
       - name: Retire worktree object store
-        if: always() && steps.minio.outcome != 'skipped'
+        if: ${{ always() && steps.minio.outcome != 'skipped' && (steps.playback.outcome == 'skipped' || steps.retire-playback.outcome == 'success') }}
         run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
 
   pytest:
@@ -378,6 +428,7 @@ jobs:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm build
       - name: Test timeline layout in Chromium
+        if: needs.e2e-plan.outputs.timeline-layout != 'false'
         id: timeline-layout
         env:
           PLAYWRIGHT_JUNIT_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.xml
@@ -496,6 +547,7 @@ jobs:
       contents: read
     outputs:
       docs-only: ${{ steps.plan.outputs.docs_only }}
+      timeline-layout: ${{ steps.plan.outputs.timeline_layout }}
       matrix: ${{ steps.plan.outputs.matrix }}
       required: ${{ steps.plan.outputs.required }}
       run-suites: ${{ steps.plan.outputs.run_suites }}

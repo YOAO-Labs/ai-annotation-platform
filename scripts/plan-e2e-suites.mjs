@@ -54,7 +54,6 @@ const specPath = (name) => `${browserTests}/${name}.spec.ts`;
 const layoutPaths = [
   `${workbench}/layout/`,
   `${workbench}/shell/WorkbenchLayout.tsx`,
-  `${workbench}/shell/FloatingDock.tsx`,
   `${workbench}/shell/ToolDock.tsx`,
   `${workbench}/shell/toolDockOverflow.ts`,
   `${workbench}/state/useWorkbenchNamedPresets.ts`,
@@ -100,6 +99,7 @@ const videoTriggers = [
   /^apps\/web\/e2e\/tests\/(?:workbench-)?video-[^/]+\.spec\.ts$/,
   `${workbench}/stages/video/`,
   /^apps\/web\/src\/pages\/Workbench\/(?:stage|state|shell|sidebar)\/(?:Video|video|useVideo)[^/]*\.(?:tsx?|module\.css)$/,
+  `${workbench}/shell/AIInspectorPanel.tsx`,
   `${stage}/frameTimebase.ts`,
   `${stage}/timelineCoords.ts`,
   `${stage}/useFrameClock.ts`,
@@ -140,7 +140,7 @@ const shortLayout = chromiumSubset(
     "workbench-ai-tracker-layout",
     "workbench-context-toolbars",
   ],
-  layoutPaths,
+  [...layoutPaths, `${workbench}/shell/FloatingDock.tsx`],
   "ordinary Chromium dock, persistence, compact layout, and short rearrangement cases",
 );
 
@@ -181,7 +181,10 @@ const targetedFunctional = [
   chromiumSubset(
     "annotation-guide",
     ["guide-experience", "guide-autosave", "guide-asset-ownership", "markdown-authoring"],
-    [`${web}/pages/Projects/sections/AnnotationGuideSection.tsx`],
+    [
+      `${web}/pages/Projects/sections/AnnotationGuideSection.tsx`,
+      `${web}/pages/ProjectTemplates/ProjectTemplatesPage.tsx`,
+    ],
     "annotation guide authoring, autosave, asset ownership, and reading",
   ),
   chromiumSubset(
@@ -444,11 +447,7 @@ function selectPrSuites(paths) {
       if (!routes.has(suite)) routes.set(suite, path);
     }
     if (!mapped) unmappedAppPaths.push(path);
-    if (
-      path === timelineSpec ||
-      matches(path, videoTriggers) ||
-      matches(path, shortLayout.triggers)
-    )
+    if (path === timelineSpec || matches(path, videoTriggers) || matches(path, layoutPaths))
       timelineLayout = true;
   }
 
@@ -634,10 +633,11 @@ function dispatchMatrix(entries) {
   const ids = new Set(entries.map(({ suite }) => suite));
   const dedicatedVideo = videoSuites.every(({ suite }) => ids.has(suite));
   return {
-    include: entries.map(({ suite, command, built, requireAllTests }) => ({
+    include: entries.map(({ suite, command, built, scope, requireAllTests }) => ({
       suite,
       command,
       built,
+      ...(scope === "targeted" ? { chromiumSubset: true } : {}),
       ...(requireAllTests ? { requireAllTests } : {}),
       ...(dedicatedVideo && suite.startsWith("default-") ? { dedicatedVideo: true } : {}),
     })),

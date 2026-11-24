@@ -28,6 +28,8 @@ last_reviewed: 2026-11-23
 
 `CI test planning` 按 PR 相对基线的完整差异选择检查。只改 `README.md`、`DEV.md`、路线图或文档目录内的普通 Markdown 时，默认保留文档构建、SDK 文档片段和变更文件检查，不启动应用测试。文档中的可执行示例、站点配置、依赖锁或任何未识别路径都不享受这个豁免。提交到 `dev` 后仍执行完整检查；定时工作流单独验证浏览器套件。
 
+纯测试变更不等于纯文档。已识别的独立组件测试或 pytest 用例由原测试门禁执行，只免浏览器；共享测试助手、夹具、运行时配置和未识别路径不免。改产品页面时跑核心链路和已映射的功能场景。改视频、Mask、点云或工作台布局时选对应专项；共享或无法定位的改动跑全量。
+
 ## 2. 隔离并运行
 
 按[独立工作树前置条件](./how-to/worktree-environments#前置条件)准备共享 PostgreSQL、MinIO 和此 checkout 的 API 环境。测试必须使用启动器核验归属的数据库、Redis、桶与角色；库名后缀不能证明归属。需要真实 worker 时显式加 `--with-worker`。不要把 owner DB 凭据交给普通 API 或浏览器。
@@ -47,6 +49,14 @@ pnpm dev:worktree -- exec --mode test -- \
 `Plugin SDK test dependency` 从 Actions 变量 `YOAO_SDK_MANIFEST` 指定的 URL 读取清单，用 `YOAO_SDK_MANIFEST_SHA256` 验证清单，再验证并分发 `yoao-backend-runtime` wheel。四个 API 分片与 `Python SDK tests` 使用同一次运行的制品。准备失败表示测试未执行，不是用例失败；非纯文档 PR 缺少任何成功分片，`Backend tests` 都不会通过。设置分支保护前，先在产品 PR 确认四份 `backend-test-results-*` 和 `python-sdk-test-results` 包含实际用例结果。
 
 工作树的运行、维护和资源隔离测试只运行一次，与四个 API 分片并行。工作树测试失败不会阻止 API 分片执行或上传 JUnit；在需要应用检查的 PR 上，`Backend tests` 要求工作树测试和四个分片都成功。
+
+原视频播放租约的清理与配额由工作树 HTTP 集成用例验证，不需要 Chromium 或 Vite。它需要 Linux、Node 22、FFmpeg／ffprobe、系统 sRGB 配置文件和工作树的 PostgreSQL、MinIO、Redis。复验任务和数据集条目两个入口：
+
+```bash
+node scripts/dev-worktree.mjs exec --mode e2e -- node --test scripts/verify_original_playback_http.mjs
+```
+
+这里的 `e2e` 是真实隔离 API、存储和 fixture owner 的运行模式，不是浏览器。两个用例都必须实际完成；工作树 Job 的 `original-playback-http-results.xml` 单独记录结果。浏览器仍验证媒体加载、逐帧绘制和页面离开时释放租约。
 
 pytest 先收集全部 API 测试模块，再按模块分片。如果四份 `pytest-results.xml` 只有相同的 `collection failure`，API 用例并未执行。验证覆盖时应核对每个分片的用例结果，并将收集错误、跳过和执行失败分开统计。
 
@@ -106,7 +116,7 @@ API 的 SAVEPOINT、ASGI 客户端和角色夹具由 `apps/api/tests/conftest.py
 <span id="覆盖率门禁" aria-hidden="true"></span>
 
 - 对照实际 collection、逐用例报告和退出码。未收集、跳过、失败、空报告和资源未清理要分别记录；测试计划不能当成绩单。同一用例被多套件选中也不应重复计入。
-- PR 的浏览器选集读 `e2e-selection-report`，按 `scripts/audit-e2e-requirements.mjs` 核对必需报告。核心失败后重试转绿也不能证明核心通过；专项重试与覆盖率以 CI 的实测报告和配置为准，不抄分片数与阈值。
+- PR 的浏览器选集读 `e2e-selection-report`。用 `gates.effective` 对照必需报告，从 `gates.planned`、`gates.rollback` 和逐套件原因解释差异。`scripts/audit-e2e-requirements.mjs` 核对必需报告；核心用例重试转绿不能证明核心通过。区分浏览器 Job 的累计运行时间、首次开始到最后结束的窗口，以及整轮 CI 的墙钟耗时。
 - 区分真 PostgreSQL、受控对象替身、真实 S3、独立进程和实际浏览器／GPU。狭窄验收不能证明整模块、真实权重、生产容量或日常切换。
 
 ### 从审查意见到可执行规则

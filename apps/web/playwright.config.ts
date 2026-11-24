@@ -127,7 +127,17 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         ...(chromiumChannel ? { channel: chromiumChannel } : {}),
       },
-      testIgnore: ["**/workbench-pointcloud*.spec.ts"],
+      testIgnore: [
+        "**/workbench-pointcloud*.spec.ts",
+        ...(process.env.PLAYWRIGHT_DEDICATED_VIDEO === "1"
+          ? [
+              "**/video-issue-context.spec.ts",
+              "**/video-issue-frame.spec.ts",
+              "**/video-original-playback.spec.ts",
+              "**/video-timeline-seek.spec.ts",
+            ]
+          : []),
+      ],
     },
     {
       name: "pointcloud",
