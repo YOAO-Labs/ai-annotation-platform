@@ -21,6 +21,17 @@ flowchart LR
 
 **单向依赖**：入口可调用应用工作流或领域服务，工作流组合服务，服务可调模型；领域服务不反向导入入口或应用装配。
 
+## 内置模块声明式装配（`app/assembly/`）
+
+后端 11 个内置领域模块（`platform`、`identity`、`workspace`、`assets`、`labeling`、`inference`、`learning`、`jobs`、`notifications`、`audit`、`insights`）在 `apps/api/app/assembly/modules/` 下以纯数据结构（`BuiltinModuleManifest`）声明各自的装配面，由 `apps/api/app/assembly/registry.py` 统一汇总，并直接驱动四类运行入口：
+
+- **HTTP / WebSocket 路由**：`apps/api/app/api/v1/router.py` 调用 `mount_api_v1_routers()`，`apps/api/app/main.py` 调用 `mount_root_routers()`，按模块清单惰性导入并挂载全部路由（含 `_test_seed` 的环境条件守卫）。
+- **Celery 任务与 Beat 调度**：`apps/api/app/workers/celery_app.py` 从 `collect_celery_includes()` 与 `build_beat_schedule()` 生成任务注册表与定时任务（保留 `ASSETS_VIDEO_EXECUTOR`、`ASSETS_IMAGE_EXECUTOR` 与 `NOTIFICATION_PUBLICATION_URL` 的拆分部署抑制语义）。
+- **迁移与 Schema 归属**：`apps/api/alembic/env.py` 通过 `load_declared_orm_models()` 加载各模块声明的 ORM 模型，`apps/api/app/db/native_schema.py` 从模块清单派生 `NATIVE_MANAGED_TABLES` 与 `NATIVE_MANAGED_RELATIONS`，保持线性 Alembic 迁移历史与原生 SQL 所有权不变。
+- **Compose 拓扑与工作区包**：各模块声明对应的 `docker-compose*.yml` 叠加文件、引入／覆盖服务集合及 `apps/api/pyproject.toml` 中的工作区 owner 包。
+
+清单定义模块禁止导入 FastAPI、SQLAlchemy、Celery 或 `app.{api,workers,db,services,application}`，确保 Alembic、Celery、API 与离线校验工具无环加载。`apps/api/tests/test_builtin_module_assembly.py` 强制守卫无遗漏、无重复、无路由遮蔽与 YAML 服务一致；本层不引入动态包扫描、热加载或通用 DI 容器。
+
 ## 模块语言与隔离实验
 
 完整目标与逐模块缺口见[模块独立部署与语言替换](./module-deployment)。assets 的视频探测

@@ -18,7 +18,7 @@ _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0237_identity_sessions.sql"
 _SCHEMA = _SQL_DIR / "0237_identity_sessions.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0237_identity_sessions.py"
-_NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
+
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _SESSION_GRANTS = _ROOT / "infra/docker/identity-sessions-grants.sql"
 
@@ -118,12 +118,13 @@ async def _execute(session: AsyncSession, request: dict | list | str | None) -> 
 
 
 def test_frozen_native_session_artifacts_and_receipt_owner_grants():
+    from app.db.native_schema import NATIVE_MANAGED_TABLES
+
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
     session_grants = _SESSION_GRANTS.read_text(encoding="utf-8")
-    native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
     statements = [
         statement.strip()
         for statement in artifact.split("-- aap-statement-break")
@@ -169,7 +170,7 @@ def test_frozen_native_session_artifacts_and_receipt_owner_grants():
     )
 
     assert "Cannot remove Identity session operation receipts" in migration
-    assert "identity_session_operation_receipts" in native_schema
+    assert "identity_session_operation_receipts" in NATIVE_MANAGED_TABLES
     assert "request_scope, result, audit_id" in module_grants
     assert "record_identity_session_event" in module_grants
     assert "identity_session_role=yoao_identity_session_client" in session_grants

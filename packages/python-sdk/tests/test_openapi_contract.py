@@ -435,15 +435,41 @@ def test_public_stream_channels_match_root_mounted_router():
     assert len(channels) == 6
     assert {channel["path"] for channel in channels} == paths
     main = ast.parse((api / "app/main.py").read_text())
-    mounts = [
+    root_calls = [
         node
         for node in ast.walk(main)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "include_router"
-        and node.args
-        and isinstance(node.args[0], ast.Name)
-        and node.args[0].id == "ws_router"
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "mount_root_routers"
     ]
-    assert len(mounts) == 1
-    assert not any(keyword.arg == "prefix" for keyword in mounts[0].keywords)
+    assert len(root_calls) == 1
+
+    notif_manifest = ast.parse(
+        (api / "app/assembly/modules/notifications.py").read_text()
+    )
+    ws_mounts = [
+        node
+        for node in ast.walk(notif_manifest)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "RouterMount"
+        and any(
+            kw.arg == "module_path"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value == "app.api.v1.ws"
+            for kw in node.keywords
+        )
+    ]
+    assert len(ws_mounts) == 1
+    assert any(
+        kw.arg == "surface"
+        and isinstance(kw.value, ast.Constant)
+        and kw.value.value == "root"
+        for kw in ws_mounts[0].keywords
+    )
+    assert not any(
+        kw.arg == "prefix"
+        and isinstance(kw.value, ast.Constant)
+        and bool(kw.value.value)
+        for kw in ws_mounts[0].keywords
+    )

@@ -9,10 +9,9 @@ from yoao_assets_mask_content.contract import MaskContentFailure
 from yoao_workspace.configuration_policy import ConfigurationPolicyError
 from app.config import settings
 from app.api.v1.router import api_router
-from app.api.v1.admin_plugin_installations import router as plugin_installations_router
-from app.api.v1.ws import router as ws_router, close_redis_pool as _close_ws_redis_pool
+from app.assembly.builders import mount_root_routers
+from app.api.v1.ws import close_redis_pool as _close_ws_redis_pool
 from app.api.v1.bug_reports import close_bug_reopen_redis_pool
-from app.api.health import router as health_router
 from app.core.logging import setup_logging
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -293,9 +292,7 @@ app.add_middleware(
 app.add_middleware(UploadBodyLimitMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
-app.include_router(plugin_installations_router, prefix="/api/v1")
-app.include_router(ws_router)
-app.include_router(health_router, prefix="/health", tags=["health"])
+mount_root_routers(app, settings)
 
 from prometheus_client import (  # noqa: E402
     make_asgi_app as _prom_app,
