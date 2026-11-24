@@ -511,7 +511,15 @@ async def test_app_installer_is_idempotent_and_fails_closed_on_bad_config():
         )
 
 
-def test_installer_rejects_legacy_bypass_even_after_restart():
+@pytest.mark.parametrize(
+    "legacy_env",
+    (
+        "ROUTE_ALLOW_LEGACY_EXECUTION",
+        "YOAO_ROUTE_ALLOW_LEGACY_EXECUTION",
+        "AAP_ROUTE_ALLOW_LEGACY_EXECUTION",
+    ),
+)
+def test_installer_rejects_legacy_bypass_even_after_restart(legacy_env):
     from fastapi import FastAPI
 
     with pytest.raises(RouteConfigurationError, match="cannot enable legacy execution"):
@@ -519,7 +527,7 @@ def test_installer_rejects_legacy_bypass_even_after_restart():
             FastAPI(),
             environ={
                 "ROUTE_CONTROL_TOKEN": "secret",
-                "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "1",
+                legacy_env: "1",
             },
         )
 
@@ -529,9 +537,14 @@ def test_installer_rejects_legacy_bypass_even_after_restart():
     (
         {"AAP_ROUTE_CONTROL_TOKEN": "retired-secret"},
         {"AAP_ROUTE_CONTROL_TOKEN_FILE": "/run/retired-route-token"},
+        {"AAP_ROUTE_REGISTRY_ID": "11111111-1111-1111-1111-111111111111"},
         {
             "ROUTE_CONTROL_TOKEN": "current-secret",
             "AAP_ROUTE_CONTROL_TOKEN": "retired-secret",
+        },
+        {
+            "ROUTE_REGISTRY_ID": "22222222-2222-2222-2222-222222222222",
+            "AAP_ROUTE_REGISTRY_ID": "11111111-1111-1111-1111-111111111111",
         },
     ),
 )
@@ -544,23 +557,28 @@ def test_installer_refuses_value_bearing_pre_rename_token_env(environ):
     assert "unsupported legacy route control environment" in message
     assert "retired-secret" not in message
     assert "/run/retired-route-token" not in message
+    assert "11111111-1111-1111-1111-111111111111" not in message
     for name in environ:
-        if name.startswith("AAP_ROUTE_CONTROL_TOKEN"):
+        if name.startswith("AAP_ROUTE_"):
             assert name in message
 
 
 def test_installer_ignores_blank_pre_rename_token_env():
     from fastapi import FastAPI
 
+    reg_id = "22222222-2222-2222-2222-222222222222"
     controller = install_backend_routing_controller(
         FastAPI(),
         environ={
             "ROUTE_CONTROL_TOKEN": "secret",
+            "ROUTE_REGISTRY_ID": reg_id,
             "AAP_ROUTE_CONTROL_TOKEN": "",
             "AAP_ROUTE_CONTROL_TOKEN_FILE": "",
+            "AAP_ROUTE_REGISTRY_ID": "",
         },
     )
     assert controller.management_available is True
+    assert controller.registry_id == reg_id
 
 
 @pytest.mark.asyncio

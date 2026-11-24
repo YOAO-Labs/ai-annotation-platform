@@ -75,10 +75,11 @@ last_reviewed: 2026-11-24
 
 容器创建与每次变更前检查以下硬性约束：
 
-- **所有权标签**：写入并核对 `aap.installation`、`aap.owner`（私有所有权哈希）、`aap.image` 与 `aap.config`（完整配置摘要）；重启候选另带 `aap.candidate`。
+- **所有权标签与命名**：容器名称使用 `yoao-plugin-<installation_id>`（重启候选附带候选令牌前缀），写入并核对 `yoao.installation`、`yoao.owner`（私有所有权哈希）、`yoao.image` 与 `yoao.config`（完整配置摘要）；重启候选另带 `yoao.candidate`。
 - **进程与内核隔离**：`Privileged=false`、私有 PID 命名空间（`PidMode=""`）、`--cap-drop ALL`、`CapAdd` 为空、`Devices` 为空、`--security-opt no-new-privileges`，以及显式内存与 CPU 上限。
 - **网络与端口**：必须使用显式非 `host` Docker 网络，仅暴露声明的单个 `host_port:container_port/tcp` 端口映射。
-- **精确挂载**：仅挂载可写数据目录（`data_dir -> {data_target}`）；CUDA 额外在可写数据目录之上以只读方式叠挂 `data/gpu-keyring.json -> {data_target}/gpu-keyring.json`，并以只读方式挂载资格报告到 `{data_target}-qualification/report.json`。禁止任何 `docker.sock` 或含逗号路径挂载。
+- **精确挂载**：仅挂载可写数据目录（`data_dir -> /var/lib/yoao-plugin`）；CUDA 额外在可写数据目录之上以只读方式叠挂 `data/gpu-keyring.json -> /var/lib/yoao-plugin/gpu-keyring.json`，并以只读方式挂载资格报告到 `/var/lib/yoao-plugin-qualification/report.json`。禁止任何 `docker.sock` 或含逗号路径挂载。
+- **运行时环境变量**：容器统一注入 `YOAO_PLUGIN_*`（令牌文件、设备、Registry ID、数据目录、资产来源、图片主机及资格元数据）、`ROUTE_CONTROL_TOKEN_FILE` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 与 `AAP_ROUTE_REGISTRY_ID` 任一非空时由 `yoao-protocol-v2` 拒绝启动）。旧版 `aap.*` 容器标签与 `AAP_PLUGIN_*` 镜像不设双名兼容，须部署匹配版本的 `Plugin-SDK` 与 `YOAO-Plugins` 制品。
 - **CPU 隔离**：所有 CPU 插件一律注入 `NVIDIA_VISIBLE_DEVICES=void` 与空的 `CUDA_VISIBLE_DEVICES`，不申请 GPU 设备，也不按插件名豁免。
 - **CUDA 隔离**：仅通过 `--gpus device=<physical_gpu_uuid>` 暴露单张物理卡，容器内逻辑设备固定为 `cuda:0`，不按宿主机 ordinal 猜测；公钥为 key ID 到 Ed25519 公钥的 unpadded base64url 映射，签发私钥不进入配置或状态目录。
 
@@ -98,12 +99,14 @@ last_reviewed: 2026-11-24
 
 挂载布局：
 
-| 容器内路径                                      | 权限               | 内容与用途                                                                            |
-| ----------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------- |
-| `/var/lib/aap-qualification/context.json`       | 只读               | 安装器生成的上下文 JSON，绑定预留身份、镜像 ID、GPU 资源、物理 UUID、池拓扑与审批引用 |
-| `{data_target}/assets`                          | 只读               | 经管理员准备的模型资产目录（可通过 `--asset-dir` 指定来源目录）                       |
-| `/var/lib/aap-qualification/fixture`            | 只读               | 可选测试夹具路径（通过 `--fixture <path>` 传入）                                      |
-| `/var/lib/aap-qualification/output/report.json` | 私有可写目录内产出 | 资格命令写出的共享生命周期证据 JSON                                                   |
+| 容器内路径                                       | 权限               | 内容与用途                                                                            |
+| ------------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------- |
+| `/var/lib/yoao-qualification/context.json`       | 只读               | 安装器生成的上下文 JSON，绑定预留身份、镜像 ID、GPU 资源、物理 UUID、池拓扑与审批引用 |
+| `/var/lib/yoao-plugin/assets`                    | 只读               | 经管理员准备的模型资产目录（可通过 `--asset-dir` 指定来源目录）                       |
+| `/var/lib/yoao-qualification/fixture`            | 只读               | 可选测试夹具路径（通过 `--fixture <path>` 传入）                                      |
+| `/var/lib/yoao-qualification/output/report.json` | 私有可写目录内产出 | 资格命令写出的共享生命周期证据 JSON                                                   |
+
+容器环境同步注入 `YOAO_QUALIFICATION_CONTEXT_FILE`、`YOAO_QUALIFICATION_OUTPUT_FILE`（以及可选的 `YOAO_QUALIFICATION_FIXTURE_FILE`）、对应 `YOAO_PLUGIN_*` 元数据与 `VALIDATION_*` 校验引用。
 
 命令退出后，安装器调用 `validate_managed_lifecycle_evidence` 完整核验产出报告，并检查 `passed == true` 以及与本次预留完全一致的 `image_id`、`registry_id`、`gpu_resource_id`、`physical_gpu_uuid`、`pools`、`runtime_versions` 和 ORT `session_counts`。
 
@@ -159,7 +162,7 @@ stateDiagram-v2
 
 本地状态机与进程身份保护：
 
-- `restart` 在发起 `disable` 前持久化绑定原启动身份与修订的 `restart_intent`，中断后可沿原状态目录续跑排空，但只有取得并持久化核心 `safe_to_stop` 证明后才创建带 `aap.candidate` 标签的新容器。
+- `restart` 在发起 `disable` 前持久化绑定原启动身份与修订的 `restart_intent`，中断后可沿原状态目录续跑排空，但只有取得并持久化核心 `safe_to_stop` 证明后才创建带 `yoao.candidate` 标签的新容器。
 - 候选容器如果曾经退出（`FinishedAt != "0001-01-01T00:00:00Z"`），即便再次处于运行中，安装器也会拒绝把它当成首次启动恢复。
 - 意外退出或外部 `docker restart` 不构成终止证明；旧收据若缺失进程启动时间（`StartedAt`），安装器不会用同一容器 ID 推断进程未被外部替换。执行安装器命令期间须独占该安装的 Docker 管理操作。
 - 重启后安装回到 `active` 只证明新容器已激活：已排空的服务池成员不会自动恢复接流，预训练模型资产也必须在新容器内重新测量并提交 `approve-assets`。CUDA 激活须等待既有签名许可有效期，`reset` 与 `enforce` 各自保留完整等待窗口；结构化超时不表示候选可以改换身份。
@@ -199,7 +202,7 @@ docker exec --interactive <container_id> python3 -I -S -c <probe>
 关键安全不变量：
 
 - 测量在**容器挂载视图**内执行，不读取宿主机上可能被替换的同名路径。镜像只需提供 `python3`，不需要安装平台 SDK；探针以 `-I -S` 隔离模式运行，不导入任何模型库，也不初始化 CUDA。
-- 探针使用 `O_RDONLY | O_DIRECTORY | O_NOFOLLOW` 打开 `{data_target}` 固定目录描述符，逐段经 `dir_fd` 与 `O_NOFOLLOW` 打开相对路径，拒绝一切符号链接，仅接受普通文件（`S_ISREG`）。
+- 探针使用 `O_RDONLY | O_DIRECTORY | O_NOFOLLOW` 打开 `/var/lib/yoao-plugin` 固定目录描述符，逐段经 `dir_fd` 与 `O_NOFOLLOW` 打开相对路径，拒绝一切符号链接，仅接受普通文件（`S_ISREG`）。
 - 逐文件核对 `size_bytes` 与流式 SHA-256 摘要，并在读取前后两次 `fstat` 比对 `(st_dev, st_ino, st_size, st_mtime_ns)` 以捕获读取期间的并发篡改。缺失或不匹配的文件不会标为可用。
 - 测量结果是提交时刻的管理员本机观测，不会持续重算摘要。批准和可用是两个独立状态；文件变更或容器重启后都必须重新测量并提交。
 

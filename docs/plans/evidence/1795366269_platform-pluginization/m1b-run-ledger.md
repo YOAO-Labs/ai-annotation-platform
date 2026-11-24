@@ -31,6 +31,15 @@
 6. `yoao plugins uninstall --state-dir <state> --yes --json` 依次完成核心 `disable`、`quiesce`（真实调用 `/lifecycle/terminal-drain` 返回 `unloaded: true` 并签发 `safe_to_stop: true`）、`retire`（`revision=6`）、停止并删除已核验容器、删除 `data/token` 并从保留的 `receipt.json` 抹除 `token`；`yoao plugins status` 读回 `retired`，Docker 中无残留插件容器。
 7. 验收结束后立即退役全部带 `org.aap.acceptance=m1b-cpu` 标签的临时容器、网络、镜像、进程与临时目录，复检确认零残留。
 
+## 2026-11-24：推理插件运行时 `yoao` 命名升级复验
+
+将平台侧推理插件容器标签（`yoao.installation`／`yoao.owner`／`yoao.image`／`yoao.config`／`yoao.candidate`）、容器名前缀（`yoao-plugin-`）、挂载目录（`/var/lib/yoao-plugin` 与 `/var/lib/yoao-qualification/*`）及注入环境变量（`YOAO_PLUGIN_*`、`YOAO_QUALIFICATION_*` 与 `ROUTE_REGISTRY_ID`，且 `yoao-protocol-v2` 对非空旧名 `AAP_ROUTE_REGISTRY_ID` 启动阶段失败关闭）统一切换后，在同一隔离架构下重跑全链路验收（批次 ID `3125e9c0`，2026-11-24T06:28:48Z，证据回执 `.artifacts/test-results/m1b-cpu-acceptance-3125e9c0.json`）：
+
+- 镜像固定摘要：`127.0.0.1:49621/m1b-cpu-detector@sha256:983dc1164903efcc1e0be02f893696b6a700b6e9863e6169054b2f1fb71d8f0c`（镜像 ID `sha256:430eb2774f2ee383b4a0e883ec08e060ec3f62b90f78c08217e079a4c110bf4e`）；服务仅读取 `YOAO_PLUGIN_TOKEN_FILE`／`ROUTE_CONTROL_TOKEN_FILE`、`YOAO_PLUGIN_REGISTRY_ID` 与 `ROUTE_REGISTRY_ID`，无任何 `AAP_*` 回退。
+- 实测运行容器 `/yoao-plugin-e79e6bf4-751b-4f17-a2c5-b79318448ed8`（ID `e2b49ea3346d88d9603df388ab02ecf9107359cc0c4faa1f3bfacb028611149b`）：仅含 `yoao.*` 标签（无 `aap.*`）、挂载 `/var/lib/yoao-plugin`、注入 `YOAO_PLUGIN_DATA_DIR=/var/lib/yoao-plugin` 与 `ROUTE_REGISTRY_ID=e79e6bf4-751b-4f17-a2c5-b79318448ed8`，容器环境零 `AAP_*` 变量，CPU 隔离（`NVIDIA_VISIBLE_DEVICES=void`、`CUDA_VISIBLE_DEVICES=""`、`DeviceRequests=null`）完整保持。
+- 全套 `inspect-image` → 无 `--yes` 拒绝 → `prepare --image --yes`（`revision=1`）→ CPU `qualify`／`install --qualify` 负例拒绝 → `install`（`revision=3`，真实强制路由 `drain`／`bind`）→ `status` → `uninstall`（`disable` → `/lifecycle/terminal-drain` `quiesce` → `retire`，`revision=6`，容器删除与 token 抹除）全部通过；所有带 `org.yoao.acceptance=m1b-cpu` 标签的临时资源验收后立即退役并复检零残留。
+- 契约与发行包单测：`apps/_shared/inference_contract` **218** 项、`apps/_shared/protocol_v2` **226** 项、`apps/api/tests/test_plugin_installation_api.py` 观测／准入／激活 **4** 项、`scripts/test-sdk-distributions.py`（`sdk-repository` **49** 项、`sdk-installed` **1233** 项、三项契约分发共 **91** 项）全部通过；`Plugin-SDK` 与 `YOAO-Plugins` 独立仓须按同契约同步升级后方可与本版 `yoao-sdk`／`yoao-protocol-v2` 联用。
+
 ### 明确未覆盖边界
 
 - **PyPI 发布未执行**：未向公网或私网 PyPI 上传 `yoao-sdk` 或契约包，等待维护者单独授权。

@@ -90,7 +90,7 @@ AAP_PLUGIN_TOKEN="$(cat ./token)" yoao-plugin check --url http://127.0.0.1:8000 
 
 3. **超管注册并启用全局池。** 「模型市场 → 注册管理 → 实例」添加服务，用调用方可达的 URL 和**手动 Token**（即服务端 token 文件的值，不是平台 API Key）。「测试连接」只探测 `/health`；保存后执行实例健康检查，确认 `/setup` 的模型目录包含 `colors`。在「服务池」核对同名单成员池、成员和能力；若池已停用，选择「启用服务池」。能力漂移须先审核，不能用启用代替。仅有健康实例、没有启用全局池时，项目绑定会返回 `409 ml_backend_pool_not_enabled`。普通 URL 注册不创建插件安装身份。
 
-   部署若使用服务池 `enforce` 路由，健康与池启用还不够。确认作者服务使用与平台同代的 `yoao-protocol-v2` wheel（核对 manifest 摘要，不能只比版本号）。注册取得实例 ID 后，服务运营者以 `AAP_ROUTE_REGISTRY_ID` 指定该 ID、`ROUTE_CONTROL_TOKEN_FILE` 指向登记的服务 token 文件，启动同一个 `serve`。平台运维方须完成[路由连续性绑定](/api/guides/inference-runtime#route-continuity)再预测。仅支持普通预测、或只实现旧控制路径的 HTTP 服务不能靠 URL 加入强制路由；不要为了接入而更改平台策略。此绑定不创建安装身份，也不授予 GPU 管理权限。
+   部署若使用服务池 `enforce` 路由，健康与池启用还不够。确认作者服务使用与平台同代的 `yoao-protocol-v2` wheel（核对 manifest 摘要，不能只比版本号）。注册取得实例 ID 后，服务运营者以 `ROUTE_REGISTRY_ID` 指定该 ID、`ROUTE_CONTROL_TOKEN_FILE` 指向登记的服务 token 文件，启动同一个 `serve`（旧名 `AAP_ROUTE_REGISTRY_ID` 与 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 任一非空时拒绝启动）。平台运维方须完成[路由连续性绑定](/api/guides/inference-runtime#route-continuity)再预测。仅支持普通预测、或只实现旧控制路径的 HTTP 服务不能靠 URL 加入强制路由；不要为了接入而更改平台策略。此绑定不创建安装身份，也不授予 GPU 管理权限。
 
 4. **项目负责人启用并验证。** 在「项目设置 → 模型服务 → 管理模型服务」显式启用该服务池。选择项目内的 `multi.png` 图像任务；可用项目管理凭据调用 `POST /api/v1/projects/{project_id}/ml-backends/{backend_id}/predict-test?task_id={task_id}`。这里传**实例 ID** 而非池 ID。核对响应属于该任务，红、绿框分别为 `[10,10,20,30]`、`[50,40,30,50]`，分数均为 1。此接口只返回预测；需要保存候选时，在[项目预标注](/user-guide/projects/ai-preannotate)中选择已启用的服务和模型，执行后在任务中检查候选。批量型 `colors` 不会因此成为交互工具。
 
@@ -122,19 +122,19 @@ yoao-plugin build --base-image image@sha256:<真实摘要> \
   --entrypoint my-color-region-plugin --tag registry.example/my-detector:release --push
 ```
 
-`--push` 可省略。SDK 生成镜像的可写数据目录为 `/var/lib/aap-inference`。不能用 LibreYOLO 的专属 manifest 工具为不相关的自定义插件生成身份。模型来源与许可证分别审核，清单展示不授予下载、启用或再分发权限。
+`--push` 可省略。当前外部 `Plugin-SDK` 候选工具构建镜像的默认目录仍为 `/var/lib/aap-inference`；平台安装器统一挂载 `/var/lib/yoao-plugin` 并注入 `YOAO_PLUGIN_*` 与 `ROUTE_REGISTRY_ID`，托管安装须使用与平台同代同步后的 `Plugin-SDK`／`YOAO-Plugins` 镜像。不能用 LibreYOLO 的专属 manifest 工具为不相关的自定义插件生成身份。模型来源与许可证分别审核，清单展示不授予下载、启用或再分发权限。
 
 为了让超级管理员无需手写整段 `manifest` 就能通过 `yoao plugins inspect-image` 和 `yoao plugins prepare --image` 安装，在镜像中写入以下两个 OCI label：
 
 - **`io.yoao.plugin.manifest`（推荐必配）**：UTF-8 编码的严格有限 JSON 对象（上限 64 KiB，不允许重复键），包含 13 个归镜像所有的字段：`plugin_id`、`version`、`publisher`、`license`、`sdk_compatibility`、`entrypoint`、`capabilities`、`models`、`pools`、`resource`、`asset_manifest_sha256`、`managed_model_compatibility`、`allowed_asset_sources`。**不要写入 `artifact` 字段**。镜像无法嵌入自身内容寻址的 `RepoDigest`，安装器会在核验本机摘要后绑定管理员指定的 `<ref@sha256:...>`。
-- **`io.yoao.plugin.qualification-command`（CUDA 可选）**：UTF-8 编码的 JSON 字符串数组 `[executable, ...args]`（上限 4 KiB、最多 64 个参数，禁止 `sh`/`bash` 等 shell 和 `python -c`）。声明后，管理员可直接用 `yoao plugins qualify` 或 `yoao plugins install --qualify` 在断网单卡隔离容器中运行该命令；安装器会把预留上下文只读挂载到 `/var/lib/aap-qualification/context.json`，资产只读挂载到 `{data_target}/assets`，可选夹具挂载到 `/var/lib/aap-qualification/fixture`，并读取命令输出到 `/var/lib/aap-qualification/output/report.json` 的生命周期报告。
+- **`io.yoao.plugin.qualification-command`（CUDA 可选）**：UTF-8 编码的 JSON 字符串数组 `[executable, ...args]`（上限 4 KiB、最多 64 个参数，禁止 `sh`/`bash` 等 shell 和 `python -c`）。声明后，管理员可直接用 `yoao plugins qualify` 或 `yoao plugins install --qualify` 在断网单卡隔离容器中运行该命令；安装器会把预留上下文只读挂载到 `/var/lib/yoao-qualification/context.json`，资产只读挂载到 `/var/lib/yoao-plugin/assets`，可选夹具挂载到 `/var/lib/yoao-qualification/fixture`，并读取命令输出到 `/var/lib/yoao-qualification/output/report.json` 的生命周期报告。
 
 在构建镜像的 Dockerfile 中声明两个标签的最小示意如下（将字段替换为真实值）：
 
 ```dockerfile
 LABEL io.yoao.plugin.manifest='{"plugin_id":"my-detector","version":"0.1.0","publisher":"实际发布者","license":"MIT","sdk_compatibility":"0.1.0","entrypoint":["my-color-region-plugin","serve","--host","0.0.0.0","--port","8000"],"capabilities":["inference","detection"],"models":[{"id":"colors","task":"detect","is_interactive":false,"supported_prompts":["none"],"supported_inputs":["full_image"],"supported_geometric_outputs":["bbox"]}],"pools":{"models":{"cap":1}},"resource":{"device":"cpu","memory_mb":2048,"gpu_memory_mb":0},"asset_manifest_sha256":"0000000000000000000000000000000000000000000000000000000000000000","managed_model_compatibility":[],"allowed_asset_sources":[]}'
 # CUDA 插件另可声明镜像内建资格命令：
-# LABEL io.yoao.plugin.qualification-command='["my-gpu-plugin","qualify","--context","/var/lib/aap-qualification/context.json","--out","/var/lib/aap-qualification/output/report.json"]'
+# LABEL io.yoao.plugin.qualification-command='["my-gpu-plugin","qualify","--context","/var/lib/yoao-qualification/context.json","--out","/var/lib/yoao-qualification/output/report.json"]'
 ```
 
 管理员按[插件安装流程](/user-guide/superadmin/ml-backend-registry#可安装推理插件)核验镜像摘要、manifest 和资格后完成安装，安装不会自动为项目启用。标签校验规则、资格隔离边界和完整生命周期语义见[推理插件安装、资格与生命周期](/dev/concepts/plugin-installation-lifecycle)。

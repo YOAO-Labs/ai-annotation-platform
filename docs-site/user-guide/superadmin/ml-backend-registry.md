@@ -107,7 +107,7 @@ GET    /admin/ml-integrations/all                        # 全局列表（新建
 确认部署机满足以下前置条件：
 
 - 以可访问 Docker 的**非 root 用户**操作，不要使用 `root` 运行安装器。
-- 准备一个非 `host` 的 Docker 网络（例如 `aap-plugins`），并确保平台 API 和 worker 可访问插件映射出的宿主端口（不能使用 loopback）。
+- 准备一个非 `host` 的 Docker 网络（例如 `yoao-plugins`），并确保平台 API 和 worker 可访问插件映射出的宿主端口（不能使用 loopback）。
 - 将目标插件的固定摘要镜像（`<ref@sha256:...>`）加载到部署机 Docker。
 - 安装 CUDA 插件时，另需 NVIDIA Container Toolkit、目标物理卡的完整 `GPU-...` UUID、平台配置好的 `gpu_resource_id`，以及验签公钥文件（key ID 到 Ed25519 公钥 unpadded base64url 的 JSON 映射，不要放入签发私钥）。
 
@@ -142,7 +142,7 @@ yoao plugins prepare \
   --image registry.example/rapidocr@sha256:<64位摘要> \
   --name "RapidOCR CPU" \
   --url http://172.17.0.1:18005 \
-  --network aap-plugins \
+  --network yoao-plugins \
   --host-port 18005 \
   --cpus 4 \
   --image-host media.example \
@@ -160,7 +160,7 @@ yoao plugins status --state-dir ./rapidocr-state --json
   "name": "RapidOCR CPU",
   "url": "http://172.17.0.1:18005",
   "image": "registry.example/rapidocr@sha256:<64位摘要>",
-  "network": "aap-plugins",
+  "network": "yoao-plugins",
   "host_port": 18005,
   "cpus": 4,
   "image_hosts": ["media.example"]
@@ -184,7 +184,7 @@ yoao plugins prepare \
   --image registry.example/libreyolo@sha256:<64位摘要> \
   --name "LibreYOLO CUDA" \
   --url http://172.17.0.1:18000 \
-  --network aap-plugins \
+  --network yoao-plugins \
   --host-port 18000 \
   --cpus 4 \
   --image-host media.example \

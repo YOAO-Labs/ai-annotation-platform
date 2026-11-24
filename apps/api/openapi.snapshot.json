@@ -36576,7 +36576,6 @@
           "version",
           "publisher",
           "license",
-          "artifact",
           "sdk_compatibility",
           "entrypoint",
           "capabilities",
@@ -36584,7 +36583,8 @@
           "pools",
           "resource",
           "asset_manifest_sha256",
-          "allowed_asset_sources"
+          "allowed_asset_sources",
+          "artifact"
         ],
         "title": "PluginManifest",
         "type": "object"

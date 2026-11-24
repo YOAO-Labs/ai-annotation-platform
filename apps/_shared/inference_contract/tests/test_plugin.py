@@ -322,7 +322,7 @@ def test_parse_oci_qualification_command_accepts_fixed_commands_and_rejects_unsa
                 "-m",
                 "plugin.qualify",
                 "--context",
-                "/var/lib/aap-qualification/context.json",
+                "/var/lib/yoao-qualification/context.json",
             ]
         )
     ) == (
@@ -330,7 +330,7 @@ def test_parse_oci_qualification_command_accepts_fixed_commands_and_rejects_unsa
         "-m",
         "plugin.qualify",
         "--context",
-        "/var/lib/aap-qualification/context.json",
+        "/var/lib/yoao-qualification/context.json",
     )
 
     for shell in ("sh", "bash", "dash", "ash", "zsh", "ksh", "fish", "BASH"):

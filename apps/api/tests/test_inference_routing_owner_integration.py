@@ -528,7 +528,7 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
             registry_id=world["registry_id"],
             environ={
                 "ROUTE_CONTROL_TOKEN": backend_token,
-                "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "0",
+                "ROUTE_ALLOW_LEGACY_EXECUTION": "0",
             },
         )
         (

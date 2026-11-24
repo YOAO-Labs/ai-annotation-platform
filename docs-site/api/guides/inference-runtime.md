@@ -156,7 +156,7 @@ Workspace 配置 owner 运行在 API 内；需要探测时，API 使用 `INFEREN
 
 默认服务池路由模式 `off` 支持手动 Token 的直连服务。部署已选 `enforce` 时，未绑定的新实例即使健康、全局池与项目均已启用，首次预测仍可能返回 503；路由 `begin` 回执为 `continuity_unverified`，此时不会发送 `/predict`。不要用健康检查、切换模式或手写数据库状态代替绑定。
 
-1. 先确认目标为刚注册的准确实例，无在途或未确认的工作；已有业务的实例先停止接流并核对持久账本。后端必须实现当前 `/v1/yoao-routing/control` 的认证 drain／bind。SDK 示例由服务运营者配置 `AAP_ROUTE_REGISTRY_ID` 和 `ROUTE_CONTROL_TOKEN_FILE`，后者对应注册的服务 Token。它不是平台的 `INFERENCE_ROUTING_TOKEN`。只实现旧 `/v1/aap-routing/control` 的 wheel 即使包名与版本相同也不兼容；请核对平台契约 manifest，不设双名回退。
+1. 先确认目标为刚注册的准确实例，无在途或未确认的工作；已有业务的实例先停止接流并核对持久账本。后端必须实现当前 `/v1/yoao-routing/control` 的认证 drain／bind。SDK 示例由服务运营者配置 `ROUTE_REGISTRY_ID` 和 `ROUTE_CONTROL_TOKEN_FILE`，后者对应注册的服务 Token（旧名 `AAP_ROUTE_REGISTRY_ID` 与 `AAP_ROUTE_CONTROL_TOKEN(_FILE)` 任一非空时后端拒绝启动）。它不是平台的 `INFERENCE_ROUTING_TOKEN`。只实现旧 `/v1/aap-routing/control` 的 wheel 即使包名与版本相同也不兼容；请核对平台契约 manifest，不设双名回退。
 2. **平台运维方**通过私网 routing owner 执行一次 `reconcile`。保存实例 ID、唯一操作 UUID 和命令内容，以便在网络不确定时查回执。下面在装有 `yoao-inference-contract` 的运维环境执行；`ROUTING_CONTROL_ID` 在发命令前产生并保存，切勿每次运行随机生成。`ROUTING_ACTION=bind` 仅用于首次绑定；`ROUTING_ACTION=status` 查询原命令。向后端传递绑定材料的链路必须可信，跨主机应使用受保护的传输。不要把 owner bearer 交给服务作者。
 
    ```python

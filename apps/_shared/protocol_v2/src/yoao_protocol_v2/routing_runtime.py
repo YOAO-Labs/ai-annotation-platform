@@ -42,9 +42,17 @@ from yoao_protocol_v2.scope_retirement import (
 
 _TOKEN_ENV = "ROUTE_CONTROL_TOKEN"
 _TOKEN_FILE_ENV = "ROUTE_CONTROL_TOKEN_FILE"
-_LEGACY_ENV = "AAP_ROUTE_ALLOW_LEGACY_EXECUTION"
-_REGISTRY_ENV = "AAP_ROUTE_REGISTRY_ID"
-_RENAMED_ENV = ("AAP_ROUTE_CONTROL_TOKEN", "AAP_ROUTE_CONTROL_TOKEN_FILE")
+_LEGACY_BYPASS_ENVS = (
+    "ROUTE_ALLOW_LEGACY_EXECUTION",
+    "YOAO_ROUTE_ALLOW_LEGACY_EXECUTION",
+    "AAP_ROUTE_ALLOW_LEGACY_EXECUTION",
+)
+_REGISTRY_ENV = "ROUTE_REGISTRY_ID"
+_RENAMED_ENV = (
+    "AAP_ROUTE_CONTROL_TOKEN",
+    "AAP_ROUTE_CONTROL_TOKEN_FILE",
+    "AAP_ROUTE_REGISTRY_ID",
+)
 _MAX_SECRET_BYTES = 8192
 _REPLAY_SKEW_SECONDS = 30
 _SCOPE_RETIREMENT_SKEW_SECONDS = 30
@@ -1021,11 +1029,11 @@ def _load_control_token(environ: Mapping[str, str]) -> bytes | None:
 
 
 def _reject_legacy_bypass(environ: Mapping[str, str]) -> None:
-    value = environ.get(_LEGACY_ENV)
-    if value not in (None, "", "0"):
-        raise RouteConfigurationError(
-            "managed route admission cannot enable legacy execution"
-        )
+    for name in _LEGACY_BYPASS_ENVS:
+        if environ.get(name) not in (None, "", "0"):
+            raise RouteConfigurationError(
+                "managed route admission cannot enable legacy execution"
+            )
 
 
 def _reject_renamed_environment(environ: Mapping[str, str]) -> None:

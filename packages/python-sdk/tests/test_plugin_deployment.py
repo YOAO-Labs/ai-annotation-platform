@@ -45,8 +45,29 @@ def test_cpu_libreyolo_denies_gpu_and_preserves_existing_drain_state(tmp_path):
     receipt = deployment.store.load()
     container = deployment._container(receipt, result)
     env = container.env_file.read_text()
+    assert container.name == f"yoao-plugin-{receipt['installation_id']}"
+    assert container.data_target == "/var/lib/yoao-plugin"
+    assert "\nYOAO_PLUGIN_DATA_DIR=/var/lib/yoao-plugin\n" in env
+    assert "AAP_" not in env
     assert "\nNVIDIA_VISIBLE_DEVICES=void\n" in env
     assert "\nCUDA_VISIBLE_DEVICES=\n" in env
+
+    other_body = json.loads(json.dumps(body))
+    other_body["manifest"]["plugin_id"] = "rapidocr"
+    other_core = Core()
+    other_dep = LocalPluginDeployment(
+        other_core,
+        "https://api.example",
+        tmp_path / "other-state",
+        LocalDocker(other_core.events),
+    )
+    other_result = other_dep.prepare(LocalPluginConfig.model_validate(other_body))
+    other_container = other_dep._container(other_dep.store.load(), other_result)
+    other_env = other_container.env_file.read_text()
+    assert f"ROUTE_REGISTRY_ID={other_result.registry_id}\n" in other_env
+    assert "YOAO_PLUGIN_ID=rapidocr\n" in other_env
+    assert "YOAO_PLUGIN_DATA_DIR=/var/lib/yoao-plugin\n" in other_env
+    assert "AAP_" not in other_env
 
     old_env = env.replace("NVIDIA_VISIBLE_DEVICES=void\nCUDA_VISIBLE_DEVICES=\n", "")
     container.env_file.write_text(old_env)
@@ -412,10 +433,13 @@ def test_reservation_replays_same_identity_and_install_activates_after_start(tmp
     assert "token" not in active.model_dump_json()
     canonical = (tmp_path / "state" / "qualification.json").read_bytes()
     assert b"\\u901a\\u8fc7" in canonical
+    container_env = (tmp_path / "state" / "container.env").read_text()
     assert (
-        "AAP_PLUGIN_QUALIFICATION_SHA256=" + hashlib.sha256(canonical).hexdigest()
-        in (tmp_path / "state" / "container.env").read_text()
+        "YOAO_PLUGIN_QUALIFICATION_SHA256=" + hashlib.sha256(canonical).hexdigest()
+        in container_env
     )
+    assert "YOAO_PLUGIN_DATA_DIR=/var/lib/yoao-plugin\n" in container_env
+    assert "AAP_" not in container_env
 
 
 def test_missing_or_changed_qualification_never_starts(tmp_path):
@@ -839,16 +863,28 @@ def test_qualify_writes_output_without_mutating_receipt_and_cleans_workdir(tmp_p
     assert run["context"]["schema_version"] == 1
     assert run["context"]["registry_id"] == str(result.registry_id)
     assert run["context"]["logical_device"] == "cuda:0"
+    assert run["context"]["data_dir"] == "/var/lib/yoao-plugin"
     assert (
-        run["context"]["output_file"] == "/var/lib/aap-qualification/output/report.json"
+        run["context"]["output_file"]
+        == "/var/lib/yoao-qualification/output/report.json"
     )
-    assert run["context"]["fixture_file"] == "/var/lib/aap-qualification/fixture"
+    assert run["context"]["fixture_file"] == "/var/lib/yoao-qualification/fixture"
     assert run["context"]["model_approval_ref"] == "MODEL-2026-01"
     assert run["context"]["fixture_approval_ref"] == "FIXTURE-2026-01"
     assert (
-        run["env"]["AAP_QUALIFICATION_FIXTURE_FILE"]
-        == "/var/lib/aap-qualification/fixture"
+        run["env"]["YOAO_QUALIFICATION_CONTEXT_FILE"]
+        == "/var/lib/yoao-qualification/context.json"
     )
+    assert (
+        run["env"]["YOAO_QUALIFICATION_OUTPUT_FILE"]
+        == "/var/lib/yoao-qualification/output/report.json"
+    )
+    assert (
+        run["env"]["YOAO_QUALIFICATION_FIXTURE_FILE"]
+        == "/var/lib/yoao-qualification/fixture"
+    )
+    assert run["env"]["YOAO_PLUGIN_DATA_DIR"] == "/var/lib/yoao-plugin"
+    assert all(not key.startswith("AAP_") for key in run["env"])
     assert run["env"]["VALIDATION_MODEL_APPROVAL_REF"] == "MODEL-2026-01"
     assert run["env"]["VALIDATION_FIXTURE_APPROVAL_REF"] == "FIXTURE-2026-01"
     assert run["env"]["VALIDATION_IMAGE_ID"] == docker.image_digest

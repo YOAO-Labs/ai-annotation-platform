@@ -3,7 +3,7 @@ title: 环境变量参考
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-11-23
+last_reviewed: 2026-11-24
 ---
 
 # 环境变量参考
@@ -948,9 +948,9 @@ last_reviewed: 2026-11-23
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ROUTE_CONTROL_TOKEN` | `—` | 值／文件恰好选择一项。旧名 AAP_ROUTE_CONTROL_TOKEN(_FILE) 任一非空时后端拒绝启动， 错误只报告旧键名，不输出值；迁移时删除旧键而不是保留双写。 |
+| `ROUTE_CONTROL_TOKEN` | `—` | 值／文件恰好选择一项。旧名 AAP_ROUTE_CONTROL_TOKEN(_FILE) 与 AAP_ROUTE_REGISTRY_ID 任一非空时后端拒绝启动， 错误只报告旧键名，不输出值；迁移时删除旧键而不是保留双写。 |
 | `ROUTE_CONTROL_TOKEN_FILE` | `—` | — |
-| `AAP_ROUTE_REGISTRY_ID` | `—` | 路由注册表实例身份；与已安装插件制品共用，保留旧名，按独立门迁移。 |
+| `ROUTE_REGISTRY_ID` | `—` | 路由注册表实例身份；与已安装插件制品共用。旧名 AAP_ROUTE_REGISTRY_ID 非空时拒绝启动。 |
 
 ## Audit 默认由 maintenance worker + Beat 调度；以下为显式运维 CLI 和管理员只读选项
 

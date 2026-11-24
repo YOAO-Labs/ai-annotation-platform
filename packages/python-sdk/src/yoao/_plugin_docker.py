@@ -37,6 +37,17 @@ _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _OWNER = re.compile(r"^[0-9a-f]{64}$")
 _LIBREYOLO_ENTRYPOINT = "yoao-libreyolo"
 
+_LABEL_INSTALLATION = "yoao.installation"
+_LABEL_OWNER = "yoao.owner"
+_LABEL_IMAGE = "yoao.image"
+_LABEL_CONFIG = "yoao.config"
+_LABEL_CANDIDATE = "yoao.candidate"
+
+QUALIFICATION_CONTEXT_TARGET = "/var/lib/yoao-qualification/context.json"
+QUALIFICATION_OUTPUT_DIR_TARGET = "/var/lib/yoao-qualification/output"
+QUALIFICATION_OUTPUT_FILE_TARGET = f"{QUALIFICATION_OUTPUT_DIR_TARGET}/report.json"
+QUALIFICATION_FIXTURE_TARGET = "/var/lib/yoao-qualification/fixture"
+
 
 def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None:
     if (
@@ -263,13 +274,13 @@ class Docker:
         except ValueError as exc:
             raise SDKError("Unable to verify container ownership") from exc
         expected = {
-            "aap.installation": config.installation_id,
-            "aap.owner": config.owner_hash,
-            "aap.image": config.image,
-            "aap.config": config.identity(),
+            _LABEL_INSTALLATION: config.installation_id,
+            _LABEL_OWNER: config.owner_hash,
+            _LABEL_IMAGE: config.image,
+            _LABEL_CONFIG: config.identity(),
         }
         if config.candidate_token is not None:
-            expected["aap.candidate"] = config.candidate_token
+            expected[_LABEL_CANDIDATE] = config.candidate_token
         if not isinstance(labels, dict) or any(
             labels.get(k) != v for k, v in expected.items()
         ):
@@ -454,9 +465,9 @@ class Docker:
         self._verify_image_reference(config.image)
         mounts = [
             "--mount",
-            f"type=bind,src={config.context_file},dst=/var/lib/aap-qualification/context.json,readonly",
+            f"type=bind,src={config.context_file},dst={QUALIFICATION_CONTEXT_TARGET},readonly",
             "--mount",
-            f"type=bind,src={config.output_dir},dst=/var/lib/aap-qualification/output",
+            f"type=bind,src={config.output_dir},dst={QUALIFICATION_OUTPUT_DIR_TARGET}",
         ]
         if config.assets_dir is not None:
             mounts.extend(
@@ -469,7 +480,7 @@ class Docker:
             mounts.extend(
                 [
                     "--mount",
-                    f"type=bind,src={config.fixture_file},dst=/var/lib/aap-qualification/fixture,readonly",
+                    f"type=bind,src={config.fixture_file},dst={QUALIFICATION_FIXTURE_TARGET},readonly",
                 ]
             )
         self._run(
@@ -639,7 +650,7 @@ class Docker:
         if config.gpu_uuid is not None and config.qualification_file is None:
             raise SDKError("GPU qualification report is required before starting")
         candidate_label = (
-            ["--label", f"aap.candidate={config.candidate_token}"]
+            ["--label", f"{_LABEL_CANDIDATE}={config.candidate_token}"]
             if config.candidate_token
             else []
         )
@@ -650,11 +661,11 @@ class Docker:
             config.name,
             *candidate_label,
             "--label",
-            f"aap.installation={config.installation_id}",
+            f"{_LABEL_INSTALLATION}={config.installation_id}",
             "--label",
-            f"aap.owner={config.owner_hash}",
+            f"{_LABEL_OWNER}={config.owner_hash}",
             "--label",
-            f"aap.image={config.image}",
+            f"{_LABEL_IMAGE}={config.image}",
             "--user",
             self._user(),
             "--network",
@@ -671,7 +682,7 @@ class Docker:
             "--publish",
             f"{config.host_port}:{config.container_port}",
             "--label",
-            f"aap.config={config.identity()}",
+            f"{_LABEL_CONFIG}={config.identity()}",
             "--env-file",
             str(config.env_file),
             "--mount",

@@ -67,7 +67,7 @@ yoao plugins prepare \
   --image registry.example/rapidocr@sha256:<64位摘要> \
   --name "RapidOCR CPU" \
   --url http://172.17.0.1:18005 \
-  --network aap-plugins \
+  --network yoao-plugins \
   --host-port 18005 \
   --cpus 4 \
   --image-host media.example \
@@ -89,7 +89,7 @@ yoao plugins prepare \
   --image registry.example/libreyolo@sha256:<64位摘要> \
   --name "LibreYOLO CUDA" \
   --url http://172.17.0.1:18000 \
-  --network aap-plugins \
+  --network yoao-plugins \
   --host-port 18000 \
   --cpus 4 \
   --image-host media.example \

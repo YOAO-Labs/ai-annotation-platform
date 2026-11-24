@@ -20,7 +20,7 @@ from yoao_inference_contract.plugin import (
 
 def config():
     return ContainerConfig(
-        name="aap-plugin-123",
+        name="yoao-plugin-123",
         installation_id="123",
         owner_hash="a" * 64,
         image="example.invalid/plugin@sha256:" + "b" * 64,
@@ -33,7 +33,7 @@ def config():
         cpus=2,
         env_file=Path("/private/env"),
         data_dir=Path("/private/data"),
-        data_target="/var/lib/aap-libreyolo",
+        data_target="/var/lib/yoao-plugin",
         qualification_file=Path("/private/report.json"),
     )
 
@@ -97,10 +97,10 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(
         elif "{{json .Config.Labels}}" in argv:
             out = json.dumps(
                 {
-                    "aap.installation": cfg.installation_id,
-                    "aap.owner": cfg.owner_hash,
-                    "aap.image": cfg.image,
-                    "aap.config": cfg.identity(),
+                    "yoao.installation": cfg.installation_id,
+                    "yoao.owner": cfg.owner_hash,
+                    "yoao.image": cfg.image,
+                    "yoao.config": cfg.identity(),
                 }
             )
         elif "{{.Config.Image}}" in argv:
@@ -143,7 +143,7 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(
                     {
                         "Type": "bind",
                         "Source": str(cfg.qualification_file),
-                        "Destination": "/var/lib/aap-libreyolo-qualification/report.json",
+                        "Destination": "/var/lib/yoao-plugin-qualification/report.json",
                         "RW": False,
                     },
                 ]
@@ -208,7 +208,7 @@ def test_unknown_container_is_not_adopted_or_stopped(monkeypatch):
 
     def run(argv, **kwargs):
         calls.append(argv)
-        out = "c" * 64 if "ls" in argv else '{"aap.installation":"other"}'
+        out = "c" * 64 if "ls" in argv else '{"yoao.installation":"other"}'
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
     monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
@@ -229,11 +229,11 @@ def test_candidate_intent_rejects_unknown_container(monkeypatch):
         if "{{json .Config.Labels}}" in args:
             return json.dumps(
                 {
-                    "aap.installation": cfg.installation_id,
-                    "aap.owner": cfg.owner_hash,
-                    "aap.image": cfg.image,
-                    "aap.config": cfg.identity(),
-                    "aap.candidate": "f" * 64,
+                    "yoao.installation": cfg.installation_id,
+                    "yoao.owner": cfg.owner_hash,
+                    "yoao.image": cfg.image,
+                    "yoao.config": cfg.identity(),
+                    "yoao.candidate": "f" * 64,
                 }
             )
         raise AssertionError(args)
@@ -359,10 +359,10 @@ def test_inspect_rejects_unapproved_pid_mode(monkeypatch, pid_mode):
         elif "{{json .Config.Labels}}" in argv:
             out = json.dumps(
                 {
-                    "aap.installation": cfg.installation_id,
-                    "aap.owner": cfg.owner_hash,
-                    "aap.image": cfg.image,
-                    "aap.config": cfg.identity(),
+                    "yoao.installation": cfg.installation_id,
+                    "yoao.owner": cfg.owner_hash,
+                    "yoao.image": cfg.image,
+                    "yoao.config": cfg.identity(),
                 }
             )
         elif "{{.Config.Image}}" in argv:
@@ -571,7 +571,7 @@ def _qualification_config():
         env_file=Path("/private/state/.qualify-1/qualify.env"),
         context_file=Path("/private/state/.qualify-1/context.json"),
         output_dir=Path("/private/state/.qualify-1/output"),
-        data_target="/var/lib/aap-libreyolo",
+        data_target="/var/lib/yoao-plugin",
         assets_dir=Path("/private/state/data/assets"),
         fixture_file=Path("/private/fixtures/sample.jpg"),
     )
@@ -692,10 +692,10 @@ def test_run_qualification_isolates_container_and_mounts_only_declared_paths(
 
     mounts = [cmd[index + 1] for index, token in enumerate(cmd) if token == "--mount"]
     assert mounts == [
-        f"type=bind,src={qcfg.context_file},dst=/var/lib/aap-qualification/context.json,readonly",
-        f"type=bind,src={qcfg.output_dir},dst=/var/lib/aap-qualification/output",
+        f"type=bind,src={qcfg.context_file},dst=/var/lib/yoao-qualification/context.json,readonly",
+        f"type=bind,src={qcfg.output_dir},dst=/var/lib/yoao-qualification/output",
         f"type=bind,src={qcfg.assets_dir},dst={qcfg.data_target}/assets,readonly",
-        f"type=bind,src={qcfg.fixture_file},dst=/var/lib/aap-qualification/fixture,readonly",
+        f"type=bind,src={qcfg.fixture_file},dst=/var/lib/yoao-qualification/fixture,readonly",
     ]
     joined = " ".join(cmd)
     for forbidden in ("/data/token", "gpu-keyring.json", "docker.sock"):

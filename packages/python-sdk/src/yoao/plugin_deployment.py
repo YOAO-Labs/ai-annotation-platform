@@ -26,6 +26,9 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from yoao._plugin_docker import (
+    QUALIFICATION_CONTEXT_TARGET,
+    QUALIFICATION_FIXTURE_TARGET,
+    QUALIFICATION_OUTPUT_FILE_TARGET,
     ContainerConfig,
     Docker,
     QualificationRunConfig,
@@ -52,7 +55,8 @@ from yoao_inference_contract.plugin_assets import (
 from yoao.plugins import PluginInstallations
 
 
-_DATA_TARGET = "/var/lib/aap-libreyolo"
+_DATA_TARGET = "/var/lib/yoao-plugin"
+_CONTAINER_NAME_PREFIX = "yoao-plugin-"
 
 
 class LocalPluginConfig(BaseModel):
@@ -170,10 +174,6 @@ class LocalPluginDeploymentInput(BaseModel):
 class ResolvedLocalPluginConfig(NamedTuple):
     config: LocalPluginConfig
     from_oci_label: bool
-
-
-def _data_target(plugin_id: str) -> str:
-    return _DATA_TARGET if plugin_id == "libreyolo" else "/var/lib/aap-plugin"
 
 
 def _default_container_port(entrypoint: Sequence[str]) -> int:
@@ -527,7 +527,7 @@ class LocalPluginDeployment:
         data = self.store.directory / "data"
         data.mkdir(mode=0o700, exist_ok=True)
         _check_private(data, directory=True)
-        data_target = _data_target(config.manifest.plugin_id)
+        data_target = _DATA_TARGET
         if provision:
             self._private_file(data / "token", receipt["token"])
             if config.physical_gpu_uuid:
@@ -536,34 +536,36 @@ class LocalPluginDeployment:
                     json.dumps(config.gpu_verify_keyring, sort_keys=True),
                 )
         env = {
-            "AAP_PLUGIN_TOKEN_FILE": f"{data_target}/token",
+            "YOAO_PLUGIN_TOKEN_FILE": f"{data_target}/token",
             "ROUTE_CONTROL_TOKEN_FILE": f"{data_target}/token",
-            "AAP_PLUGIN_DEVICE": self._binding(config).logical_device,
-            "AAP_PLUGIN_REGISTRY_ID": str(result.registry_id),
+            "YOAO_PLUGIN_DEVICE": self._binding(config).logical_device,
+            "YOAO_PLUGIN_REGISTRY_ID": str(result.registry_id),
             **(
                 {
-                    "AAP_PLUGIN_GPU_RESOURCE_ID": config.gpu_resource_id,
-                    "AAP_PLUGIN_GPU_UUID": config.physical_gpu_uuid,
-                    "AAP_PLUGIN_GPU_KEYRING_FILE": f"{data_target}/gpu-keyring.json",
+                    "YOAO_PLUGIN_GPU_RESOURCE_ID": config.gpu_resource_id,
+                    "YOAO_PLUGIN_GPU_UUID": config.physical_gpu_uuid,
+                    "YOAO_PLUGIN_GPU_KEYRING_FILE": f"{data_target}/gpu-keyring.json",
                 }
                 if config.physical_gpu_uuid
                 else {}
             ),
-            "AAP_PLUGIN_ASSET_ORIGINS": ",".join(config.manifest.allowed_asset_sources),
-            "AAP_PLUGIN_IMAGE_HOSTS": ",".join(config.image_hosts),
-            "AAP_PLUGIN_DATA_DIR": data_target,
+            "YOAO_PLUGIN_ASSET_ORIGINS": ",".join(
+                config.manifest.allowed_asset_sources
+            ),
+            "YOAO_PLUGIN_IMAGE_HOSTS": ",".join(config.image_hosts),
+            "YOAO_PLUGIN_DATA_DIR": data_target,
             "OMP_NUM_THREADS": str(max(1, int(config.cpus))),
             "MKL_NUM_THREADS": str(max(1, int(config.cpus))),
             "OPENBLAS_NUM_THREADS": str(max(1, int(config.cpus))),
         }
         if config.manifest.plugin_id != "libreyolo":
-            env["AAP_ROUTE_REGISTRY_ID"] = str(result.registry_id)
-            env["AAP_PLUGIN_ID"] = config.manifest.plugin_id
-            env["AAP_PLUGIN_VERSION"] = config.manifest.version
-            env["AAP_PLUGIN_ASSET_MANIFEST_SHA256"] = (
+            env["ROUTE_REGISTRY_ID"] = str(result.registry_id)
+            env["YOAO_PLUGIN_ID"] = config.manifest.plugin_id
+            env["YOAO_PLUGIN_VERSION"] = config.manifest.version
+            env["YOAO_PLUGIN_ASSET_MANIFEST_SHA256"] = (
                 config.manifest.asset_manifest_sha256
             )
-            env["AAP_PLUGIN_MANAGED_MODEL_COMPATIBILITY"] = json.dumps(
+            env["YOAO_PLUGIN_MANAGED_MODEL_COMPATIBILITY"] = json.dumps(
                 [
                     entry.model_dump(mode="json")
                     for entry in config.manifest.managed_model_compatibility
@@ -580,10 +582,10 @@ class LocalPluginDeployment:
         if qualification:
             env.update(
                 {
-                    "AAP_PLUGIN_QUALIFICATION_FILE": f"{data_target}-qualification/report.json",
-                    "AAP_PLUGIN_QUALIFICATION_SHA256": qualification["sha256"],
-                    "AAP_PLUGIN_OCI_ARTIFACT": config.manifest.artifact,
-                    "AAP_PLUGIN_IMAGE_ID": qualification["image_id"],
+                    "YOAO_PLUGIN_QUALIFICATION_FILE": f"{data_target}-qualification/report.json",
+                    "YOAO_PLUGIN_QUALIFICATION_SHA256": qualification["sha256"],
+                    "YOAO_PLUGIN_OCI_ARTIFACT": config.manifest.artifact,
+                    "YOAO_PLUGIN_IMAGE_ID": qualification["image_id"],
                 }
             )
         if any("\n" in value or "\r" in value for value in env.values()):
@@ -599,7 +601,7 @@ class LocalPluginDeployment:
             _check_private(env_file, directory=False)
         token = receipt.get("container_candidate_token")
         name = (
-            "aap-plugin-"
+            _CONTAINER_NAME_PREFIX
             + receipt["installation_id"]
             + ("-" + token[:16] if token else "")
         )
@@ -844,7 +846,7 @@ class LocalPluginDeployment:
             raise SDKError(
                 "GPU qualification requires a reserved GPU resource and UUID"
             )
-        data_target = _data_target(manifest.plugin_id)
+        data_target = _DATA_TARGET
         pools_payload = {
             name: pool.model_dump(mode="json") for name, pool in manifest.pools.items()
         }
@@ -861,36 +863,34 @@ class LocalPluginDeployment:
             "asset_manifest_sha256": manifest.asset_manifest_sha256,
             "pools": pools_payload,
             "data_dir": data_target,
-            "output_file": "/var/lib/aap-qualification/output/report.json",
+            "output_file": QUALIFICATION_OUTPUT_FILE_TARGET,
             "fixture_file": (
-                "/var/lib/aap-qualification/fixture"
-                if fixture_file is not None
-                else None
+                QUALIFICATION_FIXTURE_TARGET if fixture_file is not None else None
             ),
             "model_approval_ref": opts.model_approval_ref,
             "fixture_approval_ref": opts.fixture_approval_ref,
         }
         env = {
-            "AAP_PLUGIN_ID": manifest.plugin_id,
-            "AAP_PLUGIN_VERSION": manifest.version,
-            "AAP_PLUGIN_OCI_ARTIFACT": manifest.artifact,
-            "AAP_PLUGIN_IMAGE_ID": image_id,
-            "AAP_PLUGIN_REGISTRY_ID": str(result.registry_id),
-            "AAP_PLUGIN_GPU_RESOURCE_ID": resource.gpu_resource_id,
-            "AAP_PLUGIN_GPU_UUID": resource.physical_gpu_uuid,
-            "AAP_PLUGIN_DEVICE": "cuda:0",
-            "AAP_PLUGIN_ASSET_MANIFEST_SHA256": manifest.asset_manifest_sha256,
-            "AAP_PLUGIN_POOLS_JSON": json.dumps(
+            "YOAO_PLUGIN_ID": manifest.plugin_id,
+            "YOAO_PLUGIN_VERSION": manifest.version,
+            "YOAO_PLUGIN_OCI_ARTIFACT": manifest.artifact,
+            "YOAO_PLUGIN_IMAGE_ID": image_id,
+            "YOAO_PLUGIN_REGISTRY_ID": str(result.registry_id),
+            "YOAO_PLUGIN_GPU_RESOURCE_ID": resource.gpu_resource_id,
+            "YOAO_PLUGIN_GPU_UUID": resource.physical_gpu_uuid,
+            "YOAO_PLUGIN_DEVICE": "cuda:0",
+            "YOAO_PLUGIN_ASSET_MANIFEST_SHA256": manifest.asset_manifest_sha256,
+            "YOAO_PLUGIN_POOLS_JSON": json.dumps(
                 pools_payload, sort_keys=True, separators=(",", ":")
             ),
-            "AAP_PLUGIN_DATA_DIR": data_target,
-            "AAP_QUALIFICATION_CONTEXT_FILE": "/var/lib/aap-qualification/context.json",
-            "AAP_QUALIFICATION_OUTPUT_FILE": "/var/lib/aap-qualification/output/report.json",
+            "YOAO_PLUGIN_DATA_DIR": data_target,
+            "YOAO_QUALIFICATION_CONTEXT_FILE": QUALIFICATION_CONTEXT_TARGET,
+            "YOAO_QUALIFICATION_OUTPUT_FILE": QUALIFICATION_OUTPUT_FILE_TARGET,
             "VALIDATION_IMAGE_ID": image_id,
             "VALIDATION_GPU_UUID": resource.physical_gpu_uuid,
         }
         if fixture_file is not None:
-            env["AAP_QUALIFICATION_FIXTURE_FILE"] = "/var/lib/aap-qualification/fixture"
+            env["YOAO_QUALIFICATION_FIXTURE_FILE"] = QUALIFICATION_FIXTURE_TARGET
         if opts.model_approval_ref is not None:
             env["VALIDATION_MODEL_APPROVAL_REF"] = opts.model_approval_ref
         if opts.fixture_approval_ref is not None:
@@ -1250,7 +1250,7 @@ class LocalPluginDeployment:
         container = self._container(receipt, result)
         return replace(
             container,
-            name="aap-plugin-" + receipt["installation_id"] + "-" + token[:16],
+            name=_CONTAINER_NAME_PREFIX + receipt["installation_id"] + "-" + token[:16],
             candidate_token=token,
         )
 

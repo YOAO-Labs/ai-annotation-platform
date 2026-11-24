@@ -45,6 +45,7 @@
 
 ### Changed
 
+- 推理插件安装器与 `yoao-protocol-v2` 路由控制运行时全面切到 YOAO 命名：Docker 所有权标签改为 `yoao.installation`／`yoao.owner`／`yoao.image`／`yoao.config`／`yoao.candidate`，容器名前缀改为 `yoao-plugin-`，挂载目录统一为 `/var/lib/yoao-plugin` 与 `/var/lib/yoao-qualification/*`，容器环境变量改为 `YOAO_PLUGIN_*`、`YOAO_QUALIFICATION_*` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_REGISTRY_ID` 非空时启动阶段失败关闭）。不保留旧别名；既有插件容器须用原匹配 CLI 停用或退役后再部署，外部 `Plugin-SDK` 与 `YOAO-Plugins` 制品须同步升级以匹配新运行契约。
 - 超级管理员模型服务文档的“可安装推理插件”章节拆分为“操作步骤”和“安全原理”两层，移除面向运维的内部实现术语；插件安装状态机、OCI 标签规范、资格容器隔离约束与历史本地收据迁移说明移至开发者概念文档 [插件安装生命周期](docs-site/dev/concepts/plugin-installation-lifecycle.md)。
 
 - 原件身份与完整下载在返回 HTTP 409 时记录脱敏结构化警告日志，并在任务解析阶段复用既有 1 秒有界 `DatasetItem FOR SHARE` 等待（保留所有冲突与绑定漂移保护，不引入原件身份自动重试）；前端透出 `x-request-id` 与并发占用业务码，在「重读原图」横幅次级文案展示错误码与请求回执，并将脱敏读取诊断与手动重读后的原件摘要纳入反馈采集。

@@ -275,7 +275,7 @@ async def _checkpoint_cpu_backend(
         registry_id=registry_id,
         environ={
             "ROUTE_CONTROL_TOKEN": control_token,
-            "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "0",
+            "ROUTE_ALLOW_LEGACY_EXECUTION": "0",
         },
     )
     server = uvicorn.Server(
