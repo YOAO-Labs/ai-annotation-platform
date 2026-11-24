@@ -80,8 +80,8 @@ function currentRoute(): string {
 }
 
 function currentOwnerKey(): string {
-  const auth = useAuthStore.getState();
-  return JSON.stringify([auth.user?.id ?? null, auth.sessionId]);
+  const auth = typeof useAuthStore.getState === "function" ? useAuthStore.getState() : null;
+  return JSON.stringify([auth?.user?.id ?? null, auth?.sessionId ?? ""]);
 }
 
 function stableStringify(value: unknown): string {
@@ -199,15 +199,18 @@ export function clearOriginalReadDiagnostics(): void {
   if (target) delete target.__originalReadDiagnostics;
 }
 
-const unbindAuth = useAuthStore.subscribe(() => {
-  const target = diagnosticsWindow();
-  if (
-    target?.__originalReadDiagnostics &&
-    target.__originalReadDiagnostics.ownerKey !== currentOwnerKey()
-  ) {
-    delete target.__originalReadDiagnostics;
-  }
-});
+const unbindAuth =
+  typeof useAuthStore.subscribe === "function"
+    ? useAuthStore.subscribe(() => {
+        const target = diagnosticsWindow();
+        if (
+          target?.__originalReadDiagnostics &&
+          target.__originalReadDiagnostics.ownerKey !== currentOwnerKey()
+        ) {
+          delete target.__originalReadDiagnostics;
+        }
+      })
+    : () => {};
 
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {

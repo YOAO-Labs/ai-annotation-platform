@@ -35,9 +35,10 @@ try {
   await assert.rejects(create(), { code: "23505" });
   await client.query("ROLLBACK TO SAVEPOINT duplicate_account");
   const row = (
-    await client.query("SELECT * FROM yoao_identity_fixture_v1.account_profiles WHERE id=$1::uuid", [
-      input.peer_id,
-    ])
+    await client.query(
+      "SELECT * FROM yoao_identity_fixture_v1.account_profiles WHERE id=$1::uuid",
+      [input.peer_id],
+    )
   ).rows[0];
   assert.deepEqual(Object.keys(row).sort(), [...input.fields].sort());
   assert.equal(row.name, "原样 🚙");

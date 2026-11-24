@@ -895,6 +895,20 @@ async def _delete_fixture_video_objects(db, plan, resolve_scope):
             raise busy from None
 
 
+async def _fixture_video_output_in_use(db, identifier):
+    from sqlalchemy import exists, select
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services import video_derivative_objects as objects
+
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(StorageOperation.purpose == objects.purpose(identifier))
+            )
+        )
+    )
+
+
 async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
     from sqlalchemy import case, delete, update
     from app.db.models.dataset import DatasetItem, VideoChunk, VideoFrameCache
@@ -931,7 +945,7 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
             output.state != "building"
             or output.lease_token is not None
             or output.inventory is not None
-            or await objects._in_use(db, output.id)
+            or await _fixture_video_output_in_use(db, output.id)
         ):
             raise HTTPException(409, detail={"code": "e2e_seed_video_owner_changed"})
         stale.append(output.id)
@@ -944,7 +958,7 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
         else:
             changed = False
             output.state = "retiring"
-        if changed or await objects._in_use(db, output.id):
+        if changed or await _fixture_video_output_in_use(db, output.id):
             raise HTTPException(
                 409, detail={"code": "e2e_seed_video_operation_unsettled"}
             )
@@ -4953,8 +4967,16 @@ async def _stage_tracker_review_fixture(db, captured, source_ids, source_version
 
     scope = captured.scope
     job_id = scope.tracker_job_id
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services import storage_access
+
+    worker_factory = async_sessionmaker(
+        storage_access.engine(db), expire_on_commit=False
+    )
     try:
-        async with embedded_tracker_video_input_gateway() as gateway:
+        async with embedded_tracker_video_input_gateway(
+            worker_session_factory=worker_factory
+        ) as gateway:
             ready = await ensure_tracker_video_input_ready(
                 gateway,
                 actor_id=scope.origin_actor_id,

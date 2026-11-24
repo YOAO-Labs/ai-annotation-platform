@@ -22,7 +22,10 @@ from yoao_assets_media_runtime.additional_original import (
     AdditionalOriginalConfig,
     physical_identity,
 )
-from yoao_assets_media_runtime.fixture_native_outputs import native_execution, output_scope
+from yoao_assets_media_runtime.fixture_native_outputs import (
+    native_execution,
+    output_scope,
+)
 from yoao_assets_media_runtime.storage import S3MediaStorage
 
 
@@ -243,7 +246,10 @@ async def test_fixture_original_uses_only_explicitly_admitted_ordinary_media_out
     artifact.write_bytes(b"ordinary output")
     async with native_execution(reader, "media", claim.job_id):
         async with admitted_original(
-            reader, storage, "begin_media_original_worker", None,
+            reader,
+            storage,
+            "begin_media_original_worker",
+            None,
             "finish_media_original_worker",
         ) as original:
             with pytest.raises(RuntimeError):
@@ -411,7 +417,9 @@ def test_source_read_preserves_first_failure_when_stream_close_is_unknown(
     assert not (tmp_path / "src").exists()
 
 
-def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(tmp_path: Path, monkeypatch):
+def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(
+    tmp_path: Path, monkeypatch
+):
     monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     client = _FakeS3()
     storage, _ = _storage(client)
@@ -453,8 +461,11 @@ def test_jpeg_output_upload_uses_jpeg_media_type(tmp_path: Path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_upload_waits_for_boto_thread_before_returning(tmp_path: Path, monkeypatch):
+async def test_cancelled_upload_waits_for_boto_thread_before_returning(
+    tmp_path: Path, monkeypatch
+):
     monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
+
     class _SlowUpload(_FakeS3):
         def __init__(self):
             super().__init__()

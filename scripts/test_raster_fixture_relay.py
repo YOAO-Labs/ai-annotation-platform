@@ -297,7 +297,8 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         snapshots = []
         with self.assertRaisesRegex(ContractError, "raster_fixture_relay_unsettled"):
             self.relay.close(
-                timeout=0.2, on_unsettled=lambda reason, snapshot: snapshots.append(snapshot)
+                timeout=0.2,
+                on_unsettled=lambda reason, snapshot: snapshots.append(snapshot),
             )
         self.assertEqual(
             snapshots[0]["operations"],

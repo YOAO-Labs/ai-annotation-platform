@@ -56,13 +56,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -79,21 +74,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -125,13 +113,8 @@
                     "model_family": null,
                     "is_interactive": false,
                     "resource_profile": {},
-                    "supported_inputs": [
-                      "bbox_prompt",
-                      "full_image"
-                    ],
-                    "supported_prompts": [
-                      "bbox"
-                    ],
+                    "supported_inputs": ["bbox_prompt", "full_image"],
+                    "supported_prompts": ["bbox"],
                     "default_input_type": "bbox_prompt",
                     "default_thresholds": {},
                     "supported_trackers": [],
@@ -145,22 +128,15 @@
                 ],
                 "version": null,
                 "warnings": [],
-                "modalities": [
-                  "image"
-                ],
+                "modalities": ["image"],
                 "model_version": "one",
                 "is_interactive": false,
                 "warmup_endpoint": false,
                 "weights_version": null,
                 "protocol_version": "1",
-                "supported_inputs": [
-                  "bbox_prompt",
-                  "full_image"
-                ],
+                "supported_inputs": ["bbox_prompt", "full_image"],
                 "managed_lifecycle": null,
-                "supported_prompts": [
-                  "bbox"
-                ],
+                "supported_prompts": ["bbox"],
                 "supported_trackers": [],
                 "text_driven_trackers": [],
                 "supported_text_outputs": [],
@@ -238,13 +214,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -261,21 +232,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -307,13 +271,8 @@
                     "model_family": null,
                     "is_interactive": false,
                     "resource_profile": {},
-                    "supported_inputs": [
-                      "bbox_prompt",
-                      "full_image"
-                    ],
-                    "supported_prompts": [
-                      "bbox"
-                    ],
+                    "supported_inputs": ["bbox_prompt", "full_image"],
+                    "supported_prompts": ["bbox"],
                     "default_input_type": "bbox_prompt",
                     "default_thresholds": {},
                     "supported_trackers": [],
@@ -327,22 +286,15 @@
                 ],
                 "version": null,
                 "warnings": [],
-                "modalities": [
-                  "image"
-                ],
+                "modalities": ["image"],
                 "model_version": "one",
                 "is_interactive": false,
                 "warmup_endpoint": false,
                 "weights_version": null,
                 "protocol_version": "1",
-                "supported_inputs": [
-                  "bbox_prompt",
-                  "full_image"
-                ],
+                "supported_inputs": ["bbox_prompt", "full_image"],
                 "managed_lifecycle": null,
-                "supported_prompts": [
-                  "bbox"
-                ],
+                "supported_prompts": ["bbox"],
                 "supported_trackers": [],
                 "text_driven_trackers": [],
                 "supported_text_outputs": [],
@@ -545,13 +497,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -568,21 +515,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -618,13 +558,8 @@
                     "model_family": null,
                     "is_interactive": false,
                     "resource_profile": {},
-                    "supported_inputs": [
-                      "bbox_prompt",
-                      "full_image"
-                    ],
-                    "supported_prompts": [
-                      "bbox"
-                    ],
+                    "supported_inputs": ["bbox_prompt", "full_image"],
+                    "supported_prompts": ["bbox"],
                     "default_input_type": "bbox_prompt",
                     "default_thresholds": {},
                     "supported_trackers": [],
@@ -638,22 +573,15 @@
                 ],
                 "version": null,
                 "warnings": [],
-                "modalities": [
-                  "image"
-                ],
+                "modalities": ["image"],
                 "model_version": "one",
                 "is_interactive": false,
                 "warmup_endpoint": false,
                 "weights_version": null,
                 "protocol_version": "1",
-                "supported_inputs": [
-                  "bbox_prompt",
-                  "full_image"
-                ],
+                "supported_inputs": ["bbox_prompt", "full_image"],
                 "managed_lifecycle": null,
-                "supported_prompts": [
-                  "bbox"
-                ],
+                "supported_prompts": ["bbox"],
                 "supported_trackers": [],
                 "text_driven_trackers": [],
                 "supported_text_outputs": [],
@@ -719,13 +647,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -742,21 +665,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -792,13 +708,8 @@
                     "model_family": null,
                     "is_interactive": false,
                     "resource_profile": {},
-                    "supported_inputs": [
-                      "bbox_prompt",
-                      "full_image"
-                    ],
-                    "supported_prompts": [
-                      "bbox"
-                    ],
+                    "supported_inputs": ["bbox_prompt", "full_image"],
+                    "supported_prompts": ["bbox"],
                     "default_input_type": "bbox_prompt",
                     "default_thresholds": {},
                     "supported_trackers": [],
@@ -812,22 +723,15 @@
                 ],
                 "version": null,
                 "warnings": [],
-                "modalities": [
-                  "image"
-                ],
+                "modalities": ["image"],
                 "model_version": "one",
                 "is_interactive": false,
                 "warmup_endpoint": false,
                 "weights_version": null,
                 "protocol_version": "1",
-                "supported_inputs": [
-                  "bbox_prompt",
-                  "full_image"
-                ],
+                "supported_inputs": ["bbox_prompt", "full_image"],
                 "managed_lifecycle": null,
-                "supported_prompts": [
-                  "bbox"
-                ],
+                "supported_prompts": ["bbox"],
                 "supported_trackers": [],
                 "text_driven_trackers": [],
                 "supported_text_outputs": [],
@@ -1078,11 +982,7 @@
       "autoflush": false,
       "error": "AttributeError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits"
-      ],
+      "trace": ["http:/setup", "clock", "limits"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -1116,11 +1016,7 @@
       "autoflush": true,
       "error": "AttributeError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits"
-      ],
+      "trace": ["http:/setup", "clock", "limits"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -1154,12 +1050,7 @@
       "autoflush": false,
       "error": null,
       "flush_error": null,
-      "trace": [
-        "clock",
-        "registry_read",
-        "registry_write",
-        "unrelated_flush"
-      ],
+      "trace": ["clock", "registry_read", "registry_write", "unrelated_flush"],
       "caller_pending": false,
       "unrelated_pending": false,
       "memory": [
@@ -1211,12 +1102,7 @@
       "autoflush": true,
       "error": null,
       "flush_error": null,
-      "trace": [
-        "clock",
-        "unrelated_flush",
-        "registry_read",
-        "registry_write"
-      ],
+      "trace": ["clock", "unrelated_flush", "registry_read", "registry_write"],
       "caller_pending": false,
       "unrelated_pending": false,
       "memory": [
@@ -1268,12 +1154,7 @@
       "autoflush": false,
       "error": null,
       "flush_error": null,
-      "trace": [
-        "clock",
-        "registry_read",
-        "registry_write",
-        "unrelated_flush"
-      ],
+      "trace": ["clock", "registry_read", "registry_write", "unrelated_flush"],
       "caller_pending": false,
       "unrelated_pending": false,
       "memory": [
@@ -1325,12 +1206,7 @@
       "autoflush": true,
       "error": null,
       "flush_error": null,
-      "trace": [
-        "clock",
-        "unrelated_flush",
-        "registry_read",
-        "registry_write"
-      ],
+      "trace": ["clock", "unrelated_flush", "registry_read", "registry_write"],
       "caller_pending": false,
       "unrelated_pending": false,
       "memory": [
@@ -1382,11 +1258,7 @@
       "autoflush": false,
       "error": "AttributeError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits"
-      ],
+      "trace": ["http:/setup", "clock", "limits"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -1402,11 +1274,7 @@
       "autoflush": true,
       "error": "AttributeError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits"
-      ],
+      "trace": ["http:/setup", "clock", "limits"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -1422,12 +1290,7 @@
       "autoflush": false,
       "error": "ValueError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits",
-        "registry_read"
-      ],
+      "trace": ["http:/setup", "clock", "limits", "registry_read"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -1459,13 +1322,7 @@
       "autoflush": true,
       "error": "ValueError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits",
-        "unrelated_flush",
-        "registry_read"
-      ],
+      "trace": ["http:/setup", "clock", "limits", "unrelated_flush", "registry_read"],
       "caller_pending": true,
       "unrelated_pending": false,
       "memory": [],
@@ -1497,13 +1354,7 @@
       "autoflush": false,
       "error": "DBAPIError",
       "flush_error": null,
-      "trace": [
-        "http:/setup",
-        "clock",
-        "limits",
-        "registry_read",
-        "registry_insert"
-      ],
+      "trace": ["http:/setup", "clock", "limits", "registry_read", "registry_insert"],
       "caller_pending": true,
       "unrelated_pending": false,
       "memory": [],
@@ -1588,13 +1439,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -1611,21 +1457,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -1708,13 +1547,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -1731,21 +1565,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -1782,13 +1609,7 @@
       "autoflush": false,
       "error": null,
       "flush_error": null,
-      "trace": [
-        "registry_read",
-        "http:/health",
-        "clock",
-        "registry_write",
-        "unrelated_flush"
-      ],
+      "trace": ["registry_read", "http:/health", "clock", "registry_write", "unrelated_flush"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [
@@ -1840,13 +1661,7 @@
       "autoflush": true,
       "error": null,
       "flush_error": null,
-      "trace": [
-        "unrelated_flush",
-        "registry_read",
-        "http:/health",
-        "clock",
-        "registry_write"
-      ],
+      "trace": ["unrelated_flush", "registry_read", "http:/health", "clock", "registry_write"],
       "caller_pending": true,
       "unrelated_pending": false,
       "memory": [
@@ -1941,13 +1756,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -1964,21 +1774,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -2058,13 +1861,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -2081,21 +1879,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -2370,9 +2161,7 @@
       "autoflush": false,
       "error": "ValueError",
       "flush_error": null,
-      "trace": [
-        "registry_read"
-      ],
+      "trace": ["registry_read"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -2404,10 +2193,7 @@
       "autoflush": true,
       "error": "ValueError",
       "flush_error": null,
-      "trace": [
-        "unrelated_flush",
-        "registry_read"
-      ],
+      "trace": ["unrelated_flush", "registry_read"],
       "caller_pending": true,
       "unrelated_pending": false,
       "memory": [],
@@ -2439,9 +2225,7 @@
       "autoflush": false,
       "error": "AttributeError",
       "flush_error": null,
-      "trace": [
-        "registry_read"
-      ],
+      "trace": ["registry_read"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -2453,9 +2237,7 @@
             "source": "manual",
             "state": "connected",
             "is_interactive": true,
-            "extra_params": [
-              1
-            ],
+            "extra_params": [1],
             "health_meta": {
               "old": "snapshot"
             },
@@ -2473,10 +2255,7 @@
       "autoflush": true,
       "error": "AttributeError",
       "flush_error": null,
-      "trace": [
-        "unrelated_flush",
-        "registry_read"
-      ],
+      "trace": ["unrelated_flush", "registry_read"],
       "caller_pending": true,
       "unrelated_pending": false,
       "memory": [],
@@ -2488,9 +2267,7 @@
             "source": "manual",
             "state": "connected",
             "is_interactive": true,
-            "extra_params": [
-              1
-            ],
+            "extra_params": [1],
             "health_meta": {
               "old": "snapshot"
             },
@@ -2556,13 +2333,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -2579,21 +2351,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -2679,13 +2444,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -2702,21 +2462,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -2805,13 +2558,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -2828,21 +2576,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -2913,13 +2654,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -2936,21 +2672,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3024,13 +2753,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3047,21 +2771,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3153,13 +2870,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3176,21 +2888,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3279,13 +2984,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3302,21 +3002,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3401,13 +3094,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3424,21 +3112,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3523,13 +3204,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3546,21 +3222,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3645,13 +3314,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3668,21 +3332,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3767,13 +3424,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3790,21 +3442,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3889,13 +3534,8 @@
                   "model_family": null,
                   "infra": "unknown",
                   "is_interactive": false,
-                  "supported_prompts": [
-                    "bbox"
-                  ],
-                  "supported_inputs": [
-                    "bbox_prompt",
-                    "full_image"
-                  ],
+                  "supported_prompts": ["bbox"],
+                  "supported_inputs": ["bbox_prompt", "full_image"],
                   "default_input_type": "bbox_prompt",
                   "supported_geometric_outputs": [],
                   "output_attribute_types": [],
@@ -3912,21 +3552,14 @@
                 }
               ],
               "is_interactive": false,
-              "supported_prompts": [
-                "bbox"
-              ],
-              "supported_inputs": [
-                "bbox_prompt",
-                "full_image"
-              ],
+              "supported_prompts": ["bbox"],
+              "supported_inputs": ["bbox_prompt", "full_image"],
               "supported_trackers": [],
               "text_driven_trackers": [],
               "supported_text_outputs": [],
               "supported_geometric_outputs": [],
               "warnings": [],
-              "modalities": [
-                "image"
-              ]
+              "modalities": ["image"]
             }
           },
           "last_checked_at": "<time>",
@@ -3959,9 +3592,7 @@
       "autoflush": false,
       "error": "TypeError",
       "flush_error": null,
-      "trace": [
-        "registry_read"
-      ],
+      "trace": ["registry_read"],
       "caller_pending": true,
       "unrelated_pending": true,
       "memory": [],
@@ -3973,9 +3604,7 @@
             "source": "manual",
             "state": "connected",
             "is_interactive": true,
-            "extra_params": [
-              1
-            ],
+            "extra_params": [1],
             "health_meta": {
               "old": "snapshot"
             },
@@ -3993,10 +3622,7 @@
       "autoflush": true,
       "error": "TypeError",
       "flush_error": null,
-      "trace": [
-        "unrelated_flush",
-        "registry_read"
-      ],
+      "trace": ["unrelated_flush", "registry_read"],
       "caller_pending": true,
       "unrelated_pending": false,
       "memory": [],
@@ -4008,9 +3634,7 @@
             "source": "manual",
             "state": "connected",
             "is_interactive": true,
-            "extra_params": [
-              1
-            ],
+            "extra_params": [1],
             "health_meta": {
               "old": "snapshot"
             },

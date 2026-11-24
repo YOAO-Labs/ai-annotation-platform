@@ -58,8 +58,10 @@ def _uuid(value):
 def _parse(family, action, subject):
     fields = SUBJECTS[family]
     extra = (
-        {"actor_id"} if family == "bug" and action == "write"
-        else {"download_name"} if family == "zip" and action == "sign"
+        {"actor_id"}
+        if family == "bug" and action == "write"
+        else {"download_name"}
+        if family == "zip" and action == "sign"
         else set()
     )
     if set(subject) != {"operation_id", *fields, *extra}:
@@ -77,12 +79,18 @@ def _parse(family, action, subject):
 
 async def _subject(context, family, action, operation, ids, subject):
     if family == "avatar":
-        facts = await context.fetch(ASSETS + "saved_avatar_subject", *ids, operation, action)
+        facts = await context.fetch(
+            ASSETS + "saved_avatar_subject", *ids, operation, action
+        )
     elif family == "bug":
         actor = _uuid(subject["actor_id"]) if action == "write" else None
-        facts = await context.fetch(ASSETS + "saved_bug_subject", *ids, operation, action, actor)
+        facts = await context.fetch(
+            ASSETS + "saved_bug_subject", *ids, operation, action, actor
+        )
     elif family == "archive":
-        facts = await context.fetch(ASSETS + "saved_archive_subject", *ids, operation, action)
+        facts = await context.fetch(
+            ASSETS + "saved_archive_subject", *ids, operation, action
+        )
     else:
         capability = {
             "zip": "zip_io_subject",
@@ -102,9 +110,15 @@ def _suffix(family, ids, facts):
         extension = MIME_EXTENSIONS.get(facts["mime_type"])
         if extension is None:
             _denied()
-        return "bug-reports", f"bug-report-attachments/{facts['owner_id']}/{ids[0]}.{extension}"
+        return (
+            "bug-reports",
+            f"bug-report-attachments/{facts['owner_id']}/{ids[0]}.{extension}",
+        )
     if family == "archive":
-        return "audit-archive", f"{facts['year']:04d}/{facts['month']:02d}/{ids[0]}.jsonl.gz"
+        return (
+            "audit-archive",
+            f"{facts['year']:04d}/{facts['month']:02d}/{ids[0]}.jsonl.gz",
+        )
     if family in {"member", "media"}:
         return "export", f"lidar-export-media/objects/{ids[0]}/"
     suffix = f"/{facts['project_id']}/{facts['job_id']}/{ids[0]}.zip"
@@ -117,12 +131,17 @@ def _suffix(family, ids, facts):
 
 async def _origin(context, family, ids, facts):
     purpose, suffix = _suffix(family, ids, facts)
-    origin = await context.fetch(ASSETS + "saved_output_origin", facts["storage_ref"], purpose, suffix)
+    origin = await context.fetch(
+        ASSETS + "saved_output_origin", facts["storage_ref"], purpose, suffix
+    )
     if not isinstance(origin, dict):
         _denied()
     return (
-        _uuid(origin["location_id"]), origin["config_revision"],
-        origin["connection_revision"], purpose, origin["bucket"],
+        _uuid(origin["location_id"]),
+        origin["config_revision"],
+        origin["connection_revision"],
+        purpose,
+        origin["bucket"],
     )
 
 
@@ -136,15 +155,21 @@ async def _pin(context, family, ids, facts):
     else:
         key = ref["object_key"]
     length, digest = facts.get("size_bytes"), facts.get("sha256")
-    if (type(length) is not int or not 0 <= length <= LIMITS[family]
-            or not isinstance(digest, str) or DIGEST.fullmatch(digest) is None):
+    if (
+        type(length) is not int
+        or not 0 <= length <= LIMITS[family]
+        or not isinstance(digest, str)
+        or DIGEST.fullmatch(digest) is None
+    ):
         _denied()
     return await context.s3(*origin, key, version=facts.get("version_id"))
 
 
 def _plain(value, limit=1024):
-    return isinstance(value, str) and 0 < len(value) <= limit and all(
-        ord(char) >= 32 and ord(char) != 127 for char in value
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= limit
+        and all(ord(char) >= 32 and ord(char) != 127 for char in value)
     )
 
 
@@ -153,9 +178,13 @@ def _same_version(expected, actual):
 
 
 def _check_observation(response, facts, *, etag, version):
-    if (response.get("ContentLength") != facts["size_bytes"] or response.get("ETag") != etag
-            or not _same_version(version, response.get("VersionId"))
-            or response.get("ContentRange") is not None or response.get("DeleteMarker")):
+    if (
+        response.get("ContentLength") != facts["size_bytes"]
+        or response.get("ETag") != etag
+        or not _same_version(version, response.get("VersionId"))
+        or response.get("ContentRange") is not None
+        or response.get("DeleteMarker")
+    ):
         _changed()
 
 
@@ -199,7 +228,10 @@ async def _open(context, family, pin, facts):
 async def _verify(context, family, pin, facts):
     result, etag, version = await _open(context, family, pin, facts)
     try:
-        if await context.run(_hash, result.body, facts["size_bytes"]) != facts["sha256"]:
+        if (
+            await context.run(_hash, result.body, facts["size_bytes"])
+            != facts["sha256"]
+        ):
             _changed()
     finally:
         await context.run(result.close)
@@ -209,26 +241,39 @@ async def _verify(context, family, pin, facts):
 
 async def _write(context, family, operation, ids, subject, facts, pin, body):
     length = facts["size_bytes"]
-    if pin.version is not None or await context.run(_hash, body, length) != facts["sha256"]:
+    if (
+        pin.version is not None
+        or await context.run(_hash, body, length) != facts["sha256"]
+    ):
         _changed()
     await context.run(body.seek, 0)
     if await _subject(context, family, "write", operation, ids, subject) != facts:
         _denied()
     identifier = ":".join(map(str, ids))
     evidence = {name: facts[name] for name in ("storage_ref", "sha256", "size_bytes")}
-    if not await context.fetch(ASSETS + "begin_saved_output_write", operation, family, identifier, evidence):
+    if not await context.fetch(
+        ASSETS + "begin_saved_output_write", operation, family, identifier, evidence
+    ):
         raise SavedIOError("output_write_already_started")
     content_type = {
-        "avatar": "image/webp", "bug": facts.get("mime_type"), "archive": "application/gzip",
-        "zip": "application/zip", "member": "application/octet-stream",
+        "avatar": "image/webp",
+        "bug": facts.get("mime_type"),
+        "archive": "application/gzip",
+        "zip": "application/zip",
+        "member": "application/octet-stream",
     }[family]
     cache_control = {
         "avatar": "public, max-age=86400, stale-while-revalidate=604800",
         "member": "private, max-age=604800, immutable",
     }.get(family)
     written = await pin.put(
-        body, length=length, if_none_match="*", content_type=content_type,
-        content_fields={"CacheControl": cache_control} if cache_control is not None else None,
+        body,
+        length=length,
+        if_none_match="*",
+        content_type=content_type,
+        content_fields={"CacheControl": cache_control}
+        if cache_control is not None
+        else None,
         multipart=family == "zip" and length >= 8 * 1024**2 or length > 5 * 1024**3,
     )
     etag, version = written.get("ETag"), written.get("VersionId")
@@ -243,12 +288,18 @@ async def _write(context, family, operation, ids, subject, facts, pin, body):
     if await _subject(context, family, "write", operation, ids, subject) != facts:
         _denied()
     if family == "zip":
-        if not await context.fetch(EXPORT + "save_source_zip_proof", *ids, operation, receipt):
+        if not await context.fetch(
+            EXPORT + "save_source_zip_proof", *ids, operation, receipt
+        ):
             _denied()
     elif family == "member" and version is not None:
-        if not await context.fetch(EXPORT + "save_source_media_version", *ids, operation, version):
+        if not await context.fetch(
+            EXPORT + "save_source_media_version", *ids, operation, version
+        ):
             _denied()
-    if not await context.fetch(ASSETS + "finish_saved_output_write", operation, family, identifier, receipt):
+    if not await context.fetch(
+        ASSETS + "finish_saved_output_write", operation, family, identifier, receipt
+    ):
         raise SavedIOError("output_receipt_unsettled", status_code=503, unsettled=True)
     return receipt
 
@@ -257,7 +308,9 @@ async def _download(context, family, operation, ids, subject, facts, pin):
     result, etag, version = await _open(context, family, pin, facts)
 
     async def check():
-        _check_observation(await pin.head(if_match=etag), facts, etag=etag, version=version)
+        _check_observation(
+            await pin.head(if_match=etag), facts, etag=etag, version=version
+        )
         if await _subject(context, family, "read", operation, ids, subject) != facts:
             _denied()
 
@@ -281,7 +334,11 @@ async def _delete(context, family, operation, ids, subject, facts, pin):
                 return {"absent": True}
             raise
         try:
-            if version not in {None, "null"} or await context.run(_hash, result.body, facts["size_bytes"]) != facts["sha256"]:
+            if (
+                version not in {None, "null"}
+                or await context.run(_hash, result.body, facts["size_bytes"])
+                != facts["sha256"]
+            ):
                 _changed()
         finally:
             await context.run(result.close)
@@ -295,7 +352,10 @@ async def _delete(context, family, operation, ids, subject, facts, pin):
     if await _subject(context, family, "delete", operation, ids, subject) != facts:
         _denied()
     response = await pin.delete(if_match=etag)
-    if response.get("DeleteMarker") or (pin.version is not None and not _same_version(pin.version, response.get("VersionId"))):
+    if response.get("DeleteMarker") or (
+        pin.version is not None
+        and not _same_version(pin.version, response.get("VersionId"))
+    ):
         _changed()
     try:
         await pin.head()
@@ -309,12 +369,18 @@ async def _delete(context, family, operation, ids, subject, facts, pin):
 async def _sign(family, facts, pin, subject):
     current = datetime.now(timezone.utc)
     deadline = datetime.fromisoformat(facts["expires_at"])
-    fixture = deadline - datetime.fromisoformat(facts["created_at"]) == timedelta(minutes=15)
-    seconds = min(RETENTION_SECONDS, int((deadline - current).total_seconds()) - int(fixture))
+    fixture = deadline - datetime.fromisoformat(facts["created_at"]) == timedelta(
+        minutes=15
+    )
+    seconds = min(
+        RETENTION_SECONDS, int((deadline - current).total_seconds()) - int(fixture)
+    )
     if seconds <= 0:
         raise SavedIOError("output_expired", status_code=410)
     name = subject.get("download_name")
-    if family == "zip" and (not _plain(name, 255) or any(char in name for char in '\\"')):
+    if family == "zip" and (
+        not _plain(name, 255) or any(char in name for char in '\\"')
+    ):
         _invalid()
     if pin.version is None:
         await _require_unversioned(pin)
@@ -331,8 +397,12 @@ def _inventory(target, expected, *, match_size=True):
         for row in result.get("Contents", ()):
             key, size = row.get("Key"), row.get("Size")
             if (
-                key not in expected or key in visible or type(size) is not int or size < 0
-                or match_size and size != expected[key]["size_bytes"]
+                key not in expected
+                or key in visible
+                or type(size) is not int
+                or size < 0
+                or match_size
+                and size != expected[key]["size_bytes"]
             ):
                 _changed()
             visible[key] = size
@@ -354,7 +424,11 @@ def _owned_versions(target, expected, births):
         for field in ("Versions", "DeleteMarkers"):
             for row in response.get(field, ()):
                 key, version = row.get("Key"), row.get("VersionId")
-                if key not in expected or not _plain(version) or (key, version) in versions:
+                if (
+                    key not in expected
+                    or not _plain(version)
+                    or (key, version) in versions
+                ):
                     _changed()
                 keys.add(key)
                 versions.add((key, version))
@@ -370,7 +444,9 @@ def _owned_versions(target, expected, births):
                     if version != "null" or field != "Versions":
                         _changed()
                     if unversioned is None:
-                        unversioned = target.get_bucket_versioning().get("Status") is None
+                        unversioned = (
+                            target.get_bucket_versioning().get("Status") is None
+                        )
                     if not unversioned:
                         _changed()
                     selected.append((key, version))
@@ -391,13 +467,20 @@ async def _media(context, action, operation, ids, subject, facts):
     origin = await _origin(context, "media", ids, facts)
     prefix = facts["storage_ref"]["key_prefix"]
     expected = facts.get("inventory", {}).get("objects")
-    if (facts.get("key_prefix") != prefix or not isinstance(expected, dict) or len(expected) > 21_000):
+    if (
+        facts.get("key_prefix") != prefix
+        or not isinstance(expected, dict)
+        or len(expected) > 21_000
+    ):
         _denied()
     async with context.managed(*origin, prefix) as target:
         if action == "list":
             if len(await context.run(_inventory, target, expected)) != len(expected):
                 _changed()
-            if await _subject(context, "media", action, operation, ids, subject) != facts:
+            if (
+                await _subject(context, "media", action, operation, ids, subject)
+                != facts
+            ):
                 _denied()
             return {"verified": True}
         births = facts["member_versions"]
@@ -410,7 +493,9 @@ async def _media(context, action, operation, ids, subject, facts):
                 await _require_unversioned(pin)
                 await _verify(context, "member", pin, expected[key])
             response = await pin.delete()
-            if response.get("DeleteMarker") or not _same_version(version, response.get("VersionId")):
+            if response.get("DeleteMarker") or not _same_version(
+                version, response.get("VersionId")
+            ):
                 _changed()
         if await context.run(_owned_versions, target, expected, births):
             _changed()
@@ -451,8 +536,14 @@ async def _write_status(context, subject, body=None):
     family = subject.get("kind")
     if not isinstance(family, str) or family not in LIMITS:
         _invalid()
-    operation, ids = _parse(family, "status", {key: value for key, value in subject.items() if key != "kind"})
-    result = await context.fetch(ASSETS + "saved_output_write_status", operation, family, ":".join(map(str, ids)))
+    operation, ids = _parse(
+        family,
+        "status",
+        {key: value for key, value in subject.items() if key != "kind"},
+    )
+    result = await context.fetch(
+        ASSETS + "saved_output_write_status", operation, family, ":".join(map(str, ids))
+    )
     if not isinstance(result, dict):
         raise SavedIOError("output_receipt_unsettled", status_code=503, unsettled=True)
     return result
@@ -460,17 +551,28 @@ async def _write_status(context, subject, body=None):
 
 def register(registry):
     for purpose, signatures in (
-        (ASSETS, (
-            "saved_output_origin(jsonb,text,text)", "saved_avatar_subject(text,uuid,text)",
-            "saved_bug_subject(uuid,uuid,text,uuid)", "saved_archive_subject(uuid,uuid,text)",
-            "begin_saved_output_write(uuid,text,text,jsonb)", "finish_saved_output_write(uuid,text,text,jsonb)",
-            "saved_output_write_status(uuid,text,text)",
-        )),
-        (EXPORT, (
-            "zip_io_subject(uuid,uuid,text)", "media_member_io_subject(uuid,uuid,uuid,text)",
-            "media_prefix_io_subject(uuid,uuid,text)", "save_source_zip_proof(uuid,uuid,jsonb)",
-            "save_source_media_version(uuid,uuid,uuid,text)",
-        )),
+        (
+            ASSETS,
+            (
+                "saved_output_origin(jsonb,text,text)",
+                "saved_avatar_subject(text,uuid,text)",
+                "saved_bug_subject(uuid,uuid,text,uuid)",
+                "saved_archive_subject(uuid,uuid,text)",
+                "begin_saved_output_write(uuid,text,text,jsonb)",
+                "finish_saved_output_write(uuid,text,text,jsonb)",
+                "saved_output_write_status(uuid,text,text)",
+            ),
+        ),
+        (
+            EXPORT,
+            (
+                "zip_io_subject(uuid,uuid,text)",
+                "media_member_io_subject(uuid,uuid,uuid,text)",
+                "media_prefix_io_subject(uuid,uuid,text)",
+                "save_source_zip_proof(uuid,uuid,jsonb)",
+                "save_source_media_version(uuid,uuid,uuid,text)",
+            ),
+        ),
     ):
         for signature in signatures:
             registry.allow(purpose + signature)
@@ -484,9 +586,17 @@ def register(registry):
     ):
         for action in actions:
             mode, access = {
-                "write": ("upload", "write"), "read": ("download", "read"),
-                "delete": ("command", "cleanup"), "list_versions": ("command", "cleanup"),
+                "write": ("upload", "write"),
+                "read": ("download", "read"),
+                "delete": ("command", "cleanup"),
+                "list_versions": ("command", "cleanup"),
             }.get(action, ("command", "read"))
             name = "delete" if action == "list_versions" else action
-            registry.add("outputs", f"{family}_{name}", mode, partial(_handle, family, action), access=access)
+            registry.add(
+                "outputs",
+                f"{family}_{name}",
+                mode,
+                partial(_handle, family, action),
+                access=access,
+            )
     registry.add("outputs", "write_status", "command", _write_status, access="write")

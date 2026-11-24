@@ -199,9 +199,8 @@ def load_config(environment: Mapping[str, str] | None = None) -> CleanupConfig:
             "ASSET_CLEANUP_NATIVE_STORAGE_URL must be an HTTP(S) origin"
         )
     native_storage_token = _secret(source, "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN")
-    if (
-        len(native_storage_token) < 32
-        or any(not 33 <= ord(character) <= 126 for character in native_storage_token)
+    if len(native_storage_token) < 32 or any(
+        not 33 <= ord(character) <= 126 for character in native_storage_token
     ):
         raise ConfigurationError(
             "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN must contain at least 32 "

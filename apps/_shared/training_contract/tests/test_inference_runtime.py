@@ -94,22 +94,37 @@ def test_historical_libre_receipt_and_cpu_runtime_are_unchanged():
     gpu = inference_runtime(receipt, "1.6.0", device="cuda")
     assert validate_inference_runtime(receipt, gpu) == gpu
     assert gpu["qualification"] == {
-        **cpu, "device": "cuda", "cuda_build": "13.2", "precision": "fp32",
-        "half": False, "amp": False, "tf32": False,
+        **cpu,
+        "device": "cuda",
+        "cuda_build": "13.2",
+        "precision": "fp32",
+        "half": False,
+        "amp": False,
+        "tf32": False,
     }
     gpu["qualification"]["precision"] = "fp16"
     assert receipt == original
     assert inference_runtime(receipt, "1.6.0") == historical
-    assert inference_runtime(receipt, "1.6.0", device="cuda")["qualification"]["precision"] == "fp32"
+    assert (
+        inference_runtime(receipt, "1.6.0", device="cuda")["qualification"]["precision"]
+        == "fp32"
+    )
 
 
 @pytest.mark.parametrize(
     "field,value",
     [
-        ("device", "cpu"), ("device", "cuda:0"), ("device", None),
-        ("cuda_build", "12.8"), ("precision", "fp16"),
-        ("half", True), ("amp", True), ("tf32", True),
-        ("half", 0), ("torch", "2.14.1+cpu"), ("revision", 2),
+        ("device", "cpu"),
+        ("device", "cuda:0"),
+        ("device", None),
+        ("cuda_build", "12.8"),
+        ("precision", "fp16"),
+        ("half", True),
+        ("amp", True),
+        ("tf32", True),
+        ("half", 0),
+        ("torch", "2.14.1+cpu"),
+        ("revision", 2),
         ("unknown", "extra"),
     ],
 )
@@ -145,8 +160,12 @@ def test_cuda_profile_does_not_qualify_other_frameworks_or_tasks():
     with pytest.raises(ValueError):
         inference_runtime(receipt, "8.4.183", device="cuda")
     with pytest.raises(ValueError):
-        validate_inference_runtime(receipt, inference_runtime(libre_receipt(), "1.6.0", device="cuda"))
+        validate_inference_runtime(
+            receipt, inference_runtime(libre_receipt(), "1.6.0", device="cuda")
+        )
     with pytest.raises(ValueError):
-        inference_runtime({**libre_receipt(), "task": "segment"}, "1.6.0", device="cuda")
+        inference_runtime(
+            {**libre_receipt(), "task": "segment"}, "1.6.0", device="cuda"
+        )
     with pytest.raises(ValueError):
         inference_runtime(libre_receipt(), "1.5.0", device="cuda")

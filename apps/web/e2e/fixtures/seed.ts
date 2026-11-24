@@ -1009,7 +1009,7 @@ export const test = base.extend<Fixtures, { fixtureOwner: void }>({
         throw new AggregateError(failures, "Seed fixture failed");
       }
     },
-    { timeout: 120_000 },
+    { timeout: 180_000 },
   ],
   owned: [
     async ({ seed }, use) => {

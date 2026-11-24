@@ -356,7 +356,9 @@ export const usersApi = {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => {
+      if (typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(url);
+    }, 1000);
   },
 
   previewBulkInvite: (items: BulkInviteItemPayload[]) =>

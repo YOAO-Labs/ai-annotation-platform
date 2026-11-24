@@ -269,6 +269,8 @@ def bind_supervised_control():
         raise SeedSetupRefused("Fixture native control owner is unavailable") from None
     os.environ["ASSETS_MEDIA_URL"] = value["origin"]
     os.environ["ASSETS_MEDIA_TOKEN"] = value["token"]
+    os.environ["ASSETS_VIDEO_EXECUTOR"] = "split"
+    os.environ["ASSETS_IMAGE_EXECUTOR"] = "split"
 
 
 def open_private_append(path):

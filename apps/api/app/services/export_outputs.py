@@ -811,7 +811,11 @@ async def _cleanup_one(db, identifier, counters):
                 accounting=accounting,
                 **({"proof": proof} if proof is not None and source is None else {}),
                 on_acquired=acquired,
-                **({"version": proof["version_id"]} if source is not None and proof is not None else {}),
+                **(
+                    {"version": proof["version_id"]}
+                    if source is not None and proof is not None
+                    else {}
+                ),
                 **({"target": target} if target is not None and source is None else {}),
             )
         except BaseException as exc:

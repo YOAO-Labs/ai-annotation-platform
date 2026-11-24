@@ -656,6 +656,7 @@ async def read_copy(db, snapshot, *, relative, guard, read):
         await export_execution_context.enter_io()
         entered = True
         if remote is not None:
+
             def capture_remote():
                 file = TemporaryFile()
                 try:
@@ -664,8 +665,12 @@ async def read_copy(db, snapshot, *, relative, guard, read):
                     storage_access.close_registered(file)
                     raise
                 return reader.BinaryStage(
-                    file, expected["sha256"], expected["size_bytes"], {},
-                    admission.release, True,
+                    file,
+                    expected["sha256"],
+                    expected["size_bytes"],
+                    {},
+                    admission.release,
+                    True,
                 )
 
             stage = await _async(physical_work(capture_remote), late=_close_stage)
@@ -675,8 +680,13 @@ async def read_copy(db, snapshot, *, relative, guard, read):
                 admission,
                 maximum=physical.object_limit(record),
                 **(
-                    {"client_context": lambda: physical.open_storage(record, target=target)}
-                    if target is not None else {}
+                    {
+                        "client_context": lambda: physical.open_storage(
+                            record, target=target
+                        )
+                    }
+                    if target is not None
+                    else {}
                 ),
             )
         stage_closed = False

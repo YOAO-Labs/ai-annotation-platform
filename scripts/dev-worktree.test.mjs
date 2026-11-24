@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -211,9 +212,17 @@ test("Playwright passes distinct setup and runtime credentials to its native sup
     assert.equal(supervisor.migration, owner);
     assert.ok(supervisor.args.some((arg) => arg.endsWith("/fixture_native_playwright.py")));
     const repo = fileURLToPath(new URL("../", import.meta.url));
+    const venvPython = join(repo, "apps/api/.venv/bin/python");
+    const [pythonCmd, pythonPrefix] = existsSync(venvPython)
+      ? [venvPython, []]
+      : [
+          "uv",
+          ["run", "--no-project", "--with", "httpx", "--with", "sqlalchemy[asyncio]", "python"],
+        ];
     const apiChild = spawnSync(
-      join(repo, "apps/api/.venv/bin/python"),
+      pythonCmd,
       [
+        ...pythonPrefix,
         "-c",
         [
           "import json, os",

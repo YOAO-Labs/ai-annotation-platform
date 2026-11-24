@@ -323,7 +323,9 @@ def test_vips_probe_keeps_primary_and_uncertain_cleanup_failure(monkeypatch):
     from app.services.image_pyramid import ImagePyramidError
 
     fake_vips = SimpleNamespace(
-        Image=SimpleNamespace(new_from_file=MagicMock(side_effect=ValueError("decode"))),
+        Image=SimpleNamespace(
+            new_from_file=MagicMock(side_effect=ValueError("decode"))
+        ),
         cache_set_max=MagicMock(side_effect=OSError("cleanup")),
     )
     monkeypatch.setitem(sys.modules, "pyvips", fake_vips)

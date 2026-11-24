@@ -51,7 +51,9 @@ async def test_cancellation_retains_later_real_read_failure(tmp_path, unknown):
             finished.set()
 
     try:
-        task = asyncio.create_task(export_execution_context.run_sync(read_after_release))
+        task = asyncio.create_task(
+            export_execution_context.run_sync(read_after_release)
+        )
         assert await asyncio.to_thread(started.wait, 3)
         source.unlink()
         task.cancel()

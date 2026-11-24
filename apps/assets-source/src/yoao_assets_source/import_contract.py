@@ -455,7 +455,9 @@ class ImportEntryCompletion(_Value):
                 or self.verification_operation_id is None
                 or self.error_code is not None
             ):
-                raise ValueError("copied completion requires verification operation, size and MD5 hash")
+                raise ValueError(
+                    "copied completion requires verification operation, size and MD5 hash"
+                )
             if (self.width is None) != (self.height is None):
                 raise ValueError("width and height must be paired")
         elif (

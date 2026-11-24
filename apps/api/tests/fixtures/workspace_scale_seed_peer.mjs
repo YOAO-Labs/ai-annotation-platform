@@ -38,18 +38,20 @@ try {
   for (const count of [1, 0]) {
     assert.equal(
       (
-        await client.query("SELECT yoao_workspace_v1.ensure_scale_seed_member($1,$2,$3) AS result", [
-          projectId,
-          input.annotator_id,
-          input.owner_id,
-        ])
+        await client.query(
+          "SELECT yoao_workspace_v1.ensure_scale_seed_member($1,$2,$3) AS result",
+          [projectId, input.annotator_id, input.owner_id],
+        )
       ).rows[0].result,
       count,
     );
   }
   assert.deepEqual(
-    (await client.query("SELECT yoao_workspace_v1.guard_scale_seed_cleanup($1) AS result", [marker]))
-      .rows[0].result,
+    (
+      await client.query("SELECT yoao_workspace_v1.guard_scale_seed_cleanup($1) AS result", [
+        marker,
+      ])
+    ).rows[0].result,
     {
       schema: "aap-workspace-scale-seed/v1",
       marker,

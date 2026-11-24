@@ -149,6 +149,7 @@ async def run(action: str, task_id: str, operation_id: str, run_id: str):
         resources = manifest["resources"]
         if resources != topology(_RESOURCE_ROOT, load_identity(_RESOURCE_ROOT), mode):
             raise GuardError("resource manifest does not match its worktree identity")
+    from app.db.models.raster_mask_object import RasterMaskObject
     from app.workers._db import task_session
     from app.services.storage import storage_service
     from app.services import raster_mask_objects, raster_object_storage
@@ -243,8 +244,8 @@ async def run(action: str, task_id: str, operation_id: str, run_id: str):
     )
     async with task_session() as db:
         owner = await db.scalar(
-            select(raster_mask_objects.Object).where(
-                raster_mask_objects.Object.logical_key == orphan["object_key"]
+            select(RasterMaskObject).where(
+                RasterMaskObject.logical_key == orphan["object_key"]
             )
         )
         receipt = raster_object_storage.snapshot(owner)
@@ -253,7 +254,7 @@ async def run(action: str, task_id: str, operation_id: str, run_id: str):
     with patch.object(raster_mask_objects, "now", return_value=gc_time):
         retired = await _purge_unreferenced_raster_masks_async(dry_run=False)
         async with task_session() as db:
-            owner = await db.get(raster_mask_objects.Object, receipt.id)
+            owner = await db.get(RasterMaskObject, receipt.id)
             assert owner.state == "retired"
         result = await _purge_unreferenced_raster_masks_async(dry_run=False)
     assert [await load_coco_rle(reference) for reference in references] == before

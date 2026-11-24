@@ -73,8 +73,9 @@ class _VideoStorage:
 
 
 class _ImageStorage:
-    def __init__(self, config):
+    def __init__(self, config, *, fixture_cache_resolver=None):
         self.config = config
+        self.fixture_cache_resolver = fixture_cache_resolver
         self.closed = False
         self.close_count = 0
 
@@ -155,9 +156,9 @@ async def test_shared_runtime_installs_image_routes_on_video_app(monkeypatch):
         health_calls.append((pool, role))
         return next(health_results)
 
-    def image_storage(config):
+    def image_storage(config, *, fixture_cache_resolver=None):
         image_storage_configs.append(config)
-        storage = _ImageStorage(config)
+        storage = _ImageStorage(config, fixture_cache_resolver=fixture_cache_resolver)
         image_storages.append(storage)
         return storage
 

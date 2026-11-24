@@ -305,10 +305,12 @@ class RasterProviderTests(unittest.TestCase):
             "container_id": postgres_container,
             "volume_id": postgres_volume,
         }
-        self.owner.data["resources"].extend([
-            {"kind": "container", "id": postgres_container, "name": "postgres"},
-            {"kind": "volume", "id": postgres_volume, "name": postgres_volume},
-        ])
+        self.owner.data["resources"].extend(
+            [
+                {"kind": "container", "id": postgres_container, "name": "postgres"},
+                {"kind": "volume", "id": postgres_volume, "name": postgres_volume},
+            ]
+        )
         self.owner.present.update({postgres_container, postgres_volume})
         provider.retire_provider(self.owner, self.backend)
         provider.require_retired_provider(self.owner, self.backend.resources)
@@ -336,10 +338,11 @@ class RasterProviderTests(unittest.TestCase):
             raster_source_stopped=False,
             raster_database_oid=123,
         )
-        with self.assertRaisesRegex(ContractError, "raster_postgres_retirement_unproven"):
+        with self.assertRaisesRegex(
+            ContractError, "raster_postgres_retirement_unproven"
+        ):
             provider.retire_postgres(self.owner, self.backend, prepared)
         self.assertFalse(any(call[1] == "kill" for call in self.calls))
-
 
     def test_postgres_port_or_birth_change_is_refused(self):
         from verify_module_data_boundary import POSTGRES_IMAGE
@@ -347,19 +350,31 @@ class RasterProviderTests(unittest.TestCase):
         container_id = "e" * 64
         volume_id = "postgres-volume"
         self.owner.data["raster"]["postgres"] = {
-            "container_id": container_id, "volume_id": volume_id,
+            "container_id": container_id,
+            "volume_id": volume_id,
             "image_id": "sha256:" + "f" * 64,
-            "pid": 43, "started_at": "pg-start", "port": 19000,
+            "pid": 43,
+            "started_at": "pg-start",
+            "port": 19000,
         }
-        self.owner.data["resources"].extend([
-            {"kind": "container", "id": container_id, "name": "postgres", "image": POSTGRES_IMAGE},
-            {"kind": "volume", "id": volume_id, "name": volume_id},
-        ])
+        self.owner.data["resources"].extend(
+            [
+                {
+                    "kind": "container",
+                    "id": container_id,
+                    "name": "postgres",
+                    "image": POSTGRES_IMAGE,
+                },
+                {"kind": "volume", "id": volume_id, "name": volume_id},
+            ]
+        )
         self.owner.private = self.owner.path.parent / "private"
         self.owner.private.mkdir(parents=True)
         credentials = self.owner.private / "postgres.env"
         credentials.write_text(
-            "POSTGRES_USER=owner\nPOSTGRES_PASSWORD=" + "a" * 43 + "\nPOSTGRES_DB=postgres\n"
+            "POSTGRES_USER=owner\nPOSTGRES_PASSWORD="
+            + "a" * 43
+            + "\nPOSTGRES_DB=postgres\n"
         )
         credentials.chmod(0o600)
         pg = {
@@ -369,9 +384,21 @@ class RasterProviderTests(unittest.TestCase):
                 "Image": POSTGRES_IMAGE,
                 "Env": credentials.read_text().splitlines(),
             },
-            "State": {"Status": "running", "Running": True, "Pid": 43, "StartedAt": "pg-start"},
+            "State": {
+                "Status": "running",
+                "Running": True,
+                "Pid": 43,
+                "StartedAt": "pg-start",
+            },
             "RestartCount": 0,
-            "Mounts": [{"Type": "volume", "Name": volume_id, "Destination": "/var/lib/postgresql/data", "RW": True}],
+            "Mounts": [
+                {
+                    "Type": "volume",
+                    "Name": volume_id,
+                    "Destination": "/var/lib/postgresql/data",
+                    "RW": True,
+                }
+            ],
         }
 
         def verified(item):
@@ -382,12 +409,15 @@ class RasterProviderTests(unittest.TestCase):
             patch.object(provider, "command", return_value=container_id),
         ):
             provider.verified_postgres(self.owner, self.owner.resources, port=19000)
-            with self.assertRaisesRegex(ContractError, "raster_postgres_identity_changed"):
+            with self.assertRaisesRegex(
+                ContractError, "raster_postgres_identity_changed"
+            ):
                 provider.verified_postgres(self.owner, self.owner.resources, port=19001)
             pg["State"]["StartedAt"] = "replacement"
-            with self.assertRaisesRegex(ContractError, "raster_postgres_identity_changed"):
+            with self.assertRaisesRegex(
+                ContractError, "raster_postgres_identity_changed"
+            ):
                 provider.verified_postgres(self.owner, self.owner.resources, port=19000)
-
 
 
 class PostgresRetentionTests(unittest.TestCase):
@@ -405,18 +435,22 @@ class PostgresRetentionTests(unittest.TestCase):
                 backend, object(), None
             )
             backend._destroy_preparation = prepared
-            prepared.raster_owner = SimpleNamespace(data={"raster": {}}, save=lambda: None)
+            prepared.raster_owner = SimpleNamespace(
+                data={"raster": {}}, save=lambda: None
+            )
             prepared.storage = "raster_provider_retired"
             prepared.raster_redis_retired = True
             prepared.raster_source_stopped = True
             with (
                 patch.object(
-                    worktree_resources, "state_path",
+                    worktree_resources,
+                    "state_path",
                     return_value=Path(directory) / "missing-journal",
                 ),
                 patch.object(fixture_store, "_raster_require_stopped_for_destroy"),
                 patch.object(
-                    fixture_store, "_raster_remove_stopped_for_destroy",
+                    fixture_store,
+                    "_raster_remove_stopped_for_destroy",
                     side_effect=ContractError("source-removal-unsettled"),
                 ),
                 patch.object(backend, "_database") as database,

@@ -229,7 +229,9 @@ async def test_notification_publish_failure_propagates_for_retry(
     db_session.add_all([job, row])
     await db_session.flush()
     service = NotificationService(db_session)
-    monkeypatch.setattr(notification_module.settings, "notification_publication_url", "")
+    monkeypatch.setattr(
+        notification_module.settings, "notification_publication_url", ""
+    )
     publish = AsyncMock(side_effect=RuntimeError("redis unavailable"))
     monkeypatch.setattr(notification_module, "_publish", publish)
 
@@ -275,7 +277,9 @@ async def test_revoked_notification_is_suppressed_and_ackable(
     db_session.add_all([job, row])
     await db_session.flush()
     service = NotificationService(db_session)
-    monkeypatch.setattr(notification_module.settings, "notification_publication_url", "")
+    monkeypatch.setattr(
+        notification_module.settings, "notification_publication_url", ""
+    )
     publish = AsyncMock()
     monkeypatch.setattr(notification_module, "_publish", publish)
 

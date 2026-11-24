@@ -207,9 +207,10 @@ def start_native_signer(tmp_path: Path) -> NativeSigner:
         "ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY": required_env(NATIVE_ACCESS_SETTING),
         "ASSETS_SOURCE_NATIVE_S3_SECRET_KEY": required_env(NATIVE_SECRET_SETTING),
     }
-    if environment["ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY"] == environment[
-        "ASSETS_SOURCE_S3_ACCESS_KEY"
-    ]:
+    if (
+        environment["ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY"]
+        == environment["ASSETS_SOURCE_S3_ACCESS_KEY"]
+    ):
         pytest.fail("the Native identity reuses the normal Source identity")
     for name in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"):
         if os.environ.get(name):
@@ -257,6 +258,4 @@ def start_native_signer(tmp_path: Path) -> NativeSigner:
                     return signer
             time.sleep(0.1)
     signer.close()
-    pytest.fail(
-        "Native Source signer did not become ready: " + _process_log(log_path)
-    )
+    pytest.fail("Native Source signer did not become ready: " + _process_log(log_path))

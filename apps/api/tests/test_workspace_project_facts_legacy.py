@@ -58,7 +58,9 @@ async def test_id_backfill_project_filter_takes_precedence(test_engine):
 
 
 @pytest.mark.parametrize("autoflush", [False, True])
-async def test_super_admin_total_and_page_agree_for_pending_project(test_engine, autoflush):
+async def test_super_admin_total_and_page_agree_for_pending_project(
+    test_engine, autoflush
+):
     async with _world(test_engine) as (owner, _api, world, _url):
         async with owner.begin() as setup:
             await setup.execute(
@@ -69,15 +71,24 @@ async def test_super_admin_total_and_page_agree_for_pending_project(test_engine,
             identity = uuid.uuid4()
             name = f"pending-catalog-{identity.hex}"
             pending = Project(
-                display_id=f"P-{identity.hex[:18]}", name=name,
-                type_key="image-det", type_label="Image", owner_id=world["owner_id"],
+                display_id=f"P-{identity.hex[:18]}",
+                name=name,
+                type_key="image-det",
+                type_label="Image",
+                owner_id=world["owner_id"],
                 tool_bindings={},
             )
             db.add(pending)
             db.autoflush = autoflush
             page = await training_projects(
-                search=name, limit=20, offset=0, user=_actor(world, "super_admin"), db=db
+                search=name,
+                limit=20,
+                offset=0,
+                user=_actor(world, "super_admin"),
+                db=db,
             )
             assert page["total"] == (1 if autoflush else 0)
-            assert [row["name"] for row in page["items"]] == ([name] if autoflush else [])
+            assert [row["name"] for row in page["items"]] == (
+                [name] if autoflush else []
+            )
             await db.rollback()

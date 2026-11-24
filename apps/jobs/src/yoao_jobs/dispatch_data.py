@@ -123,8 +123,13 @@ class JobsDispatchDataClient:
         """Prepare media in the caller's transaction without choosing fixture scope."""
         if (
             owner_kind not in {"task", "dataset_item"}
-            or producer_kind not in {
-                "pyramid", "thumbnail", "task_thumbnail", "video_metadata", "video_derivatives"
+            or producer_kind
+            not in {
+                "pyramid",
+                "thumbnail",
+                "task_thumbnail",
+                "video_metadata",
+                "video_derivatives",
             }
             or not isinstance(owner_id, UUID)
             or not isinstance(delivery_id, UUID)
@@ -163,11 +168,14 @@ class JobsDispatchDataClient:
             suffix = "pyramid" if producer_kind == "pyramid" else "media"
             if (
                 not isinstance(queue, str)
-                or re.fullmatch(rf"aap_workspace_worker_[0-9a-f]{{32}}_{suffix}", queue) is None
+                or re.fullmatch(rf"aap_workspace_worker_[0-9a-f]{{32}}_{suffix}", queue)
+                is None
                 or receipt.payload_digest is None
                 or re.fullmatch(r"[0-9a-f]{64}", receipt.payload_digest) is None
             ):
-                raise ValueError("Jobs fixture media preparation returned an invalid receipt")
+                raise ValueError(
+                    "Jobs fixture media preparation returned an invalid receipt"
+                )
             expected["options"]["queue"] = queue
             if actual != expected:
                 raise ValueError("Jobs fixture media preparation changed its payload")

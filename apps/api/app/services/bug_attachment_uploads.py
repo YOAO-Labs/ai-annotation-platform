@@ -330,7 +330,9 @@ async def upload(db, authority, data, mime_type, file_name):
         raise http_error(exc) from None
     await reauthorize(db, authority)
     await db.commit()
-    source = saved_output_io.capture(target, "bug", receipt, actor_id=authority.actor_id)
+    source = saved_output_io.capture(
+        target, "bug", receipt, actor_id=authority.actor_id
+    )
     revision = None
     owned_permit = None
 
@@ -466,7 +468,9 @@ async def read(db, actor, request, report_id, key):
             _check_expiry(current)
             if source is not None:
                 source.attach(permit)
-                await source.admit_read(db, authority.actor_id, report_id=report_id, key=key)
+                await source.admit_read(
+                    db, authority.actor_id, report_id=report_id, key=key
+                )
             await db.commit()
 
         if route is not None:

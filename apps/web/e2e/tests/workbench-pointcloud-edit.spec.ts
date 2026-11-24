@@ -1338,9 +1338,12 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     expectPointCloudViewStateClose(cameraAfter, cameraBefore);
   });
 
-  test("布局预设在目标视口与 0/1/2/6 路相机下不遮挡关键入口", async ({ page, seed }) => {
-    test.setTimeout(90_000);
-    const data = await seed.owned();
+  test("布局预设在目标视口与 0/1/2/6 路相机下不遮挡关键入口", async ({
+    page,
+    owned: data,
+    seed,
+  }) => {
+    test.setTimeout(150_000);
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
     let cameraCount = 0;

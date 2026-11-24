@@ -212,9 +212,15 @@ jobs:
 
   training-executor-tests:
     name: Training executor tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Install offline Ultralytics fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-cjk
+          test -r /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+          test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -245,7 +251,7 @@ jobs:
 
   vitest:
     name: Frontend verification
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

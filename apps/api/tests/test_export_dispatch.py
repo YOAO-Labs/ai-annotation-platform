@@ -98,7 +98,6 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
     async def publish_dispatch(_db, lease, *, publish):
         return await publish()
 
-
     monkeypatch.setattr(async_job_service, "create_job", create_job)
     monkeypatch.setattr(AuditService, "log", staticmethod(audit))
     monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch)
@@ -344,5 +343,3 @@ async def test_data_manager_scope_wire_and_bind_happen_after_durable_publish(
     )
     assert events[6] == ("commit", "pending", db.job.celery_task_id)
     assert db.job.celery_task_id == events[5][3]["execution_id"]
-
-

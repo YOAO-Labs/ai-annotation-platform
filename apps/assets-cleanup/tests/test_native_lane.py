@@ -22,7 +22,6 @@ from yoao_assets_cleanup.native_gc import (
 )
 
 
-
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -143,9 +142,7 @@ class _Storage:
         self.verified.append((claim.output_id, claim.storage_ref))
         if self.prepare_error is not None:
             raise self.prepare_error
-        return {
-            member.operation_id: claim.storage_ref.prefix for member in page.items
-        }
+        return {member.operation_id: claim.storage_ref.prefix for member in page.items}
 
     async def delete_member(self, member, reference, stop):
         error = self.failures.pop(member.operation_id, None)
@@ -159,7 +156,6 @@ class _Storage:
             raise self.prefix_error
 
 
-
 async def _drain(data, storage, *, page_size=10, stop=None, storage_stop=None):
     return await drain_native_pyramid_retirement(
         data,
@@ -167,9 +163,7 @@ async def _drain(data, storage, *, page_size=10, stop=None, storage_stop=None):
         worker_id=uuid4(),
         page_size=page_size,
         stop=asyncio.Event() if stop is None else stop,
-        storage_stop=(
-            threading.Event() if storage_stop is None else storage_stop
-        ),
+        storage_stop=(threading.Event() if storage_stop is None else storage_stop),
     )
 
 
@@ -273,9 +267,11 @@ async def test_definite_member_failure_releases_only_its_closed_page():
     data = _Data(
         [claim],
         [page],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=None, completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=None, completed=False
+            )
+        ],
     )
     failure = NativeStorageError("native_member_identity_mismatch")
     storage = _Storage(failures={members[1].operation_id: failure})
@@ -284,9 +280,7 @@ async def test_definite_member_failure_releases_only_its_closed_page():
 
     assert result == {"completed": 0, "failed": 1, "pages": 1}
     assert storage.deleted == [(claim.storage_ref.prefix, members[0].operation_id)]
-    assert [request.outcome for request in data.completes] == [
-        "closed_without_ack"
-    ]
+    assert [request.outcome for request in data.completes] == ["closed_without_ack"]
     assert data.completes[0].operation_ids == []
     assert data.completes[0].page_id == page.page_id
     assert storage.prefixes == []
@@ -297,9 +291,7 @@ async def test_unknown_delete_outcome_never_acknowledges_the_page():
     claim = _claim()
     members = _members(1)
     data = _Data([claim], [_page(claim, members)], [])
-    failure = NativeStorageError(
-        "native_member_delete_unsettled", unsettled=True
-    )
+    failure = NativeStorageError("native_member_delete_unsettled", unsettled=True)
     storage = _Storage(failures={members[0].operation_id: failure})
 
     result = await _drain(data, storage)
@@ -317,7 +309,9 @@ async def test_cancellation_drains_io_and_only_closes_a_settled_page(unsettled):
     data = _Data(
         [claim],
         [_page(claim, members)],
-        [] if unsettled else [
+        []
+        if unsettled
+        else [
             NativePyramidRetirementAck(
                 output_id=claim.output_id, after_operation_id=None, completed=False
             )
@@ -391,9 +385,11 @@ async def test_stale_member_page_ack_does_not_advance_or_repeat_work():
     data = _Data(
         [claim],
         [_page(claim, members)],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=uuid4(), completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=uuid4(), completed=False
+            )
+        ],
     )
     storage = _Storage()
 
@@ -413,9 +409,11 @@ async def test_substituted_signed_target_releases_the_unstarted_page():
     data = _Data(
         [claim],
         [page],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=None, completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=None, completed=False
+            )
+        ],
     )
     storage = _Storage(
         prepare_error=NativeStorageError("native_retirement_reference_mismatch")
@@ -488,9 +486,11 @@ async def test_expired_page_lease_stops_before_new_member_work():
     data = _Data(
         [claim],
         [page],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=None, completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=None, completed=False
+            )
+        ],
     )
     storage = _Storage()
 
@@ -498,9 +498,7 @@ async def test_expired_page_lease_stops_before_new_member_work():
 
     assert result == {"completed": 0, "failed": 0, "pages": 1}
     assert storage.deleted == []
-    assert [request.outcome for request in data.completes] == [
-        "closed_without_ack"
-    ]
+    assert [request.outcome for request in data.completes] == ["closed_without_ack"]
 
 
 @pytest.mark.asyncio
@@ -511,18 +509,18 @@ async def test_shutdown_after_prepare_releases_the_page_without_absence():
 
     class StoppingData(_Data):
         async def prepare_native_pyramid_retirement_page(self, request):
-            page = await super().prepare_native_pyramid_retirement_page(
-                request
-            )
+            page = await super().prepare_native_pyramid_retirement_page(request)
             stop.set()
             return page
 
     data = StoppingData(
         [claim],
         [_page(claim, members)],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=None, completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=None, completed=False
+            )
+        ],
     )
     storage = _Storage()
 
@@ -530,9 +528,7 @@ async def test_shutdown_after_prepare_releases_the_page_without_absence():
 
     assert result == {"completed": 0, "failed": 0, "pages": 1}
     assert storage.deleted == []
-    assert [request.outcome for request in data.completes] == [
-        "closed_without_ack"
-    ]
+    assert [request.outcome for request in data.completes] == ["closed_without_ack"]
 
 
 @pytest.mark.asyncio
@@ -542,20 +538,18 @@ async def test_terminal_prefix_material_refuses_without_claiming_absence():
     data = _Data(
         [claim],
         [terminal],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=None, completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=None, completed=False
+            )
+        ],
     )
-    storage = _Storage(
-        prefix_error=NativeStorageError("native_prefix_not_empty")
-    )
+    storage = _Storage(prefix_error=NativeStorageError("native_prefix_not_empty"))
 
     result = await _drain(data, storage)
 
     assert result == {"completed": 0, "failed": 1, "pages": 1}
-    assert [request.outcome for request in data.completes] == [
-        "closed_without_ack"
-    ]
+    assert [request.outcome for request in data.completes] == ["closed_without_ack"]
     assert storage.prefixes == [claim.storage_ref.prefix]
 
 
@@ -601,9 +595,7 @@ async def test_closure_ack_failure_is_not_reposted():
     result = await _drain(data, storage)
 
     assert result == {"completed": 0, "failed": 1, "pages": 1}
-    assert [request.outcome for request in data.completes] == [
-        "closed_without_ack"
-    ]
+    assert [request.outcome for request in data.completes] == ["closed_without_ack"]
 
 
 @pytest.mark.asyncio
@@ -613,9 +605,11 @@ async def test_stale_closure_ack_is_not_reposted_or_trusted():
     data = _Data(
         [claim],
         [_page(claim, members)],
-        [NativePyramidRetirementAck(
-            output_id=claim.output_id, after_operation_id=uuid4(), completed=False
-        )],
+        [
+            NativePyramidRetirementAck(
+                output_id=claim.output_id, after_operation_id=uuid4(), completed=False
+            )
+        ],
     )
     failure = NativeStorageError("native_member_identity_mismatch")
     storage = _Storage(failures={members[0].operation_id: failure})
@@ -623,9 +617,7 @@ async def test_stale_closure_ack_is_not_reposted_or_trusted():
     result = await _drain(data, storage)
 
     assert result == {"completed": 0, "failed": 1, "pages": 1}
-    assert [request.outcome for request in data.completes] == [
-        "closed_without_ack"
-    ]
+    assert [request.outcome for request in data.completes] == ["closed_without_ack"]
     assert len(data.claims) == 1
 
 

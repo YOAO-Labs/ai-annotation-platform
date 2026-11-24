@@ -17,19 +17,24 @@ def _execute(statement: str) -> None:
 
 
 def upgrade() -> None:
-    for statement in (_SQL / "0412_plugin_tracker_retirement_order.sql").read_text(
-        encoding="utf-8"
-    ).split("-- aap-statement-break"):
+    for statement in (
+        (_SQL / "0412_plugin_tracker_retirement_order.sql")
+        .read_text(encoding="utf-8")
+        .split("-- aap-statement-break")
+    ):
         if statement.strip():
             _execute(statement.strip())
 
 
 def downgrade() -> None:
-    statements = (_SQL / "0400_plugin_routing_replacement.sql").read_text(
-        encoding="utf-8"
-    ).split("-- aap-statement-break")
+    statements = (
+        (_SQL / "0400_plugin_routing_replacement.sql")
+        .read_text(encoding="utf-8")
+        .split("-- aap-statement-break")
+    )
     definition = next(
-        statement for statement in statements
+        statement
+        for statement in statements
         if statement.strip().startswith(
             "CREATE OR REPLACE FUNCTION aap_inference_topology_v1.command_plugin_installation("
         )

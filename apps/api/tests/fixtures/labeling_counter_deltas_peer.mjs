@@ -43,9 +43,10 @@ try {
   );
   assert.deepEqual(
     (
-      await client.query("SELECT * FROM yoao_labeling_v1.record_project_review_approval($1::uuid)", [
-        input.project_id,
-      ])
+      await client.query(
+        "SELECT * FROM yoao_labeling_v1.record_project_review_approval($1::uuid)",
+        [input.project_id],
+      )
     ).rows,
     [{ completed_tasks: 11, review_tasks: 5 }],
   );

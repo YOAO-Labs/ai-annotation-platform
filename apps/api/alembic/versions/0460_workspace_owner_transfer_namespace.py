@@ -26,4 +26,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise NotImplementedError("Beta Workspace owner-transfer namespace cutover is forward-only")
+    raise NotImplementedError(
+        "Beta Workspace owner-transfer namespace cutover is forward-only"
+    )

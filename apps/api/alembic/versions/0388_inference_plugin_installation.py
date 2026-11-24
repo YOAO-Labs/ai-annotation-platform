@@ -1,4 +1,5 @@
 """Add the Inference Registry installation transaction boundary."""
+
 from pathlib import Path
 
 from alembic import op
@@ -12,9 +13,15 @@ _SQL = Path(__file__).resolve().parents[1] / "sql"
 
 
 def _execute_file(name: str) -> None:
-    for statement in (_SQL / name).read_text(encoding="utf-8").split("-- aap-statement-break"):
+    for statement in (
+        (_SQL / name).read_text(encoding="utf-8").split("-- aap-statement-break")
+    ):
         if statement.strip():
-            op.execute(sa.text(statement.strip().replace(":", r"\:")).execution_options(no_parameters=True))
+            op.execute(
+                sa.text(statement.strip().replace(":", r"\:")).execution_options(
+                    no_parameters=True
+                )
+            )
 
 
 def upgrade() -> None:

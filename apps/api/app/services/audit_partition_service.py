@@ -292,7 +292,9 @@ async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) 
         db,
         UUID(str(receipt.storage_ref["location_id"])),
         f"audit_archive_write_{receipt.id.hex}",
-        archive_storage.write_from_source if source is not None else archive_storage.write,
+        archive_storage.write_from_source
+        if source is not None
+        else archive_storage.write,
         receipt,
         file,
         **({"source": source} if source is not None else {}),

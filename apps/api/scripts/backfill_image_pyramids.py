@@ -87,7 +87,8 @@ async def main() -> None:
             for row in rows:
                 source = await originals.pin(db, args.owner_kind, row.id)
                 await enqueue_image_pyramid(
-                    db, args.owner_kind,
+                    db,
+                    args.owner_kind,
                     row.id,
                     force=args.owner_kind == "task",
                     delegation=originals.system_authorization(
