@@ -1,6 +1,6 @@
 # Capture requested evidence on demand
 
-Follow the [maintainer guide](../../../../docs-site/dev/how-to/update-screenshots.md) for browser commands, media paths, and publication checks.
+Follow the [maintainer guide](https://yoao-labs.github.io/YOAO-Docs/dev/how-to/update-screenshots) for browser commands, media paths, and publication checks.
 
 1. Identify the requested role, target page, starting state, and expected result. Verify the serving revision and the Web/API URL, and for writes verify the isolated database, storage, and any needed worker and broker. Use disposable records and licensed or redacted samples. Start a fresh named `agent-browser` session, not the shared default session or someone else's tab.
 2. Use `snapshot -i` and the real controls for the requested interaction. Take fresh references after navigation or rendering changes. Wait for actual media and page readiness, align canvas input to rendered content rather than letterboxing, check requests and save/readback when relevant, and report failures rather than simulating success.

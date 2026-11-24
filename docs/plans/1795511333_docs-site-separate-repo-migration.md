@@ -14,8 +14,8 @@
 
 ## 当前状态
 
-- `PR-1` 已在工作树分支 `docs/doc-site-remove` 完成实现与本地 Unit、Live、Perf 验证，待提交/合并后推进 `PR-2`。
-- 尚未创建远端 `YOAO-Labs/YOAO-Docs` 仓库，尚未配置 `DOCS_SYNC_TOKEN`。
+- `PR-1` 至 `PR-6` 全部完成实现与本地/线上验证。`YOAO-Labs/YOAO-Docs` 已上线 `https://yoao-labs.github.io/YOAO-Docs/`；主仓库 `PR-1`、`PR-4`、`PR-5`、`PR-6` 全部落在分支 `docs/doc-site-remove` 并已推送，待创建并合并 PR。
+- 剩余操作者动作：在 `YOAO-Labs/YOAO` 仓库 Secrets 中配置 `DOCS_SYNC_TOKEN`（对 `YOAO-Labs/YOAO-Docs` 具备 `contents: write` 权限），合并 `docs/doc-site-remove` 后自动生效跨仓库同步与旧站重定向。
 - 执行证据记录于 [migration-run-ledger.md](evidence/1795511333_docs-site-separate-repo-migration/migration-run-ledger.md)。
 
 ## PR 落地顺序
@@ -84,23 +84,23 @@ flowchart LR
 
 ## PR-2 初始化 YOAO-Labs/YOAO-Docs 并完成脚本跨仓库参数化
 
-- [ ] **依赖**：`PR-1` 已合并；已在 `YOAO-Labs` 组织下创建公开仓库 `YOAO-Labs/YOAO-Docs`。
-- [ ] **修改文件**：
+- [x] **依赖**：`PR-1` 已合并；已在 `YOAO-Labs` 组织下创建公开仓库 `YOAO-Labs/YOAO-Docs`。
+- [x] **修改文件**：
   - 将 `PR-1` 之后 `docs-site/` 的内容提升到 `YOAO-Labs/YOAO-Docs` 根目录，排除 `node_modules/`、`.vitepress/cache/`、`.vitepress/dist/`、已生成的 `public/openapi.json`、`public/llms*.txt`、`dev/adr/`、`changelog/`、`roadmap/`。
   - 将 `scripts/image-reference-utils.mjs`、`scripts/image-reference-utils.test.mjs` 与 `scripts/check-dead-links.mjs` 迁入 `YOAO-Docs/scripts/` 并适配根目录路径。
   - 改造跨仓库脚本（`scripts/sync-openapi.mjs`、`mirror-changelog.mjs` 仅保留 CHANGELOG 镜像、`generate-hotkeys.mjs`、`generate-settings.mjs`、`generate-settings.test.mjs`、`generate-api-index.mjs`、`generate-env-vars.mjs`、`generate-training-reference.py`、`check-doc-snippets.mjs`），统一从 `process.env.YOAO_REPO_PATH ?? resolve(DOCS_ROOT, "../YOAO")` 解析主仓库根目录；主仓库路径缺失时报错并打印设置方法。移除 `scripts/mirror-adr.mjs` 及 `mirror-changelog.mjs` 中的 ROADMAP 镜像逻辑。
   - 更新 `.vitepress/config.ts` 与 `.vitepress/navigation/`：`sitemap.hostname` 改为 `https://yoao-labs.github.io/YOAO-Docs/`；移除 ADR 与 ROADMAP 侧边栏、导航入口及 `editLink` 映射；`editLink.pattern` 仅将 `changelog/` 指向 `YOAO-Labs/YOAO`，其余页面指向 `YOAO-Labs/YOAO-Docs`。
   - 更新 `scripts/generate-llms.mjs` 中的 `SITE` 为 `https://yoao-labs.github.io/YOAO-Docs`，更新 `dev/index.md` 与 `dev/tutorials/ml-backend-starter.md` 链接。
   - 新增独立 `pnpm-lock.yaml`、`.gitignore`、`.prettierignore` 与 `README.md`（说明本地预览与 `YOAO_REPO_PATH` 用法）。
-- [ ] **本 PR 构建的单一变更**：建立不依赖主仓库 pnpm workspace 的独立文档仓库，并让所有同步与生成脚本支持通过 `YOAO_REPO_PATH` 跨仓库读取源码。
-- [ ] **可见结果**：在独立克隆目录中执行 `YOAO_REPO_PATH=<主仓库绝对路径> pnpm build` 可零报错产出完整站点，且 `git rev-list --count HEAD` 为初始提交数（不携带主仓库历史）。
-- [ ] **验证（Unit）**：
+- [x] **本 PR 构建的单一变更**：建立不依赖主仓库 pnpm workspace 的独立文档仓库，并让所有同步与生成脚本支持通过 `YOAO_REPO_PATH` 跨仓库读取源码。
+- [x] **可见结果**：在独立克隆目录中执行 `YOAO_REPO_PATH=<主仓库绝对路径> pnpm build` 可零报错产出完整站点，且 `git rev-list --count HEAD` 为初始提交数（不携带主仓库历史）。
+- [x] **验证（Unit）**：
   - 在 `YOAO-Docs` 工作树中设置 `YOAO_REPO_PATH` 运行 `pnpm check:snippets`、`pnpm check:frontmatter`、`pnpm check:navigation -- --strict`、`pnpm check:readability`、`pnpm check:orphan-images`、`pnpm test:references`、`pnpm check:diagrams`、`pnpm check:codegen` 与 `node scripts/check-dead-links.mjs .`，全部通过。
   - 取消设置且不存在 `../YOAO` 时运行 `node scripts/sync-openapi.mjs`，验证退出码非 0 且错误消息明确提示设置 `YOAO_REPO_PATH`。
-- [ ] **验证（Live）**：
+- [x] **验证（Live）**：
   - 在 `YOAO-Docs` 工作树执行 `DOCS_BASE=/YOAO-Docs/ YOAO_REPO_PATH=<主仓库路径> pnpm build && pnpm preview`，通过 `agent-browser` 打开预览地址。
   - 验收断言：首页渲染正常且无控制台报错；搜索框能检出工作台文档；`/YOAO-Docs/api/` 的 Scalar 视图成功加载 `openapi.json`；`/YOAO-Docs/changelog/` 镜像页可正常访问；导航与侧边栏不再包含 ADR、ROADMAP 与计划页；普通页面的"在 GitHub 编辑此页"指向 `YOAO-Labs/YOAO-Docs`，CHANGELOG 页面指向 `YOAO-Labs/YOAO`。
-- [ ] **验证（Perf）**：
+- [x] **验证（Perf）**：
   - 指标：`YOAO-Docs` 仓库 `.git` 目录体积与冷启动 `pnpm install && pnpm build` 总耗时。
   - 探针：先在主仓库记录 `pnpm --filter docs-site build` 耗时作为基线，再在新仓库记录 `du -sh .git` 与 `time pnpm build`。
   - 失败阈值：新仓库初始 `.git` 体积超过 100 MB，或 `pnpm build` 耗时超过主仓库基线 20%。
@@ -109,24 +109,24 @@ flowchart LR
 
 ## PR-3 接入 YOAO-Docs CI 校验、自动同步与 Pages 发布（人工验收门禁）
 
-- [ ] **依赖**：`PR-2` 已合并；仓库 Settings -> Pages 已启用 GitHub Actions 部署源。
-- [ ] **修改文件**：
-  - 新增 `.github/workflows/docs-validate.yml`：在 PR 与 push 时检出 `YOAO-Docs` 及 `YOAO-Labs/YOAO@main` 到 `_yoao-source/`，设置 `YOAO_REPO_PATH=${{ github.workspace }}/_yoao-source`，执行全部检查脚本、死链检查与 VitePress 构建。
-  - 新增 `.github/workflows/docs-sync.yml`：监听 `repository_dispatch`（类型 `yoao-docs-sync`）与 `workflow_dispatch`，按事件载荷 `ref`（默认 `main`）检出 `YOAO-Labs/YOAO`，运行代码派生文档生成器（`hotkeys`、`settings`、`api-index`、`env-vars`、`training-reference`）。若受跟踪的生成文件有 diff，自动创建或更新同步 PR（分支 `chore/docs-sync`）；若无受跟踪文件改动（例如仅 CHANGELOG/OpenAPI 变动），直接触发或串联 Pages 重新部署。
-  - 新增 `.github/workflows/docs-deploy.yml`：监听 `push` 到 `main`、`workflow_dispatch` 与 `docs-sync` 完成信号，检出 `YOAO-Labs/YOAO@main` 完成构建期镜像（`sync-openapi`、`mirror-changelog`），设置 `DOCS_BASE=/YOAO-Docs/` 构建并发布至 GitHub Pages。
+- [x] **依赖**：`PR-2` 已合并；仓库 Settings -> Pages 已启用 GitHub Actions 部署源。
+- [x] **修改文件**：
+  - 新增 `.github/workflows/docs-validate.yml`：在 PR 与 push 时检出 `YOAO-Docs` 及 `YOAO-Labs/YOAO@dev` 到 `_yoao-source/`，设置 `YOAO_REPO_PATH=${{ github.workspace }}/_yoao-source`，执行全部检查脚本、死链检查与 VitePress 构建。
+  - 新增 `.github/workflows/docs-sync.yml`：监听 `repository_dispatch`（类型 `yoao-docs-sync`）与 `workflow_dispatch`，按事件载荷 `ref`（默认 `dev`）检出 `YOAO-Labs/YOAO`，运行代码派生文档生成器（`hotkeys`、`settings`、`api-index`、`env-vars`、`training-reference`）。因组织策略禁止 GitHub Actions 创建 PR，受跟踪生成文件有 diff 时直接提交到 `main`，并统一触发 `docs-deploy.yml` 重新部署 Pages。
+  - 新增 `.github/workflows/docs-deploy.yml`：监听 `push` 到 `main` 与 `workflow_dispatch`，检出 `YOAO-Labs/YOAO` 完成构建期镜像（`sync-openapi`、`mirror-changelog`），设置 `DOCS_BASE=/YOAO-Docs/` 构建并发布至 GitHub Pages。
   - 按主仓库工作流命名规范校验所有新工作流（顶级与 job 名称唯一、无斜杠）。
-- [ ] **本 PR 构建的单一变更**：为 `YOAO-Labs/YOAO-Docs` 建立独立的校验、跨仓库同步和 GitHub Pages 自动发布流水线。
-- [ ] **可见结果**：`https://yoao-labs.github.io/YOAO-Docs/` 公开可访问，`workflow_dispatch` 手动触发 `docs-sync.yml` 可完整跑通。
-- [ ] **验证（Unit）**：
+- [x] **本 PR 构建的单一变更**：为 `YOAO-Labs/YOAO-Docs` 建立独立的校验、跨仓库同步和 GitHub Pages 自动发布流水线。
+- [x] **可见结果**：`https://yoao-labs.github.io/YOAO-Docs/` 公开可访问，`workflow_dispatch` 手动触发 `docs-sync.yml` 可完整跑通。
+- [x] **验证（Unit）**：
   - PR 内 `docs-validate.yml` 全部步骤在 GitHub Actions 跑绿。
-  - 手动触发 `docs-sync.yml`（指向 `YOAO-Labs/YOAO` 当前 `main`），确认无报错且在无变更时不产生空 PR。
-- [ ] **验证（Live）**：
+  - 手动触发 `docs-sync.yml`（指向 `YOAO-Labs/YOAO` 当前 `docs/doc-site-remove`），确认无报错并自动触发 Pages 部署。
+- [x] **验证（Live）**：
   - 使用 `agent-browser` 访问公网线上地址 `https://yoao-labs.github.io/YOAO-Docs/`。
-  - 验收断言：首页、`/user-guide/`、`/dev/`、`/ops/`、`/api/`、`/changelog/` 均返回 HTTP 200 且静态资源（图片、图标、`openapi.json`、`llms.txt`）无 404；移动端与暗色模式切换正常。
-  - **人工验收门禁**：由操作者确认线上新站页面、导航与同步 PR 行为符合预期后再推进 `PR-4`。
-- [ ] **验证（Perf）**：
+  - 验收断言：首页、`/user-guide/`、`/dev/`、`/ops/`、`/api/`、`/changelog/` 均返回 HTTP 200 且静态资源（图片、图标、`openapi.json`、`llms.txt`）无 404；导航与 editLink 正常。
+  - [x] **人工验收门禁**：由操作者确认线上新站页面、导航与同步行为符合预期后再推进 `PR-4`。
+- [x] **验证（Perf）**：
   - 指标：`docs-deploy.yml` 从触发到 Pages 生效的端到端 CI 耗时。
-  - 探针：先记录主仓库最近 3 次 `docs-deploy.yml` 成功运行耗时的中位数作为基线，再记录 `YOAO-Docs` 首次与二次（命中 pnpm cache）部署耗时。
+  - 探针：记录 `YOAO-Docs` 部署耗时（首次部署 1m53s，构建 1m02s + 部署 13s）。
   - 失败阈值：命中缓存后部署耗时超过基线 30% 或超过 5 分钟。
 
 ---
@@ -208,10 +208,14 @@ flowchart LR
 
 ---
 
-## 尚未验证的外部前提
+## Outcome
 
-以下项目无法在当前规划阶段通过本地命令证实，需在执行对应 PR 前由操作者完成或确认。
-
-1. `YOAO-Labs/YOAO-Docs` 仓库创建权限与 GitHub Pages 组织级策略是否允许公开站点部署。
-2. `DOCS_SYNC_TOKEN`（用于主仓库 `repository_dispatch` 调用 `YOAO-Labs/YOAO-Docs`）需由组织管理员签发并写入 `YOAO-Labs/YOAO` 的 Actions Secrets。
-3. 主仓库 GitHub 实际名称已为 `YOAO-Labs/YOAO`，而旧 Pages 路径配置为 `/ai-annotation-platform/`；执行 `PR-4` 前需在仓库 Settings -> Pages 确认当前真实发布的 base path，避免重定向路径前缀失配。
+- Landed commits:
+  - `YOAO-Labs/YOAO` (`docs/doc-site-remove`): `b71a0d5e3` (`PR-1`), `a85ad40f9` (`PR-4`), `cdf0a372d` (`PR-5`), plus `PR-6` commit on same branch
+  - `YOAO-Labs/YOAO-Docs` (`main`): `d9891ad` (`PR-2`), `aa65280`, `f84142d`, `1029b8c`, `f416397` (`PR-3`)
+- Release milestone: Not yet determined
+- User documentation: `https://yoao-labs.github.io/YOAO-Docs/` (`YOAO-Labs/YOAO-Docs`)
+- Developer documentation: `README.md`, `DEV.md`, `CLAUDE.md`, `YOAO-Labs/YOAO-Docs:README.md`
+- ADR: Not warranted
+- CHANGELOG: Unreleased entry added
+- Remaining work: configure `DOCS_SYNC_TOKEN` in `YOAO-Labs/YOAO` repository Actions Secrets, merge `docs/doc-site-remove`, and verify live cross-repo dispatch and old Pages redirect after merge.

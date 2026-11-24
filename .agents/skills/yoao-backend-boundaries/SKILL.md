@@ -5,7 +5,7 @@ description: Change or qualify backend module ownership, transaction-preserving 
 
 # Backend owner boundaries
 
-First identify the actual branch and capability being changed. The primary checkout and experimental module/plugin branches do not have the same architecture. Start with [backend layers](../../../docs-site/dev/concepts/backend-layers.md); if present in this checkout, read the affected section of `docs-site/dev/concepts/module-deployment.md`, the module README, and its packaged contract. A historical plan, existing wheel, or successful child slice does not establish a complete module or authorize a new architecture.
+First identify the actual branch and capability being changed. The primary checkout and experimental module/plugin branches do not have the same architecture. Start with [backend layers](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/backend-layers); if present in this checkout, read the affected section of `https://github.com/YOAO-Labs/YOAO-Docs/blob/main/dev/concepts/module-deployment.md`, the module README, and its packaged contract. A historical plan, existing wheel, or successful child slice does not establish a complete module or authorize a new architecture.
 
 For inference-plugin or GPU lifecycle work, read [installation and lifecycle](references/inference-lifecycle.md). For native model training/return, use [yoao-online-learning](../yoao-online-learning/SKILL.md); for payload/geometry and final labeling writes, use [yoao-prediction-pipeline](../yoao-prediction-pipeline/SKILL.md).
 
