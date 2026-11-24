@@ -42,16 +42,18 @@ docker compose up -d --wait postgres redis minio mailpit
 
 ---
 
-## Orca 多工作树初始化（Worktree）
+## Orca 多工作树初始化（Worktree） {#orca-工作树初始化}
 
-仓库根目录的 `orca.yaml` 使用 `scripts/orca-worktree-setup.sh` 完成依赖软链接与独立虚拟环境初始化。候选 wheel 必须先暂存到新 checkout；创建工作树时先跳过自动 setup，暂存后再调用既有脚本。`.artifacts` 不会从源 checkout 自动复制或共享。
+主 checkout 按上文准备好 Plugin-SDK wheel 后，创建 Orca 工作树时可直接运行自动 setup。`scripts/orca-worktree-setup.sh` 按新工作树的 `apps/api/uv.lock` 校验后端运行时 wheel。新工作树缺少 wheel 时，脚本从主 checkout 复制匹配的文件，不共享 `.artifacts`。
 
 - **环境变量与依赖共享**：`.env`（及 `.env.local`）软链接至主工作树；当锁文件与 `package.json` 未变更时，`node_modules`、`apps/web/node_modules` 与 `docs-site/node_modules` 自动建立软链接，否则回退至 `pnpm install --frozen-lockfile`。
 - **Python 虚拟环境与生成类型隔离**：`apps/api/.venv` 由 `uv sync --project apps/api --locked --extra test` 独立创建（避免 editable 包路径串回主目录）；`pnpm codegen` 根据当前工作树的 `openapi.snapshot.json` 在本地生成 `apps/web/src/api/generated/`。
 - **一键启动隔离开发栈**：主目录已有本机 PostgreSQL / MinIO 后，在工作树内运行 `pnpm dev:worktree` 即可自动创建隔离数据库、Redis 和用途存储桶并启动 API 与 Web（需后台任务时使用 `pnpm dev:worktree -- up --with-worker`）。详见[独立工作树开发环境](../how-to/worktree-environments)。
 
+如果主 checkout 没有匹配的 wheel，或工作树里的 wheel 校验失败，先在工作树内从可信清单暂存匹配的制品，再重跑 setup。若尚未创建工作树，可用 `--setup skip` 跳过自动 setup；已创建的工作树不必重建。
+
 ```bash
-# 先创建工作树；以下路径替换为实际输出的新 checkout 和源 checkout
+# 仅在尚未创建工作树时执行
 orca worktree create --name my-task --agent codex --setup skip --json
 cd /path/to/new-worktree
 python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \

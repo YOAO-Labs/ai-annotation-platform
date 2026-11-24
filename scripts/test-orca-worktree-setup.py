@@ -1,9 +1,11 @@
 """Run with python3 scripts/test-orca-worktree-setup.py (no installs or services)."""
 
+import hashlib
 import os
 import shutil
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import tomllib
 
@@ -22,7 +24,7 @@ assert any(
 
 def test_setup(launcher):
     with tempfile.TemporaryDirectory(prefix="worktree setup ") as temporary:
-        base = Path(temporary)
+        base = Path(temporary).resolve()
         root, worktree, binaries = (
             base / name for name in ("primary", "worktree", "bin")
         )
@@ -61,19 +63,48 @@ def test_setup(launcher):
         )
         trackeval.parent.mkdir(parents=True)
         trackeval.write_text("# initialized fixture\n")
+        wheel_path = Path(
+            ".artifacts/python/plugin-sdk/yoao_backend_runtime-0.2.0-py3-none-any.whl"
+        )
+        wheel_bytes = b"locked Plugin-SDK wheel\n"
+        wheel_hash = hashlib.sha256(wheel_bytes).hexdigest()
+        (worktree / "apps/api/uv.lock").write_text(
+            f'[[package]]\nname = "yoao-backend-runtime"\nversion = "0.2.0"\n'
+            f'source = {{ path = "../../{wheel_path.as_posix()}" }}\n'
+            f'wheels = [{{ filename = "{wheel_path.name}", '
+            f'hash = "sha256:{wheel_hash}" }}]\n'
+        )
+        primary_wheel = root / wheel_path
+        local_wheel = worktree / wheel_path
+        primary_wheel.parent.mkdir(parents=True)
+        primary_wheel.write_bytes(wheel_bytes)
         calls = base / "calls"
+        (binaries / "pnpm").write_text(
+            '#!/bin/sh\nprintf "pnpm %s\\n" "$*" >> "$CALLS"\n'
+        )
+        (binaries / "uv").write_text(
+            "#!/bin/sh\n"
+            'if [ "$1" = run ]; then\n'
+            '    while [ "$1" != -- ]; do shift; done\n'
+            "    shift 2\n"
+            '    exec "$TEST_PYTHON" "$@"\n'
+            "fi\n"
+            'if [ ! -f "$LOCKED_WHEEL" ]; then\n'
+            '    echo "uv sync cannot open locked wheel: $LOCKED_WHEEL" >&2\n'
+            "    exit 1\n"
+            "fi\n"
+            'printf "uv %s\\n" "$*" >> "$CALLS"\n'
+        )
         for name in ("pnpm", "uv"):
-            executable = binaries / name
-            executable.write_text(
-                '#!/bin/sh\nprintf "%s %s\\n" "${0##*/}" "$*" >> "$CALLS"\n'
-            )
-            executable.chmod(0o755)
+            (binaries / name).chmod(0o755)
         env = dict(
             os.environ,
             PATH=f"{binaries}:{os.environ['PATH']}",
             ORCA_ROOT_PATH=str(root),
             ORCA_WORKTREE_PATH=str(worktree),
             CALLS=str(calls),
+            LOCKED_WHEEL=str(wheel_path),
+            TEST_PYTHON=sys.executable,
             CODEX_SOURCE_TREE_PATH=str(root),
             CODEX_WORKTREE_PATH=str(worktree),
         )
@@ -92,6 +123,8 @@ def test_setup(launcher):
 
         result = run()
         assert result.returncode == 0, result.stderr
+        assert local_wheel.read_bytes() == wheel_bytes
+        assert local_wheel.resolve() == local_wheel
         for name in (".env", *dependencies):
             assert (worktree / name).is_symlink()
             assert (worktree / name).resolve() == (root / name).resolve()
@@ -102,8 +135,31 @@ def test_setup(launcher):
         assert not (worktree / "apps/api/.venv").is_symlink()
         (worktree / ".env").write_text("LOCAL_VALUE=preserve\n")
         assert (worktree / ".env.example").read_text() == "EXAMPLE=preserve\n"
+        primary_wheel.unlink()
         assert run().returncode == 0
         assert (root / ".env").read_text() == "LOCAL_VALUE=preserve\n"
+
+        local_wheel.unlink()
+        previous_calls = calls.read_text()
+        result = run()
+        assert result.returncode != 0
+        assert "scripts/fetch-python-artifacts.py" in result.stderr
+        assert calls.read_text() == previous_calls
+
+        primary_wheel.write_bytes(b"not the locked wheel\n")
+        result = run()
+        assert result.returncode != 0
+        assert "does not match apps/api/uv.lock" in result.stderr
+        assert not local_wheel.exists()
+        assert calls.read_text() == previous_calls
+        primary_wheel.write_bytes(wheel_bytes)
+        local_wheel.parent.rmdir()
+        local_wheel.parent.symlink_to(primary_wheel.parent, target_is_directory=True)
+        result = run()
+        assert result.returncode != 0
+        assert "must be local to this worktree" in result.stderr
+        assert calls.read_text() == previous_calls
+        local_wheel.parent.unlink()
 
         (worktree / ".env").unlink()
         (worktree / ".env").write_text("WORKTREE_VALUE=preserve\n")
