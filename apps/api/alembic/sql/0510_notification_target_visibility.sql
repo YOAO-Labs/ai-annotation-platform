@@ -85,8 +85,11 @@ BEGIN
     END IF;
 
     IF v_task.batch_id IS NULL THEN
-        RETURN (v_member_role = 'annotator' AND v_task.assignee_id = p_actor)
-            OR (v_member_role = 'reviewer' AND v_task.reviewer_id = p_actor);
+        RETURN COALESCE(
+            (v_member_role = 'annotator' AND v_task.assignee_id = p_actor)
+            OR (v_member_role = 'reviewer' AND v_task.reviewer_id = p_actor),
+            false
+        );
     END IF;
 
     SELECT b.id, b.status, b.annotator_id
@@ -100,9 +103,15 @@ BEGIN
     IF v_member_role = 'reviewer' THEN
         RETURN v_batch.status IN ('active', 'annotating', 'reviewing');
     END IF;
+    IF v_member_role NOT IN ('annotator', 'viewer') THEN
+        RETURN false;
+    END IF;
 
-    v_is_assigned := (v_task.assignee_id = p_actor)
-        OR (v_task.assignee_id IS NULL AND v_batch.annotator_id = p_actor);
+    v_is_assigned := COALESCE(
+        (v_task.assignee_id = p_actor)
+        OR (v_task.assignee_id IS NULL AND v_batch.annotator_id = p_actor),
+        false
+    );
 
     IF v_member_role = 'annotator'
        AND v_batch.status = 'reviewing'

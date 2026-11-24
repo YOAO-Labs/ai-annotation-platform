@@ -23,12 +23,17 @@
 
 ### 隔离环境全量 7 条不变量与受限角色实测
 
-验收批次 ID `2ff9bdda83`（2026-11-24T08:30:40Z），证据回执保存在 `.artifacts/test-results/m3b-acceptance-2ff9bdda83.json`。环境组成：可销毁 `postgres:16-alpine`（执行 `alembic upgrade head` 并安装 `notifications_code`／`labeling_code`／`diagnostics_code` owner 授权、`app_runtime` 运行授权、`yoao_notification_channel_delivery_client` 仅函数投递授权，以及既有 `yoao_notification_publish_client` 授权）、`redis:7-alpine`、挂载 `app_runtime` 会话的真实 FastAPI 应用、连接 `yoao_notification_channel_delivery_client` 的真实 `NotificationChannelDeliveryWorker`，以及监听 Docker 桥接私网地址 `172.17.0.1:36867`（显式配置于 `NOTIFICATION_CHANNEL_HOST_ALLOWLIST` 与 `NOTIFICATION_CHANNEL_ALLOW_INSECURE_HTTP_HOSTS`）的真实 HTTP 替身插件进程。
+验收批次 ID `a4cf848340`（2026-11-24T08:46:09Z，复跑于只读安全审计修复之后），证据回执保存在 `.artifacts/test-results/m3b-acceptance-a4cf848340.json`。环境组成：可销毁 `postgres:16-alpine`（执行 `alembic upgrade head` 并安装 `notifications_code`／`labeling_code`／`diagnostics_code` owner 授权、`app_runtime` 运行授权、`yoao_notification_channel_delivery_client` 仅函数投递授权，以及既有 `yoao_notification_publish_client` 授权）、`redis:7-alpine`、挂载 `app_runtime` 会话的真实 FastAPI 应用、连接 `yoao_notification_channel_delivery_client` 的真实 `NotificationChannelDeliveryWorker`，以及监听 Docker 桥接私网地址 `172.17.0.1:38337`（显式配置于 `NOTIFICATION_CHANNEL_HOST_ALLOWLIST` 与 `NOTIFICATION_CHANNEL_ALLOW_INSECURE_HTTP_HOSTS`）的真实 HTTP 替身插件进程。
 
-实测期间额外捕获并修复一处真实传输缺陷：`NotificationChannelHttpClient._PinnedTransport` 原先将 `httpcore.Response.stream` 直接传给 `httpx.Response(stream=...)`，在真实 TCP 套接字读取响应体时触发失败；已改为 `_PinnedResponseStream(httpx.AsyncByteStream)` 包装并补充单元测试 `test_pinned_transport_wraps_raw_httpcore_stream`，修复后重跑全部实测通过：
+实测与只读审计阶段捕获并修复了四处真实缺陷，全部补齐回归验证并重跑全套实测通过：
+
+- `NotificationChannelHttpClient._PinnedTransport` 原将 `httpcore.Response.stream` 直接传给 `httpx.Response(stream=...)`，改为 `_PinnedResponseStream(httpx.AsyncByteStream)` 包装并补充回归用例 `test_pinned_transport_wraps_raw_httpcore_stream`。
+- `yoao_labeling_v1._notification_task_visible` 原在 `task.assignee_id IS NULL` 的批次任务上因 SQL 三值逻辑 `NULL` 绕过 `NOT v_is_assigned` 守卫，已改为 `COALESCE(..., false)` 显式收口并限定非审核角色仅允许 `annotator`/`viewer`，回归断言另一标注员的批次任务返回 `false`。
+- `POST /api/v1/admin/notification-channels` 原在传入 `manifest` 时读取了不存在的 `extension_type`/`channel_id` 字段，已改为 `extension_point`/`extension.channel_id` 并补齐 `/setup` 的 `description`/`homepage` 回退。
+- `PATCH /api/v1/admin/notification-channels/{channel_id}` 拒绝非空字段显式 `null`（422），SQL 层同步捕获 `not_null_violation`；用户写接口将 `prepared` 通道按 404 隐藏，`verify-address` 增加限流键 `ttl == -1` 自愈、地址复核与并发解绑处理。
 
 1. **受限角色隔离与既有 publisher 未被污染**：`NotificationChannelDeliveryPostgresData.channel_delivery_policy()` 通过精确 10 函数 + 0 表权限自检（`yoao-notification-channel-delivery/v1`）；既有 `NotificationDeliveryPostgresData.delivery_policy()` 通过精确 3 函数 + 0 表权限自检（`aap-notifications-delivery/v1`）；`app_runtime` 查询三张私有通道表及调用 `claim_channel_deliveries`／`finish_channel_delivery` 全部返回 PostgreSQL `42501`；`yoao_notification_channel_delivery_client` 查询 `public.tasks`、`public.bug_reports` 及私有通道表全部返回 `42501`。
-2. **SSRF 硬拦截**：向 `http://127.0.0.1:<port>`、`http://[::ffff:127.0.0.1]:<port>`、`http://169.254.169.254/latest/meta-data` 注册通道全部返回 HTTP `400`；向显式放行的私网地址 `http://172.17.0.1:36867` 完成真实 TCP `/setup` 与 `/verify-address`。
+2. **SSRF 硬拦截与地址验证**：向 `http://127.0.0.1:<port>`、`http://[::ffff:127.0.0.1]:<port>`、`http://169.254.169.254/latest/meta-data` 注册通道全部返回 HTTP `400`；向显式放行的私网地址 `http://172.17.0.1:38337` 完成真实 TCP `/setup` 与 `/verify-address`（`provider_message_id=om_verify_ok`，`verified_at` 落库）。
 3. **不变量 1（业务回滚）**：业务事务内 `NotificationService.notify` 后 `rollback()`，发件箱 **0** 行、插件 **0** 次 HTTP 调用。
 4. **不变量 2（插件不可用重试耗尽）**：先验证通道级 `next_dispatch_at` 限流（`claimed=0`）；再令插件返回 HTTP `503` + `Retry-After: 5`，两次尝试携带相同 `delivery_id`，最终进入 `failed_exhausted`（`attempt=2`）。
 5. **不变量 3（永久失败不重试）**：插件返回 HTTP `422` `{"status":"permanent","reason":"invalid_open_id"}`，单次调用即落为 `failed_permanent`（`attempt=1`），无重试。

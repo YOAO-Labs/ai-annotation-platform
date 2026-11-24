@@ -1,6 +1,6 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：M0、M1a、M2a、M2b、M2c、M3a 已完成；M1b 本地交付项已通过（PyPI 发布待维护者授权）；[ADR-0187](../adr/archive/0187-notification-channel-extension-point.md) 已采纳，正在推进 M3b。
+> 状态：M0、M1a、M2a、M2b、M2c、M3a 已完成；M1b 本地交付项已通过（PyPI 发布待维护者授权）；M3b 平台侧外部通知通道扩展点已通过隔离验收，下一步推进 M3c。
 >
 > 创建日期：2026-11-23。
 >

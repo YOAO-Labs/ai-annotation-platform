@@ -8,7 +8,15 @@ import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field, StrictInt, StrictStr, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    StrictInt,
+    StrictStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 import redis.asyncio as aioredis
 from redis.asyncio.connection import ConnectionPool
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,9 +84,10 @@ async def _enforce_verify_rate_limit(user_id: uuid.UUID, channel_id: str) -> Non
     client = _get_verify_redis()
     try:
         count = await client.incr(key)
-        if count == 1:
+        ttl = await client.ttl(key)
+        if count == 1 or ttl == -1:
             await client.expire(key, 60)
-        ttl = await client.ttl(key) if count > limit else 60
+            ttl = 60
     except Exception:
         log.warning("verify-address rate limit backend unavailable", exc_info=True)
         raise HTTPException(
@@ -100,18 +109,22 @@ def _encrypt_or_503(plaintext: str) -> tuple[str, str]:
         validated = validate_channel_token_plaintext(plaintext)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    key = channel_encryption_key()
     try:
+        key = channel_encryption_key()
         return encrypt_channel_token(validated, key), channel_token_sha256(validated)
-    except NotificationChannelKeyNotConfigured as exc:
+    except (NotificationChannelKeyNotConfigured, ValueError) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
 
 
 def _decrypt_or_503(ciphertext: str | None) -> str:
-    key = channel_encryption_key()
     try:
+        key = channel_encryption_key()
         return decrypt_channel_token(ciphertext or "", key)
-    except (NotificationChannelKeyNotConfigured, NotificationChannelCryptoError) as exc:
+    except (
+        NotificationChannelKeyNotConfigured,
+        NotificationChannelCryptoError,
+        ValueError,
+    ) as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from None
 
 
@@ -211,6 +224,21 @@ class NotificationChannelUpdateIn(BaseModel):
     endpoint_url: StrictStr | None = Field(default=None, min_length=1, max_length=2048)
     auth_token: StrictStr | None = Field(default=None, min_length=1, max_length=4096)
     rate_limit_per_minute: StrictInt | None = Field(default=None, ge=1, le=600)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_null_required_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for key in (
+                "display_name",
+                "source_tier",
+                "endpoint_url",
+                "auth_token",
+                "rate_limit_per_minute",
+            ):
+                if key in data and data[key] is None:
+                    raise ValueError(f"{key} must not be null")
+        return data
 
     @field_validator("display_name")
     @classmethod
@@ -334,15 +362,15 @@ async def register_admin_notification_channel(
         raise HTTPException(status_code=status_code, detail=str(exc)) from None
 
     if data.manifest is not None:
-        if data.manifest.extension_type != "notification_channel":
+        if data.manifest.extension_point != "notification_channel":
             raise HTTPException(
                 status_code=422,
-                detail="manifest.extension_type must be notification_channel",
+                detail="manifest.extension_point must be notification_channel",
             )
-        if data.manifest.channel_id != setup.channel_id:
+        if data.manifest.extension.channel_id != setup.channel_id:
             raise HTTPException(
                 status_code=422,
-                detail="manifest.channel_id does not match /setup channel_id",
+                detail="manifest.extension.channel_id does not match /setup channel_id",
             )
 
     display_name = (
@@ -353,12 +381,20 @@ async def register_admin_notification_channel(
     description = (
         data.description
         if data.description is not None
-        else (data.manifest.description if data.manifest else None)
+        else (
+            data.manifest.description
+            if data.manifest and data.manifest.description is not None
+            else setup.description
+        )
     )
     homepage = (
         data.homepage
         if data.homepage is not None
-        else (data.manifest.homepage if data.manifest else None)
+        else (
+            data.manifest.homepage
+            if data.manifest and data.manifest.homepage is not None
+            else setup.homepage
+        )
     )
 
     reply = await NotificationChannelStorePostgresData(db).register_channel(
@@ -719,7 +755,7 @@ async def upsert_user_notification_channel_binding(
     validated = _validated_channel_id(channel_id)
     store = NotificationChannelStorePostgresData(db)
     channel = await store.get_channel(validated)
-    if channel is None or channel.get("status") == "retired":
+    if channel is None or channel.get("status") in {"prepared", "retired"}:
         raise HTTPException(status_code=404, detail="Notification channel not found")
     if channel.get("status") != "active":
         raise HTTPException(
@@ -766,7 +802,7 @@ async def verify_user_notification_channel_address(
     validated = _validated_channel_id(channel_id)
     store = NotificationChannelStorePostgresData(db)
     secret = await store.open_channel_secret(validated)
-    if secret is None:
+    if secret is None or secret.get("status") in {"prepared", "retired"}:
         raise HTTPException(status_code=404, detail="Notification channel not found")
     if secret.get("status") != "active":
         raise HTTPException(
@@ -793,15 +829,20 @@ async def verify_user_notification_channel_address(
             detail="Bind an address before verifying this channel",
         )
 
+    try:
+        validate_recipient_address(current["address"], secret["address_schema"])
+        req = ChannelVerifyAddressRequest(
+            channel_id=validated,
+            verification_id=uuid.uuid4(),
+            recipient_address=current["address"],
+            locale=str(current.get("locale") or "zh-CN"),
+        )
+    except (ValidationError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
     await _enforce_verify_rate_limit(user.id, validated)
     token = _decrypt_or_503(secret.get("auth_token_ciphertext"))
 
-    req = ChannelVerifyAddressRequest(
-        channel_id=validated,
-        verification_id=uuid.uuid4(),
-        recipient_address=current["address"],
-        locale=str(current.get("locale") or "zh-CN"),
-    )
     outcome = await build_channel_http_client().verify_address(
         endpoint_url=str(secret["endpoint_url"]),
         auth_token=token,
@@ -809,6 +850,11 @@ async def verify_user_notification_channel_address(
     )
     if outcome.outcome == "delivered":
         verified = await store.mark_user_binding_verified(user.id, validated)
+        if verified.get("ok") is not True:
+            raise HTTPException(
+                status_code=404,
+                detail="Channel binding was removed during verification",
+            )
         await db.commit()
         return VerifyChannelAddressOut(
             ok=True,

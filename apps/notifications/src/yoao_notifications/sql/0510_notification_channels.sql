@@ -757,7 +757,7 @@ BEGIN
                 updated_at = v_now
             WHERE id = v_row.id
             RETURNING * INTO v_row;
-        EXCEPTION WHEN check_violation THEN
+        EXCEPTION WHEN check_violation OR not_null_violation THEN
             RETURN pg_catalog.jsonb_build_object('ok', false, 'error', 'invalid_request');
         END;
     END IF;

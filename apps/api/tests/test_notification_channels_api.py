@@ -341,3 +341,162 @@ async def test_channel_lifecycle_user_binding_verify_and_preferences_v2(
         )
         is None
     )
+
+
+@pytest.mark.asyncio
+async def test_manifest_registration_null_patch_and_prepared_channel_hiding(
+    httpx_client, db_session, super_admin, annotator, reviewer, monkeypatch
+):
+    admin_user, admin_token = super_admin
+    user, user_token = annotator
+    other, _ = reviewer
+    key = Fernet.generate_key().decode("ascii")
+    fake_client = _FakeChannelClient(channel_id="wecom")
+    monkeypatch.setattr(settings, "notification_channel_encryption_key", key)
+    monkeypatch.setattr(channels_api, "build_channel_http_client", lambda: fake_client)
+
+    manifest = {
+        "manifest_schema": "yoao-extension-manifest/v1",
+        "extension_point": "notification_channel",
+        "plugin_id": "wecom-dm",
+        "version": "1.0.0",
+        "display_name": "WeCom Manifest Name",
+        "description": "Manifest description",
+        "homepage": "https://plugins.example.com/wecom",
+        "publisher": "yoao",
+        "license": "Apache-2.0",
+        "protocol_version": "yoao-notification-channel/v1",
+        "entrypoint": ["wecom-bot", "--port", "9000"],
+        "capabilities": ["deliver", "verify_address"],
+        "resource": {"memory_mb": 256},
+        "extension": {
+            "channel_id": "wecom",
+            "address_schema": _SCHEMA,
+            "allowed_egress_hosts": ["qyapi.weixin.qq.com"],
+        },
+    }
+    bad_manifest = {
+        **manifest,
+        "extension": {**manifest["extension"], "channel_id": "feishu"},
+    }
+    mismatch = await httpx_client.post(
+        "/api/v1/admin/notification-channels",
+        json={
+            "endpoint_url": "https://wecom.example.com/plugin",
+            "auth_token": "tok_wecom",
+            "mode": "managed",
+            "status": "prepared",
+            "manifest": bad_manifest,
+        },
+        headers=_bearer(admin_token),
+    )
+    assert mismatch.status_code == 422
+
+    reg = await httpx_client.post(
+        "/api/v1/admin/notification-channels",
+        json={
+            "endpoint_url": "https://wecom.example.com/plugin",
+            "auth_token": "tok_wecom",
+            "mode": "managed",
+            "status": "prepared",
+            "manifest": manifest,
+        },
+        headers=_bearer(admin_token),
+    )
+    assert reg.status_code == 201
+    created = reg.json()
+    assert created["display_name"] == "WeCom Manifest Name"
+    assert created["description"] == "Manifest description"
+    assert created["status"] == "prepared"
+
+    bind_prepared = await httpx_client.put(
+        "/api/v1/notification-channels/wecom/binding",
+        json={"address": {"open_id": "ou_123"}, "locale": "zh-CN"},
+        headers=_bearer(user_token),
+    )
+    assert bind_prepared.status_code == 404
+
+    verify_prepared = await httpx_client.post(
+        "/api/v1/notification-channels/wecom/verify-address",
+        headers=_bearer(user_token),
+    )
+    assert verify_prepared.status_code == 404
+
+    null_required = await httpx_client.patch(
+        "/api/v1/admin/notification-channels/wecom",
+        json={"expected_revision": 1, "display_name": None},
+        headers=_bearer(admin_token),
+    )
+    assert null_required.status_code == 422
+
+    clear_desc = await httpx_client.patch(
+        "/api/v1/admin/notification-channels/wecom",
+        json={"expected_revision": 1, "description": None},
+        headers=_bearer(admin_token),
+    )
+    assert clear_desc.status_code == 200
+    assert clear_desc.json()["description"] is None
+
+    project_id = uuid.uuid4()
+    batch_id = uuid.uuid4()
+    task_id = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO public.projects (id, display_id, name, type_label, type_key, data_type, owner_id, status) "
+            "VALUES (:pid, :disp, 'VisProj', '2D', 'detection_2d', 'image', :owner, 'in_progress')"
+        ),
+        {"pid": project_id, "disp": f"P-{project_id.hex[:6]}", "owner": admin_user.id},
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO public.project_members (id, project_id, user_id, role) VALUES "
+            "(:id1, :pid, :u1, 'annotator'), (:id2, :pid, :u2, 'annotator')"
+        ),
+        {
+            "id1": uuid.uuid4(),
+            "id2": uuid.uuid4(),
+            "pid": project_id,
+            "u1": user.id,
+            "u2": other.id,
+        },
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO public.task_batches (id, project_id, display_id, name, status, annotator_id) "
+            "VALUES (:bid, :pid, :bdisp, 'B-1', 'annotating', :other)"
+        ),
+        {
+            "bid": batch_id,
+            "pid": project_id,
+            "bdisp": f"B-{batch_id.hex[:6]}",
+            "other": other.id,
+        },
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO public.tasks (id, display_id, project_id, batch_id, file_name, file_path, file_type, status, assignee_id) "
+            "VALUES (:tid, :disp, :pid, :bid, 'a.jpg', 's3://b/a.jpg', 'image', 'in_progress', NULL)"
+        ),
+        {
+            "tid": task_id,
+            "disp": f"T-{task_id.hex[:6]}",
+            "pid": project_id,
+            "bid": batch_id,
+        },
+    )
+    visible_other = await db_session.scalar(
+        text(
+            "SELECT yoao_labeling_v1.notification_target_visible_to_actor("
+            ":actor, 'task', :tid, :pid, :tid)"
+        ),
+        {"actor": other.id, "tid": task_id, "pid": project_id},
+    )
+    visible_user = await db_session.scalar(
+        text(
+            "SELECT yoao_labeling_v1.notification_target_visible_to_actor("
+            ":actor, 'task', :tid, :pid, :tid)"
+        ),
+        {"actor": user.id, "tid": task_id, "pid": project_id},
+    )
+    assert visible_other is True
+    assert visible_user is False
