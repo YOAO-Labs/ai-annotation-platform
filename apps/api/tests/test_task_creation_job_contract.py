@@ -1,19 +1,14 @@
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 
 _SQL_PATH = (
     Path(__file__).parents[1] / "alembic" / "sql" / "0193_task_creation_jobs.sql"
 )
-_SCHEMA_PATH = (
-    Path(__file__).parents[1]
-    / "alembic"
-    / "sql"
-    / "0193_task_creation_jobs.schema.json"
-)
+_SCHEMA_PATH = "0193_task_creation_jobs.schema.json"
 _MIGRATION_PATH = (
     Path(__file__).parents[1] / "alembic" / "versions" / "0193_task_creation_jobs.py"
 )
@@ -50,7 +45,7 @@ def test_jobs_migration_and_frozen_artifact_are_down_revision_0192():
 
 
 def test_frozen_schema_rejects_extra_request_and_payload_fields():
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA_PATH)
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert set(schema["x-postgresql-functions"]) == {
         "aap_jobs_v1.create_task_creation_job(uuid, uuid, uuid, uuid, uuid)",

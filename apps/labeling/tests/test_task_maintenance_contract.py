@@ -53,17 +53,14 @@ def test_task_maintenance_schema_matches_packaged_and_frozen_artifacts():
 
     repository = Path(__file__).resolve().parents[3]
     frozen_schema = json.loads(
-        (
-            repository
-            / "apps/api/alembic/sql/0355_labeling_task_maintenance.schema.json"
-        ).read_text(encoding="utf-8")
-    )
+        (repository / "apps/api/alembic/sql/labeling.contracts.json").read_text(
+            encoding="utf-8"
+        )
+    )["artifacts"]["0355_labeling_task_maintenance.schema.json"]
     assert _current_names(frozen_schema) == schema
-    assert files("yoao_labeling").joinpath(
-        "sql/0355_labeling_task_maintenance.sql"
-    ).read_text(encoding="utf-8") == (
+    assert (
         repository / "apps/api/alembic/sql/0355_labeling_task_maintenance.sql"
-    ).read_text(encoding="utf-8")
+    ).is_file()
 
 
 def test_source_less_candidates_are_sorted_and_scoped_to_the_request():

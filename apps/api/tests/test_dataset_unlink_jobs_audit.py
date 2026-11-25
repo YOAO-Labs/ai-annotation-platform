@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import pytest
@@ -392,10 +393,10 @@ async def test_dataset_unlink_audit_rejects_invalid_metadata_and_actor(
 def test_dataset_unlink_jobs_audit_artifact_and_migration_are_closed():
     api_root = Path(__file__).resolve().parents[1]
     sql_path = api_root / "alembic/sql/0204_dataset_unlink_jobs_audit.sql"
-    schema_path = api_root / "alembic/sql/0204_dataset_unlink_jobs_audit.schema.json"
+    schema_path = "0204_dataset_unlink_jobs_audit.schema.json"
     migration_path = api_root / "alembic/versions/0204_dataset_unlink_jobs_audit.py"
     sql = sql_path.read_text(encoding="utf-8")
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = load_contract_schema(schema_path)
     migration = migration_path.read_text(encoding="utf-8")
 
     assert schema["$id"] == "urn:aap:contract:dataset-unlink-jobs-audit:v1"

@@ -268,14 +268,16 @@ async def test_owned_cleanup_preserves_external_actor_reference_until_removed(
 
 
 @pytest.mark.parametrize(
-    "grant_file",
+    "grant_capability",
     [
-        "identity-e2e-fixture-grants.sql",
-        "identity-scale-seed-grants.sql",
-        "identity-seed-operator-grants.sql",
+        "e2e_fixture",
+        "scale_seed",
+        "seed_operator",
     ],
 )
-async def test_fixture_grants_reject_direct_presence_access(test_engine, grant_file):
+async def test_fixture_grants_reject_direct_presence_access(
+    test_engine, grant_capability
+):
     async with _world(test_engine, apply=False) as (_owner, _consumer, role, _url):
         async with test_engine.begin() as db:
             await db.execute(
@@ -283,7 +285,12 @@ async def test_fixture_grants_reject_direct_presence_access(test_engine, grant_f
                     f'GRANT UPDATE (status) ON public.identity_account_presence TO "{role}"'
                 )
             )
-        result = await _grants(test_engine, ROOT / "infra/docker" / grant_file, role)
+        result = await _grants(
+            test_engine,
+            ROOT / "infra/docker/identity-grants.sql",
+            role,
+            capability=grant_capability,
+        )
         assert result.returncode != 0
         async with test_engine.begin() as db:
             await db.execute(
@@ -291,7 +298,12 @@ async def test_fixture_grants_reject_direct_presence_access(test_engine, grant_f
                     f'REVOKE UPDATE (status) ON public.identity_account_presence FROM "{role}"'
                 )
             )
-        result = await _grants(test_engine, ROOT / "infra/docker" / grant_file, role)
+        result = await _grants(
+            test_engine,
+            ROOT / "infra/docker/identity-grants.sql",
+            role,
+            capability=grant_capability,
+        )
         assert result.returncode == 0, result.stderr
 
 

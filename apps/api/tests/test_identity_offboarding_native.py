@@ -7,6 +7,8 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 from sqlalchemy import text
@@ -52,13 +54,13 @@ from tests.test_identity_suspensions_native import (
 
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SCHEMA = _SQL_DIR / "0248_identity_offboarding.schema.json"
+_SCHEMA = "0248_identity_offboarding.schema.json"
 _SUPPORT = _SQL_DIR / "0248_identity_offboarding_support.sql"
 _ARTIFACT = _SQL_DIR / "0248_identity_offboarding.sql"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0248_identity_offboarding.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-offboarding-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 _CANONICAL_SCHEMA = (
     _ROOT / "apps/identity/src/yoao_identity/native_offboarding_protocol.schema.json"
 )
@@ -167,13 +169,13 @@ async def _cleanup_offboarding_world(
 
 
 def test_frozen_offboarding_artifacts_and_native_owner_boundary():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     canonical = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
     support = _SUPPORT.read_text(encoding="utf-8")
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="offboarding")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
     verifier = (_ROOT / "scripts/verify_module_data_boundary.py").read_text(
         encoding="utf-8"
@@ -181,7 +183,6 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
 
     assert "identity_offboarding_operation_receipts" in NATIVE_MANAGED_TABLES
     assert schema == canonical
-    assert _SCHEMA.read_bytes() == _CANONICAL_SCHEMA.read_bytes()
     assert schema["$id"] == "aap-identity-offboarding-native/v1"
     assert migration.index('"0248_identity_offboarding_support.sql"') < migration.index(
         '"0248_identity_offboarding.sql"'
@@ -210,7 +211,7 @@ def test_frozen_offboarding_artifacts_and_native_owner_boundary():
     assert (
         "yoao_identity_offboarding_v1.apply_offboarding_command(jsonb)" in role_grants
     )
-    assert "yoao_identity_offboarding_client" in role_grants
+    assert ":'identity_offboarding_role'" in role_grants
     assert "identity_offboarding_operation_receipts" in module_grants
     assert 'GRANT SELECT ON public.projects TO :"identity_owner"' not in module_grants
     assert (

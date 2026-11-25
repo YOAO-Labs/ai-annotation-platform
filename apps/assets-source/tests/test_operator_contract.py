@@ -67,11 +67,13 @@ def test_operator_contract_is_installed_with_six_exact_native_signatures():
     assert json.loads(source.read_text()) == expected
     native = (
         Path(__file__).resolve().parents[3]
-        / "apps/api/alembic/sql/0218_assets_operator.schema.json"
+        / "apps/api/alembic/sql/assets.contracts.json"
     )
     if native.exists():
         assert json.loads(source.read_text()) == _current_names(
-            json.loads(native.read_text())
+            json.loads(native.read_text())["artifacts"][
+                "0218_assets_operator.schema.json"
+            ]
         )
 
 

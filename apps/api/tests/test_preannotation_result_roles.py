@@ -5,12 +5,13 @@ from __future__ import annotations
 import re
 import os
 from pathlib import Path
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 from sqlalchemy import text
 
 ROOT = Path(__file__).resolve().parents[3]
-GRANTS = ROOT / "infra/docker/preannotation-result-data-grants.sql"
+GRANTS = ROOT / "infra/docker/labeling-grants.sql"
 
 EXPECTED = {
     "yoao_jobs_v1.claim_batch_result_execution(jsonb)",
@@ -34,7 +35,7 @@ EXPECTED = {
 
 
 def test_executor_login_gets_only_seventeen_public_operations():
-    script = GRANTS.read_text(encoding="utf-8")
+    script = read_psql_grant_script(GRANTS, capability="preannotation_result_data")
     grant = re.search(
         r"(?is)GRANT EXECUTE ON FUNCTION\s+(.*?)\s+TO\s+:\"result_role\";",
         script,
@@ -47,12 +48,12 @@ def test_executor_login_gets_only_seventeen_public_operations():
         )
     )
     assert functions == EXPECTED
-    assert "result_role=yoao_preannotation_result_client" in script
+    assert ":'result_role'" in script
     assert "exactly 17 executor capabilities" in script
 
 
 def test_executor_has_no_raw_table_or_writer_capability():
-    script = GRANTS.read_text(encoding="utf-8")
+    script = read_psql_grant_script(GRANTS, capability="preannotation_result_data")
     assert 'REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"result_role";' in script
     assert 'REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"result_role";' in script
     assert (

@@ -694,6 +694,7 @@ GRANT SELECT ON yoao_assets_v1.video_chapter_facts,
     yoao_assets_v1.scale_seed_dataset_item_facts TO :"labeling_owner";
 GRANT SELECT ON yoao_labeling_v1.annotation_draft_rows TO :"labeling_owner";
 
+REVOKE SELECT ON public.tasks FROM :"labeling_owner";
 GRANT SELECT (total_annotations, is_labeled),
     UPDATE (total_annotations, is_labeled)
     ON public.tasks TO :"labeling_owner";
@@ -4946,5 +4947,1766 @@ REVOKE ALL ON TABLE yoao_assets_v1.storage_fault_observation_key FROM PUBLIC;
 REVOKE ALL ON SEQUENCE public.storage_fault_observation_seq
     FROM PUBLIC, :"workflow_role", :"asset_cleanup_role", :"mask_gc_role";
 
-\ir m2b-owner-grants.sql
+GRANT USAGE ON SCHEMA yoao_settings_v1 TO :"settings_owner";
+REVOKE UPDATE ON TABLE public.system_settings FROM :"settings_owner";
+GRANT SELECT (key, value_type, value_json, updated_at, updated_by, runtime_revision),
+    INSERT (key, value_type, value_json, updated_at, updated_by),
+    UPDATE (value_type, value_json, updated_at, updated_by), DELETE
+    ON public.system_settings TO :"settings_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_settings_v1 TO :"settings_owner";
+ALTER TABLE yoao_settings_v1.smtp_test_attempts OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._rekey_override() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._setting_type(text) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._override_stamp() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._super_admin(uuid,boolean) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.runtime_knob(text) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.connector_override() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.import_limits() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.management_snapshot(uuid,boolean) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.apply_settings_edit(uuid,text,jsonb,text[],text)
+    OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.queue_smtp_test(uuid) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.read_smtp_test(uuid,uuid) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.claim_smtp_test() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)
+    OWNER TO :"settings_owner";
+REVOKE CREATE ON SCHEMA yoao_settings_v1 FROM :"settings_owner";
+
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"settings_owner", :"diagnostics_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid),
+    yoao_identity_v1.lock_accounts_share(uuid[],boolean) TO :"settings_owner", :"diagnostics_owner";
+GRANT SELECT (id, name, role) ON yoao_identity_v1.account_profiles TO :"diagnostics_owner";
+
+GRANT USAGE ON SCHEMA public TO :"diagnostics_owner", :"settings_owner";
+GRANT SELECT, DELETE ON public.bug_reports, public.bug_comments, public.bug_attachment_uploads
+    TO :"diagnostics_owner";
+GRANT INSERT (id, display_id, reporter_id, user_role, route, project_id, task_id, title, description,
+    severity, status, browser_ua, viewport, recent_api_calls, recent_console_errors, screenshot_url, attachments),
+    UPDATE (project_id, task_id, title, description, severity, status, duplicate_of_id, assigned_to_id,
+        resolution, fixed_in_version, triaged_at, fixed_at, reopen_count, last_reopened_at)
+    ON public.bug_reports TO :"diagnostics_owner";
+GRANT INSERT (id, bug_report_id, author_id, body) ON public.bug_comments TO :"diagnostics_owner";
+GRANT INSERT (id, owner_id, sha256, size_bytes, mime_type, file_name, created_at, expires_at, storage_ref, state),
+    UPDATE (bound_report_id, object_version_id, state, last_attempted_at, retired_at)
+    ON public.bug_attachment_uploads TO :"diagnostics_owner";
+GRANT USAGE ON SEQUENCE public.display_seq_bug_reports TO :"diagnostics_owner";
+GRANT SELECT (purpose) ON public.storage_operations TO :"diagnostics_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1, yoao_labeling_v1 TO :"diagnostics_owner";
+GRANT SELECT (id, project_id, dataset_item_id) ON yoao_labeling_v1.task_rows TO :"diagnostics_owner";
+GRANT SELECT (project_id, item_id) ON yoao_assets_v1.project_dataset_item_sources TO :"diagnostics_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_diagnostics_v1 TO :"diagnostics_owner";
+DO $ownership$
+DECLARE
+    v_signature text;
+    v_function regprocedure;
+BEGIN
+    FOREACH v_signature IN ARRAY ARRAY[
+        'yoao_diagnostics_v1._actor_role(uuid,boolean)',
+        'yoao_diagnostics_v1._bug_projection(public.bug_reports)',
+        'yoao_diagnostics_v1._comment_projection(public.bug_comments,text,text)',
+        'yoao_diagnostics_v1._bug_attachment_key(uuid,uuid,text)',
+        'yoao_diagnostics_v1._bug_attachment_public(public.bug_attachment_uploads)',
+        'yoao_diagnostics_v1._bug_attachment_claim(jsonb)',
+        'yoao_diagnostics_v1._bug_attachment_id(text)',
+        'yoao_diagnostics_v1._bug_attachment_receipt(public.bug_attachment_uploads)',
+        'yoao_diagnostics_v1._comment_context(public.bug_reports)',
+        'yoao_diagnostics_v1._bug_attachment_cleanup_blocked(public.bug_attachment_uploads)',
+        'yoao_diagnostics_v1.create_bug_report(uuid,jsonb)',
+        'yoao_diagnostics_v1.confirm_bug_attachment_binding(uuid,uuid)',
+        'yoao_diagnostics_v1.list_bug_reports(uuid,boolean,text,text,text,integer,integer)',
+        'yoao_diagnostics_v1.read_bug_report(uuid,uuid)',
+        'yoao_diagnostics_v1.patch_bug_report(uuid,uuid,jsonb)',
+        'yoao_diagnostics_v1.prepare_bug_comment(uuid,uuid)',
+        'yoao_diagnostics_v1.add_bug_comment(uuid,uuid,text)',
+        'yoao_diagnostics_v1.bug_cluster_candidates(uuid,uuid)',
+        'yoao_diagnostics_v1.bug_report_markdown_comments(uuid,uuid[])',
+        'yoao_diagnostics_v1.delete_bug_report(uuid,uuid)',
+        'yoao_diagnostics_v1.detach_orphan_bug_tasks(uuid,uuid[])',
+        'yoao_diagnostics_v1.reserve_bug_attachment(uuid,uuid,text,integer,text,text,timestamptz,timestamptz,jsonb)',
+        'yoao_diagnostics_v1.lock_pending_bug_attachment(uuid,uuid)',
+        'yoao_diagnostics_v1.record_bug_attachment_version(uuid,uuid,jsonb,text)',
+        'yoao_diagnostics_v1.publish_bug_attachment(uuid,uuid,jsonb,text)',
+        'yoao_diagnostics_v1.lock_report_attachment(uuid,uuid,text)',
+        'yoao_diagnostics_v1.bug_attachment_cleanup_candidates(integer)',
+        'yoao_diagnostics_v1.prepare_bug_attachment_cleanup(uuid)',
+        'yoao_diagnostics_v1.lock_retired_bug_attachment(uuid)',
+        'yoao_diagnostics_v1.complete_bug_attachment_cleanup(uuid,jsonb,text)',
+        'yoao_diagnostics_v1.bug_attachment_history(uuid)',
+        'yoao_diagnostics_v1.bug_attachment_location_referenced(uuid)',
+        'yoao_diagnostics_v1.bug_attachment_maintenance_facts()'
+    ] LOOP
+        v_function := v_signature::regprocedure;
+        EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I', v_function,
+                                  pg_catalog.current_setting('yoao.diagnostics_owner'));
+    END LOOP;
+END
+$ownership$;
+REVOKE CREATE ON SCHEMA yoao_diagnostics_v1 FROM :"diagnostics_owner";
+GRANT USAGE ON SCHEMA yoao_diagnostics_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_diagnostics_v1.bug_attachment_location_referenced(uuid),
+    yoao_diagnostics_v1.bug_attachment_maintenance_facts(),
+    yoao_diagnostics_v1.lock_pending_bug_attachment(uuid,uuid),
+    yoao_diagnostics_v1.lock_report_attachment(uuid,uuid,text),
+    yoao_diagnostics_v1.lock_retired_bug_attachment(uuid)
+    TO :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_inference_topology_v1, yoao_inference_pipelines_v1 TO :"inference_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+
+ALTER FUNCTION yoao_inference_topology_v1.lock_video_prediction_registry(uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_topology_v1.lock_video_prediction_pool(uuid,uuid,uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_topology_v1.lock_native_prediction_route(uuid,uuid,uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_pipelines_v1.create_prediction_execution_snapshot(uuid,text,jsonb) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_pipelines_v1.read_prediction_execution_snapshot(uuid,uuid) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_inference_pipelines_v1.prune_prediction_execution_snapshots(timestamptz) OWNER TO :"inference_owner";
+ALTER FUNCTION yoao_jobs_v1.prediction_execution_snapshot_in_use(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_labeling_v1.prediction_execution_snapshot_in_use(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.finish_prediction_retry_pipeline_failure(jsonb,jsonb) OWNER TO :"labeling_owner";
+
+GRANT USAGE ON SCHEMA yoao_jobs_v1, yoao_labeling_v1 TO :"inference_owner";
+GRANT EXECUTE ON FUNCTION
+    yoao_jobs_v1.prediction_execution_snapshot_in_use(uuid),
+    yoao_labeling_v1.prediction_execution_snapshot_in_use(uuid)
+TO :"inference_owner";
+GRANT SELECT (execution_snapshot_id) ON public.async_jobs TO :"jobs_owner";
+GRANT SELECT (execution_snapshot_id) ON public.failed_predictions TO :"labeling_owner";
+GRANT SELECT (id, project_id, schema_version, digest, payload, created_at),
+      INSERT (id, project_id, schema_version, digest, payload), DELETE
+ON public.prediction_execution_snapshots TO :"inference_owner";
+
+ALTER FUNCTION yoao_assets_v1.create_prediction_input_lease(uuid,uuid,text,uuid,integer,jsonb,integer,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prediction_input_lease_facts(uuid,boolean,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prediction_input_objects_pending(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_prediction_input_inventory(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_prediction_input_object(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reserve_prediction_input_object(uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.verify_prediction_input_object(uuid,text,jsonb,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.seal_prediction_input_lease(uuid,boolean,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_prediction_input_cleanup(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_prediction_input_cleanup_failure(uuid,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_prediction_input_cleanup(uuid,uuid,integer,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.list_due_prediction_input_cleanups(timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prediction_input_binding_history() OWNER TO :"assets_owner";
+
+GRANT SELECT (
+    id, owner_id, owner_kind, task_id, contract_version, bucket, storage_identity, storage_ref,
+    maintenance_revision, created_at, expires_at, retain_until, source_ref, state, uncertain_write,
+    object_count, size_bytes, inventory, next_cleanup_at, error_code
+), INSERT (
+    id, owner_id, owner_kind, task_id, contract_version, bucket, storage_identity, storage_ref,
+    maintenance_revision, created_at, expires_at, retain_until, source_ref, state, uncertain_write,
+    object_count, size_bytes, inventory, next_cleanup_at
+), UPDATE (
+    inventory, object_count, size_bytes, state, uncertain_write, next_cleanup_at, last_cleanup_at,
+    deleted_at, error_code
+) ON public.prediction_input_leases TO :"assets_owner";
+GRANT SELECT (id, purpose, location_id, revision) ON public.storage_operations TO :"assets_owner";
+
+REVOKE CREATE ON SCHEMA yoao_inference_topology_v1, yoao_inference_pipelines_v1 FROM :"inference_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.training_runs, public.training_previews
+TO :"learning_owner";
+GRANT SELECT, INSERT, UPDATE ON public.training_attempts, public.training_resource_leases,
+    public.training_preview_resource_leases TO :"learning_owner";
+GRANT SELECT, INSERT ON public.training_events TO :"learning_owner";
+GRANT SELECT, INSERT, DELETE ON public.training_telemetry_samples, public.training_log_chunks
+TO :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_get_run(uuid, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_get_attempt(uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_get_preview(uuid, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_executor_run(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_executor_preview(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_attempt_proof(uuid, text, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_preview_proof(uuid, text, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_run_request(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_gpu_queue() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_study_children(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_study_attempts(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_run_attempts(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_adoption_attempts(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_trigger_run(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_active_auto_run(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_trigger_run_ids(uuid, uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_run_dependencies(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_run_has_lease(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_create_run(uuid, uuid, uuid, uuid, uuid, uuid, uuid, uuid, text, text, jsonb, text, jsonb, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_pin_run_storage(uuid, jsonb, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_enqueue_attempt(uuid, uuid, uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_reserve_study_attempt(uuid, uuid, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_manual_resume(uuid, uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_delete_run(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_gpu_lease(text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_lock_gpu_lease(text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_observe_gpu(text, text, uuid, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_cpu_lease(text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_lock_cpu_lease(text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_observe_cpu(text, text, uuid, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_claim_attempt(uuid, uuid, text, text, uuid, uuid, text, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_lose_attempt(uuid, uuid, timestamptz, text, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_cancel_attempt(uuid, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_finish_queued_attempt(uuid, uuid, text, timestamptz, text, jsonb, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_finish_executor_attempt(uuid, uuid, text, uuid, text, boolean, text, timestamptz, text, jsonb, jsonb, text, jsonb, uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_heartbeat_attempt(uuid, uuid, text, uuid, text, timestamptz, text, text, jsonb, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_attempt_uploads(uuid, uuid, text, uuid, text, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_record_event(uuid, text, uuid, text, integer, text, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_event_page(uuid, integer, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_last_epoch(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_set_observation_receipt(uuid, text, uuid, text, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_telemetry_receipt(uuid, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_append_telemetry(uuid, text, uuid, text, uuid, jsonb)
+    OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_trim_telemetry(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_telemetry_earliest(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_telemetry_page(uuid, integer, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_cleanup_telemetry(timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_logs_receipt(uuid, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_append_logs(uuid, text, uuid, text, uuid, jsonb)
+    OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_trim_logs(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_logs_earliest(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_logs_page(uuid, integer, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_cleanup_logs(timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_latest_telemetry(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_preview_request(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_active_preview_count(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_create_preview(uuid, uuid, uuid, uuid, uuid, text, jsonb, text, jsonb, jsonb, text, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_preview_has_lease(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_pin_preview_storage(uuid, jsonb, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_attach_preview_job(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_cpu_queue(text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_claim_preview(uuid, text, text, uuid, uuid, text, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_heartbeat_preview(uuid, text, uuid, text, timestamptz, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_preview_uploads(uuid, text, uuid, text, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_finish_queued_preview(uuid, text, timestamptz, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_finish_executor_preview(uuid, text, uuid, text, boolean, text, timestamptz, text, text, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_cancel_preview(uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_lose_preview(uuid, timestamptz, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_expire_preview(uuid, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_preview_cleanup_queue(timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_preview_cleanup_expire(uuid, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_delete_expired_preview(uuid, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1._training_run_facts OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1._training_attempt_facts OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1._training_preview_facts OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_run_summary OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_run_storage_owner OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_preview_storage_owner OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_run_lineage OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_attempt_lineage OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    public.training_dataset_versions, public.training_dataset_analyses,
+    public.training_dataset_analyzed_samples, public.training_storage_deletions
+    TO :"learning_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.project_task_datasets TO :"learning_owner";
+GRANT SELECT, INSERT ON TABLE public.task_dataset_version_memberships TO :"learning_owner";
+GRANT SELECT (id, storage_ref) ON public.training_runs TO :"learning_owner";
+GRANT SELECT (id) ON public.training_previews, public.sample_evaluation_runs,
+    public.active_learning_rounds TO :"learning_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1, yoao_labeling_v1 TO :"learning_owner";
+GRANT SELECT (item_id, dataset_id) ON yoao_assets_v1.spatial_item_references TO :"learning_owner";
+GRANT SELECT (id, project_id, dataset_item_id) ON yoao_labeling_v1.task_rows TO :"learning_owner";
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"assets_owner", :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_dataset_metadata OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_task(jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_facts(uuid,uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_profile(jsonb,text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_read(uuid,uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_hold(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_request(uuid,uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_job_lock(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_create(uuid,uuid,uuid,uuid,uuid,text,uuid,text,jsonb,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_stream(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_associate(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_set_storage(uuid,uuid,uuid,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_queue(uuid,uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_start(uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_progress(uuid,uuid,uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_publish(uuid,uuid,uuid,text,jsonb,jsonb,text,text,bigint,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_fail(uuid,uuid,uuid,text,boolean,text,text,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_delete(uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_manifest(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_sample_evidence(uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_original_history() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_binding_history() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_location_versions(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_read(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_start(uuid,uuid,text,text,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_add_members(uuid,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_sample_page(uuid,text,integer,bigint,text,integer,text,text,text[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_member(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_observations(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_media_counts(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_observe_media(uuid,uuid,text,bigint,text,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_stage_deletion(uuid,uuid,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_claim_deletion(uuid,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_complete_deletion(uuid,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_deletion_batch() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_high_water_violations(uuid) OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid,boolean) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_original_history() TO :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"learning_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.frozen_deployment_usage(uuid,uuid,uuid),
+    yoao_jobs_v1.read_job(uuid) TO :"learning_owner";
+GRANT SELECT (id, project_id) ON public.training_runs TO :"learning_owner";
+GRANT UPDATE (id) ON public.training_runs TO :"learning_owner";
+GRANT SELECT (id, run_id, status, artifacts) ON public.training_attempts TO :"learning_owner";
+GRANT SELECT (id, project_id, status, snapshot) ON public.training_dataset_versions TO :"learning_owner";
+GRANT SELECT (evaluation_id) ON public.active_learning_references TO :"learning_owner";
+GRANT SELECT, INSERT ON public.trained_model_versions, public.trained_model_deployments,
+    public.project_model_releases, public.project_model_selections, public.model_decisions,
+    public.sample_evaluation_runs, public.sample_evaluation_attempts, public.sample_evaluation_samples
+    TO :"learning_owner";
+GRANT UPDATE (id) ON public.trained_model_versions TO :"learning_owner";
+GRANT UPDATE (check_id,status,receipt,trial,error_message,checked_at)
+    ON public.trained_model_deployments TO :"learning_owner";
+GRANT UPDATE (id) ON public.project_model_releases TO :"learning_owner";
+GRANT UPDATE (release_id,generation,updated_at) ON public.project_model_selections TO :"learning_owner";
+GRANT UPDATE (status,storage_ref,generation,current_attempt_id,async_job_id,error_code,error_message,
+              completed_at,deletion_requested_at) ON public.sample_evaluation_runs TO :"learning_owner";
+GRANT UPDATE (status,claim_id,report,error_code,error_message,heartbeat_at,dispatched_at,
+              maintenance_at,started_at,completed_at) ON public.sample_evaluation_attempts TO :"learning_owner";
+GRANT UPDATE (status,request,evidence,error_code,error_message,produced_attempt_id)
+    ON public.sample_evaluation_samples TO :"learning_owner";
+GRANT DELETE ON public.sample_evaluation_runs TO :"learning_owner";
+
+SELECT set_config('yoao.learning_owner', :'learning_owner', true);
+DO $learning_models$
+DECLARE
+    v_name text;
+    v_owner text := current_setting('yoao.learning_owner');
+BEGIN
+    FOREACH v_name IN ARRAY ARRAY[
+        '_model_version_rows', '_model_deployment_rows', '_model_release_rows', '_model_decision_rows',
+        'model_version_lineage', 'model_deployment_lineage', 'model_release_lineage',
+        '_evaluation_run_rows', '_evaluation_attempt_rows', '_evaluation_sample_rows',
+        'sample_evaluation_lineage', 'sample_evaluation_storage_owners'
+    ] LOOP
+        EXECUTE format('ALTER VIEW yoao_learning_v1.%I OWNER TO %I', v_name, v_owner);
+    END LOOP;
+    FOREACH v_name IN ARRAY ARRAY[
+        'model_version_detail', 'model_registration_replay',
+        'register_model_candidate', 'run_model_candidates', 'run_has_model_candidate',
+        'catalog_model_candidates', 'model_candidate_visibility', 'model_candidate_metadata',
+        '_filtered_model_candidates', 'list_model_candidates', 'count_model_candidates',
+        'model_deployments_for_versions', 'model_deployment_detail', 'hold_model_deployment_for_registry',
+        'hold_registry_model_deployments', 'count_active_model_releases', 'hold_model_candidate',
+        'hold_prediction_model_reference', 'start_model_deployment_check', 'finish_model_deployment_check',
+        'advance_model_deployment_retirement', 'model_release_detail', 'model_release_replay',
+        'catalog_model_releases', 'project_model_selection', 'list_project_model_releases',
+        'count_project_model_releases', 'publish_project_model_release', 'append_model_decision',
+        'list_model_decisions', 'trial_mask_keys', 'trial_mask_referenced',
+        'pending_dataset_mask_keys', 'pending_dataset_mask_referenced',
+        'evaluation_detail', 'evaluation_for_attempt', 'hold_evaluation_for_current_job',
+        'evaluation_replay', 'list_project_evaluations', 'count_project_evaluations',
+        'dataset_has_sample_evaluation', 'held_out_evaluation_budget', 'held_out_evaluation_specs',
+        'evaluation_attempt_detail', 'evaluation_attempt_history', 'evaluation_sample_detail',
+        'evaluation_sample_evidence', 'hold_evaluation_adoption_attempts', 'hold_evaluation_adoption_samples',
+        'pin_retained_evaluation_storage', 'create_sample_evaluation', 'queue_evaluation_attempt',
+        '_hold_evaluation_attempt', 'claim_evaluation_attempt', 'heartbeat_evaluation_attempt',
+        'record_evaluation_dispatch', 'evaluation_maintenance_candidates', 'record_evaluation_maintenance',
+        'start_evaluation_sample', 'checkpoint_evaluation_sample', 'fail_evaluation_sample_input',
+        'request_evaluation_cancellation', 'lose_evaluation_attempt', 'finish_evaluation_attempt',
+        'request_evaluation_deletion', 'purge_deleted_evaluation'
+    ] LOOP
+        EXECUTE format('ALTER FUNCTION yoao_learning_v1.%I OWNER TO %I', v_name, v_owner);
+    END LOOP;
+END
+$learning_models$;
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"learning_owner", :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"learning_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.dataset_item_references(uuid, uuid) TO :"learning_owner";
+GRANT SELECT, INSERT ON TABLE public.active_learning_rounds,
+    public.active_learning_attempts,
+    public.active_learning_pool_members,
+    public.active_learning_candidates,
+    public.active_learning_decisions,
+    public.active_learning_references,
+    public.active_learning_feedback,
+    public.learning_policies,
+    public.learning_triggers,
+    public.training_studies,
+    public.training_trials,
+    public.training_recipes,
+    public.training_recipe_revisions
+    TO :"learning_owner";
+GRANT UPDATE ON TABLE public.active_learning_rounds,
+    public.active_learning_attempts,
+    public.active_learning_candidates,
+    public.learning_policies,
+    public.learning_triggers,
+    public.training_studies,
+    public.training_trials,
+    public.training_recipes
+    TO :"learning_owner";
+GRANT DELETE ON TABLE public.learning_policies TO :"learning_owner";
+GRANT SELECT (id, project_id, snapshot, snapshot_digest, manifest), UPDATE (status)
+    ON TABLE public.training_dataset_versions TO :"learning_owner";
+GRANT SELECT (id, project_id, auto_trigger_id, study_id, dataset_id, request_id, config_digest,
+    status, "authorization") ON TABLE public.training_runs TO :"learning_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.active_learning_original_history(),
+    yoao_learning_v1.active_learning_original_decisions(),
+    yoao_learning_v1.active_learning_pool_item_count(uuid[]),
+    yoao_learning_v1.active_learning_candidate_item_count(uuid[])
+    TO :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_create_round(uuid, uuid, uuid, uuid, uuid, uuid, text, text, jsonb, text, jsonb, jsonb, uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_round(uuid, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_round_request(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_round_for_job(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_rounds(uuid, text, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_round_count(uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_attempt(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recent_attempts(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_attempt_ids(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_candidates(uuid, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_due_rounds(timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_open_attempt(uuid, integer, uuid, uuid, uuid, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_claim_attempt(uuid, integer, uuid, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_touch_attempt(uuid, integer, uuid, text, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_debit_round(uuid, integer, uuid, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_candidate_request(uuid, integer, uuid, integer, jsonb, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_candidate_evidence(uuid, integer, uuid, integer, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_settle_attempt(uuid, integer, uuid, text, text, text, jsonb, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_release_cancelled_claim(uuid, integer, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_decision_request(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_decisions(uuid, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_accepted_decisions(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_record_decision(uuid, uuid, uuid, uuid, text, text, uuid, integer[], jsonb, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_feedback_request(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_feedback(uuid, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_receipt_count(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_record_feedback(uuid, uuid, uuid, text, jsonb, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_retain_history(uuid, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_history_reference(uuid, uuid, uuid[], uuid[], uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_dataset_history_budget(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_dataset_history(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.active_learning_original_history() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.active_learning_original_decisions() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.active_learning_pool_item_count(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.active_learning_candidate_item_count(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_adoption_attempts(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_adoption_candidates(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_pin_storage(uuid, uuid, integer, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_policy(uuid, text, uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_save_policy(uuid, text, integer, uuid, boolean, uuid, jsonb, jsonb, timestamptz, timestamptz, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_disable_policy(uuid, integer, timestamptz, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_delete_policy(uuid, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_due_policies(timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_policy_check_state(uuid, integer, boolean, text, text, timestamptz, timestamptz, timestamptz, text, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_advance_baseline(uuid, integer, uuid, uuid, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_trigger(uuid, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_other_active_trigger(uuid, uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_trigger_duplicate(uuid, integer, uuid, text[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_trigger_history(uuid, text, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_trigger_count(uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_build_trigger(uuid, integer, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_trigger_progress(uuid, integer, text, text, timestamptz, text, text, text, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_requeue_trigger(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_policy_claim(uuid, uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_dataset_references(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_study(uuid, uuid, uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_studies(uuid, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_study_count(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_due_studies() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_study_claim(uuid, uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_create_study(uuid, uuid, uuid, uuid, uuid, uuid, text, text, jsonb, text, jsonb, jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_trials(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_bind_trial(uuid, uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_study_progress(uuid, boolean, text, text, timestamptz, timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_resume_study(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipe(uuid, uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipes(uuid, boolean, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipe_count(uuid, boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipe_revision(uuid, uuid, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipe_request(uuid, uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipe_revisions(uuid, integer, integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_recipe_revision_count(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_append_recipe(uuid, uuid, integer, uuid, text, text, jsonb, text, jsonb, uuid, uuid, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.selection_archive_recipe(uuid, uuid, integer) OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.selection_storage_owners OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.recipe_lineage OWNER TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.recipe_revision_lineage OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+
+SELECT yoao_assets_storage_v1._adopt_installed_owners();
+REVOKE ALL ON SCHEMA yoao_assets_storage_v1 FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_assets_storage_v1 FROM PUBLIC;
+GRANT SELECT, INSERT ON public.task_originals, public.dataset_auxiliary_originals TO :"assets_owner";
+GRANT UPDATE (id) ON public.task_originals, public.dataset_auxiliary_originals TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.managed_original_creations TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.dataset_assets, public.dataset_asset_locations TO :"assets_owner";
+GRANT DELETE ON public.dataset_asset_locations TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.original_cache_entries, public.original_cache_read_leases TO :"assets_owner";
+GRANT SELECT, INSERT ON public.managed_original_retirements, public.managed_original_retention_holds TO :"assets_owner";
+GRANT UPDATE (retain_until, policy_revision) ON public.managed_original_retirements TO :"assets_owner";
+GRANT UPDATE (revision, released_at, released_by, release_reason) ON public.managed_original_retention_holds TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.managed_original_verifications,
+    public.managed_original_reclaim_attempts, public.managed_original_reclaim_claims,
+    public.managed_original_reference_reconciliation TO :"assets_owner";
+GRANT SELECT (id, dataset_id, location_id, enabled, unregistered_at, ownership_mode,
+    cache_policy, config_revision, policy_revision), UPDATE (id) ON public.dataset_sources TO :"assets_owner";
+GRANT SELECT (dataset_item_id, source_id, run_id, path_digest) ON public.dataset_references TO :"assets_owner";
+GRANT SELECT (run_id, path_digest, observed, verified_content, relative_path) ON public.dataset_scan_entries TO :"assets_owner";
+GRANT SELECT (id, source_id, snapshot) ON public.dataset_scan_runs TO :"assets_owner";
+GRANT SELECT (async_job_id, status, source, operation_id) ON public.storage_migration_inventories TO :"assets_owner";
+GRANT SELECT (id, source, target, summary, delta_sequence) ON public.storage_migration_copies TO :"assets_owner";
+GRANT SELECT (copy_id, status, source_operation_id, target_operation_id)
+    ON public.storage_migration_copy_attempts TO :"assets_owner";
+GRANT SELECT, INSERT ON public.storage_operations TO :"assets_owner";
+GRANT SELECT, UPDATE (location_id) ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT (id, point_cloud_quality_config), UPDATE (id) ON public.projects TO :"workspace_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_original_item(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_asset_for_item(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.managed_original_locations(uuid,boolean,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.task_original_source(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.auxiliary_original_source(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.auxiliary_original_item(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.auxiliary_original_scene(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_task_original_source(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_auxiliary_original_source(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.managed_original_location_ref(uuid,uuid,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_binding_history() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.local_original_receipt(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.local_original_for_owner_key(text,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.abandon_unstarted_fixture_original(uuid,uuid,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._managed_original_locator_facts(public.managed_original_creations) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_auxiliary_original_material(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fixture_original_target_matches(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.allocate_local_original(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_local_original_step(uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.protect_original_group(text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.attach_verified_original(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_registry_snapshot(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.observe_original_reclamation(text,uuid,text,text,text,jsonb,uuid,uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_scope(uuid,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_usage(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_charge(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_current_state(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_entry_facts(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reserve_original_cache_generation(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._original_cache_object_key(public.original_cache_entries) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_has_readers(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_original_cache_generation(uuid,timestamptz,timestamptz,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_original_cache_page(uuid,timestamptz,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_original_cache_generation(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_original_cache_read(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_locator_current(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_original_cache_read(uuid,uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_lease_current(uuid,uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.end_original_cache_read(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.expire_original_cache_reads(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.evict_original_cache_generation(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reschedule_original_cache_check(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_original_cache_cleanup_error(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_original_cache_cleanup(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.due_original_cache_checks(timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_attempt_facts(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_attempt_for_job(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_history_page(uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_history_count(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_claim_facts(text,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_creation_active(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.admit_original_reclaim(jsonb,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_original_reclaim_attempt(uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.request_original_reclaim_cancel(uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_original_reclaim_attempt(uuid,text,text,text,text,text,timestamptz,timestamptz,boolean,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.acquire_original_reclaim_operation(uuid,text,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reclaim_version_may_be_deleted(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.checkpoint_original_reclaim(uuid,text,text,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_reclaim_gate_blocked(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_reclaim_source_blocked(text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_reconciliation_facts(boolean,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.queue_original_reconciliation(uuid,text,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.advance_original_reconciliation(uuid,text,text,text,text,jsonb,timestamptz,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.observe_original_retention(uuid,uuid,text,timestamptz,uuid,text,text,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_retirement_anchor(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_original_retention_hold(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.apply_original_retention(uuid,integer,text,timestamptz,uuid,integer,text,text,text,uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.observe_original_verification(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_verification_facts(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_verification_for_job(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.active_original_verification(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_verification_unsettled(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_verification_history(uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_verification_count(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.admit_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_original_verification(uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.request_original_verification_cancel(uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bind_original_verification_permit(uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_original_verification(uuid,text,text,text,text,text,timestamptz,timestamptz,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_retirement_candidates(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.append_original_retirement_assertions(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_original_binding_history() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.original_cache_binding_history() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_original_registry_snapshot() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_point_cloud_original_scenes(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_point_cloud_original_poses(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_point_cloud_original_items(uuid[]) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.original_reclaim_task_evidence(text) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_point_cloud_original_run(uuid) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.sync_original_maintenance_job(uuid,text,text,text,text,timestamptz,text,jsonb,boolean) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_storage_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_storage_v1.begin_stopped_original_reclaim(uuid,uuid,integer,text) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_storage_v1 FROM :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.lock_point_cloud_original_configuration(uuid) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM :"workspace_owner";
+
+GRANT USAGE ON SCHEMA yoao_jobs_v1, yoao_labeling_v1 TO :"assets_owner";
+GRANT SELECT ON yoao_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.original_reclaim_task_evidence(text) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid),
+    yoao_jobs_v1.sync_original_maintenance_job(uuid,text,text,text,text,timestamptz,text,jsonb,boolean)
+TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"assets_owner", :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_jobs_v1, yoao_learning_v1,
+    yoao_labeling_v1, yoao_workspace_v1, yoao_assets_storage_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), yoao_jobs_v1.read_job_for_update(uuid),
+    yoao_jobs_v1.dataset_active_job_facts(uuid),
+    yoao_jobs_v1.settle_dataset_scan_job(uuid, text, text, timestamptz, text, jsonb),
+    yoao_jobs_v1.transition_directory_registration_job(uuid, uuid, text, text, text, timestamptz, text, jsonb)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid, boolean) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1._catalog_dataset_summary(uuid) TO :"assets_owner";
+GRANT SELECT (id, dataset_item_id, project_id) ON yoao_labeling_v1.task_rows TO :"assets_owner";
+GRANT SELECT (id, task_id, dataset_item_id, role) ON yoao_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
+GRANT SELECT (id, task_id) ON yoao_labeling_v1.annotation_rows TO :"assets_owner";
+GRANT SELECT (id, data_type, scene_mode) ON yoao_workspace_v1.project_facts TO :"assets_owner";
+GRANT SELECT ON yoao_assets_storage_v1.agent_location_status TO :"assets_owner";
+
+GRANT SELECT (id, display_id, name, description, data_type, storage_scan_prefix, is_temporal,
+    file_count, created_by, archived_at, archived_by, lifecycle_revision, metadata, created_at, updated_at),
+    UPDATE (id, file_count, updated_at, storage_scan_prefix, archived_at, archived_by, lifecycle_revision)
+    ON public.datasets TO :"assets_owner";
+GRANT UPDATE (metadata) ON public.dataset_items TO :"assets_owner";
+GRANT SELECT (display_id) ON public.scenes TO :"assets_owner";
+GRANT SELECT (id, scope, created_by, revision), UPDATE (id)
+    ON public.storage_connections TO :"assets_owner";
+GRANT SELECT ON public.original_cache_entries TO :"assets_owner";
+GRANT SELECT (id, owner_kind, owner_id, path_digest, state, storage_ref, input_ref, sha256, size_bytes, uncertain_write)
+    ON public.thumbnail_outputs TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.dataset_sources, public.dataset_scan_runs,
+    public.dataset_scan_entries, public.dataset_registration_runs, public.dataset_registration_entries,
+    public.dataset_source_sync_schedules, public.dataset_source_changes, public.dataset_source_previews,
+    public.dataset_reference_replicas, public.dataset_quality_runs, public.dataset_quality_results,
+    public.dataset_quality_review_batches, public.dataset_quality_review_members TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.dataset_source_items TO :"assets_owner";
+GRANT SELECT, INSERT ON public.dataset_source_revisions, public.dataset_references TO :"assets_owner";
+GRANT UPDATE (dataset_item_id) ON public.dataset_references TO :"assets_owner";
+GRANT DELETE ON public.dataset_quality_review_batches TO :"assets_owner";
+GRANT USAGE ON SEQUENCE public.dataset_source_acceptance_order_seq TO :"assets_owner";
+
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_duplicate_groups(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_evidence(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_job_matches(uuid, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_manage(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_result_matches(uuid, text, text, text, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_review_receipt(uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_review_summary(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_review_visible(uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_run_receipt(uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_run_visible(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_sources_visible(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_summary(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_quality_writable(uuid, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_relationship_digest(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_workbench_cache_evidence(uuid, uuid, uuid[], uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_workbench_observations(uuid, uuid, uuid[], uuid[], uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._dataset_workbench_preferred_mapping(uuid, uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._directory_registration_fenced(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._lock_dataset_directory_source(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._lock_dataset_scan(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._running_dataset_scan(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._transition_directory_registration_entry(uuid, text, text, text, text, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.active_dataset_scan(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.active_directory_registration(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.append_directory_source_revision(uuid, uuid, uuid, text, uuid, uuid, text, boolean, uuid, uuid, uuid, integer, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.apply_directory_source_selection(uuid, uuid, integer, integer, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.arm_directory_registration_dispatch(uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bind_dataset_scan_attempt(uuid, uuid, integer, uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_dataset_scan_directory(uuid, uuid, text, integer, uuid, text, text, jsonb, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_dataset_scan_s3_page(uuid, uuid, text, integer, uuid, text, integer, text, integer, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.change_dataset_archive_state(uuid, uuid, integer, boolean, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.change_directory_reference_replica(uuid, uuid, uuid, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.change_directory_source_lifecycle(uuid, uuid, integer, integer, text, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.check_directory_revision_selection(uuid, text, integer, uuid, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_dataset_scan(uuid, uuid, text, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_directory_registration(uuid, uuid, text, text, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_directory_sync_wakeup(uuid, uuid, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.configure_directory_sync(uuid, integer, uuid, uuid, text, boolean, integer, text, text, integer, integer, jsonb, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.confirm_directory_registration(uuid, uuid, integer, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.consume_directory_relocation(uuid, text, uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.continue_directory_sync(uuid, integer, uuid, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.create_dataset_directory_source(uuid, uuid, uuid, text, text, text, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.create_directory_preflight(uuid, uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.create_directory_reference_replica(uuid, uuid, uuid, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_archive_impact(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_cover_facts(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_display_item_page(uuid, uuid[], integer, bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_item_at_object_key(uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_item_count(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_item_path_facts(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_location_visible(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_managed_duplicate_candidates(uuid, uuid, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_metadata(uuid, boolean, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_owns_directory_media(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_project_ids(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_apply_review(uuid, uuid, uuid, integer, text, text, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_attach_job(uuid, integer, uuid, uuid, uuid, uuid, text, integer, jsonb, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_begin(uuid, uuid, jsonb, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_expired_runs(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_job_visible(uuid, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_key_matches(uuid, integer, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_lock_locations(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_lock_result(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_maintenance_members(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_next_result(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_other_active(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_reconcile(uuid, boolean, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_record_result(uuid, uuid, integer, text, uuid, timestamptz, text, text, boolean, jsonb, integer, integer, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_result_page(uuid, uuid, integer, integer, text, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_attach_job(uuid, integer, uuid, uuid, uuid, uuid, text, integer, timestamptz, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_attempt(uuid, uuid, text, integer, text, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_batch(uuid, uuid, uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_batch_page(uuid, uuid, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_checkpoint(uuid, uuid, integer, text, uuid, integer, timestamptz, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_create_preview(uuid, uuid, integer, jsonb, text, text, text, timestamptz, timestamptz, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_expired_batches(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_key_matches(uuid, integer, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_member_page(uuid, uuid, uuid, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_next_member(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_prepare_preview(uuid, uuid, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_preview_rows(uuid, uuid, text, text, text, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_reconcile(uuid, boolean, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_review_transition(uuid, uuid, integer, text, text, timestamptz, timestamptz, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_run(uuid, uuid, uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_run_attempt(uuid, uuid, text, integer, text, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_run_page(uuid, uuid, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_quality_run_transition(uuid, uuid, integer, text, text, timestamptz, timestamptz, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_scan_dispatch_route(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_scan_for_job(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_scan_snapshot(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_scene_choices(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_source_visible(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_cache_candidates(uuid, uuid, uuid[], uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_item_matches(uuid, uuid, uuid, text, text, uuid, text, text, text, integer, integer, integer, integer, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_item_states(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_page_observations(uuid, uuid, uuid, uuid[], uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_preview_mapping(uuid, uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_source_reference_evidence(uuid, uuid[], uuid[], uuid[], text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.dataset_workbench_source_runs(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.declare_directory_source_protection(uuid, uuid, integer, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_confirmation_sample(uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_dataset_names(uuid, uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_job_visible(uuid, text, uuid, text, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_location_job_runs(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_preflight_exclude_unseen(uuid, text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_preflight_unseen(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_preview_is_current(uuid, text, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_preview_slot(uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_binding(uuid, text, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_content(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_lineage(uuid, uuid, uuid, text, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_reclaim_facts(uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_replica_available(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_replica_edge(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_replica_page(uuid, uuid, integer, integer, boolean, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_reference_route_order(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_binding(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_change_kinds(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_changes(uuid, text, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_entries(uuid, text, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_for_job(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_for_scan(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_registration_probe_paths(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_relocation_candidates(uuid, text, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_revision_for_observation(uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_scan_entry_page(uuid, uuid, integer, bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_source_active_attempts(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_source_display_locations(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_source_impact(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_source_revision_history(uuid, text, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_source_selection_heads(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_source_usage(uuid, uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.due_directory_registrations(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.due_directory_sync_sources(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.edit_dataset_directory_source(uuid, uuid, integer, text, boolean, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fail_directory_confirmation_sample(uuid, uuid, integer, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fail_directory_sync_wakeup(uuid, integer, uuid, text, boolean, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.filtered_dataset_catalog(uuid, text, text[], boolean, text, uuid, integer, bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_directory_registration(uuid, uuid, text, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.list_dataset_scans(uuid, uuid, boolean, boolean, integer, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_dataset_directory_source(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_directory_reference_bindings(uuid[], uuid[], uuid[], uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_directory_reference_location(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_directory_reference_replica_primary(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_managed_item_asset_slot(uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.next_dataset_scan_directory(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.next_directory_registration_entry(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.note_directory_registration_dispatch_failure(uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.open_dataset_scan_s3_page(uuid, uuid, text, integer, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.open_directory_registration_attempt(uuid, uuid, uuid, uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.pin_legacy_dataset_prefix(uuid, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.project_has_dataset(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_directory_preview(uuid, text, uuid, text, integer, integer, integer, integer, timestamptz, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_directory_reference(uuid, uuid, uuid, text, text, bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_directory_reference_head(uuid, uuid, uuid, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_managed_dataset_item(uuid, integer, text, text, text, bigint, text, integer, integer, text, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_dataset_scan(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_dataset_scan_directory(uuid, uuid, text, integer, uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_dataset_scan_execution(uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_directory_registration(uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_directory_source_head(uuid, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_directory_source_revision(uuid, uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_directory_sync_schedule(uuid, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_observed_dataset_scan_file(uuid, uuid, text, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_directory_registration_entry(uuid, uuid, text, integer, uuid, text, text, text, uuid, bigint, text, bigint, bigint, bigint, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.register_managed_item_asset(uuid, uuid, text, uuid, text, jsonb, text, bigint, text, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.requeue_directory_registration(uuid, uuid, text, integer, uuid, text, integer, text, boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retry_directory_registration_entry(uuid, integer, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.search_dataset_names(uuid, text, integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.settle_dataset_scan(uuid, uuid, text, integer, uuid, text, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.settle_directory_sync_wakeup(uuid, integer, uuid, text, uuid, text, timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.start_dataset_scan(uuid, uuid, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.validate_dataset_scan_directory(uuid, uuid, text, integer, uuid, text, text, text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.verify_observed_dataset_scan_file(uuid, uuid, text, jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.visible_dataset_sources(uuid, uuid, uuid, uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_point_quality_annotation_geometry(uuid) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.directory_job_visible(uuid, text, uuid, text, uuid),
+    yoao_assets_v1.directory_location_job_runs(uuid, uuid),
+    yoao_assets_v1.dataset_quality_job_visible(uuid, text, text) TO :"jobs_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT SELECT (version_num) ON public.alembic_version TO :"assets_owner";
+GRANT SELECT (asset_id, bucket, etag, location_id, object_key, reference_state, role, storage_ref) ON public.dataset_asset_locations TO :"assets_owner";
+GRANT SELECT (bucket, etag, id, location_id, object_key, sha256, size_bytes, storage_identity, storage_ref, version_id) ON public.dataset_auxiliary_originals TO :"assets_owner";
+GRANT SELECT (asset_id, bucket, location_id, object_key, path_digest, sha256, size_bytes, source_id, state) ON public.dataset_source_previews TO :"assets_owner";
+GRANT SELECT (asset_id, id, inventory, state, storage_ref) ON public.image_pyramid_outputs TO :"assets_owner";
+GRANT SELECT (bucket, configuration, etag, id, location_id, object_key, sha256, size_bytes, source, staging_bucket, staging_key, staging_ref, status, storage_identity, version_id) ON public.managed_original_creations TO :"assets_owner";
+GRANT SELECT (asset_id, bucket, etag, id, identity_state, location_id, object_key, reference_state, sha256, size_bytes, storage_identity) ON public.managed_original_retirements TO :"assets_owner";
+GRANT SELECT (asset_id, bucket, id, location_id, sha256, size_bytes, state, storage_identity, storage_ref) ON public.original_cache_entries TO :"assets_owner";
+GRANT SELECT (bucket, id, inventory, size_bytes, source_ref, state, storage_identity, storage_ref) ON public.prediction_input_leases TO :"assets_owner";
+GRANT SELECT (bucket, generation, location_id, purpose) ON public.storage_bindings TO :"assets_owner";
+GRANT SELECT (config, id, kind, revision, scope) ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (config, config_revision, connection_id, enabled, id, kind) ON public.storage_locations TO :"assets_owner";
+GRANT SELECT (target_location_id) ON public.storage_migration_copies TO :"assets_owner";
+GRANT SELECT (bucket, etag, id, location_id, object_key, sha256, size_bytes, storage_identity, storage_ref, version_id) ON public.task_originals TO :"assets_owner";
+GRANT SELECT (etag, id, sha256, size_bytes, state, storage_ref, version_id) ON public.thumbnail_outputs TO :"assets_owner";
+GRANT SELECT (id, inventory, original_ref, state, storage_ref) ON public.video_derivative_outputs TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._inventory_saved_locator(jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_inventory_revisions() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_inventory_locations(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_inventory_bindings(text,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_target_reference_count(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_prediction_input_leases(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_prediction_input_leases_objects(uuid,text,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_image_pyramid_outputs(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_image_pyramid_outputs_objects(uuid,text,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_video_derivative_outputs(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_video_derivative_outputs_objects(uuid,text,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_managed_original_creations(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_managed_original_retirements(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_dataset_asset_locations(uuid,uuid,text,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_task_originals(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_dataset_auxiliary_originals(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_dataset_source_previews(uuid,text,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_original_cache_entries(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.inventory_thumbnail_outputs(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_prediction_input_leases(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_image_pyramid_outputs(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_video_derivative_outputs(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_original_cache_entries(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_original_and_preview_claims(uuid,jsonb,text,text,text,text[],uuid[],uuid[]) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_audit_v1 TO :"audit_owner";
+GRANT SELECT (id, month, sha256, size_bytes, state, storage_ref, year) ON public.audit_archive_outputs TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.inventory_audit_archive_outputs(uuid,integer) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.usage_audit_archive_outputs(uuid[]) OWNER TO :"audit_owner";
+REVOKE CREATE ON SCHEMA yoao_audit_v1 FROM :"audit_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_diagnostics_v1 TO :"diagnostics_owner";
+GRANT SELECT (id, mime_type, object_version_id, owner_id, sha256, size_bytes, state, storage_ref) ON public.bug_attachment_uploads TO :"diagnostics_owner";
+ALTER FUNCTION yoao_diagnostics_v1.inventory_bug_attachment_uploads(uuid,integer) OWNER TO :"diagnostics_owner";
+ALTER FUNCTION yoao_diagnostics_v1.usage_bug_attachment_uploads(uuid[]) OWNER TO :"diagnostics_owner";
+REVOKE CREATE ON SCHEMA yoao_diagnostics_v1 FROM :"diagnostics_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_identity_v1 TO :"identity_owner";
+GRANT SELECT (object_version_id, sha256, size_bytes, state, storage_ref, token) ON public.avatar_uploads TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.inventory_avatar_uploads(text,integer) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.usage_avatar_uploads(text[]) OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_v1 FROM :"identity_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+GRANT SELECT (annotation_id, id, sha256, size_bytes, state, storage_ref) ON public.comment_attachment_uploads TO :"labeling_owner";
+GRANT SELECT (id, staged_object_key, staged_sha256, staging_ref, status) ON public.mask_format_imports TO :"labeling_owner";
+GRANT SELECT (id, logical_object_key, storage_ref) ON public.mask_format_uploads TO :"labeling_owner";
+GRANT SELECT (canonical_sha256, id, state, storage_encoding, storage_ref, stored_sha256, stored_size_bytes) ON public.raster_mask_objects TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.inventory_comment_attachment_uploads(uuid,integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.inventory_raster_mask_objects(uuid,integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.inventory_mask_format_uploads(uuid,integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.inventory_mask_format_imports(uuid,integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.usage_comment_attachment_uploads(uuid[]) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.usage_raster_mask_objects(uuid[]) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.usage_mask_format_uploads(text,text,text[]) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.usage_mask_format_imports(text,text,text[]) OWNER TO :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+GRANT SELECT (id, project_id, status, storage_ref) ON public.active_learning_rounds TO :"learning_owner";
+GRANT SELECT (id, project_id, status, storage_ref) ON public.sample_evaluation_runs TO :"learning_owner";
+GRANT SELECT (id, manifest, package_key, package_sha256, project_id, size_bytes, snapshot, status, storage_ref) ON public.training_dataset_versions TO :"learning_owner";
+GRANT SELECT (id, project_id, status, storage_ref, upload_inventory) ON public.training_previews TO :"learning_owner";
+GRANT SELECT (id, project_id, status, storage_ref) ON public.training_runs TO :"learning_owner";
+GRANT SELECT (bucket, id, prefix, storage_ref) ON public.training_storage_deletions TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.inventory_training_dataset_versions(uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.inventory_training_runs(uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.inventory_training_previews(uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.inventory_sample_evaluation_runs(uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.inventory_active_learning_rounds(uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.inventory_training_storage_deletions(uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.usage_training_dataset_versions(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.usage_training_runs(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.usage_training_previews(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.usage_sample_evaluation_runs(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.usage_active_learning_rounds(uuid[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.usage_training_storage_deletions(text,text[]) OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
+GRANT SELECT (id, project_id, sha256, size_bytes, state, storage_ref) ON public.guide_asset_uploads TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.inventory_guide_asset_uploads(uuid,integer) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.usage_guide_asset_uploads(uuid[]) OWNER TO :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM :"workspace_owner";
+
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"audit_owner", :"diagnostics_owner", :"identity_owner", :"labeling_owner", :"learning_owner", :"workspace_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1._inventory_saved_locator(jsonb,boolean) TO :"audit_owner", :"diagnostics_owner", :"identity_owner", :"labeling_owner", :"learning_owner", :"workspace_owner";
+
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.storage_usage_inventories, public.storage_usage_snapshots,
+    public.storage_usage_schedules, public.storage_usage_mutations TO :"assets_owner";
+GRANT SELECT, INSERT, DELETE ON public.storage_usage_inventory_objects,
+    public.storage_usage_reconciliations TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_inventory_status() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_snapshot_facts(text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_usage_inventory(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_expired_usage_inventory(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.start_usage_inventory(uuid,integer,jsonb,jsonb,timestamptz,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_usage_inventory(uuid,integer,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_usage_inventory_page(uuid,integer,integer,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_usage_inventory_page(uuid,integer,integer,jsonb,timestamptz,text,text,bigint,bigint,jsonb,timestamptz,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.release_usage_inventory_chunk(uuid,integer,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_usage_inventory(uuid,integer,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_schedule_summary() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_active_usage_schedule() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.configure_usage_schedule(boolean,integer,jsonb,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.pause_usage_schedule(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.advance_usage_schedule(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_usage_mutation(uuid,text,text,text,text,text,uuid,text,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_usage_mutation(uuid,boolean,boolean,bigint,text,bigint,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.stage_usage_inventory_objects(uuid,text,jsonb,timestamptz,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reconcile_usage_bucket(text,uuid,timestamptz,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.discard_usage_staging(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_mutation_summary(text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.usage_reconciliation_facts(text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_inventory_binding_context() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_location_kind_counts() OWNER TO :"assets_owner";
+GRANT SELECT (id, target_location_id, input_fingerprint, baseline_sha256)
+    ON public.storage_migration_copies TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_target_reference_footprint(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT SELECT (
+    async_job_id, requested_by, window_id, window_revision, task_id, source_location_id,
+    source, limits, handling, authority, input_fingerprint, maintenance_revision,
+    operation_id, status, created_at, started_at, completed_at, cancel_requested_at,
+    error_code, complete, counts, report, report_sha256, report_size_bytes
+), INSERT (
+    async_job_id, requested_by, window_id, window_revision, task_id, source_location_id,
+    source, limits, handling, authority, input_fingerprint, maintenance_revision, status
+), UPDATE (
+    operation_id, status, started_at, completed_at, cancel_requested_at,
+    error_code, complete, counts, report, report_sha256, report_size_bytes
+) ON public.storage_migration_inventories TO :"assets_owner";
+GRANT SELECT (
+    id, parent_copy_id, target_location_id, state, revision, source_gate_revision,
+    source_config_revision, created_by, created_at, updated_at, source_location_id, source, target
+), INSERT (
+    id, parent_copy_id, target_location_id, state, revision, source_gate_revision,
+    source_config_revision, created_by, created_at, updated_at, source_location_id, source, target
+), UPDATE (state, revision, source_gate_revision, updated_at)
+ON public.storage_migration_windows TO :"assets_owner";
+GRANT SELECT (location_id, state, revision), UPDATE (state, revision, changed_at, changed_by)
+ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT (id, location_id, revision, purpose), INSERT (id, location_id, revision, purpose, node_id)
+ON public.storage_operations TO :"assets_owner";
+GRANT SELECT (
+    id, target_location_id, baseline_sha256, target, last_attempt_id, source,
+    window_id, window_revision, parent_copy_id
+), UPDATE (baseline_sha256) ON public.storage_migration_copies TO :"assets_owner";
+GRANT SELECT (
+    id, async_job_id, copy_id, operation, task_id, status, requested_by, authority,
+    cancel_requested_at, source_operation_id, scope
+), UPDATE (status) ON public.storage_migration_copy_attempts TO :"assets_owner";
+GRANT SELECT (window_id, state) ON public.storage_migration_finalizations TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), yoao_jobs_v1.read_job_for_share_nowait(uuid) TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._migration_inventory_job_payload(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_migration_inventory(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_migration_inventory_report(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_inventory_history(integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_inventory_history_count() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_window_has_active_inventory(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_active_migration_inventory() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.queue_migration_inventory(uuid,uuid,text,uuid,integer,integer,jsonb,jsonb,jsonb,jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_migration_inventory(uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.request_migration_inventory_cancel(uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.attach_migration_inventory_operation(uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.end_migration_inventory(uuid,text,text,text,timestamptz,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.seal_migration_inventory(uuid,text,timestamptz,bytea,text,boolean,jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_migration_window(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_window_history(integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_window_history_count() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_window_open_operations(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_window_exists() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.open_migration_window(uuid,uuid,uuid,integer,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.transition_migration_window(uuid,integer,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.bump_migration_window_finalization_revision(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.register_migration_window_source_read(uuid,integer,integer,text,uuid,text,uuid,jsonb,jsonb,uuid,text) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT SELECT (id, window_id, state, revision, window_revision, source_location_id, native, copy_id, inventory_job_id, evidence, error_code, created_at, updated_at, sealed_at, invalidated_at),
+      UPDATE (state, revision, updated_at, error_code)
+    ON public.storage_migration_finalizations TO :"assets_owner";
+GRANT SELECT (id, copy_id, source_location_id, target_location_id, state, revision, source, target, evidence),
+      UPDATE (state, revision, updated_at, withdrawing_at)
+    ON public.storage_migration_read_publications TO :"assets_owner";
+GRANT SELECT (publication_id, source_object_id, endpoint_url, bucket, object_key, source_version_id, source_etag, sha256, size_bytes, is_latest, target_key, target_version_id, target_etag, target_content_sha256, nonce, creation_plan_uuid)
+    ON public.storage_migration_read_routes TO :"assets_owner";
+GRANT SELECT (target_location_id, state) ON public.storage_migration_cutovers TO :"assets_owner";
+GRANT SELECT (id, window_id, source, handling, source_report_sha256) ON public.storage_migration_copies TO :"assets_owner";
+GRANT SELECT (id, parent_copy_id, source_location_id) ON public.storage_migration_windows TO :"assets_owner";
+GRANT SELECT (copy_id, status, source_operation_id, target_operation_id) ON public.storage_migration_copy_attempts TO :"assets_owner";
+GRANT SELECT (id, location_id) ON public.storage_operations TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_finalization_for_window(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_finalization_blocks_window(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_finalization_blocks_source_resume(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_read_publication_holds_copy(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_is_frozen(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_cutover_blocks_target_resume(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._migration_checkpoint_changed(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_read_route_recheck(uuid,integer,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_read_route_lookup(uuid,text,text,text,text,bigint,boolean,text,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_read_prefix_inventory(uuid,integer,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_operator_copy_window_unsettled(uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_storage_v1 TO :"assets_owner";
+GRANT SELECT ON yoao_assets_storage_v1.location_metadata, yoao_assets_storage_v1.connector_origins TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid) TO :"assets_owner";
+GRANT SELECT (async_job_id, complete, report, report_sha256, source, window_id, window_revision)
+ON public.storage_migration_inventories TO :"assets_owner";
+GRANT SELECT (id, location_id, node_id, purpose, revision), UPDATE (id), DELETE
+ON public.storage_operations TO :"assets_owner";
+GRANT SELECT (id, window_id, window_revision, parent_copy_id, generation, parent_evidence_sha256,
+    input_fingerprint, source_inventory_job_id, source_report, source_report_sha256, source_complete,
+    source, target_location_id, target, handling, limits, catalog, catalog_sha256, baseline,
+    baseline_sha256, summary, last_attempt_id, delta_sequence, delta_bytes, created_at, updated_at),
+    INSERT (id, window_id, window_revision, parent_copy_id, generation, parent_evidence_sha256,
+    input_fingerprint, source_inventory_job_id, source_report, source_report_sha256, source_complete,
+    source, target_location_id, target, handling, limits),
+    UPDATE (catalog, catalog_sha256, baseline, baseline_sha256, summary, last_attempt_id,
+    delta_sequence, delta_bytes, updated_at)
+ON public.storage_migration_copies TO :"assets_owner";
+GRANT SELECT (id, copy_id, async_job_id, task_id, requested_by, authority, scope, operation,
+    retry_failed, retry_object_ids, status, source_operation_id, target_operation_id, process,
+    created_at, started_at, completed_at, cancel_requested_at, error_code, result),
+    INSERT (id, copy_id, async_job_id, task_id, requested_by, authority, scope, operation,
+    retry_failed, retry_object_ids, status),
+    UPDATE (status, started_at, completed_at, cancel_requested_at, error_code, result, process,
+    source_operation_id, target_operation_id)
+ON public.storage_migration_copy_attempts TO :"assets_owner";
+GRANT SELECT (copy_id, object_id, sequence, data, digest, size_bytes),
+    INSERT (copy_id, object_id, sequence, data, digest, size_bytes),
+    UPDATE (sequence, data, digest, size_bytes)
+ON public.storage_migration_copy_deltas TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_migration_copy_planning() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_plan(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_migration_copy_by_input(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_private_inputs(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_attempt(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_successor(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_history(integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_target_candidates(integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.freeze_migration_copy_plan(uuid,uuid,text,text,jsonb,uuid,jsonb,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_parent_settlement(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reserve_migration_copy_successor(uuid,uuid,uuid,text,text,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_failed_selection(uuid,text[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.queue_migration_copy_attempt(uuid,uuid,uuid,uuid,text,uuid,uuid,text,jsonb,text,boolean,text[],boolean,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_migration_copy_attempt(uuid,uuid,uuid,text,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.attach_migration_copy_permits(uuid,uuid,uuid,text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_permits_open(uuid,uuid,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.settle_migration_copy_process(uuid,uuid,text,text,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.request_migration_copy_cancel(uuid,uuid,uuid,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_migration_copy_attempt(uuid,uuid,uuid,text,text,text,text,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_migration_copy_plan(uuid,uuid,uuid,text,bytea,bytea,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_migration_copy_delta(uuid,uuid,uuid,text,text,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_delta_page(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_copy_failed_objects(uuid,integer,integer) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_export_v1 TO :"export_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT CREATE ON SCHEMA public TO :"export_owner";
+GRANT USAGE ON SCHEMA yoao_export_v1 TO :"assets_owner";
+
+GRANT SELECT, INSERT, DELETE ON public.export_artifacts TO :"export_owner";
+GRANT UPDATE (output_id, batch_id, format, object_key, file_count, size_bytes, expires_at)
+    ON public.export_artifacts TO :"export_owner";
+GRANT SELECT, DELETE ON public.export_outputs TO :"export_owner";
+GRANT INSERT (id, project_id, job_id, media_bundle_id, media, format, file_count,
+    sha256, size_bytes, storage_ref, state, created_at, expires_at),
+    UPDATE (upload_proof, state, retired_at, last_attempted_at)
+    ON public.export_outputs TO :"export_owner";
+GRANT SELECT ON public.export_media_bundles TO :"export_owner";
+GRANT INSERT (id, project_id, job_id, zip_output_id, input_snapshot, input_digest,
+    logical_paths, inventory, object_count, size_bytes, storage_ref, state, created_at, expires_at),
+    UPDATE (state, lease_token, lease_expires_at, published_at, retired_at, last_attempted_at, fixture_zip_created)
+    ON public.export_media_bundles TO :"export_owner";
+GRANT SELECT, INSERT ON public.export_media_member_versions TO :"export_owner";
+GRANT SELECT (id, purpose, location_id, revision) ON public.storage_operations TO :"export_owner";
+GRANT SELECT (location_id, state, revision) ON public.storage_maintenance_gates TO :"export_owner";
+GRANT SELECT (purpose, location_id, bucket, generation) ON public.storage_bindings TO :"export_owner";
+GRANT SELECT (id, kind, enabled, config_revision) ON public.storage_locations TO :"export_owner";
+
+ALTER FUNCTION public.check_export_media_pair() OWNER TO :"export_owner";
+ALTER VIEW yoao_export_v1._zip_receipt OWNER TO :"export_owner";
+ALTER VIEW yoao_export_v1._media_fence OWNER TO :"export_owner";
+ALTER VIEW yoao_export_v1._media_delivery OWNER TO :"export_owner";
+ALTER VIEW yoao_export_v1._cache_entry OWNER TO :"export_owner";
+ALTER VIEW yoao_export_v1.export_zip_maintenance OWNER TO :"export_owner";
+ALTER VIEW yoao_export_v1.export_media_maintenance OWNER TO :"export_owner";
+GRANT SELECT ON yoao_export_v1.export_zip_maintenance, yoao_export_v1.export_media_maintenance
+    TO :"assets_owner";
+ALTER FUNCTION yoao_export_v1.zip_receipt(uuid,text) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1._matches_export_allocation(jsonb) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.reserve_zip(uuid,uuid,uuid,uuid,text,text,integer,text,bigint,jsonb,timestamptz,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.save_zip_proof(uuid,jsonb) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.publish_zip(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.allocate_media(uuid,uuid,uuid,uuid,jsonb,text,jsonb,jsonb,integer,bigint,jsonb,timestamptz,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_delivery(uuid,boolean) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_fence(uuid,text) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.claim_media(uuid,uuid,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.publish_media(uuid,uuid,timestamptz,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.save_media_version(uuid,uuid,uuid,timestamptz,text) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_version(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_versions(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.find_cache(text,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.lock_cache(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.invalidate_cache(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.record_cache(text,uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1._media_has_operations(uuid,uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1._media_attempt_ended(uuid,uuid,uuid,timestamptz,timestamptz,timestamptz,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_attempt_ended(uuid,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_has_operations(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.lock_media_retirement(uuid,boolean) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.start_media_retirement(uuid,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.finish_media_retirement(uuid,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_retirement_queue(timestamptz,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.zip_retirement_bundle(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1._zip_has_read(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1._zip_retirement_allowed(uuid,uuid,timestamptz,boolean) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.start_zip_retirement(uuid,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.zip_retirement_unreferenced(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.remove_retired_zip(uuid,timestamptz) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.purge_legacy_cache(timestamptz,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.zip_retirement_queue(timestamptz,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.binding_history() OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.saved_location_is_referenced(uuid) OWNER TO :"export_owner";
+GRANT EXECUTE ON FUNCTION yoao_export_v1.saved_location_is_referenced(uuid) TO :"assets_owner";
+ALTER FUNCTION yoao_export_v1._inventory_ref(jsonb) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.export_zip_inventory(uuid,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.export_media_inventory(uuid,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.export_media_inventory_objects(uuid,text,integer) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.export_zip_usage(uuid[]) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.export_media_usage(uuid[]) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.retained_zip_download(uuid) OWNER TO :"export_owner";
+GRANT EXECUTE ON FUNCTION yoao_export_v1.retained_zip_download(uuid) TO :"assets_owner";
+ALTER FUNCTION yoao_export_v1._export_io_gate_revision(uuid,uuid,text[],boolean) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.zip_io_subject(uuid,uuid,text) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_member_io_subject(uuid,uuid,uuid,text) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.media_prefix_io_subject(uuid,uuid,text) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.save_source_zip_proof(uuid,uuid,jsonb) OWNER TO :"export_owner";
+ALTER FUNCTION yoao_export_v1.save_source_media_version(uuid,uuid,uuid,text) OWNER TO :"export_owner";
+
+GRANT SELECT ON public.datasets, public.scenes TO :"assets_owner";
+GRANT UPDATE (id) ON public.sensor_calibration_revisions TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.export_dataset_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.export_item_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.export_scene_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.export_calibration_facts OWNER TO :"assets_owner";
+ALTER VIEW yoao_assets_v1.export_pose_facts OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_export_datasets_share(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_export_items_update(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_export_scenes_update(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_export_calibrations_share(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_export_poses_share(uuid[]) OWNER TO :"assets_owner";
+
+REVOKE CREATE ON SCHEMA public, yoao_export_v1 FROM :"export_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+
+GRANT SELECT (id, owner_id, annotation_id, task_id, project_id, storage_ref, sha256,
+    size_bytes, mime_type, file_name, created_at, expires_at, state, bound_comment_id,
+    retired_at, last_attempted_at),
+    INSERT (id, owner_id, annotation_id, task_id, project_id, storage_ref, sha256,
+    size_bytes, mime_type, file_name, created_at, expires_at, state),
+    UPDATE (state, bound_comment_id, retired_at, last_attempted_at), DELETE
+    ON public.comment_attachment_uploads TO :"labeling_owner";
+GRANT SELECT (id, project_id, uploader_id, logical_object_key, content_type, storage_ref,
+    created_at, upload_expires_at),
+    INSERT (id, project_id, uploader_id, logical_object_key, content_type, storage_ref,
+    created_at, upload_expires_at), UPDATE (id)
+    ON public.mask_format_uploads TO :"labeling_owner";
+GRANT SELECT (id, logical_key, canonical_sha256, canonical_size_bytes, height, width, runs,
+    storage_encoding, stored_sha256, stored_size_bytes, storage_ref, state,
+    created_at, published_at, last_used_at, last_attempted_at),
+    INSERT (id, logical_key, canonical_sha256, canonical_size_bytes, height, width, runs,
+    storage_encoding, stored_sha256, stored_size_bytes, storage_ref, state, created_at),
+    UPDATE (state, published_at, last_used_at, retired_at, last_attempted_at), DELETE
+    ON public.raster_mask_objects TO :"labeling_owner";
+GRANT SELECT (id, object_id, gate_revision),
+    INSERT (id, object_id, gate_revision, created_at), UPDATE (id), DELETE
+    ON public.raster_mask_publications TO :"labeling_owner";
+GRANT INSERT (id, owner_id, project_id, storage_ref, sha256, size_bytes, mime_type,
+    file_name, state, created_at), UPDATE (last_attempted_at), DELETE
+    ON public.guide_asset_uploads TO :"workspace_owner";
+GRANT UPDATE (upload_id) ON public.project_guide_assets TO :"workspace_owner";
+
+ALTER TYPE yoao_workspace_v1.guide_physical_receipt OWNER TO :"workspace_owner";
+ALTER TYPE yoao_labeling_v1.raster_physical_receipt OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,uuid)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.mask_ai_inventory() OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_workspace_v1.guide_clone_snapshot(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.stage_guide_upload(uuid,uuid,uuid,jsonb,text,integer,text,text,timestamptz)
+    OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.lock_guide_upload(uuid,boolean) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.mount_guide_upload(uuid,uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.guide_upload_has_reference(uuid) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.guide_retirement_candidates(integer) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.attempt_guide_retirement(uuid,timestamptz) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.settle_guide_retirement(uuid,jsonb) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_v1.guide_binding_history() OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_labeling_v1.stage_mask_format_upload(uuid,uuid,uuid,text,text,jsonb,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.mask_format_upload_source(text,boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.mask_format_binding_history() OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.stage_comment_attachment(uuid,uuid,uuid,uuid,uuid,jsonb,text,integer,text,text,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_comment_attachment(uuid,boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.comment_attachment_binding(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.publish_comment_attachment(uuid,jsonb) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.bind_comment_attachment(uuid,uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.retire_comment_attachments(uuid[],timestamptz) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.comment_attachment_retirement_candidates(timestamptz,integer)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.attempt_comment_attachment_retirement(uuid,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.settle_comment_attachment_retirement(uuid,jsonb,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.annotation_binding_history() OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.stage_raster_object(uuid,text,text,integer,integer,integer,integer,text,text,integer,jsonb,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.ready_raster_owner(text,boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_raster_owners(uuid[],boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_raster_ready_for_publish(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.publish_raster_object(uuid,jsonb,timestamptz) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.touch_ready_raster_object(uuid,jsonb,timestamptz) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.retire_raster_object(uuid,text,jsonb,timestamptz,timestamptz)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.raster_physical_gc_candidates(timestamptz,integer,boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.note_raster_gc_attempts(uuid[],timestamptz[]) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.settle_raster_gc(uuid,jsonb) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.open_raster_publication(uuid,uuid,integer,timestamptz) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.raster_publication_matches(uuid,uuid,integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.release_raster_publication(uuid,uuid,integer) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.lock_raster_publications(uuid[]) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.consume_raster_publications(uuid[],uuid[],integer[])
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.raster_object_has_publication(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.expire_unlinked_raster_uploads(timestamptz) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.raster_physical_reference_keys(text) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_assets_v1.lock_video_segment_source(uuid,uuid) OWNER TO :"assets_owner";
+
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"assets_owner";
+
+GRANT SELECT, INSERT, UPDATE ON public.image_pyramid_assets, public.image_pyramid_outputs,
+    public.video_chunks, public.video_frame_cache, public.video_derivative_outputs,
+    public.thumbnail_outputs TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.image_pyramid_generations, public.video_chapters
+    TO :"assets_owner";
+GRANT SELECT, INSERT, DELETE ON public.video_frame_indices TO :"assets_owner";
+GRANT SELECT (id, dataset_id, file_type, file_path, created_at, width, height, metadata,
+    thumbnail_output_id, thumbnail_path, blurhash, video_output_id, video_building_output_id)
+    ON public.dataset_items TO :"assets_owner";
+GRANT UPDATE (video_building_output_id, video_output_id, width, height, thumbnail_path,
+    thumbnail_output_id, blurhash, metadata, updated_at) ON public.dataset_items TO :"assets_owner";
+GRANT SELECT (id, location_id, purpose, revision) ON public.storage_operations TO :"assets_owner";
+GRANT SELECT (location_id, state, revision), UPDATE (location_id)
+    ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT (id, kind, enabled, config_revision, config, connection_id)
+    ON public.storage_locations TO :"assets_owner";
+GRANT SELECT (purpose, location_id, bucket, generation) ON public.storage_bindings TO :"assets_owner";
+GRANT SELECT (id, kind, scope, project_id, config) ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (source_id, path_digest, thumbnail_output_id, state, source_sha256, spec, location_id,
+    bucket, object_key, sha256, size_bytes) ON public.dataset_source_previews TO :"assets_owner";
+GRANT SELECT (id, location_id) ON public.dataset_sources TO :"assets_owner";
+GRANT SELECT (location_id, endpoint, bucket, binding_generation, storage_identity)
+    ON yoao_assets_v1.fixture_native_cache_targets TO :"assets_owner";
+GRANT SELECT (thumbnail_path, thumbnail_output_id) ON yoao_labeling_v1.task_rows TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_labeling_v1.read_media_task_access(uuid,uuid,uuid)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer),
+    yoao_assets_v1.fixture_media_ordinary_gc(text,uuid,integer),
+    yoao_assets_v1.dataset_owns_directory_media(uuid),
+    yoao_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid) TO :"assets_owner";
+
+ALTER FUNCTION yoao_assets_v1.read_legacy_pyramid_asset(text,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_legacy_pyramid_generation(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_legacy_pyramid_summaries(uuid[],uuid[],text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_legacy_pyramid_generation(uuid,text,uuid,text,text,jsonb,jsonb,text,boolean,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_legacy_pyramid_claim(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.claim_legacy_pyramid_generation(uuid,integer,uuid,uuid,integer,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_legacy_pyramid_publication(uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_legacy_pyramid_context(uuid,integer,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_legacy_pyramid_output(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_legacy_pyramid_output_for_publish(uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_legacy_pyramid_generation(uuid,integer,uuid,uuid,jsonb,jsonb,bigint) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fail_legacy_pyramid_generation(uuid,integer,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.invalidate_legacy_pyramid_generation(uuid,integer,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.touch_legacy_pyramid_generation(uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.scan_expired_legacy_pyramid_generations() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.scan_stale_legacy_pyramid_generations(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.remove_stale_legacy_pyramid_generation(uuid,integer,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_pyramid_output_unreferenced(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.scan_retirable_legacy_pyramid_outputs(timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_legacy_pyramid_retirement(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.check_legacy_pyramid_retirement(uuid,jsonb,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_legacy_pyramid_retirement(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_legacy_pyramid_retained_bytes() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_video_chapter_scope(uuid,uuid,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_legacy_video_chapters(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_legacy_video_chapter_source(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.lock_legacy_video_chapter(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.create_legacy_video_chapter(uuid,uuid,uuid,uuid,integer,integer,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.update_legacy_video_chapter(uuid,uuid,uuid,uuid,integer,integer,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.delete_legacy_video_chapter(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_media_cache_binding_history() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_thumbnail_facts(public.thumbnail_outputs) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_media_cache_target_current(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_thumbnail_gc_clear(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_thumbnail_gc_recheck(uuid,jsonb,uuid,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_thumbnail_output(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_item_thumbnail_pointer(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.directory_thumbnail_evidence(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.allocate_legacy_thumbnail(uuid,text,uuid,text,jsonb,jsonb,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_legacy_thumbnail_result(uuid,jsonb,text,bigint,text,text,boolean,boolean,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_directory_thumbnail_candidate(uuid,uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.retire_legacy_directory_thumbnail(uuid,timestamptz,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_thumbnail_business(text,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.set_legacy_item_dimensions(uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_legacy_item_thumbnail_error(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.publish_legacy_thumbnail(text,uuid,uuid,jsonb,jsonb,text,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_thumbnail_gc_candidates(integer,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_thumbnail_gc_start(uuid,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_thumbnail_gc_admit(uuid,jsonb,uuid,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_thumbnail_gc_finish(uuid,jsonb,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_item(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_slot(uuid,text,jsonb,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_create_slot(uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_attempt(uuid,text,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_allocate_output(uuid,uuid,text,jsonb,jsonb,jsonb,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_attach_output(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_cache_output(uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_dispatch_sources(uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_pts(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_failed_frames(uuid,integer,text,integer[]) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_touch_slot(text,uuid,uuid,uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_rebuild_items(uuid[],uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_locate_pending(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_claim_attempt(uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_fail_attempt(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_publish_attempt(uuid,uuid,jsonb,jsonb,timestamptz,integer,integer,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_ready_bytes() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_expired_slots(text,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_expire_slot(text,uuid,uuid,uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_abandoned_attempts(timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_expire_attempt(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_retirement_candidates(timestamptz,timestamptz,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_begin_sweep(uuid,timestamptz,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_sweep_attempt(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_sweep_permit(uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.legacy_video_finish_sweep(uuid,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_video_building_link(public.video_derivative_outputs) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_video_idle(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_video_unreferenced(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_video_expired(public.video_derivative_outputs,timestamptz) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._legacy_video_gc_lock(uuid) OWNER TO :"assets_owner";
+
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+
+REVOKE ALL ON FUNCTION
+    yoao_assets_v1.read_legacy_pyramid_asset,
+    yoao_assets_v1.read_legacy_pyramid_generation,
+    yoao_assets_v1.read_legacy_pyramid_summaries,
+    yoao_assets_v1.prepare_legacy_pyramid_generation,
+    yoao_assets_v1.lock_legacy_pyramid_claim,
+    yoao_assets_v1.claim_legacy_pyramid_generation,
+    yoao_assets_v1.lock_legacy_pyramid_publication,
+    yoao_assets_v1.read_legacy_pyramid_context,
+    yoao_assets_v1.read_legacy_pyramid_output,
+    yoao_assets_v1.lock_legacy_pyramid_output_for_publish,
+    yoao_assets_v1.publish_legacy_pyramid_generation,
+    yoao_assets_v1.fail_legacy_pyramid_generation,
+    yoao_assets_v1.invalidate_legacy_pyramid_generation,
+    yoao_assets_v1.touch_legacy_pyramid_generation,
+    yoao_assets_v1.scan_expired_legacy_pyramid_generations,
+    yoao_assets_v1.scan_stale_legacy_pyramid_generations,
+    yoao_assets_v1.remove_stale_legacy_pyramid_generation,
+    yoao_assets_v1._legacy_pyramid_output_unreferenced,
+    yoao_assets_v1.scan_retirable_legacy_pyramid_outputs,
+    yoao_assets_v1.begin_legacy_pyramid_retirement,
+    yoao_assets_v1.check_legacy_pyramid_retirement,
+    yoao_assets_v1.finish_legacy_pyramid_retirement,
+    yoao_assets_v1.read_legacy_pyramid_retained_bytes,
+    yoao_assets_v1._legacy_video_chapter_scope,
+    yoao_assets_v1.read_legacy_video_chapters,
+    yoao_assets_v1.lock_legacy_video_chapter_source,
+    yoao_assets_v1.lock_legacy_video_chapter,
+    yoao_assets_v1.create_legacy_video_chapter,
+    yoao_assets_v1.update_legacy_video_chapter,
+    yoao_assets_v1.delete_legacy_video_chapter,
+    yoao_assets_v1.read_media_cache_binding_history,
+    yoao_assets_v1._legacy_thumbnail_facts,
+    yoao_assets_v1._legacy_media_cache_target_current,
+    yoao_assets_v1._legacy_thumbnail_gc_clear,
+    yoao_assets_v1._legacy_thumbnail_gc_recheck,
+    yoao_assets_v1.legacy_thumbnail_output,
+    yoao_assets_v1.legacy_item_thumbnail_pointer,
+    yoao_assets_v1.directory_thumbnail_evidence,
+    yoao_assets_v1.allocate_legacy_thumbnail,
+    yoao_assets_v1.record_legacy_thumbnail_result,
+    yoao_assets_v1.legacy_directory_thumbnail_candidate,
+    yoao_assets_v1.retire_legacy_directory_thumbnail,
+    yoao_assets_v1.legacy_thumbnail_business,
+    yoao_assets_v1.set_legacy_item_dimensions,
+    yoao_assets_v1.record_legacy_item_thumbnail_error,
+    yoao_assets_v1.publish_legacy_thumbnail,
+    yoao_assets_v1.legacy_thumbnail_gc_candidates,
+    yoao_assets_v1.legacy_thumbnail_gc_start,
+    yoao_assets_v1.legacy_thumbnail_gc_admit,
+    yoao_assets_v1.legacy_thumbnail_gc_finish,
+    yoao_assets_v1.legacy_video_item,
+    yoao_assets_v1.legacy_video_slot,
+    yoao_assets_v1.legacy_video_create_slot,
+    yoao_assets_v1.legacy_video_attempt,
+    yoao_assets_v1.legacy_video_allocate_output,
+    yoao_assets_v1.legacy_video_attach_output,
+    yoao_assets_v1.legacy_video_cache_output,
+    yoao_assets_v1.legacy_video_dispatch_sources,
+    yoao_assets_v1.legacy_video_pts,
+    yoao_assets_v1.legacy_video_failed_frames,
+    yoao_assets_v1.legacy_video_touch_slot,
+    yoao_assets_v1.legacy_video_rebuild_items,
+    yoao_assets_v1.legacy_video_locate_pending,
+    yoao_assets_v1.legacy_video_claim_attempt,
+    yoao_assets_v1.legacy_video_fail_attempt,
+    yoao_assets_v1.legacy_video_publish_attempt,
+    yoao_assets_v1.legacy_video_ready_bytes,
+    yoao_assets_v1.legacy_video_expired_slots,
+    yoao_assets_v1.legacy_video_expire_slot,
+    yoao_assets_v1.legacy_video_abandoned_attempts,
+    yoao_assets_v1.legacy_video_expire_attempt,
+    yoao_assets_v1.legacy_video_retirement_candidates,
+    yoao_assets_v1.legacy_video_begin_sweep,
+    yoao_assets_v1.legacy_video_sweep_attempt,
+    yoao_assets_v1.legacy_video_sweep_permit,
+    yoao_assets_v1.legacy_video_finish_sweep,
+    yoao_assets_v1._legacy_video_building_link,
+    yoao_assets_v1._legacy_video_idle,
+    yoao_assets_v1._legacy_video_unreferenced,
+    yoao_assets_v1._legacy_video_expired,
+    yoao_assets_v1._legacy_video_gc_lock
+FROM PUBLIC;
+
+GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
+GRANT SELECT (id, owner_kind, owner_id, input_ref, storage_ref, state, uncertain_write)
+    ON public.thumbnail_outputs TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._legacy_task_thumbnail_business(uuid,boolean) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._legacy_task_thumbnail_referenced(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._publish_legacy_task_thumbnail(uuid,uuid,text) OWNER TO :"labeling_owner";
+GRANT EXECUTE ON FUNCTION
+    yoao_labeling_v1._legacy_task_thumbnail_business(uuid,boolean),
+    yoao_labeling_v1._legacy_task_thumbnail_referenced(uuid),
+    yoao_labeling_v1._publish_legacy_task_thumbnail(uuid,uuid,text) TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
+REVOKE ALL ON FUNCTION
+    yoao_labeling_v1._legacy_task_thumbnail_business(uuid,boolean),
+    yoao_labeling_v1._legacy_task_thumbnail_referenced(uuid),
+    yoao_labeling_v1._publish_legacy_task_thumbnail(uuid,uuid,text) FROM PUBLIC;
+GRANT CREATE ON SCHEMA yoao_identity_v1 TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.reserve_avatar_upload(uuid,text,jsonb,text,integer) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.confirm_avatar_upload_version(uuid,text,jsonb,text,integer,text) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.avatar_upload_pending_matches(uuid,text,jsonb,text,integer,text) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.read_ready_avatar_upload(text) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.list_avatar_retirements(integer) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.begin_avatar_retirement(text) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.finish_avatar_retirement(text,jsonb,text,integer,text) OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.read_avatar_binding_history() OWNER TO :"identity_owner";
+ALTER FUNCTION yoao_identity_v1.avatar_saved_target_referenced(uuid) OWNER TO :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_v1 FROM :"identity_owner";
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.avatar_uploads TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.matches_avatar_reservation(text,jsonb) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"identity_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.matches_avatar_reservation(text,jsonb) TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.dataset_job_visible(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._directory_job_ids(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.directory_job_page(uuid,uuid,integer,integer) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.directory_job_total(uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.dataset_active_job_facts(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.active_storage_writer_job_counts() OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.settle_dataset_scan_job(uuid,text,text,timestamptz,text,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.transition_directory_registration_job(uuid,uuid,text,text,text,timestamptz,text,jsonb) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION
+    yoao_assets_v1.directory_job_visible(uuid,text,uuid,text,uuid),
+    yoao_assets_v1.directory_location_job_runs(uuid,uuid),
+    yoao_assets_v1.dataset_quality_job_visible(uuid,text,text)
+    TO :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    yoao_jobs_v1.dataset_active_job_facts(uuid),
+    yoao_jobs_v1.settle_dataset_scan_job(uuid,text,text,timestamptz,text,jsonb),
+    yoao_jobs_v1.transition_directory_registration_job(uuid,uuid,text,text,text,timestamptz,text,jsonb)
+    TO :"assets_owner";
+
+\set ON_ERROR_STOP on
+
+GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_settings_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid),
+    yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid),
+    yoao_settings_v1.resolve_connector_host_allowlist(jsonb) TO :"assets_owner";
+GRANT SELECT (id, kind, scope, project_id, revision, config, secret_enc)
+    ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (id, enabled, kind, config_revision, connection_id)
+    ON public.storage_locations TO :"assets_owner";
+GRANT SELECT (purpose, location_id, generation) ON public.storage_bindings TO :"assets_owner";
+GRANT SELECT (location_id, state, revision) ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT (id, purpose, location_id, revision) ON public.storage_operations TO :"assets_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.saved_binding_probe OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_io_allowlist(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_io_connector(uuid,integer,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_io_target(uuid,integer,integer,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._saved_binding_probe_authority(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._saved_binding_probe_facts(uuid,text,uuid,integer,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_saved_binding_probe(uuid,uuid,uuid,text,text,uuid,integer,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_saved_binding_probe(uuid,uuid,boolean) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_assets_storage_v1, yoao_identity_v1, yoao_jobs_v1,
+    yoao_labeling_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_storage_v1.physical_io_receipt(uuid),
+    yoao_assets_storage_v1.gate_facts(uuid,text),
+    yoao_assets_storage_v1.location_probe_facts(uuid,text),
+    yoao_identity_v1.read_actor_facts(uuid),
+    yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid),
+    yoao_jobs_v1.read_job(uuid),
+    yoao_labeling_v1.read_media_task_access(uuid,uuid,uuid) TO :"assets_owner";
+GRANT SELECT ON yoao_assets_storage_v1.location_metadata,
+    yoao_assets_storage_v1.connector_origins TO :"assets_owner";
+GRANT SELECT (id, file_path) ON yoao_labeling_v1.task_rows TO :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.reference_io_requests OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._reference_io_scope(uuid,text,uuid,uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_reference_io(uuid,text,uuid,uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.capture_reference_io(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.recheck_reference_io(uuid,text) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+GRANT USAGE, CREATE ON SCHEMA yoao_audit_v1 TO :"audit_owner";
+
+ALTER TABLE yoao_assets_v1.saved_output_admissions OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.saved_output_writes OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._saved_output_gate(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._saved_output_origin(uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_output_origin(jsonb,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.admit_saved_output_read(uuid,text,uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_avatar_subject(text,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_bug_subject(uuid,uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_archive_subject(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_saved_output_write(uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.finish_saved_output_write(uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_output_write_status(uuid,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._guard_saved_output_write() OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_audit_v1.saved_archive_output_facts(uuid,text,uuid) OWNER TO :"audit_owner";
+
+GRANT SELECT (id, location_id, purpose, revision) ON public.storage_operations TO :"assets_owner";
+GRANT SELECT (location_id, state, revision) ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT (id, connection_id, kind, enabled, config_revision) ON public.storage_locations TO :"assets_owner";
+GRANT SELECT (id, kind, scope, project_id, config, revision) ON public.storage_connections TO :"assets_owner";
+GRANT SELECT (token, owner_id, storage_ref, sha256, size_bytes, object_version_id, state)
+ON public.avatar_uploads TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"assets_owner", :"audit_owner";
+GRANT SELECT (avatar_ref) ON yoao_identity_v1.account_profiles TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_actor_facts(uuid) TO :"assets_owner", :"audit_owner";
+GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"assets_owner";
+GRANT SELECT (id, job_id, year, month, storage_ref, sha256, size_bytes, state, published_at)
+ON public.audit_archive_outputs TO :"audit_owner";
+GRANT EXECUTE ON FUNCTION yoao_audit_v1.saved_archive_output_facts(uuid,text,uuid) TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"audit_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid) TO :"audit_owner";
+
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_audit_v1 FROM :"audit_owner";
+ALTER TABLE yoao_assets_v1.media_io_claims OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.media_io_derivative_manifests OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.embedded_media_claim_key OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._media_io_permit(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._media_io_target(jsonb,text,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._media_io_import_target(jsonb,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._media_io_creation_target(public.managed_original_creations) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_workspace_v1._media_io_guide(uuid,text) OWNER TO :"workspace_owner";
+ALTER FUNCTION yoao_labeling_v1._media_io_comment(uuid,text) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._media_io_raster(uuid,text) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_artifact(text,text,uuid,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_cache_read(text,uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_original_read(text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_creation(uuid,uuid,uuid,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_creation_evidence(uuid,uuid,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_saved_operator_original(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_operator_item_original(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.saved_operator_auxiliary_original(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_thumbnail(text,uuid,uuid,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_labeling_v1._media_io_mask_upload(uuid) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_mask_upload(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_derivative(text,text,uuid,uuid,uuid,jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_original_cache(uuid,uuid,uuid,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._embedded_original_builtin(text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.prove_embedded_admitted_original(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_embedded_admitted_original(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_prediction_input(uuid,uuid,text,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.media_io_retired_original(uuid,uuid,text,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.open_saved_operator_original_operation(uuid) OWNER TO :"assets_owner";
+
+GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_labeling_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1._media_io_guide(uuid,text),
+    yoao_labeling_v1._media_io_comment(uuid,text),
+    yoao_labeling_v1._media_io_raster(uuid,text), yoao_labeling_v1._media_io_mask_upload(uuid)
+    TO :"assets_owner";
+GRANT SELECT (id, checksum_value, verification_state, checksum_algorithm, size_bytes)
+    ON public.dataset_assets TO :"assets_owner";
+GRANT SELECT (id, object_key, storage_ref, bucket, location_id, sha256, size_bytes)
+    ON public.dataset_auxiliary_originals, public.task_originals TO :"assets_owner";
+GRANT SELECT (id, input_ref, writer_until, storage_ref, state) ON public.thumbnail_outputs TO :"assets_owner";
+GRANT SELECT (id, location_id, asset_id, state, writer_until, expires_at, storage_ref, sha256, size_bytes)
+    ON public.original_cache_entries TO :"assets_owner";
+GRANT SELECT (id, entry_id, expires_at) ON public.original_cache_read_leases TO :"assets_owner";
+GRANT SELECT (id, state, expires_at, storage_ref, inventory, contract_version, maintenance_revision)
+    ON public.prediction_input_leases TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"assets_owner", :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE public.training_saved_objects OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_learning_v1.training_saved_owner_scope(text,uuid,uuid,text,text,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_assets_v1.capture_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb,jsonb) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_saved_owner_scope(text,uuid,uuid,text,text,text,jsonb) TO :"assets_owner";
+ALTER TABLE public.storage_migration_io_reads OWNER TO :"assets_owner";
+ALTER TABLE public.storage_migration_io_writes OWNER TO :"assets_owner";
+ALTER TABLE public.storage_migration_io_probes OWNER TO :"assets_owner";
+ALTER TABLE public.storage_migration_io_flights OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._migration_io_target(uuid,jsonb,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_copy(uuid,uuid,text,uuid,text,integer,integer,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_baseline(uuid,uuid,text,uuid,text,integer,integer,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_claim_write(uuid,uuid,text,uuid,text,integer,integer,text,integer,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_bind_read(uuid,uuid,integer,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_read(uuid,uuid,integer,text,text,integer,integer,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_cutover(uuid,integer,integer,integer,uuid,text,integer,uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_open_flight(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_close_flight(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.migration_io_reconcile_flights(uuid) OWNER TO :"assets_owner";
+GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_jobs_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid),
+    yoao_identity_v1.read_actor_facts(uuid), yoao_jobs_v1.read_job(uuid) TO :"assets_owner";
+GRANT SELECT (target) ON public.storage_migration_finalizations TO :"assets_owner";
+GRANT SELECT (window_id, finalization_revision, window_revision)
+    ON public.storage_migration_read_publications TO :"assets_owner";
+GRANT SELECT (id) ON public.storage_migration_cutovers TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.import_io_manifests OWNER TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.import_io_attempts OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_io_job(uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_io_transport(uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.import_saved_io_list(uuid,uuid,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.save_observed_dataset_import_manifest(uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_io_entry(uuid,bigint,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_io_authority(public.dataset_import_entries) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.begin_dataset_import_original(uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_io_target(public.managed_original_creations) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.open_dataset_import_original(uuid,uuid,bigint,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_io_attempt(jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.import_saved_io_action(jsonb,text,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._import_builtin_original(jsonb,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_import_original_prepared(jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.mark_import_original_writing(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_import_original_written(jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.fail_import_original(jsonb,text,text,jsonb) OWNER TO :"assets_owner";
 COMMIT;

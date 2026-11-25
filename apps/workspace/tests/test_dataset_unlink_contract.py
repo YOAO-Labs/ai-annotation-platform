@@ -130,9 +130,9 @@ def test_moved_models_preserve_the_frozen_native_schema_and_defaults():
             / "api"
             / "alembic"
             / "sql"
-            / "0205_dataset_unlink.schema.json"
+            / "workspace.contracts.json"
         ).read_text(encoding="utf-8")
-    )["$defs"]
+    )["artifacts"]["0205_dataset_unlink.schema.json"]["$defs"]
 
     command_schema = DatasetUnlinkCommand.model_json_schema()
     audit_context_schema = command_schema.pop("$defs")["ProjectDeletionAuditContext"]

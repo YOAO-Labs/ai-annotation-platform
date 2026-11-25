@@ -1,0 +1,1661 @@
+{
+  "module": "notifications",
+  "artifacts": {
+    "0311_notifications_preferences.schema.json": {
+      "$defs": {
+        "GetPreferencesData": {
+          "additionalProperties": false,
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/PreferenceItem"
+              },
+              "title": "Items",
+              "type": "array"
+            },
+            "operation": {
+              "const": "get",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "items"
+          ],
+          "title": "GetPreferencesData",
+          "type": "object"
+        },
+        "GetPreferencesReply": {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/GetPreferencesData"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "GetPreferencesReply",
+          "type": "object"
+        },
+        "GetPreferencesRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "get",
+              "title": "Operation",
+              "type": "string"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "user_id"
+          ],
+          "title": "GetPreferencesRequest",
+          "type": "object"
+        },
+        "IsInAppMutedData": {
+          "additionalProperties": false,
+          "properties": {
+            "muted": {
+              "title": "Muted",
+              "type": "boolean"
+            },
+            "operation": {
+              "const": "is_in_app_muted",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "muted"
+          ],
+          "title": "IsInAppMutedData",
+          "type": "object"
+        },
+        "IsInAppMutedReply": {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/IsInAppMutedData"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "IsInAppMutedReply",
+          "type": "object"
+        },
+        "IsInAppMutedRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "is_in_app_muted",
+              "title": "Operation",
+              "type": "string"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "type": {
+              "maxLength": 60,
+              "minLength": 1,
+              "title": "Type",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "user_id",
+            "type"
+          ],
+          "title": "IsInAppMutedRequest",
+          "type": "object"
+        },
+        "PatchPreferenceData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "patch",
+              "title": "Operation",
+              "type": "string"
+            },
+            "updated": {
+              "const": true,
+              "title": "Updated",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "operation",
+            "updated"
+          ],
+          "title": "PatchPreferenceData",
+          "type": "object"
+        },
+        "PatchPreferenceReply": {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/PatchPreferenceData"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "PatchPreferenceReply",
+          "type": "object"
+        },
+        "PatchPreferenceRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "patch",
+              "title": "Operation",
+              "type": "string"
+            },
+            "patch": {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "propertyNames": {
+                "enum": [
+                  "in_app",
+                  "toast"
+                ]
+              },
+              "title": "Patch",
+              "type": "object"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "type": {
+              "maxLength": 60,
+              "minLength": 1,
+              "title": "Type",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "user_id",
+            "type",
+            "patch"
+          ],
+          "title": "PatchPreferenceRequest",
+          "type": "object"
+        },
+        "PreferenceError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "unknown_type"
+              ],
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "title": "PreferenceError",
+          "type": "object"
+        },
+        "PreferenceFailure": {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/PreferenceError"
+            },
+            "ok": {
+              "const": false,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "schema": {
+              "const": "aap-notification-preferences/v1",
+              "title": "Schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "error"
+          ],
+          "title": "PreferenceFailure",
+          "type": "object"
+        },
+        "PreferenceItem": {
+          "additionalProperties": false,
+          "properties": {
+            "email": {
+              "title": "Email",
+              "type": "boolean"
+            },
+            "in_app": {
+              "title": "In App",
+              "type": "boolean"
+            },
+            "toast": {
+              "title": "Toast",
+              "type": "boolean"
+            },
+            "type": {
+              "title": "Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "in_app",
+            "email",
+            "toast"
+          ],
+          "title": "PreferenceItem",
+          "type": "object"
+        }
+      },
+      "$id": "aap-notification-preferences/v1",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GetPreferencesRequest"
+        },
+        {
+          "$ref": "#/$defs/PatchPreferenceRequest"
+        },
+        {
+          "$ref": "#/$defs/IsInAppMutedRequest"
+        },
+        {
+          "$ref": "#/$defs/GetPreferencesReply"
+        },
+        {
+          "$ref": "#/$defs/PatchPreferenceReply"
+        },
+        {
+          "$ref": "#/$defs/IsInAppMutedReply"
+        },
+        {
+          "$ref": "#/$defs/PreferenceFailure"
+        }
+      ],
+      "title": "AAP notification preferences protocol"
+    },
+    "0314_notifications_append.schema.json": {
+      "$defs": {
+        "AppendError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_request",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "title": "AppendError",
+          "type": "object"
+        },
+        "AppendFailure": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-append/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "error": {
+              "$ref": "#/$defs/AppendError"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "error"
+          ],
+          "title": "AppendFailure",
+          "type": "object"
+        },
+        "AppendNotificationData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "append",
+              "title": "Operation",
+              "type": "string"
+            },
+            "notification": {
+              "$ref": "#/$defs/AppendedNotification"
+            }
+          },
+          "required": [
+            "operation",
+            "notification"
+          ],
+          "title": "AppendNotificationData",
+          "type": "object"
+        },
+        "AppendNotificationReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-append/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/AppendNotificationData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "AppendNotificationReply",
+          "type": "object"
+        },
+        "AppendNotificationRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-append/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "append",
+              "title": "Operation",
+              "type": "string"
+            },
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            },
+            "type": {
+              "maxLength": 60,
+              "minLength": 1,
+              "title": "Type",
+              "type": "string"
+            },
+            "target_type": {
+              "maxLength": 30,
+              "title": "Target Type",
+              "type": "string"
+            },
+            "target_id": {
+              "format": "uuid",
+              "title": "Target Id",
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": true,
+              "title": "Payload",
+              "type": "object"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "id",
+            "user_id",
+            "type",
+            "target_type",
+            "target_id",
+            "payload"
+          ],
+          "title": "AppendNotificationRequest",
+          "type": "object"
+        },
+        "AppendedNotification": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            },
+            "type": {
+              "title": "Type",
+              "type": "string"
+            },
+            "target_type": {
+              "title": "Target Type",
+              "type": "string"
+            },
+            "target_id": {
+              "format": "uuid",
+              "title": "Target Id",
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": true,
+              "title": "Payload",
+              "type": "object"
+            },
+            "read_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Read At"
+            },
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "user_id",
+            "type",
+            "target_type",
+            "target_id",
+            "payload",
+            "read_at",
+            "created_at"
+          ],
+          "title": "AppendedNotification",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AppendNotificationRequest"
+        },
+        {
+          "$ref": "#/$defs/AppendNotificationReply"
+        },
+        {
+          "$ref": "#/$defs/AppendFailure"
+        }
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-notification-append/v1",
+      "title": "AAP notification append protocol"
+    },
+    "0316_notifications_read_state.schema.json": {
+      "$defs": {
+        "MarkAllReadData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "mark_all_read",
+              "title": "Operation",
+              "type": "string"
+            },
+            "updated": {
+              "minimum": 0,
+              "title": "Updated",
+              "type": "integer"
+            },
+            "updated_ids": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "title": "Updated Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "operation",
+            "updated",
+            "updated_ids"
+          ],
+          "title": "MarkAllReadData",
+          "type": "object"
+        },
+        "MarkAllReadReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-read-state/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/MarkAllReadData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "MarkAllReadReply",
+          "type": "object"
+        },
+        "MarkAllReadRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-read-state/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            },
+            "read_at": {
+              "format": "date-time",
+              "title": "Read At",
+              "type": "string"
+            },
+            "operation": {
+              "const": "mark_all_read",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "user_id",
+            "read_at",
+            "operation"
+          ],
+          "title": "MarkAllReadRequest",
+          "type": "object"
+        },
+        "MarkReadData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "mark_read",
+              "title": "Operation",
+              "type": "string"
+            },
+            "updated": {
+              "title": "Updated",
+              "type": "boolean"
+            },
+            "updated_ids": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "title": "Updated Ids",
+              "type": "array"
+            }
+          },
+          "required": [
+            "operation",
+            "updated",
+            "updated_ids"
+          ],
+          "title": "MarkReadData",
+          "type": "object"
+        },
+        "MarkReadReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-read-state/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/MarkReadData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "MarkReadReply",
+          "type": "object"
+        },
+        "MarkReadRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-read-state/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            },
+            "read_at": {
+              "format": "date-time",
+              "title": "Read At",
+              "type": "string"
+            },
+            "operation": {
+              "const": "mark_read",
+              "title": "Operation",
+              "type": "string"
+            },
+            "notification_id": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "user_id",
+            "read_at",
+            "operation",
+            "notification_id"
+          ],
+          "title": "MarkReadRequest",
+          "type": "object"
+        },
+        "ReadStateError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_request",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "title": "ReadStateError",
+          "type": "object"
+        },
+        "ReadStateFailure": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-read-state/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "error": {
+              "$ref": "#/$defs/ReadStateError"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "error"
+          ],
+          "title": "ReadStateFailure",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MarkReadRequest"
+        },
+        {
+          "$ref": "#/$defs/MarkAllReadRequest"
+        },
+        {
+          "$ref": "#/$defs/MarkReadReply"
+        },
+        {
+          "$ref": "#/$defs/MarkAllReadReply"
+        },
+        {
+          "$ref": "#/$defs/ReadStateFailure"
+        }
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-notification-read-state/v1",
+      "title": "AAP notification read-state protocol"
+    },
+    "0318_notifications_delete.schema.json": {
+      "$defs": {
+        "ClearReadData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "clear_read",
+              "title": "Operation",
+              "type": "string"
+            },
+            "deleted": {
+              "minimum": 0,
+              "title": "Deleted",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "operation",
+            "deleted"
+          ],
+          "title": "ClearReadData",
+          "type": "object"
+        },
+        "ClearReadReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-delete/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/ClearReadData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "ClearReadReply",
+          "type": "object"
+        },
+        "ClearReadRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-delete/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "clear_read",
+              "title": "Operation",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "user_id"
+          ],
+          "title": "ClearReadRequest",
+          "type": "object"
+        },
+        "DeleteError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "invalid_request",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "title": "DeleteError",
+          "type": "object"
+        },
+        "DeleteFailure": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-delete/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": false,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "error": {
+              "$ref": "#/$defs/DeleteError"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "error"
+          ],
+          "title": "DeleteFailure",
+          "type": "object"
+        },
+        "DeleteOneData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "const": "delete_one",
+              "title": "Operation",
+              "type": "string"
+            },
+            "deleted": {
+              "title": "Deleted",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "operation",
+            "deleted"
+          ],
+          "title": "DeleteOneData",
+          "type": "object"
+        },
+        "DeleteOneReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-delete/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/DeleteOneData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "DeleteOneReply",
+          "type": "object"
+        },
+        "DeleteOneRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-notification-delete/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "delete_one",
+              "title": "Operation",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            },
+            "notification_id": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "user_id",
+            "notification_id"
+          ],
+          "title": "DeleteOneRequest",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeleteOneRequest"
+        },
+        {
+          "$ref": "#/$defs/ClearReadRequest"
+        },
+        {
+          "$ref": "#/$defs/DeleteOneReply"
+        },
+        {
+          "$ref": "#/$defs/ClearReadReply"
+        },
+        {
+          "$ref": "#/$defs/DeleteFailure"
+        }
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-notification-delete/v1",
+      "title": "AAP notification deletion protocol"
+    },
+    "0319_notifications_read_relations.schema.json": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "target_type": {
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "title": "AAP Notifications read relations",
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-notifications-read-relations/v1",
+      "$comment": "The fixed read-only projection publishes Notification row facts. Consumers retain their existing authorization, filtering, counts, ordering, pagination and borrowed transaction semantics.",
+      "x-postgresql-relations": {
+        "aap_notifications_v1.notification_facts": {
+          "columns": [
+            "id",
+            "user_id",
+            "type",
+            "target_type",
+            "target_id",
+            "payload",
+            "read_at",
+            "created_at"
+          ],
+          "row_schema": "#",
+          "row_key": [
+            "id"
+          ],
+          "read_only": true,
+          "security_barrier": true
+        }
+      }
+    },
+    "0321_notifications_terminal_append.schema.json": {
+      "$defs": {
+        "AppendedNotification": {
+          "additionalProperties": false,
+          "properties": {
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            },
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": true,
+              "title": "Payload",
+              "type": "object"
+            },
+            "read_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Read At"
+            },
+            "target_id": {
+              "format": "uuid",
+              "title": "Target Id",
+              "type": "string"
+            },
+            "target_type": {
+              "title": "Target Type",
+              "type": "string"
+            },
+            "type": {
+              "title": "Type",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "user_id",
+            "type",
+            "target_type",
+            "target_id",
+            "payload",
+            "read_at",
+            "created_at"
+          ],
+          "title": "AppendedNotification",
+          "type": "object"
+        },
+        "TerminalAppendError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "invalid_request",
+                "unsupported_isolation"
+              ],
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "code"
+          ],
+          "title": "TerminalAppendError",
+          "type": "object"
+        },
+        "TerminalNotificationData": {
+          "additionalProperties": false,
+          "properties": {
+            "created": {
+              "title": "Created",
+              "type": "boolean"
+            },
+            "notification": {
+              "$ref": "#/$defs/AppendedNotification"
+            },
+            "operation": {
+              "const": "append_job_terminal",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "operation",
+            "created",
+            "notification"
+          ],
+          "title": "TerminalNotificationData",
+          "type": "object"
+        },
+        "TerminalNotificationFailure": {
+          "additionalProperties": false,
+          "properties": {
+            "error": {
+              "$ref": "#/$defs/TerminalAppendError"
+            },
+            "ok": {
+              "const": false,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "schema": {
+              "const": "aap-notification-terminal-append/v1",
+              "title": "Schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "error"
+          ],
+          "title": "TerminalNotificationFailure",
+          "type": "object"
+        },
+        "TerminalNotificationReply": {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "$ref": "#/$defs/TerminalNotificationData"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "schema": {
+              "const": "aap-notification-terminal-append/v1",
+              "title": "Schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "TerminalNotificationReply",
+          "type": "object"
+        },
+        "TerminalNotificationRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            },
+            "operation": {
+              "const": "append_job_terminal",
+              "title": "Operation",
+              "type": "string"
+            },
+            "payload": {
+              "additionalProperties": true,
+              "title": "Payload",
+              "type": "object"
+            },
+            "schema": {
+              "const": "aap-notification-terminal-append/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "target_id": {
+              "format": "uuid",
+              "title": "Target Id",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "job.completed",
+                "job.failed",
+                "job.cancelled"
+              ],
+              "title": "Type",
+              "type": "string"
+            },
+            "user_id": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "id",
+            "user_id",
+            "type",
+            "target_id",
+            "payload"
+          ],
+          "title": "TerminalNotificationRequest",
+          "type": "object"
+        }
+      },
+      "$id": "aap-notification-terminal-append/v1",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TerminalNotificationRequest"
+        },
+        {
+          "$ref": "#/$defs/TerminalNotificationReply"
+        },
+        {
+          "$ref": "#/$defs/TerminalNotificationFailure"
+        }
+      ],
+      "title": "AAP async-job terminal notification append protocol"
+    },
+    "0324_notifications_inbox_query.schema.json": {
+      "additionalProperties": false,
+      "description": "Native Notifications row; JSONB payload shapes pass through unchanged.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "target_type": {
+          "title": "Target Type",
+          "type": "string"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "title": "AAP Notifications REST inbox query",
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-notifications-inbox-query/v1",
+      "$comment": "The API passes the authenticated actor ID and platform role from its immediately preceding Identity actor-status snapshot. The capability owns inbox visibility, page filtering, ordering, and counts; calls borrow the caller's transaction.",
+      "x-postgresql-functions": {
+        "aap_notifications_v1.inbox_page": {
+          "arguments": "uuid, text, boolean, integer, integer",
+          "returns": "SETOF aap_notifications_v1.notification_facts"
+        },
+        "aap_notifications_v1.inbox_total_count": {
+          "arguments": "uuid, text",
+          "returns": "bigint"
+        },
+        "aap_notifications_v1.inbox_unread_count": {
+          "arguments": "uuid, text",
+          "returns": "bigint"
+        }
+      },
+      "x-row-columns": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "x-row-key": [
+        "id"
+      ],
+      "x-payload": {
+        "postgresql_type": "jsonb",
+        "preserve_native_json_shapes": true
+      },
+      "x-bigint-wire": "Keep PostgreSQL bigint counts as decimal text in Node clients.",
+      "x-trusted-role-snapshot": "IdentityAccountLockData.read_actor_status",
+      "x-trusted-actor-id": "Authenticated API actor ID checked by Identity preflight",
+      "x-activity-policy": "No endpoint-wide active-account filter; membership access still requires an active Identity profile",
+      "x-global-async-job-kinds": [
+        "audit_archive",
+        "dataset_import"
+      ],
+      "x-security": {
+        "functions": "security_definer",
+        "search_path": [
+          "pg_catalog",
+          "pg_temp"
+        ],
+        "public_execute": false,
+        "inbox_query_client_execute": "three public inbox functions only",
+        "private_helper_execute": false
+      },
+      "x-private-helper": "aap_notifications_v1._visible_inbox_rows(uuid, text)",
+      "x-borrowed-transaction": {
+        "commit": false,
+        "rollback": false,
+        "autoflush": "preserve caller setting at every ORM query boundary"
+      }
+    },
+    "0325_notifications_delivery_read.schema.json": {
+      "$comment": "Fixed read capabilities borrow the API caller's transaction. They do not commit, lock, or authorize the WebSocket credential.",
+      "$id": "aap-notifications-delivery-read/v1",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Native notification row; payload retains every PostgreSQL JSONB shape.",
+      "properties": {
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "payload": {
+          "title": "Payload"
+        },
+        "read_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read At"
+        },
+        "target_id": {
+          "format": "uuid",
+          "title": "Target Id",
+          "type": "string"
+        },
+        "target_type": {
+          "title": "Target Type",
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "title": "AAP Notifications delivery reads",
+      "type": "object",
+      "x-borrowed-transaction": {
+        "commit": false,
+        "rollback": false
+      },
+      "x-error-fallback": {
+        "after_scope_read_failure": "Allow only rows whose target is not export/async_job and whose dict payload has no project_id key; non-dict payload is {}"
+      },
+      "x-pair-input": {
+        "cardinality_cap": null,
+        "exact_keys": [
+          "project_id",
+          "user_id"
+        ],
+        "preserve_pairs": true,
+        "schema": {
+          "$defs": {
+            "DeliveryReadPair": {
+              "additionalProperties": false,
+              "properties": {
+                "project_id": {
+                  "format": "uuid",
+                  "title": "Project Id",
+                  "type": "string"
+                },
+                "user_id": {
+                  "format": "uuid",
+                  "title": "User Id",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "project_id",
+                "user_id"
+              ],
+              "title": "DeliveryReadPair",
+              "type": "object"
+            }
+          },
+          "items": {
+            "$ref": "#/$defs/DeliveryReadPair"
+          },
+          "type": "array"
+        },
+        "uuid_strings": "canonical lower-case hyphenated UUIDs"
+      },
+      "x-payload": {
+        "postgresql_type": "jsonb",
+        "preserve_native_json_shapes": true
+      },
+      "x-policy": {
+        "actual_job_scope_wins_over_payload": true,
+        "fail_closed": [
+          "missing job",
+          "unknown global job kind",
+          "invalid project UUID"
+        ],
+        "global_async_job_kinds": [
+          "audit_archive",
+          "dataset_import"
+        ],
+        "membership": "active current platform role, known project role, viewer pairing",
+        "other_target_scope": "Python dict payload only; key presence restricts even when null",
+        "owner": "active manager account owns project",
+        "project_id_parser": "uuid.UUID(str(value))",
+        "super_admin": "active super-admin account and existing project"
+      },
+      "x-policy-query-order": {
+        "allowed_pair_reads": "four distinct ordered calls only for nonempty pairs",
+        "allowed_pairs": [
+          "delivery_member_pairs",
+          "delivery_reviewer_pairs",
+          "delivery_owner_pairs",
+          "delivery_super_pairs"
+        ],
+        "resolve_scopes": "one delivery_job_scopes call only when job IDs exist"
+      },
+      "x-postgresql-functions": {
+        "aap_notifications_v1.delivery_job_scopes": {
+          "arguments": "uuid[]",
+          "returns": "TABLE(id uuid, scope_project_id uuid, kind varchar(40))"
+        },
+        "aap_notifications_v1.delivery_member_pairs": {
+          "arguments": "jsonb pair array",
+          "returns": "TABLE(project_id uuid, user_id uuid)"
+        },
+        "aap_notifications_v1.delivery_owner_pairs": {
+          "arguments": "jsonb pair array",
+          "returns": "TABLE(project_id uuid, user_id uuid)"
+        },
+        "aap_notifications_v1.delivery_reviewer_pairs": {
+          "arguments": "jsonb pair array",
+          "returns": "TABLE(project_id uuid, user_id uuid)"
+        },
+        "aap_notifications_v1.delivery_super_pairs": {
+          "arguments": "jsonb pair array",
+          "returns": "TABLE(project_id uuid, user_id uuid)"
+        },
+        "aap_notifications_v1.find_terminal_notification": {
+          "arguments": "uuid, text, uuid",
+          "returns": "uuid or null"
+        },
+        "aap_notifications_v1.read_notification": {
+          "arguments": "uuid",
+          "returns": "SETOF aap_notifications_v1.notification_facts"
+        }
+      },
+      "x-row-columns": [
+        "id",
+        "user_id",
+        "type",
+        "target_type",
+        "target_id",
+        "payload",
+        "read_at",
+        "created_at"
+      ],
+      "x-row-key": [
+        "id"
+      ],
+      "x-security": {
+        "foreign_private_tables": false,
+        "functions": "stable security_definer",
+        "invalid_pair_sqlstate": "22023",
+        "public_execute": false,
+        "search_path": [
+          "pg_catalog",
+          "pg_temp"
+        ]
+      }
+    }
+  }
+}

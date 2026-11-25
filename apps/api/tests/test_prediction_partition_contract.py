@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from pydantic import ValidationError
@@ -22,24 +23,16 @@ def test_prediction_partition_contract_matches_frozen_artifacts():
     api_root = Path(__file__).parents[1]
     apps_root = api_root.parent
     api_sql = api_root / "alembic/sql/0357_labeling_prediction_partitions.sql"
-    package_sql = (
-        apps_root
-        / "labeling/src/yoao_labeling/sql/0357_labeling_prediction_partitions.sql"
-    )
-    api_schema = (
-        api_root / "alembic/sql/0357_labeling_prediction_partitions.schema.json"
-    )
+    api_schema = "0357_labeling_prediction_partitions.schema.json"
     package_schema = (
         apps_root / "labeling/src/yoao_labeling/prediction-partitions.schema.json"
     )
 
-    assert api_sql.read_bytes() == package_sql.read_bytes()
-    assert json.loads(api_schema.read_text(encoding="utf-8")) == historical(
+    assert api_sql.is_file()
+    assert load_contract_schema(api_schema) == historical(
         json.loads(package_schema.read_text(encoding="utf-8"))
     )
-    assert json.loads(api_schema.read_text(encoding="utf-8")) == historical(
-        prediction_partition_schema()
-    )
+    assert load_contract_schema(api_schema) == historical(prediction_partition_schema())
 
     request = EnsurePredictionPartition(
         schema=PREDICTION_PARTITIONS_PROTOCOL,

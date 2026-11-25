@@ -50,8 +50,9 @@ async def media_world(test_engine):
         if not LEGACY:
             result = await _grants(
                 test_engine,
-                ROOT / "infra/docker/workspace-seed-operator-grants.sql",
+                ROOT / "infra/docker/workspace-grants.sql",
                 role,
+                capability="seed_operator",
             )
             assert result.returncode == 0, result.stderr
             async with test_engine.begin() as db:

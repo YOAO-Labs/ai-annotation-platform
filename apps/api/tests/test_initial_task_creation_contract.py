@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from types import SimpleNamespace
 
 import pytest
@@ -847,10 +847,8 @@ async def test_failed_commit_preserves_tasks_counter_cursor_and_receipt(test_eng
 
 
 def test_task_creation_schema_and_frozen_sql_chunks():
-    schema_path = (
-        Path(__file__).parents[1] / "alembic" / "sql" / "0194_task_creation.schema.json"
-    )
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema_path = "0194_task_creation.schema.json"
+    schema = load_contract_schema(schema_path)
     assert schema["$defs"]["acceptRequest"]["additionalProperties"] is False
     assert set(schema["$defs"]["acceptRequest"]["required"]) == {
         "operation_id",

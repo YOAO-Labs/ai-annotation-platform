@@ -6,6 +6,8 @@ import ast
 import asyncio
 import json
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 import re
 from uuid import uuid4
 
@@ -25,7 +27,7 @@ from tests.migration_helpers import load
 ROOT = Path(__file__).resolve().parents[3]
 SQL_DIR = ROOT / "apps/api/alembic/sql"
 MIGRATION = ROOT / "apps/api/alembic/versions/0222_bulk_image_input_manifests.py"
-SCHEMA = SQL_DIR / "0222_accepted_input_manifests.schema.json"
+SCHEMA = "0222_accepted_input_manifests.schema.json"
 ARTIFACTS = (
     "0222_accepted_input_manifests_state.sql",
     "0222_accepted_input_manifests_authorities.sql",
@@ -82,7 +84,7 @@ def test_0222_installer_is_after_frozen_0221_and_lists_all_artifacts():
 
 
 def test_0222_schema_freezes_only_the_five_manifest_capabilities():
-    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(SCHEMA)
     assert schema["$id"] == "aap-assets-input-manifest/v1"
     assert set(schema["x-native"]) == set(OPERATIONS)
     assert schema["x-budgets"] == {
@@ -139,8 +141,12 @@ def test_0222_revokes_every_new_function_and_streams_without_full_json_aggregati
 def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
     native_schema = (ROOT / "apps/api/app/db/native_schema.py").read_text()
     modules = (ROOT / "infra/docker/module-data-grants.sql").read_text()
-    media = (ROOT / "infra/docker/assets-media-grants.sql").read_text()
-    worker = (ROOT / "infra/docker/assets-image-grants.sql").read_text()
+    media = read_psql_grant_script(
+        ROOT / "infra/docker/assets-grants.sql", capability="media"
+    )
+    worker = read_psql_grant_script(
+        ROOT / "infra/docker/assets-grants.sql", capability="image"
+    )
     workflow_capture = (
         "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)"
     )

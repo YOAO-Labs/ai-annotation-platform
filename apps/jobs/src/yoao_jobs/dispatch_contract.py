@@ -129,6 +129,6 @@ def jobs_dispatch_schema() -> dict[str, Any]:
 
 
 def jobs_dispatch_sql() -> str:
-    from importlib.resources import files
+    from ._sql_loader import read_jobs_sql
 
-    return files("yoao_jobs").joinpath("sql/0368_jobs_dispatch_ledger.sql").read_text()
+    return read_jobs_sql("0368_jobs_dispatch_ledger.sql")

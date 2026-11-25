@@ -6,6 +6,7 @@ import json
 import math
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import event, select, text
@@ -46,12 +47,7 @@ _ROOT = Path(__file__).resolve().parents[3]
 async def test_native_column_contract_owner_and_grants_match_database(test_engine):
     schema = read_relations_schema()
     native = current(
-        json.loads(
-            (
-                _ROOT
-                / "apps/api/alembic/sql/0377_workspace_project_snapshots.schema.json"
-            ).read_text()
-        )
+        load_contract_schema("0377_workspace_project_snapshots.schema.json")
     )
     observations = {}
     async with _world(test_engine) as (owner, _api, _world_data, _url):

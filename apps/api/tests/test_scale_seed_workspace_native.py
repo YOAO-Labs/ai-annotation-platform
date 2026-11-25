@@ -38,12 +38,16 @@ pytestmark = [
 @pytest.fixture
 async def scale_world(test_engine):
     async with _world(test_engine) as (owner, consumer, role, _):
-        profiles = ["identity-scale-seed-grants.sql", "workspace-scale-seed-grants.sql"]
-        for profile in profiles:
+        profiles = [
+            ("identity-grants.sql", "scale_seed"),
+            ("workspace-grants.sql", "scale_seed"),
+        ]
+        for profile, capability in profiles:
             result = await _grants(
                 test_engine,
                 ROOT / "infra/docker" / profile,
                 role,
+                capability=capability,
                 assets_owner="assets_code",
                 labeling_owner="labeling_code",
             )
@@ -540,8 +544,9 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
             )
         result = await _grants(
             test_engine,
-            ROOT / "infra/docker/workspace-scale-seed-grants.sql",
+            ROOT / "infra/docker/workspace-grants.sql",
             role,
+            capability="scale_seed",
             assets_owner="assets_code",
             labeling_owner="labeling_code",
         )
@@ -612,7 +617,10 @@ async def test_scale_profile_is_explicit_and_does_not_expose_private_helpers(
                 )
             )
         result = await _grants(
-            test_engine, ROOT / "infra/docker/workspace-consumer-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/workspace-grants.sql",
+            role,
+            capability="consumer",
         )
         assert result.returncode == 0, result.stderr
         async with consumer() as db:

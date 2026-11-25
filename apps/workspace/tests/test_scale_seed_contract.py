@@ -192,16 +192,15 @@ def test_checked_in_schemas_match_the_contract_descriptor():
         Path(__file__).resolve().parents[1]
         / "src/yoao_workspace/scale_seed_protocol.schema.json"
     )
-    migration_schema = (
-        Path(__file__).resolve().parents[2]
-        / "api/alembic/sql/0310_workspace_scale_seed.schema.json"
-    )
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api/alembic/sql/workspace.contracts.json"
+        ).read_text(encoding="utf-8")
+    )["artifacts"]["0310_workspace_scale_seed.schema.json"]
 
     assert (
         _current_names(json.loads(package_schema.read_text(encoding="utf-8")))
         == expected
     )
-    assert (
-        _current_names(json.loads(migration_schema.read_text(encoding="utf-8")))
-        == expected
-    )
+    assert _current_names(migration_schema) == expected

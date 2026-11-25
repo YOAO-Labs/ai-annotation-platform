@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def test_schema_freezes_only_the_cleanup_calls_and_pending_row_fields():
     schema = json.loads(
-        (
-            ROOT / "apps/api/alembic/sql/0210_asset_storage_cleanup.schema.json"
-        ).read_text(encoding="utf-8")
-    )
+        (ROOT / "apps/api/alembic/sql/assets.contracts.json").read_text(
+            encoding="utf-8"
+        )
+    )["artifacts"]["0210_asset_storage_cleanup.schema.json"]
 
     assert schema["x-postgresql-functions"] == [
         "aap_assets_v1.pending_storage_deletions_v2(text, timestamptz, uuid, uuid, integer)",

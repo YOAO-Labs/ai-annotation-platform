@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import delete, func, select, text
@@ -133,14 +133,11 @@ async def _guard(session, project_id: uuid.UUID | None) -> dict:
 
 
 async def test_frozen_schema_matches_retention_guard_and_sql_capabilities():
-    schema_path = (
-        Path(__file__).parents[1]
-        / "alembic/sql/0196_project_deletion_retention.schema.json"
-    )
+    schema_path = "0196_project_deletion_retention.schema.json"
     artifact_path = (
         Path(__file__).parents[1] / "alembic/sql/0196_project_deletion_retention.sql"
     )
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = load_contract_schema(schema_path)
     artifact = artifact_path.read_text(encoding="utf-8")
     functions = {
         "aap_learning_v1.lock_project_deletion(uuid)",

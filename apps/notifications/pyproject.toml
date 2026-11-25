@@ -44,15 +44,6 @@ yoao-notifications-socket = "yoao_notifications.websocket_runtime:main"
 packages = ["src/yoao_notifications"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/yoao_notifications/sql/0311_notifications_preferences.sql" = "yoao_notifications/sql/0311_notifications_preferences.sql"
-"src/yoao_notifications/sql/0314_notifications_append.sql" = "yoao_notifications/sql/0314_notifications_append.sql"
-"src/yoao_notifications/sql/0316_notifications_read_state.sql" = "yoao_notifications/sql/0316_notifications_read_state.sql"
-"src/yoao_notifications/sql/0318_notifications_delete.sql" = "yoao_notifications/sql/0318_notifications_delete.sql"
-"src/yoao_notifications/sql/0319_notifications_read_relations.sql" = "yoao_notifications/sql/0319_notifications_read_relations.sql"
-"src/yoao_notifications/sql/0321_notifications_terminal_append.sql" = "yoao_notifications/sql/0321_notifications_terminal_append.sql"
-"src/yoao_notifications/sql/0324_notifications_inbox_query.sql" = "yoao_notifications/sql/0324_notifications_inbox_query.sql"
-"src/yoao_notifications/sql/0325_notifications_delivery_read.sql" = "yoao_notifications/sql/0325_notifications_delivery_read.sql"
-"src/yoao_notifications/sql/0421_notification_job_scope.sql" = "yoao_notifications/sql/0421_notification_job_scope.sql"
 "src/yoao_notifications/sql/0484_notifications_terminal_outbox.sql" = "yoao_notifications/sql/0484_notifications_terminal_outbox.sql"
 "src/yoao_notifications/preferences.schema.json" = "yoao_notifications/preferences.schema.json"
 "src/yoao_notifications/preferences.policy.json" = "yoao_notifications/preferences.policy.json"

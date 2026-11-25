@@ -76,10 +76,17 @@ def test_connection_contract_freezes_nine_native_and_six_public_operations():
     assert json.loads(package.read_text()) == expected
     native = (
         Path(__file__).resolve().parents[3]
-        / "apps/api/alembic/sql/0371_assets_owner_main_integration.schema.json"
+        / "apps/api/alembic/sql/assets.contracts.json"
     )
     if native.exists():
-        assert _current_names(json.loads(native.read_text())) == expected
+        assert (
+            _current_names(
+                json.loads(native.read_text())["artifacts"][
+                    "0371_assets_owner_main_integration.schema.json"
+                ]
+            )
+            == expected
+        )
 
 
 def test_connection_reply_rejects_extra_fields_bad_errors_and_wrong_scope():

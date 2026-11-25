@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import ast
-import json
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 import re
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL_DIR = ROOT / "apps/api/alembic/sql"
 MIGRATION = ROOT / "apps/api/alembic/versions/0221_accepted_inputs.py"
-SCHEMA = SQL_DIR / "0221_accepted_inputs.schema.json"
+SCHEMA = "0221_accepted_inputs.schema.json"
 ARTIFACTS = (
     "0221_accepted_inputs_state.sql",
     "0221_accepted_inputs_authorities.sql",
@@ -58,7 +59,7 @@ def test_0221_installer_orders_new_artifacts_and_preserves_0220():
 
 
 def test_0221_schema_publishes_exactly_the_twelve_native_capabilities():
-    schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(SCHEMA)
     assert schema["$id"] == "aap-assets-inputs/v1"
     assert set(schema["x-native"]) == set(OPERATIONS)
     for name, (role, arguments) in OPERATIONS.items():
@@ -82,8 +83,12 @@ def test_0221_every_new_function_is_revoked_from_public():
 
 
 def test_0221_native_functions_are_granted_only_to_frozen_profiles():
-    media = (ROOT / "infra/docker/assets-media-grants.sql").read_text()
-    image = (ROOT / "infra/docker/assets-image-grants.sql").read_text()
+    media = read_psql_grant_script(
+        ROOT / "infra/docker/assets-grants.sql", capability="media"
+    )
+    image = read_psql_grant_script(
+        ROOT / "infra/docker/assets-grants.sql", capability="image"
+    )
     modules = (
         (ROOT / "infra/docker/module-data-grants.sql").read_text().replace(", ", ",")
     )

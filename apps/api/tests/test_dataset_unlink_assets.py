@@ -387,13 +387,11 @@ async def _rows(session, statement, **parameters):
 
 
 async def test_frozen_artifact_and_asset_storage_model_match_contract():
-    import json
     from pathlib import Path
+    from tests.contract_schemas import load_contract_schema
 
     root = Path(__file__).parents[1] / "alembic/sql"
-    schema = json.loads(
-        (root / "0203_dataset_unlink_assets.schema.json").read_text(encoding="utf-8")
-    )
+    schema = load_contract_schema("0203_dataset_unlink_assets.schema.json")
     artifact = (root / "0203_dataset_unlink_assets.sql").read_text(encoding="utf-8")
     expected = {
         "aap_assets_v1.dataset_item_references(uuid, uuid)",

@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from tests.grant_script import read_psql_grant_script
 import secrets
 import subprocess
 import time
@@ -1023,9 +1024,10 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         module_grants = (ROOT / "infra/docker/module-data-grants.sql").read_text(
             encoding="utf-8"
         )
-        transfer_grants = (
-            ROOT / "infra/docker/workspace-owner-transfer-grants.sql"
-        ).read_text(encoding="utf-8")
+        transfer_grants = read_psql_grant_script(
+            ROOT / "infra/docker/workspace-grants.sql",
+            capability="owner_transfer",
+        )
         module_variables = dict(_MODULE_GRANT_VARIABLES)
         module_variables["expected_database"] = database
         transfer_variables = dict(_OWNER_TRANSFER_GRANT_VARIABLES)
