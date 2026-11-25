@@ -1798,10 +1798,6 @@ async def build_filtering_seed(
     image_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"><rect width="64" height="48" fill="#f1f5f9"/></svg>'
     api_root = Path(__file__).resolve().parents[3]
     video_source = api_root / "fixture-media/smart-point.webm"
-    if not video_source.is_file():
-        video_source = (
-            api_root.parent.parent / "docs-site/public/home/sam-tools/smart-point.webm"
-        )
     video_payload = video_source.read_bytes()
     image = await _seed_image_semantics(db, ids, users, image_svg)
     video = await _seed_video_review(

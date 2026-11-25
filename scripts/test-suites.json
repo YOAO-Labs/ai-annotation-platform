@@ -94,8 +94,8 @@
     },
     {
       "paths": [
-        "docs-site/dev/examples/echo-ml-backend/tests",
-        "docs-site/dev/examples/mock-v2-backend/tests"
+        "examples/ml-backend/echo-ml-backend/tests",
+        "examples/ml-backend/mock-v2-backend/tests"
       ],
       "owner": "protocol documentation examples",
       "selection_source": "ci.yml examples-pytest",

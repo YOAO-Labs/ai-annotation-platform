@@ -9,12 +9,12 @@
 ## 文档影响清单（CLAUDE.md §5）
 
 - [ ] 不涉及文档（仅内部重构 / 测试 / CI）
-- [ ] 新增/修改 API → 已更新 `apps/api/openapi.snapshot.json` 与 `docs-site/api/guides/`
-- [ ] 新增/修改功能 → 已更新 `docs-site/user-guide/{annotator|admin|superadmin}/`
+- [ ] 新增/修改 API → 已更新 `apps/api/openapi.snapshot.json`（并在 `YOAO-Labs/YOAO-Docs` 更新 `api/guides/`）
+- [ ] 新增/修改功能 → 已在 `YOAO-Labs/YOAO-Docs` 更新 `user-guide/{annotator|admin|superadmin}/`
 - [ ] AI 能力 / 路由 / Job / 候选流变更 → 已检查用户任务、数据生命周期、API/协议、部署恢复、权限审计；不适用项与原因：
-- [ ] 架构变更 → 已更新 `docs-site/dev/concepts/`，必要时新增 `docs/adr/`
+- [ ] 架构变更 → 已在 `YOAO-Labs/YOAO-Docs` 更新 `dev/concepts/`，必要时新增 `docs/adr/`
 - [ ] 环境变量变更 → 已更新 `.env.example` 与 `DEV.md`
-- [ ] 引入新踩坑 → 已新增 `docs-site/dev/troubleshooting/*.md`
+- [ ] 引入新踩坑 → 已在 `YOAO-Labs/YOAO-Docs` 新增 `dev/troubleshooting/*.md`
 - [ ] 发版 → 已更新 `CHANGELOG.md`（含版本号与日期）
 
 ## 测试

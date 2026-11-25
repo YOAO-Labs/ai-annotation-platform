@@ -3,38 +3,31 @@ name: Documentation
 on:
   pull_request:
     paths:
-      - "docs-site/**"
       - "docs/**"
-      - "apps/api/openapi.snapshot.json"
       - "DEV.md"
+      - "README.md"
       - "CHANGELOG.md"
       - "ROADMAP.md"
       - "ROADMAP/**"
       - "scripts/check-dead-links.mjs"
-      - "scripts/image-reference-utils*.mjs"
+      - "scripts/check-adr.mjs"
+      - "scripts/check-plans-freshness.mjs"
+      - "scripts/check-changelog-version.mjs"
       - ".github/workflows/docs-validate.yml"
-      - "apps/api/app/api/v1/**"
-      - "apps/web/src/pages/Workbench/state/hotkeys.ts"
-      - "apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts"
-      - "apps/web/src/pages/Workbench/state/workbenchLocalDefaults.ts"
-      - "apps/web/src/api/auth.ts"
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
-      - "docs-site/**"
       - "docs/**"
-      - "apps/api/openapi.snapshot.json"
       - "DEV.md"
+      - "README.md"
       - "CHANGELOG.md"
       - "ROADMAP.md"
       - "ROADMAP/**"
       - "scripts/check-dead-links.mjs"
-      - "scripts/image-reference-utils*.mjs"
-      - "apps/api/app/api/v1/**"
-      - "apps/web/src/pages/Workbench/state/hotkeys.ts"
-      - "apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts"
-      - "apps/web/src/pages/Workbench/state/workbenchLocalDefaults.ts"
-      - "apps/web/src/api/auth.ts"
+      - "scripts/check-adr.mjs"
+      - "scripts/check-plans-freshness.mjs"
+      - "scripts/check-changelog-version.mjs"
+      - ".github/workflows/docs-validate.yml"
 
 permissions:
   contents: read
@@ -50,62 +43,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: pnpm/action-setup@v4
-      - name: Install
-        run: pnpm install --frozen-lockfile
 
-      - name: Snippet anchor consistency
-        run: pnpm --filter docs-site check:snippets
+      - name: ADR numbering and status
+        run: node scripts/check-adr.mjs
 
-      - name: ADR numbering & status
-        run: pnpm --filter docs-site check:adr
+      - name: Plans freshness
+        run: node scripts/check-plans-freshness.mjs
 
-      - name: Plans freshness (warning only)
-        run: pnpm --filter docs-site check:plans
-
-      - name: CHANGELOG vs git tag (warning only)
-        run: pnpm --filter docs-site check:changelog
-
-      - name: Generated docs in sync with code (hotkeys + settings + API routes)
-        run: pnpm --filter docs-site check:codegen
-
-      - name: Frontmatter metadata
-        run: pnpm --filter docs-site check:frontmatter
-
-      - name: Freshness report (advisory)
-        run: pnpm --filter docs-site check:freshness
-
-      - name: Navigation coverage
-        run: pnpm --filter docs-site check:navigation -- --strict
-
-      - name: Documentation readability
-        run: pnpm --filter docs-site check:readability
-
-      - name: Materialize generated link targets (openapi + ADR mirror)
-        run: |
-          node docs-site/scripts/sync-openapi.mjs
-          node docs-site/scripts/mirror-adr.mjs
+      - name: Changelog vs git tag
+        run: node scripts/check-changelog-version.mjs
 
       - name: Internal Markdown links
-        run: node scripts/check-dead-links.mjs docs-site
-
-      - name: Documentation asset references
-        run: node docs-site/scripts/check-orphan-images.mjs --strict
-
-      - name: Test documentation reference checks
-        run: pnpm --filter docs-site test:references
-
-      - name: Excalidraw diagram integrity
-        run: pnpm --filter docs-site check:diagrams
-
-      - name: Build docs site (catches broken links via VitePress)
-        env:
-          DOCS_BASE: /ai-annotation-platform/
-        run: pnpm --filter docs-site build
-
-      - name: Link check (lychee)
-        if: github.event_name == 'push'
-        uses: lycheeverse/lychee-action@v2
-        with:
-          args: --no-progress --max-concurrency 4 --exclude-loopback 'docs-site/**/*.md' 'docs/**/*.md' 'README.md' 'DEV.md' 'CHANGELOG.md'
-          fail: false
+        run: node scripts/check-dead-links.mjs docs

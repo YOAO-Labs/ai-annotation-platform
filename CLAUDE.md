@@ -24,17 +24,17 @@
 - For staged plans, organize implementation and verification around a coherent, independently verifiable acceptance slice, not each helper, file, or checklist item. A passing subtask check does not complete the requested milestone.
 - During implementation, use focused checks to resolve concrete uncertainty, reproduce a bug, or localize a failure; follow explicit test-first requirements. Otherwise, batch verification at the acceptance boundary instead of automatically adding tests or running broad suites after every small edit.
 - At the acceptance boundary, exercise the integrated behavior and run required checks before reporting completion. Scale verification to the change: instruction-only or documentation-only edits need relevant content, link, and formatting checks, not application suites.
-- Test stable behavior, boundaries and plausible failures with independent expectations, not wiring or incidental wording. Reuse existing coverage; before deleting a redundant case, run its same-risk replacement. Turn recurring review corrections into an owning API change or an [executable check](docs-site/dev/testing.md#从审查意见到可执行规则).
+- Test stable behavior, boundaries and plausible failures with independent expectations, not wiring or incidental wording. Reuse existing coverage; before deleting a redundant case, run its same-risk replacement. Turn recurring review corrections into an owning API change or an [executable check](https://yoao-labs.github.io/YOAO-Docs/dev/testing#从审查意见到可执行规则).
 - Repeat completed checks only when subsequent changes can affect their results or a relevant failure or unresolved concern requires investigation. Do not repeat completed acceptance work simply because a task resumes.
 - Retain failure evidence (reports, JUnit, receipts, logs), not failed live environments. Keep one only while its unknown cause is being actively inspected there; otherwise retire task-owned containers, databases, buckets, processes and worktrees promptly. See the runtime skill's [environment retention](.agents/skills/yoao-runtime/references/environment-retention.md).
 - Review the final diff and run `git diff --check`. Report the result, relevant evidence, and precise remaining limitations concisely, including unrelated failures left out of scope. Distinguish local checks from live browser results and remote CI.
 
 ## Project boundaries
 
-- `apps/web` is a React/Vite SPA; `docs-site` is Vue/VitePress. Preserve each surface's framework and theme system.
+- `apps/web` is a React/Vite SPA. The public documentation site lives in the separate repository `YOAO-Labs/YOAO-Docs` (`https://yoao-labs.github.io/YOAO-Docs/`).
 - For browser automation and live UI validation, when `command -v agent-browser` succeeds, load and prefer the project [agent-browser skill](.agents/skills/agent-browser/SKILL.md). Use `agent-browser skills get core` for guidance matching the installed CLI version; explicit user choices of browser or session take precedence.
 - In `apps/web`, use semantic Tailwind classes backed by `apps/web/src/styles/shadcn.css` and `@theme inline`. CSS modules read `--sc-*`, never legacy `--color-*`. Do not add bare/arbitrary colors to `className`; canvas/data colors and shadow/overlay rgba are narrow exceptions.
-- Use semantic status utilities such as `text-status-danger bg-status-danger-soft`, not paired hue classes. App dark mode uses `data-theme` and Tailwind `dark:`; do not introduce `.dark` there. The docs site intentionally uses `html.dark` and its own `--docs-*` / `--home-*` tokens. See [design system](docs-site/dev/reference/design-system.md).
+- Use semantic status utilities such as `text-status-danger bg-status-danger-soft`, not paired hue classes. App dark mode uses `data-theme` and Tailwind `dark:`; do not introduce `.dark` there. See [design system](https://yoao-labs.github.io/YOAO-Docs/dev/reference/design-system).
 - After app styling changes, run `pnpm --filter web lint:css-tokens` (also included in web lint). Prefer existing compact text sizes, semantic overlay layers, Lucide icons, and local UI adapters.
 - Worktree `.env` and Node dependencies may be symlinks to the primary checkout. Check their targets before changing configuration or installing dependencies. Python environments and generated API types belong to the current checkout. See [runtime skill](.agents/skills/yoao-runtime/SKILL.md).
 - Celery does not hot-reload mounted Python code. Worker changes require refreshing affected running workers in the intended development stack and checking the new task/signature inside them. Dependencies or baked source require rebuilding; migrations require applying. Determine actual mounts and services first.
@@ -46,21 +46,21 @@
 - Put select labels above the control and explanatory hints below it. Hints use `text-xs text-muted-foreground` with comfortable line height and `aria-describedby`; never use pure white or primary foreground for hints. Keep option labels concise. Do not embed explanations, defaults or instruction text inside selected values or option labels; empty native selects can use a blank disabled hidden option.
 - Management lists should use the available content width. Prefer the existing centered `Modal` for item details and creation forms instead of a permanently reserved, mostly empty detail column. Preserve deep links, pagination, return navigation, Escape dismissal and focus restoration. Keep long detail content scrollable inside the dialog.
 - Organize complex workflows around the current item, primary action and actionable results. Put infrequent configuration, history and detailed accounting behind clearly named disclosures; keep active work, errors and required confirmations visible. Auto-open initial setup when no item exists and relevant history when directly linked.
-- For UI verification, screenshots or recordings, open a fresh named `agent-browser` session on an authorized isolated environment with the requested role, state and safe data. Operate real controls; verify visible results, relevant requests and persistence as applicable. Never inject state to simulate success. Inspect any temporary evidence for truthful content and privacy before sharing; only update published assets when explicitly requested. Do not add capture scenarios, scripts, baselines, or CI capture. See [on-demand UI checks and capture](docs-site/dev/how-to/update-screenshots.md).
+- For UI verification, screenshots or recordings, open a fresh named `agent-browser` session on an authorized isolated environment with the requested role, state and safe data. Operate real controls; verify visible results, relevant requests and persistence as applicable. Never inject state to simulate success. Inspect any temporary evidence for truthful content and privacy before sharing; only update published assets when explicitly requested. Do not add capture scenarios, scripts, baselines, or CI capture. See [on-demand UI checks and capture](https://yoao-labs.github.io/YOAO-Docs/dev/how-to/update-screenshots).
 
 ## Documentation and releases
 
-Before committing, update documentation affected by the change in the same commit:
+Before committing, update documentation affected by the change (in this repository or in `YOAO-Labs/YOAO-Docs` as applicable):
 
-| Change                      | Documentation                                                                    |
-| --------------------------- | -------------------------------------------------------------------------------- |
-| API                         | `docs-site/api/`, `README.md`; regenerate affected API artifacts                 |
-| Feature or user-visible fix | Relevant `docs-site/user-guide/` pages and top `CHANGELOG.md` Unreleased section |
-| Architecture                | `docs-site/dev/concepts/`; ADR in `docs/adr/` when warranted                     |
-| Environment variable        | `.env.example`, `pnpm docs:gen-env-vars`, `DEV.md`                               |
-| Removed or renamed symbol   | Search Markdown references and update affected links                             |
+| Change                      | Documentation                                                                                                   |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| API                         | `YOAO-Labs/YOAO-Docs` (`api/`), `README.md`; regenerate `apps/api/openapi.snapshot.json` and affected artifacts |
+| Feature or user-visible fix | Relevant `YOAO-Labs/YOAO-Docs` (`user-guide/`) pages and top `CHANGELOG.md` Unreleased section                  |
+| Architecture                | `YOAO-Labs/YOAO-Docs` (`dev/concepts/`); ADR in `docs/adr/` when warranted                                      |
+| Environment variable        | `.env.example`, `DEV.md` (`YOAO-Docs` syncs `dev/reference/env-vars.md` automatically on push)                  |
+| Removed or renamed symbol   | Search Markdown references and update affected links                                                            |
 
-Keep rendered documentation about the current system, without dotted version provenance such as `vX.Y.Z`. Record provenance in Git history, `CHANGELOG.md`, or ADRs — not in source comments or frontmatter. Exceptions: `CHANGELOG.md`, `docs/adr/**`, `docs-site/dev/adr/**`, and `*.generated.md`; runtime requirements, routes, and protocol versions remain valid.
+Keep rendered documentation about the current system, without dotted version provenance such as `vX.Y.Z`. Record provenance in Git history, `CHANGELOG.md`, or ADRs — not in source comments or frontmatter. Exceptions: `CHANGELOG.md`, `docs/adr/**`, and `*.generated.md`; runtime requirements, routes, and protocol versions remain valid.
 
 `CHANGELOG.md` follows Keep a Changelog: `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, `Security`, omitting empty groups. Explain user impact. Pure refactors, tests, and formatting may omit an entry. Release headings use `## [x.y.z] - YYYY-MM-DD`, newest first.
 
@@ -85,7 +85,7 @@ Use only the relevant entry. Paths in skills are repository-relative unless link
 | Visual audit or improvement of an existing product screen               | [redesign-existing-projects](.agents/skills/redesign-existing-projects/SKILL.md) |
 | Public landing/marketing surface                                        | [design-taste-frontend](.agents/skills/design-taste-frontend/SKILL.md)           |
 
-`README.md` covers setup; `DEV.md` covers local commands. `docs-site/dev/` contains architecture, references and troubleshooting; `docs-site/ops/` contains deployment/runbooks. Use `docs/adr/README.md`, `docs/plans/README.md`, and `docs/research/README.md` to locate decisions, plans, and research. Preview docs with `pnpm docs:dev`; verify the actual URL printed by the server.
+`README.md` covers setup; `DEV.md` covers local commands. Full user, developer, API, and ops guides live in `YOAO-Labs/YOAO-Docs` ([online docs](https://yoao-labs.github.io/YOAO-Docs/)). Use `docs/adr/README.md`, `docs/plans/README.md`, and `docs/research/README.md` to locate decisions, plans, and research in this repository.
 
 For a reported UI defect, inspect the affected flow's recent API calls and console errors. `BugReportDrawer` stores evidence in PostgreSQL `bug_reports`; [runtime diagnostics](.agents/skills/yoao-runtime/references/diagnostics.md) gives a read-only fallback when an API token is unavailable.
 

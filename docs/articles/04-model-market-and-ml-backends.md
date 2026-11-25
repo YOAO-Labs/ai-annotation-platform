@@ -3,7 +3,7 @@
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、MLOps、模型部署、人工智能、开源项目<br>
 > 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/YOAO-Docs/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -26,7 +26,7 @@ AI Annotation Platform 把全局接入和项目使用分成两层。超级管理
 
 AI Annotation Platform 的模型市场不是下载权重的应用商店。能力目录先按协议列出目标检测、旋转框、分割、关键点、分类、OCR、文档版面、追踪和交互式分割九类任务，即使还没有注册任何 Backend，这些能力卡也会保留。
 
-![模型市场中的能力目录](../../docs-site/user-guide/images/superadmin/model-market/list.png)
+![模型市场中的能力目录](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/model-market/list.png)
 
 _模型市场按协议能力组织已接入模型，并提供任务、模型族、推理框架和模态筛选；截图中的连接数和模型数只是生成素材时的页面状态。_
 
@@ -45,7 +45,7 @@ Backend 接入后，它上报的模型会挂到对应能力卡下。卡片不只
 
 模型代码、权重和推理运行时仍在独立服务中。AI Annotation Platform 通过 ML Backend 协议与它通信，注册表保存的是这个服务的全局记录。
 
-![注册全局 ML Backend](../../docs-site/user-guide/images/superadmin/ml-backend/register-form.png)
+![注册全局 ML Backend](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/ml-backend/register-form.png)
 
 _全局注册表单填写服务名称和 URL，可测试连接，并配置鉴权、GPU 资源声明、显存预算和最大并发；具体模型能力由 Backend 接口探测。_
 
@@ -72,7 +72,7 @@ _全局注册表单填写服务名称和 URL，可测试连接，并配置鉴权
 
 全局注册只增加了一个可选服务。进入“项目设置 → ML 模型”，项目管理员可以从全局清单中勾选当前项目需要的 Backend。
 
-![为项目启用全局 ML Backend](../../docs-site/user-guide/images/projects/ml-backends/register-form.png)
+![为项目启用全局 ML Backend](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/projects/ml-backends/register-form.png)
 
 _项目管理面板列出全局 Backend 的名称、地址、交互或批量类型及连接状态；勾选只改变当前项目的可用范围。_
 
@@ -93,9 +93,9 @@ _项目管理面板列出全局 Backend 的名称、地址、交互或批量类�
 
 不同 Backend 的参数差异很大。检测模型可能提供置信度阈值，SAM 系列可能提供不同权重，OCR 又有自己的语言和输出属性。平台不在项目设置里预先维护一张固定参数表，而是读取 Backend 的 `/setup.params` 和变体声明，在工作台或批量预标页生成运行时控件。
 
-![切换 AI 预标模型档位](../../docs-site/public/media/projects/ai-pre-variant-selector-poster.webp)
+![切换 AI 预标模型档位](https://yoao-labs.github.io/YOAO-Docs/media/projects/ai-pre-variant-selector-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/projects/ai-pre-variant-selector.mp4)：切换模型变体时，页面同步更新档位、显存估算和推荐标记；演示中的 Backend 声明生成运行时选项，不代表某一档在真实数据上效果最好。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/projects/ai-pre-variant-selector.mp4)：切换模型变体时，页面同步更新档位、显存估算和推荐标记；演示中的 Backend 声明生成运行时选项，不代表某一档在真实数据上效果最好。_
 
 同一个服务可以暴露多个模型尺寸或速度档，不必为了每个组合重复注册 Backend。模型卡上的速度、精度和显存标签属于服务声明的配置元数据，最终效果仍要用项目自己的数据评测。
 
@@ -118,11 +118,11 @@ Backend 的能力声明必须和实际实现一致。平台会把不受支持的
 AI Annotation Platform 采用 MIT License 开源。模型市场、ML Backend 协议、服务池路由和项目启用的实现、文档与测试都在同一个仓库里。
 
 - GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
-- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
-- 模型市场：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/superadmin/model-market>
-- ML Backend 注册：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/superadmin/ml-backend-registry>
-- 项目启用 ML Backend：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/projects/ml-backends>
-- ML Backend 协议：<https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol>
+- 在线文档：<https://yoao-labs.github.io/YOAO-Docs/>
+- 模型市场：<https://yoao-labs.github.io/YOAO-Docs/user-guide/superadmin/model-market>
+- ML Backend 注册：<https://yoao-labs.github.io/YOAO-Docs/user-guide/superadmin/ml-backend-registry>
+- 项目启用 ML Backend：<https://yoao-labs.github.io/YOAO-Docs/user-guide/projects/ml-backends>
+- ML Backend 协议：<https://yoao-labs.github.io/YOAO-Docs/dev/reference/ml-backend-protocol>
 - License：MIT
 
 系列下一篇会把这些已经对项目可用的模型放到同一张 DAG 上，看看检测、分类、OCR 和属性写回怎样组装成一条可执行的标注工作流。

@@ -473,7 +473,7 @@ async def test_media_seed_consumers_run_under_workspace_native_fences(
             "0 0.5 0.5 0.5 0.5\n", encoding="utf-8"
         )
 
-    video_source = ROOT / "docs-site/public/home/sam-tools/smart-point.webm"
+    video_source = ROOT / "apps/api/fixture-media/smart-point.webm"
     assert video_source.is_file()
     video_fixture = source_root / "video" / video_source.name
     video_fixture.parent.mkdir(parents=True)

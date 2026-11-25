@@ -415,8 +415,8 @@ open collections could not be searched.
 
 ## Repository integration
 
-- The documentation homepage is Vue/VitePress: `docs-site/.vitepress/theme/components/DocsHome.vue`, `components/home/`, and `docs-home.css`. Reading pages use `docs-theme.css`.
-- Consult [the repository design system](../../../docs-site/dev/reference/design-system.md). Keep `--home-*` brand treatment scoped to the homepage and `--docs-*` reading tokens separate. VitePress uses `html.dark`; the React app uses `data-theme`.
+- The documentation homepage is Vue/VitePress: `https://github.com/YOAO-Labs/YOAO-Docs/blob/main/.vitepress/theme/components/DocsHome.vue`, `components/home/`, and `docs-home.css`. Reading pages use `docs-theme.css`.
+- Consult [the repository design system](https://yoao-labs.github.io/YOAO-Docs/dev/reference/design-system). Keep `--home-*` brand treatment scoped to the homepage and `--docs-*` reading tokens separate. VitePress uses `html.dark`; the React app uses `data-theme`.
 - Preserve the existing stack, local fonts, assets, brand, information architecture, and working destinations. Do not introduce React/RSC, another component system, an animation library, or new fonts merely to imitate a generic aesthetic.
 - This skill is for public landing and marketing surfaces. Annotation workbenches, admin screens, and routine component fixes belong to [redesign-existing-projects](../redesign-existing-projects/SKILL.md).
 - Claims about annotation capabilities must match verified product behavior. Do not invent adoption metrics, testimonials, dates, model output, or other proof. For requested screenshots or recordings, use [yoao-doc-media](../yoao-doc-media/SKILL.md).

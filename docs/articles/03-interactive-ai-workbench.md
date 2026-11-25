@@ -3,7 +3,7 @@
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、SAM、人工智能、开源项目、交互设计<br>
 > 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/YOAO-Docs/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -25,9 +25,9 @@
 
 智能点适合目标明确、边界还没有现成几何可用的情况。标注员在目标内部单击，工作台把归一化坐标作为正向点交给支持点提示的模型，返回一个或多个轮廓候选。
 
-![智能点生成车辆轮廓候选](../../docs-site/public/media/sam/smart-point-poster.webp)
+![智能点生成车辆轮廓候选](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-point-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/smart-point.mp4)：在车辆内部单击后，画布显示模型返回的轮廓候选，顶部提示可用 Tab 切换、Enter 采纳。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-point.mp4)：在车辆内部单击后，画布显示模型返回的轮廓候选，顶部提示可用 Tab 切换、Enter 采纳。_
 
 第一次点击有歧义时，模型可以给出多个候选。`Tab` 和 `Shift+Tab` 用来切换，`Enter` 打开类别选择器，`Esc` 放弃这一轮。标注员也可以继续补点：正向点告诉模型目标还包括哪里，按住 `Alt` 单击，或切到负向极性，则表示这部分不要。
 
@@ -37,15 +37,15 @@ _[观看完整演示](../../docs-site/public/media/sam/smart-point.mp4)：在车
 
 背景杂乱时，一个点可能不足以说明目标范围。智能框让标注员先画出大致区域，模型只需要在这个范围里找主要前景。返回结果仍是轮廓候选，可以保存为 polygon；模型、项目和工具单位都支持时，也可以直接提交为原生 Raster Mask。
 
-![智能框提取车辆轮廓](../../docs-site/public/media/sam/smart-box-poster.webp)
+![智能框提取车辆轮廓](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-box-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/smart-box.mp4)：拖框圈定车辆后，模型在框内提取主要前景，结果先以紫色轮廓候选显示。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-box.mp4)：拖框圈定车辆后，模型在框内提取主要前景，结果先以紫色轮廓候选显示。_
 
 Magic Box 复用了拖框手势，但目标是检测框。标注员不必把矩形四条边拖到很准，只要大致包住目标。模型先算出目标 Mask，工作台再取它的紧凑外接矩形，随即打开类别选择器。选好类别后，结果作为 bbox 保存，不进入普通的多候选审阅流程。
 
-![Magic Box 从粗框得到紧凑检测框](../../docs-site/public/media/ai/assisted-annotation-poster.webp)
+![Magic Box 从粗框得到紧凑检测框](https://yoao-labs.github.io/YOAO-Docs/media/ai/assisted-annotation-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/ai/assisted-annotation.mp4)：Magic Box 先接收一个粗框，再按模型轮廓收紧边界。确认类别后，画布保存紧凑的车辆检测框。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/ai/assisted-annotation.mp4)：Magic Box 先接收一个粗框，再按模型轮廓收紧边界。确认类别后，画布保存紧凑的车辆检测框。_
 
 智能框回答的是“这个范围里的对象边界在哪里”，Magic Box 处理的是“把这个粗框收紧成检测框”。两者都使用单框提示，后续确认和保存路径不同。
 
@@ -53,9 +53,9 @@ _[观看完整演示](../../docs-site/public/media/ai/assisted-annotation.mp4)�
 
 智能笔迹只在选中一条已保存、未锁定的原生 Raster Mask 后启用。绿色正向笔迹用于补回漏掉的区域，按住 `Alt` 绘制或切到负向极性后，红色笔迹用于去掉误分区域。笔迹在这里是模型提示，不直接改写像素。
 
-![智能笔迹连续添加正向与负向提示](../../docs-site/public/media/sam/smart-scribble-poster.webp)
+![智能笔迹连续添加正向与负向提示](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-scribble-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/smart-scribble.mp4)：选中已存原生 Mask 后，画布依次接收正向和负向笔迹，精修结果保持候选态，等待标注员确认。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-scribble.mp4)：选中已存原生 Mask 后，画布依次接收正向和负向笔迹，精修结果保持候选态，等待标注员确认。_
 
 同一条 Mask 还可以继续用正负点或框精修。工作台把源 Annotation 的 ID 和版本交给平台，服务端读取已存 RLE，再将当前提示送给模型。确认候选后，系统更新原来的 Annotation，不会再创建一条重叠对象。
 
@@ -67,13 +67,13 @@ _[观看完整演示](../../docs-site/public/media/sam/smart-scribble.mp4)：选
 
 智能框只处理框内的一个主要对象。Exemplar 使用相同的拖框动作，却把框里的对象当作视觉样例，在整张图里查找外观相似的实例。
 
-![Exemplar 的输出与筛选控件](../../docs-site/user-guide/images/sam/exemplar-output-mode.png)
+![Exemplar 的输出与筛选控件](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/sam/exemplar-output-mode.png)
 
 _Exemplar 工具栏会按当前后端能力显示输出形态、正负样例、文本组合和置信度筛选控件。_
 
-![Exemplar 查找道路图中的相似车辆](../../docs-site/public/media/sam/exemplar-poster.webp)
+![Exemplar 查找道路图中的相似车辆](https://yoao-labs.github.io/YOAO-Docs/media/sam/exemplar-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/exemplar.mp4)：框出一辆白色车辆后，Exemplar 在整张道路图中返回多个相似车辆候选。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/exemplar.mp4)：框出一辆白色车辆后，Exemplar 在整张道路图中返回多个相似车辆候选。_
 
 第一次结果不理想时，不必清空重来。支持完整 Exemplar 精修能力的 SAM 3 可以继续增加正样例来补召回，也可以用负样例排除误检；置信度阈值用来控制结果数量，还能叠加一个简短文本概念。每次调整都会带着当前框集、文本和阈值重新计算。
 
@@ -110,9 +110,9 @@ Exemplar 的推理输出可以按模型能力选择框、掩膜或两者。结�
 AI Annotation Platform 采用 MIT License 开源。五种工具的前端交互、平台路由、Grounded-SAM-2、SAM 3 和 YOLOE 后端实现，以及对应文档与测试都在同一个仓库里。
 
 - GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
-- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
-- 交互式 AI 用户指南：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/workbench/sam-tool>
-- ML Backend 协议：<https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol>
+- 在线文档：<https://yoao-labs.github.io/YOAO-Docs/>
+- 交互式 AI 用户指南：<https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/sam-tool>
+- ML Backend 协议：<https://yoao-labs.github.io/YOAO-Docs/dev/reference/ml-backend-protocol>
 - License：MIT
 
 系列下一篇会继续介绍模型市场与 ML Backend：模型能力怎样被平台识别、全局 Backend 为什么还要由项目显式启用。

@@ -1,0 +1,55 @@
+name: Docs sync dispatch
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "apps/api/openapi.snapshot.json"
+      - "apps/api/app/api/v1/**"
+      - "apps/web/src/pages/Workbench/state/hotkeys.ts"
+      - "apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts"
+      - "apps/web/src/pages/Workbench/state/workbenchLocalDefaults.ts"
+      - "apps/web/src/api/auth.ts"
+      - "apps/_shared/training_contract/**"
+      - "apps/_shared/task_contract/**"
+      - ".env.example"
+      - "CHANGELOG.md"
+      - "docs/changelogs/**"
+      - "examples/ml-backend/**"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Source ref passed to YOAO-Labs/YOAO-Docs"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Docs sync trigger
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate sync token
+        env:
+          DOCS_SYNC_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
+        run: |
+          if [ -z "$DOCS_SYNC_TOKEN" ]; then
+            echo "::error::DOCS_SYNC_TOKEN secret is not configured in YOAO-Labs/YOAO."
+            exit 1
+          fi
+
+      - name: Dispatch sync event to YOAO-Docs
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
+          SOURCE_REF: ${{ inputs.ref || github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          gh api \
+            --method POST \
+            repos/YOAO-Labs/YOAO-Docs/dispatches \
+            -f event_type=yoao-docs-sync \
+            -f "client_payload[ref]=${SOURCE_REF}" \
+            -f "client_payload[sha]=${SOURCE_SHA}"

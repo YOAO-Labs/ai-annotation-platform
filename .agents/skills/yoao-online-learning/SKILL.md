@@ -5,7 +5,7 @@ description: Change or diagnose training dataset freezes, native training attemp
 
 # Online learning contracts
 
-Read the affected section of [training architecture](../../../docs-site/dev/concepts/training-datasets.md) and the actual capability registry before editing. A framework's training support does not imply augmentation preview, evaluation, active selection, CPU/CUDA inference, or model-return support. Inspect this checkout's shared contracts under `apps/_shared/training_contract` and `apps/_shared/task_contract`; do not copy a capability matrix or runtime version from an old session.
+Read the affected section of [training architecture](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets) and the actual capability registry before editing. A framework's training support does not imply augmentation preview, evaluation, active selection, CPU/CUDA inference, or model-return support. Inspect this checkout's shared contracts under `apps/_shared/training_contract` and `apps/_shared/task_contract`; do not copy a capability matrix or runtime version from an old session.
 
 Keep acceptance within the requested learning slice. A storage change does not automatically require a large-scale training benchmark, a new executor deployment, or repeated rollback drills; exercise those only when the requested capability or a concrete changed boundary requires them.
 
@@ -30,4 +30,4 @@ Candidate registration, artifact installation, fixed-sample trial, project publi
 
 ## Verification
 
-Use the affected existing `test_training_*`, model-return/evaluation tests, and executor tests; then exercise the changed native or API path in an owned disposable environment. For native segmentation or GPU evidence, start from [segmentation qualification](../../../docs-site/dev/how-to/validate-segmentation-online-learning.md) and [GPU lifecycle acceptance](../../../docs-site/ops/runbooks/gpu-arbitration-acceptance.md). CPU-only checks, downloaded weights, packaging, native training, model return, and CUDA qualification are different claims; report only the boundary actually exercised. Refresh baked or mounted runtime through [yoao-runtime](../yoao-runtime/SKILL.md).
+Use the affected existing `test_training_*`, model-return/evaluation tests, and executor tests; then exercise the changed native or API path in an owned disposable environment. For native segmentation or GPU evidence, start from [segmentation qualification](https://yoao-labs.github.io/YOAO-Docs/dev/how-to/validate-segmentation-online-learning) and [GPU lifecycle acceptance](https://yoao-labs.github.io/YOAO-Docs/ops/runbooks/gpu-arbitration-acceptance). CPU-only checks, downloaded weights, packaging, native training, model return, and CUDA qualification are different claims; report only the boundary actually exercised. Refresh baked or mounted runtime through [yoao-runtime](../yoao-runtime/SKILL.md).

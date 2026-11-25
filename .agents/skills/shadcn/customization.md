@@ -6,7 +6,7 @@ Read for styling a local shadcn primitive or integrating an upstream component i
 
 Prefer the primitive's existing variant/size, then appropriate semantic classes, then a maintained variant when the requested behavior needs one. Preserve local compatibility adapters and caller contracts. Wrappers are useful for actual application composition, not as a prerequisite to every change.
 
-Use `bg-card`, `text-foreground`, `border-border`, `bg-primary text-primary-foreground`, and existing status utilities. CSS modules read `var(--sc-*)`. Status colors already support both themes; do not add raw hue pairs. Reuse compact text sizes, radii, and semantic overlay layers from [the design system](../../../docs-site/dev/reference/design-system.md).
+Use `bg-card`, `text-foreground`, `border-border`, `bg-primary text-primary-foreground`, and existing status utilities. CSS modules read `var(--sc-*)`. Status colors already support both themes; do not add raw hue pairs. Reuse compact text sizes, radii, and semantic overlay layers from [the design system](https://yoao-labs.github.io/YOAO-Docs/dev/reference/design-system).
 
 If an upstream update introduces incompatible CSS variables, map it into this token system while reviewing the component diff. A requested global theme change belongs in the token source and must cover both themes. A local component edit does not request a preset replacement.
 

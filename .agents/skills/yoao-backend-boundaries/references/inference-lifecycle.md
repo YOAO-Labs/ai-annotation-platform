@@ -2,7 +2,7 @@
 
 ## Select this checkout's contract
 
-Use [model routing and authentication](../../../../docs-site/dev/concepts/ml-backend-routing-and-auth.md) and [GPU acceptance](../../../../docs-site/ops/runbooks/gpu-arbitration-acceptance.md) for the current implementation. Some branches additionally have `apps/inference`, `packages/inference-plugin-sdk`, installation schemas and `plugin_installation_observation.py`; inspect those files only after discovering them in the target checkout. Their presence in a historical session does not mean they exist on main or that an unfinished installation is qualified.
+Use [model routing and authentication](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/ml-backend-routing-and-auth) and [GPU acceptance](https://yoao-labs.github.io/YOAO-Docs/ops/runbooks/gpu-arbitration-acceptance) for the current implementation. Some branches additionally have `apps/inference`, `packages/inference-plugin-sdk`, installation schemas and `plugin_installation_observation.py`; inspect those files only after discovering them in the target checkout. Their presence in a historical session does not mean they exist on main or that an unfinished installation is qualified.
 
 ## Independent authorities
 

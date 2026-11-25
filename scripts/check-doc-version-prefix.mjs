@@ -8,14 +8,8 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
 
-const SCAN = [/^docs-site\/.*\.md$/, /^README\.md$/, /^DEV\.md$/];
-const EXEMPT = [
-  /^CHANGELOG\.md$/,
-  /^docs\/adr\//,
-  /^docs-site\/dev\/adr\//,
-  /\.generated\.md$/,
-  /^docs-site\/\.vitepress\/dist\//,
-];
+const SCAN = [/^README\.md$/, /^DEV\.md$/];
+const EXEMPT = [/^CHANGELOG\.md$/, /^docs\/adr\//, /\.generated\.md$/];
 
 const taggedVersion = String.raw`v\d+\.(?:\d+|x)(?:\.(?:\d+|x))*\+?`;
 const patchVersion = String.raw`v?\d+\.\d+\.(?:\d+|x)(?![\d.])\+?`;

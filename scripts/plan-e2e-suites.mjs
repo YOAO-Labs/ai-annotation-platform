@@ -359,10 +359,11 @@ const DOCS_ONLY = [
 ];
 
 const DOCS_ONLY_EXCLUSIONS = [
+  /^examples\//,
   /^docs-site\/dev\/examples\//,
   /^docs-site\/\.vitepress\//,
   /^docs-site\/.*\.(py|mjs|cjs|ts|tsx|sh)$/,
-  /^(apps|packages|scripts)\/.*\.md$/,
+  /^(apps|packages|scripts|examples)\/.*\.md$/,
 ];
 
 function isDocsOnlyPath(path) {

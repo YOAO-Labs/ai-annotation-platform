@@ -21,4 +21,4 @@ Trace the current checkout from the initiating route to input capture, execution
 
 Use the existing tests for the changed route/worker and final owner, then exercise the real operation. Select the relevant race: source changed during inference, revoked original Key, foreign edit lock, terminal Job, changed annotation version, replaced attempt, or assignment after bulk preannotation. Include native-mask/video qualification only when those paths changed. Do not turn one payload or storage fix into an unrelated Tracker/session/review redesign.
 
-Current architecture: [prediction pipeline](../../../../docs-site/dev/concepts/prediction-pipeline.md). Environment and worker refresh: [yoao-runtime](../../yoao-runtime/SKILL.md). Module isolation and physical inference lifecycle: [yoao-backend-boundaries](../../yoao-backend-boundaries/SKILL.md).
+Current architecture: [prediction pipeline](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/prediction-pipeline). Environment and worker refresh: [yoao-runtime](../../yoao-runtime/SKILL.md). Module isolation and physical inference lifecycle: [yoao-backend-boundaries](../../yoao-backend-boundaries/SKILL.md).

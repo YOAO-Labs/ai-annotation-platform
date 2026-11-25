@@ -3,7 +3,7 @@
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、MLOps、OCR、人工智能、开源项目<br>
 > 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/YOAO-Docs/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -34,7 +34,7 @@ AI Annotation Platform 把这套模型交接做成了产品能力：模型可以
 
 在 AI 预标页打开项目后，左侧是编排画布，右侧只配置当前选中的节点。源节点读取整图并产出第一批几何；下游节点接收父节点的输出，再决定裁 ROI、传几何提示，还是继续生成新对象。
 
-![多阶段 AI 预标编排画布](../../docs-site/user-guide/images/projects/ai-pre-config-panel.png)
+![多阶段 AI 预标编排画布](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/projects/ai-pre-config-panel.png)
 
 _左侧画布显示源节点与下游节点的连接，右侧配置当前选中的阶段；截图处于配置状态，并不表示任务已经运行。_
 
@@ -60,9 +60,9 @@ _左侧画布显示源节点与下游节点的连接，右侧配置当前选中�
 - **覆盖**：清理目标任务已有的 AI 预测与 AI 标注后重新运行，保留人工标注；
 - **追加**：保留旧预测并再加一份，适合少数需要并排比较的场景。
 
-![选择批次并发起 AI 预标](../../docs-site/public/media/ai/preannotate-poster.webp)
+![选择批次并发起 AI 预标](https://yoao-labs.github.io/YOAO-Docs/media/ai/preannotate-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/ai/preannotate.mp4)：从项目详情选择批次和参数，发起后台预标任务后进入任务历史；演示停在已派发状态，不把它描述成“候选已采纳”。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/ai/preannotate.mp4)：从项目详情选择批次和参数，发起后台预标任务后进入任务历史；演示停在已派发状态，不把它描述成“候选已采纳”。_
 
 批量任务会进入 Jobs 历史，逐阶段记录目标数、成功数、失败数和几何跳过数。多批次可以串行或并行运行，但请求仍受 Backend 并发限制。任务完成只说明 Prediction 已经生成，不代表这些结果已经成为正式 Annotation。
 
@@ -76,9 +76,9 @@ OCR 在这条数据流里有两种位置。
 
 端到端 OCR 直接读取整图，产出文本 polygon，以及 `text`、`orientation`、`language` 等属性。纯文本检测模型只负责找区域；识别原子则接收上游文本框裁出的 ROI，把识别结果写回对应框。典型组合就是“车牌检测 → 裁车牌小图 → OCR 识别”。
 
-![RapidOCR 当前题推理](../../docs-site/public/media/ai/ocr-current-task-poster.webp)
+![RapidOCR 当前题推理](https://yoao-labs.github.io/YOAO-Docs/media/ai/ocr-current-task-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/ai/ocr-current-task.mp4)：在真实 OCR 图片上选择 RapidOCR 端到端模型并运行当前题，画布出现文字多边形与文本候选；演示停在待审状态，没有采纳候选。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/ai/ocr-current-task.mp4)：在真实 OCR 图片上选择 RapidOCR 端到端模型并运行当前题，画布出现文字多边形与文本候选；演示停在待审状态，没有采纳候选。_
 
 采纳候选时，模型返回的 OCR 属性会跟着写入 Annotation。项目仍应在 Schema 里配置 `text`、`language` 等承接字段，让工作台有稳定的显示、编辑和校验入口。当前模型声明了输出属性 Schema 时，页面会提示缺少的字段，并提供一键补全。
 
@@ -86,9 +86,9 @@ _[观看完整演示](../../docs-site/public/media/ai/ocr-current-task.mp4)：�
 
 批量预标和图片当前题编排都把结果写入 Prediction。工作台把这些结果放在 AI 待审层，和已确认标注分开显示。标注员可以检查几何和属性，必要时先改值，再接受或拒绝。
 
-![AI 候选键盘审阅](../../docs-site/public/media/ai/candidate-keyboard-review-poster.webp)
+![AI 候选键盘审阅](https://yoao-labs.github.io/YOAO-Docs/media/ai/candidate-keyboard-review-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/ai/candidate-keyboard-review.mp4)：进入 AI 待审候选后，使用 `A` 接受、`D` 拒绝；每次决策后自动前进到下一项。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/ai/candidate-keyboard-review.mp4)：进入 AI 待审候选后，使用 `A` 接受、`D` 拒绝；每次决策后自动前进到下一项。_
 
 接受候选时，平台才创建正式 Annotation。多阶段写入的属性会记录到具体属性键的 AI 来源和模型引用；如果标注员后来手工修改某个键，这个键会转为人工结果，其它没有改动的 AI 属性仍保留来源。
 
@@ -113,9 +113,9 @@ _[观看完整演示](../../docs-site/public/media/ai/candidate-keyboard-review.
 AI Annotation Platform 采用 MIT License 开源。编排画布、批量任务、候选审阅、OCR 和属性溯源的实现、文档与测试都在同一个仓库里。
 
 - GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
-- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
-- AI 预标与多阶段编排：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/projects/ai-preannotate>
-- 当前题 AI 与二次推理：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/ai/current-task-inference>
+- 在线文档：<https://yoao-labs.github.io/YOAO-Docs/>
+- AI 预标与多阶段编排：<https://yoao-labs.github.io/YOAO-Docs/user-guide/projects/ai-preannotate>
+- 当前题 AI 与二次推理：<https://yoao-labs.github.io/YOAO-Docs/user-guide/ai/current-task-inference>
 - License：MIT
 
 系列下一篇会继续介绍视频轨迹：单帧交互式 AI、关键帧、跨帧传播和整段追踪之间有什么区别。
