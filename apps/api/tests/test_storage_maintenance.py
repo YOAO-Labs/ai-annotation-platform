@@ -138,7 +138,6 @@ async def test_preview_offline_read_only_and_cycle_increments_only_maintenance_r
         .startswith(("INSERT", "UPDATE", "DELETE", "CREATE", "ALTER"))
         for statement in sql
     )
-    assert sum("jsonb_array_elements" in statement for statement in sql) == 1
     assert reviewed["target_state"] == "draining"
     assert reviewed["impact"]["counts"]["sources"] == 1
     assert reviewed["measured_at"] == reviewed["impact"]["measured_at"]

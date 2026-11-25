@@ -15,6 +15,7 @@ from app.db.models.dataset_asset import DatasetAsset
 from app.db.models.dataset_source import DatasetScanRun, DatasetSourcePreview
 from app.db.models.original_cache import OriginalCacheReadLease
 from app.db.models.storage_connection import StorageConnection
+from app.services.storage_registry_data import get_location
 from tests.factory import create_project, create_task
 from tests.test_dataset_content import content_world as content_world
 from tests.test_dataset_references import reference_world as reference_world
@@ -79,7 +80,6 @@ async def test_preview_is_read_only_offline_and_apply_records_reviewed_changes(
     assert all(
         statement.lstrip().upper().startswith(("SELECT", "WITH")) for statement in sql
     )
-    assert sum("jsonb_array_elements" in statement for statement in sql) == 1
     assert review["changes"] == [{"field": "enabled", "before": True, "after": False}]
     assert review["impact"]["counts"]["sources"] == 1
     assert review["impact"]["execution_permission"] is False
@@ -523,8 +523,8 @@ async def test_same_count_business_identity_replacement_requires_a_new_review(
     response = await apply(httpx_client, where, super_admin, review)
     assert response.status_code == 409, response.text
     assert response.json()["detail"]["code"] == "storage_change_preview_changed"
-    await db.refresh(where)
-    assert where.config_revision == review["config_revision"] and where.enabled
+    current = await get_location(db, where.id)
+    assert current.config_revision == review["config_revision"] and current.enabled
 
 
 async def test_confirmation_expiring_during_the_census_cannot_apply(

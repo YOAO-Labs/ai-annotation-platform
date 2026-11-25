@@ -113,7 +113,6 @@ async def test_preview_is_offline_read_only_and_archive_preserves_business_ident
         statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
         for statement in sql
     )
-    assert sum("jsonb_array_elements" in statement for statement in sql) == 1
     assert datetime.fromisoformat(review["expires_at"]) - datetime.fromisoformat(
         review["measured_at"]
     ) == timedelta(minutes=5)

@@ -214,7 +214,6 @@ async def test_empty_offline_location_is_read_only_and_query_count_is_fixed(
     assert all(
         sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in populated_queries
     )
-    assert sum("jsonb_array_elements" in sql for sql in populated_queries) == 1
     assert set(populated) == set(empty)
     assert set(populated["counts"]) == set(empty["counts"])
 

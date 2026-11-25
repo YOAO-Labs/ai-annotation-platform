@@ -7,7 +7,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from yoao_notifications.publication_contract import PublicationAuthorization
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
 
@@ -26,44 +25,26 @@ def _row(*, created_at=None, payload=_DEFAULT_PAYLOAD):
     )
 
 
-def _service(row):
-    service = object.__new__(NotificationService)
-
-    async def resolve_delivery_scopes(rows):
-        assert rows == [row]
-        return [(False, None, False)]
-
-    async def authorization_facts(rows, _scopes):
-        assert rows == [row]
-        return [
-            PublicationAuthorization(
-                restricted=False,
-                project_id=None,
-                export_required=False,
-                member=False,
-                reviewer=False,
-                owner=False,
-                super_admin=False,
-            )
-        ]
+def _service(row, db_session):
+    service = NotificationService(db_session)
 
     async def notification_by_id(notification_id):
         assert notification_id == row.id
         return row
 
-    service._resolve_delivery_scopes = resolve_delivery_scopes
-    service._publication_authorizations = authorization_facts
     service.notification_by_id = notification_by_id
     return service
 
 
 @pytest.mark.asyncio
-async def test_api_event_builder_keeps_fields_and_offset_timestamp(monkeypatch):
+async def test_api_event_builder_keeps_fields_and_offset_timestamp(
+    db_session, monkeypatch
+):
     created_at = datetime(
         2026, 10, 24, 10, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))
     )
     row = _row(created_at=created_at)
-    service = _service(row)
+    service = _service(row, db_session)
     published = []
 
     async def capture(*, user_id, message):
@@ -88,9 +69,9 @@ async def test_api_event_builder_keeps_fields_and_offset_timestamp(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_api_event_builder_keeps_utc_fallback(monkeypatch):
+async def test_api_event_builder_keeps_utc_fallback(db_session, monkeypatch):
     row = _row(created_at=None)
-    service = _service(row)
+    service = _service(row, db_session)
     published = []
 
     async def capture(*, user_id, message):
@@ -109,10 +90,11 @@ async def test_api_event_builder_keeps_utc_fallback(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_best_effort_publish_still_swallows_errors_and_propagates_cancel(
+    db_session,
     monkeypatch,
 ):
     row = _row(created_at=datetime(2026, 10, 24, tzinfo=timezone.utc))
-    service = _service(row)
+    service = _service(row, db_session)
 
     attempts = []
 
@@ -152,9 +134,11 @@ async def test_best_effort_publish_still_swallows_errors_and_propagates_cancel(
 
 
 @pytest.mark.asyncio
-async def test_durable_publish_path_still_propagates_transport_errors(monkeypatch):
+async def test_durable_publish_path_still_propagates_transport_errors(
+    db_session, monkeypatch
+):
     row = _row(created_at=datetime(2026, 10, 24, tzinfo=timezone.utc))
-    service = _service(row)
+    service = _service(row, db_session)
 
     attempts = []
 
@@ -183,13 +167,13 @@ async def test_durable_publish_path_still_propagates_transport_errors(monkeypatc
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [None, [], ["legacy"], "legacy", 7, True])
 async def test_api_publish_methods_preserve_native_jsonb_payload_shapes(
-    monkeypatch, payload
+    db_session, monkeypatch, payload
 ):
     row = _row(
         created_at=datetime(2026, 10, 24, tzinfo=timezone.utc),
         payload=payload,
     )
-    service = _service(row)
+    service = _service(row, db_session)
     messages = []
 
     async def capture(*, user_id, message):

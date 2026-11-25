@@ -302,8 +302,11 @@ def source_fixture(
                 }
             )
 
-    async def routed(db, selected_owner, purpose, callback, *args, **kwargs):
+    async def routed(
+        db, selected_owner, purpose, callback, *args, source_key, **kwargs
+    ):
         assert selected_owner == owner
+        assert (owner.bucket, source_key) in objects
         return callback(transport, *args, **kwargs)
 
     monkeypatch.setattr(training_storage_io, "run", routed)
