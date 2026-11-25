@@ -150,7 +150,7 @@
 
 - **只通过新增前向迁移更新 SQL（严禁原地修改已冻结历史 SQL 文件）**：
   - 保持 `apps/api/alembic/sql/0491_learning_dataset_boundary.sql`、`0492_learning_models.sql`、`0493_learning_selection.sql` 冻结不变；新增前向迁移（如 `0512_trainer_extension_generalization.py`）使用 `CREATE OR REPLACE FUNCTION` / `CREATE OR REPLACE VIEW`，完整保留 `SECURITY DEFINER`、`SET search_path = pg_catalog, pg_temp`、`REVOKE ALL ... FROM PUBLIC` 与受限 LOGIN 权限守卫测试：
-    - 更新 `yoao_learning_v1.advance_model_deployment_retirement()`：移除 `AND v.framework = 'libreyolo'`，改为按部署记录的显式退役能力标记判断是否进入 `draining -> retired`。
+    - 更新 `yoao_learning_v1.advance_model_deployment_retirement()`：移除 `AND v.framework = 'libreyolo'`，让任意已完成依赖排空的部署均可沿 `ready -> draining -> retired` 安全退役。
     - 更新 `yoao_learning_v1.pending_dataset_mask_*` 与数据集边界视图：将 `v.snapshot->>'bridge' = 'ultralytics-instance-rle-1'` 泛化为规范数据集契约中的 `mask_storage_kind = 'instance_rle'` 属性（向后兼容历史快照），并放开非 `ultralytics-yolo` 数据集契约识别。
 - **API Schema 与服务去字面量**：
   - 移除 `apps/api/app/schemas/*.py` 与路由中的 `Literal["ultralytics", "libreyolo"]`，改为通过已注册训练器能力表动态校验 `framework`、`task`、`base_model` 与 `dataset_contract`。
@@ -196,7 +196,9 @@
 
 ## 6. 当前状态与待决事项
 
-- **当前状态**：已完成 **T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）**，已产出 [ADR-0189](../adr/0189-trainer-extension-point.md)，并在 `YOAO-Labs/Plugin-SDK`（`yoao_plugin_sdk.trainer`、`@yoao/plugin-sdk`）与主仓 `yoao-sdk`（`packages/python-sdk/src/training_contract/trainer_plugin.py`）双向冻结全量 `yoao-trainer/v1` 模型、校验器与规范摘要函数（T0 实测已覆盖 Python 3.10、Node、TypeScript strict 与双仓 13 模型 JSON Schema 对等校验）。
-- **待维护者确认（进入 T1 前）**：
-  1. 确认 [ADR-0189](../adr/0189-trainer-extension-point.md) 架构决策并授权启动 **T1（Learning Owner 边界收口与前向 SQL 泛化）**。
-  2. 训练器镜像执行方式：自托管默认 `training-supervisor` 通过受限容器运行通道调用本地 Docker Engine 启动训练器容器（宿主 API 仍绝不接触 Docker socket），还是同时保留 Podman/OCI runtime 抽象接口。
+- **当前状态**：
+  - 已完成 **T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）**，在 `YOAO-Labs/Plugin-SDK` 与主仓 `yoao-sdk` 双向冻结 13 个协议模型与校验原语。
+  - 已完成 **T1（Learning Owner 边界收口与前向 SQL 泛化）**：新增前向迁移 `bo0512`（`0512_trainer_extension_generalization.sql` / `.py`）泛化 7 个 Learning SQL 函数而不改动冻结历史文件 `0491`–`0493`（保持冻结 `schema 1–4` 与 Python 契约逐条对等，从 `schema >= 5` 起开放泛化插件契约）；移除 API Schema 与路由中的硬编码框架/桥接 `Literal`，切换至 `training_adapters` 能力检查与动态框架校验，并同步 OpenAPI 快照、SDK 操作目录与 Web 生成客户端（手动前端类型与 Python SDK 包装模型残留 `Literal` 留待 T2/T3 收敛）；收口 Learning 服务中的跨模块 `User`/`Project` ORM、`MLBackendService` 与私有 `MLBackendRouter._build_candidates`/`_router_mode` 直连并补齐 AST 边界守卫与真实 PostgreSQL 迁移测试。
+- **待维护者确认（进入 T2 前）**：
+  1. 确认启动 **T2（`yoao_learning_v1.trainer_plugins` 与 `training-supervisor` 容器化执行监督器）**。
+  2. 明确 T2 容器运行边界选择：自托管默认仅实现本地 Docker Engine 通道，还是新增窄 `ContainerRuntimePort` 并提供本地 Docker（可选 Podman/OCI）实现。

@@ -6,19 +6,28 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
-from app.schemas.training_run import ExecutorFence, TrainingConfiguration
+from app.schemas.training_run import (
+    ExecutorFence,
+    FrameworkId,
+    FrameworkSlug,
+    TrainingConfiguration,
+)
 
 
-class TrainingPreviewCreate(BaseModel):
+class TrainingPreviewRequestOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dataset_id: uuid.UUID
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: FrameworkSlug
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     configuration: TrainingConfiguration
     seed: int = Field(default=42, ge=0, le=2147483647, strict=True)
     epoch: int = Field(default=1, ge=1, le=1000, strict=True)
     count: int = Field(default=1, ge=1, le=4, strict=True)
     request_id: uuid.UUID
+
+
+class TrainingPreviewCreate(TrainingPreviewRequestOut):
+    framework: FrameworkId
 
 
 class PreviewBox(BaseModel):
@@ -97,7 +106,7 @@ class TrainingPreviewOut(BaseModel):
     id: uuid.UUID
     project_id: uuid.UUID
     async_job_id: uuid.UUID | None
-    request: TrainingPreviewCreate
+    request: TrainingPreviewRequestOut
     input_digest: str
     config_digest: str
     configuration: dict[str, JsonValue]

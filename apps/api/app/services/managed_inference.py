@@ -15,6 +15,8 @@ from training_contract.models import model_spec
 from app.services.learning_models_data import get_deployment
 from app.schemas.sample_evaluation import EvaluationProfile
 from app.services import sample_evaluation_engine as engine, trained_models
+from app.services import training_adapters
+from app.services.inference_topology_data import InferenceTopologyData
 from yoao_inference.backend_transport import PredictionResult
 from yoao_task_contract import normalize_task
 from app.services.training_dataset_bridge import content_digest
@@ -57,12 +59,18 @@ async def qualification(db, project, model_id, deployment_id):
         trained_models.raise_frozen_model_reference_error(exc)
     if ref["deployment_id"] != str(deployment_id):
         raise reject("deployment_changed", "受控部署身份已变化")
-    if ref["framework"] != "ultralytics":
-        raise reject(
-            "framework_unqualified",
-            "该框架尚未通过共享样本评估资格检查；模型试用与人工发布仍可使用",
-            422,
+    if not training_adapters.supports_managed_evaluation(ref["framework"]):
+        registry_facts = await InferenceTopologyData(db).registry_facts(
+            deployment.registry_id
         )
+        if not training_adapters.supports_managed_evaluation(
+            ref["framework"], backend=registry_facts
+        ):
+            raise reject(
+                "framework_unqualified",
+                "该框架尚未通过共享样本评估资格检查；模型试用与人工发布仍可使用",
+                422,
+            )
     await trained_models.enabled_backend(db, project.id, deployment.registry_id)
     segment = normalize_task(ref.get("task") or "detect") == "segment"
     framework_version = ref.get("framework_version")
@@ -195,10 +203,8 @@ class _BackendControlHandle:
 
 
 async def backend_control_handle(db, model_ref, *, session_factory):
-    from app.services.ml_backend import MLBackendService
-
     registry_id = uuid.UUID(model_ref["registry_id"])
-    if await MLBackendService(db).get_registry(registry_id) is None:
+    if await InferenceTopologyData(db).registry_facts(registry_id) is None:
         raise RemoteUncertain
     return _BackendControlHandle(registry_id, session_factory)
 

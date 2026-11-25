@@ -23,8 +23,8 @@ from fastapi import HTTPException
 from training_contract.model_return import registration_eligibility
 
 from app.services import learning_models_data as data
+from app.services import training_adapters
 from app.services import training_run_data
-from app.services.ml_backend import MLBackendService
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
@@ -317,8 +317,8 @@ async def retire_deployment(db, project_id, version_id, deployment_id, *, termin
     from app.services.inference_topology_data import InferenceTopologyData
 
     version = await load_version(db, project_id, version_id)
-    if version.framework != "libreyolo":
-        raise HTTPException(status_code=422, detail="此操作仅适用于 LibreYOLO 部署")
+    if not training_adapters.supports_deployment_retirement(version.framework):
+        raise HTTPException(status_code=422, detail="当前框架部署不支持退役流程")
     candidate = await data.get_deployment(db, project_id, version_id, deployment_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="模型部署不存在")
@@ -583,13 +583,15 @@ async def enabled_backend(db, project_id, registry_id):
     from app.services.inference_topology_data import InferenceTopologyData
     from yoao_inference_contract.plugin import plugin_is_active
 
-    facts = await InferenceTopologyData(db).lock_plugin_registry(registry_id)
+    topology = InferenceTopologyData(db)
+    facts = await topology.lock_plugin_registry(registry_id)
     if facts is None:
         raise HTTPException(status_code=404, detail="推理实例不存在")
     if not plugin_is_active(facts.extra_params):
         raise HTTPException(status_code=409, detail="推理插件安装未启用")
     backend = facts
-    if not await MLBackendService(db).is_enabled(project_id, registry_id):
+    assoc = await topology.project_assoc_for_registry(project_id, registry_id)
+    if not (assoc and assoc.enabled):
         raise HTTPException(status_code=404, detail="推理实例未在当前项目启用")
     if (
         backend.auth_method != "token"
@@ -610,10 +612,10 @@ async def enabled_backend(db, project_id, registry_id):
 async def assert_routable_backend(db, project_id, registry_id):
     from app.services.inference_topology_data import InferenceTopologyData
     from app.services.ml_routing.contracts import RouterMode
-    from app.services.ml_routing.router import MLBackendRouter, _router_mode
+    from app.services.ml_routing.router import MLBackendRouter, router_mode
 
     pool = await InferenceTopologyData(db).pool_for_registry(registry_id)
-    mode = _router_mode()
+    mode = router_mode()
     if (
         not pool
         or not pool.enabled
@@ -625,13 +627,7 @@ async def assert_routable_backend(db, project_id, registry_id):
         raise HTTPException(
             status_code=409, detail="该实例不满足当前服务池的精确路由条件"
         )
-    candidates = await MLBackendRouter(db, mode=mode)._build_candidates(
-        pool, required_instance_id=registry_id
-    )
-    if not any(
-        c.instance_id == registry_id and c.health_fresh and c.fingerprint_ok
-        for c in candidates
-    ):
+    if not await MLBackendRouter(db, mode=mode).is_registry_routable(pool, registry_id):
         raise HTTPException(status_code=409, detail="推理实例健康或能力校验尚未就绪")
 
 

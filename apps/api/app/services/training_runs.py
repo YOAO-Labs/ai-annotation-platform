@@ -52,7 +52,7 @@ from app.services.training_adapters import (
 )
 from app.services import training_initialization as initialization
 from app.services import training_recipes as recipes
-from app.db.models.user import User
+from app.services.learning_context import LearningActorContext
 
 ACTIVE = {
     "queued",
@@ -1304,7 +1304,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
 async def admit(
     db,
     project_id,
-    user: User | IdentityActorFacts,
+    user: LearningActorContext | IdentityActorFacts,
     body: TrainingRunCreate,
     *,
     api_key_id=None,
@@ -1453,7 +1453,9 @@ async def mark_policy_manual_resume(db, run: data.RunFacts) -> None:
     run.authorization = {**run.authorization, "manual_resume": True}
 
 
-async def cancel(db, project_id, run_id, user: User | IdentityActorFacts):
+async def cancel(
+    db, project_id, run_id, user: LearningActorContext | IdentityActorFacts
+):
     await lock_project_manager(db, user.id, project_id)
     run = await load_run(db, project_id, run_id, lock=True)
     attempt = await data.get_attempt(db, run.current_attempt_id)

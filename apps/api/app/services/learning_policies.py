@@ -11,8 +11,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.project_access import get_workspace_project
-from app.db.models.project import Project
-from app.db.models.user import User
+from app.services.learning_context import LearningActorContext, LearningProjectContext
 from app.schemas.learning_policy import LearningPolicySave
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.schemas.training_run import TrainingRunCreate
@@ -47,8 +46,8 @@ log = logging.getLogger(__name__)
 
 async def save(
     db,
-    project: Project,
-    user: User | IdentityActorFacts,
+    project: LearningProjectContext,
+    user: LearningActorContext | IdentityActorFacts,
     body: LearningPolicySave,
     *,
     api_key_id=None,
@@ -241,7 +240,7 @@ async def _cancel_trigger(db, trigger):
 async def disable(
     db,
     project_id,
-    user: User | IdentityActorFacts,
+    user: LearningActorContext | IdentityActorFacts,
     expected_revision: int,
     *,
     task="detect",
@@ -261,7 +260,11 @@ async def disable(
 
 
 async def delete(
-    db, project_id, user: User | IdentityActorFacts, *, task="detect"
+    db,
+    project_id,
+    user: LearningActorContext | IdentityActorFacts,
+    *,
+    task="detect",
 ) -> bool:
     await claims.project_lock(db, project_id)
     await lock_project_manager(db, user.id, project_id)
@@ -679,8 +682,8 @@ def _policy_context(policy):
 
 async def check_project(
     db: AsyncSession,
-    project: Project,
-    user: User | IdentityActorFacts,
+    project: LearningProjectContext,
+    user: LearningActorContext | IdentityActorFacts,
     *,
     task="detect",
     training_authority: TrainingAuthorityPort,

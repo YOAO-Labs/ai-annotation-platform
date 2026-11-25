@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.project import Project
+from app.services.learning_context import LearningProjectContext
 from app.services import training_dataset_data as data
 from app.services.assets_spatial_views import (
     labeling_dataset_item_facts,
@@ -343,7 +343,7 @@ async def freeze_selection(
 
 async def _freeze_selection(
     db: AsyncSession,
-    project: Project,
+    project: LearningProjectContext,
     selection: TrainingDatasetSelection,
     *,
     actor_id: uuid.UUID,

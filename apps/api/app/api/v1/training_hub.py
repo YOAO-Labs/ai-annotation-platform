@@ -17,7 +17,7 @@ from app.schemas.training_hub import (
     TrainingProjectPage,
     TrainingQueuePage,
 )
-from app.schemas.training_run import TrainingRunOut
+from app.schemas.training_run import FrameworkId, TrainingRunOut
 from app.services import training_runs as service
 from app.services import training_adapters as adapters
 from app.services.training_dataset_data import dataset_lineage_row
@@ -166,7 +166,7 @@ async def projects(
 async def runs(
     state: Literal["all", "active", "finished", "failed"] = "active",
     project_id: uuid.UUID | None = None,
-    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    framework: FrameworkId | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: IdentityActorFacts = Depends(get_current_user),

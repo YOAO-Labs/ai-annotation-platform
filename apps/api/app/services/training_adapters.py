@@ -1,5 +1,11 @@
 """Qualified adapter capabilities, configured catalog and frozen configuration."""
 
+from __future__ import annotations
+
+from collections.abc import Mapping
+import re
+from typing import Any
+
 from fastapi import HTTPException
 from training_contract import (
     ADAPTERS,
@@ -16,8 +22,115 @@ from training_contract.models import (
     model_spec,
     supports_version,
 )
+from yoao_inference_contract.topology import to_record
+from yoao_task_contract import normalize_task
 
 from app.config import settings
+
+FRAMEWORK_ID_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
+BRIDGE_ID_PATTERN = r"^[a-z][a-z0-9_-]{0,127}$"
+_FRAMEWORK_ID_RE = re.compile(FRAMEWORK_ID_PATTERN)
+
+_BUILTIN_STUDY_OBJECTIVES: dict[str, frozenset[str]] = {
+    "ultralytics": frozenset(
+        {
+            "metrics/mAP50-95",
+            "metrics/mAP50",
+            "metrics/precision",
+            "metrics/recall",
+        }
+    ),
+    "libreyolo": frozenset(
+        {
+            "metrics/mAP50-95",
+            "metrics/mAP50",
+            "metrics/mAP75",
+            "metrics/AR100",
+        }
+    ),
+}
+_BUILTIN_MANAGED_EVALUATION_FRAMEWORKS: frozenset[str] = frozenset({"ultralytics"})
+_BUILTIN_DATASET_BRIDGES: dict[str, frozenset[str]] = {
+    DETECTION: frozenset({"ultralytics-bbox-1"}),
+    SEGMENTATION: frozenset(
+        {"ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"}
+    ),
+}
+
+
+def registered_frameworks() -> frozenset[str]:
+    return frozenset(ADAPTERS.keys())
+
+
+def validate_registered_framework(value: str) -> str:
+    if not isinstance(value, str) or not _FRAMEWORK_ID_RE.fullmatch(value):
+        raise ValueError("训练框架标识格式无效")
+    if value not in registered_frameworks():
+        raise ValueError(f"未注册的训练框架: {value}")
+    return value
+
+
+def supported_dataset_bridges(task: str) -> frozenset[str]:
+    return _BUILTIN_DATASET_BRIDGES.get(normalize_task(task), frozenset())
+
+
+def supported_study_objectives(framework: str) -> frozenset[str] | None:
+    return _BUILTIN_STUDY_OBJECTIVES.get(framework)
+
+
+def supports_task_evaluation(framework: str, task: str) -> bool:
+    normalized = normalize_task(task)
+    if normalized == DETECTION:
+        return True
+    if framework not in ADAPTERS:
+        return True
+    return normalized in capabilities(framework)["tasks"]
+
+
+def supports_deployment_retirement(framework: str) -> bool:
+    return isinstance(framework, str) and bool(_FRAMEWORK_ID_RE.fullmatch(framework))
+
+
+def backend_supports_managed_evaluation(backend: Any, framework: str) -> bool:
+    if backend is None:
+        return False
+    raw_health = getattr(backend, "health_meta", None)
+    if not isinstance(raw_health, Mapping):
+        return False
+    raw_caps = raw_health.get("capabilities")
+    if not isinstance(raw_caps, Mapping):
+        return False
+    caps = to_record(raw_caps)
+    if not isinstance(caps, dict) or caps.get("managed_evaluation") is not True:
+        return False
+    observed = caps.get("managed_model_compatibility")
+    if not isinstance(observed, list):
+        return False
+    raw_params = getattr(backend, "extra_params", None)
+    params = to_record(raw_params) if isinstance(raw_params, Mapping) else {}
+    plugin = params.get("plugin") if isinstance(params, dict) else None
+    if plugin is not None:
+        if not isinstance(plugin, dict) or not isinstance(plugin.get("manifest"), dict):
+            return False
+        approved = plugin["manifest"].get("managed_model_compatibility")
+        if not isinstance(approved, list):
+            return False
+        return any(
+            isinstance(entry, dict)
+            and entry.get("framework") == framework
+            and entry in observed
+            for entry in approved
+        )
+    return any(
+        isinstance(entry, dict) and entry.get("framework") == framework
+        for entry in observed
+    )
+
+
+def supports_managed_evaluation(framework: str, *, backend: Any = None) -> bool:
+    if framework in _BUILTIN_MANAGED_EVALUATION_FRAMEWORKS:
+        return True
+    return backend_supports_managed_evaluation(backend, framework)
 
 
 def capabilities(framework, task=None, base_model=None):

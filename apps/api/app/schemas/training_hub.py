@@ -6,12 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, JsonValue, AliasChoices
 
-from app.schemas.training_run import TrainingRunOut
+from app.schemas.training_run import FrameworkSlug, TrainingRunOut
+from app.services.training_adapters import BRIDGE_ID_PATTERN
 
 
 class TrainingInstanceRleCapability(BaseModel):
-    bridge: Literal["ultralytics-instance-rle-1"]
-    framework: Literal["ultralytics"]
+    bridge: str = Field(pattern=BRIDGE_ID_PATTERN)
+    framework: FrameworkSlug
     version: str
     models: list[str]
     limits: dict[str, int]
@@ -81,7 +82,7 @@ class TrainingParameterSchema(TrainingSchemaIdentity):
 
 
 class TrainingTemplate(BaseModel):
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: FrameworkSlug
     version: str
     image_digest: str
     base_models: list[TrainingBaseModel]

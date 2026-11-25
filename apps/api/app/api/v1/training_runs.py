@@ -33,6 +33,7 @@ from app.schemas.training_run import (
     ExecutorRecoveryResponse,
     ExecutorUpload,
     ExecutorUploadResponse,
+    FrameworkId,
     TrainingAttemptOut,
     TrainingRunCreate,
     TrainingRunOut,
@@ -114,7 +115,7 @@ async def catalog(
 )
 async def initialization_source(
     model_id: uuid.UUID,
-    framework: Literal["ultralytics", "libreyolo"],
+    framework: FrameworkId,
     base_model: str = Query(min_length=1, max_length=64),
     dataset_id: uuid.UUID | None = None,
     project: Project = Depends(require_project_owner),
@@ -138,7 +139,7 @@ async def preflight(
 
 @router.get("/parameter-schema", response_model=TrainingParameterSchema)
 async def parameter_schema(
-    framework: Literal["ultralytics", "libreyolo"],
+    framework: FrameworkId,
     base_model: str = Query(min_length=1, max_length=64),
     project: Project = Depends(require_project_owner),
 ):
@@ -197,7 +198,7 @@ async def list_runs(
         pattern="^(queued|preparing|training|evaluating|uploading|cancelling|lost|succeeded|failed|cancelled)$",
     ),
     task: Literal["detect", "segment"] | None = None,
-    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    framework: FrameworkId | None = None,
     created_from: ISODate | None = Query(
         None, description="创建日期下界，UTC 日期（含）"
     ),

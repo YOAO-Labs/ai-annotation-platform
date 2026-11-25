@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-25
-- **Deciders:** 待维护者确认（承接训练器插件化计划 T0）
+- **Deciders:** 维护者已确认架构方向并授权推进 T1（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
 - **Supersedes:** —（沿用 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md) 单一写入 owner 原则、[ADR-0187](archive/0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 通用清单与安全边界，以及 [ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md) 发现不等于资格原则）
 
 ## Context

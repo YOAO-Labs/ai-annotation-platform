@@ -14,19 +14,16 @@ from yoao_task_contract import (
 )
 
 from app.schemas.dataset_view import DatasetItemFilters
+from app.services.training_adapters import (
+    BRIDGE_ID_PATTERN,
+    supported_dataset_bridges,
+)
 
 
 class TrainingDatasetSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
     task: Literal["detect", "segment"] = DETECTION
-    bridge: (
-        Literal[
-            "ultralytics-bbox-1",
-            "ultralytics-simple-polygon-1",
-            "ultralytics-instance-rle-1",
-        ]
-        | None
-    ) = None
+    bridge: str | None = Field(default=None, pattern=BRIDGE_ID_PATTERN)
     batch_id: uuid.UUID | None = None
     dataset_id: uuid.UUID | None = None
     dataset_filter: DatasetItemFilters | None = None
@@ -66,10 +63,8 @@ class TrainingDatasetSelection(BaseModel):
     def explicit_confirmation(self):
         if self.dataset_filter is not None and self.dataset_id is None:
             raise ValueError("筛选范围必须指定数据集")
-        if self.bridge is not None and self.bridge not in (
-            {"ultralytics-bbox-1"}
-            if self.task == DETECTION
-            else {"ultralytics-simple-polygon-1", "ultralytics-instance-rle-1"}
+        if self.bridge is not None and self.bridge not in supported_dataset_bridges(
+            self.task
         ):
             raise ValueError("训练桥接与任务不匹配")
         if self.mode == "manager_confirmed" and not self.task_ids:

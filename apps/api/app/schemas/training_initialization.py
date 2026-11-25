@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from training_contract.initialization import validate_pin
 
+from app.services.training_adapters import FRAMEWORK_ID_PATTERN
+
 
 class TrainingInitialization(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -57,10 +59,10 @@ class FrozenTrainingInitialization(BaseModel):
     run_id: uuid.UUID
     attempt_id: uuid.UUID
     dataset_id: uuid.UUID
-    framework: Literal["ultralytics"]
+    framework: str = Field(pattern=FRAMEWORK_ID_PATTERN)
     framework_version: str
     task: Literal["image-detection", "detect"]
-    model_family: Literal["yolov8", "yolo11", "yolo26"]
+    model_family: str = Field(min_length=1, max_length=64)
     base_model: str
     artifact: InitializationArtifact
     classes: list[str] = Field(min_length=1, max_length=10000)

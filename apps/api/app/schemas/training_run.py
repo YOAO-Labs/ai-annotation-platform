@@ -4,9 +4,10 @@ import math
 import re
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -16,8 +17,20 @@ from pydantic import (
     model_validator,
 )
 from app.schemas.training_initialization import TrainingInitialization
+from app.services.training_adapters import (
+    FRAMEWORK_ID_PATTERN,
+    supports_task_evaluation,
+    validate_registered_framework,
+)
 from training_contract.dataset import config_task
 from yoao_task_contract import normalize_task, normalize_task_fields
+
+FrameworkSlug = Annotated[str, Field(pattern=FRAMEWORK_ID_PATTERN)]
+FrameworkId = Annotated[
+    str,
+    Field(pattern=FRAMEWORK_ID_PATTERN),
+    AfterValidator(validate_registered_framework),
+]
 
 
 class TrainingConfiguration(BaseModel):
@@ -66,7 +79,7 @@ class TrainingRunCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     task: Literal["detect", "segment"] | None = None
     dataset_id: uuid.UUID
-    framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
+    framework: FrameworkId = "ultralytics"
     base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
@@ -217,7 +230,7 @@ class EvaluationBenchmark(BaseModel):
 
 class EvaluationEvaluator(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: FrameworkSlug
     version: str = Field(min_length=1, max_length=100)
     task: Literal["detection", "instance-segmentation"]
     implementation: str = Field(min_length=1, max_length=200)
@@ -257,10 +270,10 @@ class TrainingEvaluationDescriptor(BaseModel):
     @model_validator(mode="after")
     def task_revision(self):
         segmentation = self.evaluator.task == "instance-segmentation"
-        if (
-            self.revision not in ({2, 3} if segmentation else {1})
-            or segmentation
-            and self.evaluator.framework != "ultralytics"
+        if self.revision not in (
+            {2, 3} if segmentation else {1}
+        ) or not supports_task_evaluation(
+            self.evaluator.framework, self.evaluator.task
         ):
             raise ValueError("评估任务、框架与 descriptor 修订不匹配")
         return self

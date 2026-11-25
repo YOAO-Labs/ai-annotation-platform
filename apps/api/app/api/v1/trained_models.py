@@ -18,6 +18,7 @@ from app.deps import (
     require_project_owner,
     require_scopes,
 )
+from app.schemas.training_run import FrameworkId
 from app.schemas.trained_model import (
     ModelDeploymentCreate,
     ModelDeploymentOut,
@@ -71,7 +72,7 @@ async def list_models(
     offset: int = Query(0, ge=0),
     archive: ArchiveFilter = "exclude",
     q: str = Query("", max_length=120),
-    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    framework: FrameworkId | None = None,
     task: Literal["detect", "segment"] | None = None,
     created_from: ISODate | None = Query(
         None, description="创建日期下界，UTC 日期（含）"

@@ -12,8 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from training_contract import definition
 from training_contract.budget import POLICY_DIGEST, validate_receipt
 
-from app.db.models.project import Project
-from app.db.models.user import User
+from app.services.learning_context import LearningActorContext, LearningProjectContext
 from app.schemas.training_study import TrainingStudyCreate
 from app.services import (
     learning_selection_data as data,
@@ -137,8 +136,8 @@ async def freeze_plan(db, project_id, body):
 
 async def create(
     db,
-    project: Project,
-    user: User | IdentityActorFacts,
+    project: LearningProjectContext,
+    user: LearningActorContext | IdentityActorFacts,
     body: TrainingStudyCreate,
     *,
     api_key_id=None,
@@ -236,7 +235,7 @@ async def cancel(
     db,
     project_id,
     study_id,
-    user: User | IdentityActorFacts,
+    user: LearningActorContext | IdentityActorFacts,
     *,
     training_authority: TrainingAuthorityPort,
 ):

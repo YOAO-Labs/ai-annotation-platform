@@ -17658,10 +17658,7 @@
         "additionalProperties": false,
         "properties": {
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -20884,7 +20881,7 @@
             "$ref": "#/components/schemas/SegmentationInitializationEvaluation"
           },
           "framework": {
-            "const": "ultralytics",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -20898,11 +20895,8 @@
             "type": "string"
           },
           "model_family": {
-            "enum": [
-              "yolov8",
-              "yolo11",
-              "yolo26"
-            ],
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Model Family",
             "type": "string"
           },
@@ -21036,7 +21030,7 @@
             "$ref": "#/components/schemas/InitializationEvaluation"
           },
           "framework": {
-            "const": "ultralytics",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -21050,11 +21044,8 @@
             "type": "string"
           },
           "model_family": {
-            "enum": [
-              "yolov8",
-              "yolo11",
-              "yolo26"
-            ],
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Model Family",
             "type": "string"
           },
@@ -25470,10 +25461,7 @@
           },
           "framework": {
             "default": "ultralytics",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -59332,10 +59320,7 @@
             "$ref": "#/components/schemas/TrainingConfiguration"
           },
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -59774,11 +59759,7 @@
           "bridge": {
             "anyOf": [
               {
-                "enum": [
-                  "ultralytics-bbox-1",
-                  "ultralytics-simple-polygon-1",
-                  "ultralytics-instance-rle-1"
-                ],
+                "pattern": "^[a-z][a-z0-9_-]{0,127}$",
                 "type": "string"
               },
               {
@@ -61423,11 +61404,7 @@
           "bridge": {
             "anyOf": [
               {
-                "enum": [
-                  "ultralytics-bbox-1",
-                  "ultralytics-simple-polygon-1",
-                  "ultralytics-instance-rle-1"
-                ],
+                "pattern": "^[a-z][a-z0-9_-]{0,127}$",
                 "type": "string"
               },
               {
@@ -62441,12 +62418,12 @@
       "TrainingInstanceRleCapability": {
         "properties": {
           "bridge": {
-            "const": "ultralytics-instance-rle-1",
+            "pattern": "^[a-z][a-z0-9_-]{0,127}$",
             "title": "Bridge",
             "type": "string"
           },
           "framework": {
-            "const": "ultralytics",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -62794,10 +62771,7 @@
             "type": "integer"
           },
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -62907,7 +62881,7 @@
             ]
           },
           "request": {
-            "$ref": "#/components/schemas/TrainingPreviewCreate"
+            "$ref": "#/components/schemas/TrainingPreviewRequestOut"
           },
           "started_at": {
             "anyOf": [
@@ -63068,6 +63042,64 @@
           "runtime"
         ],
         "title": "TrainingPreviewReport",
+        "type": "object"
+      },
+      "TrainingPreviewRequestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_model": {
+            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "title": "Base Model",
+            "type": "string"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/TrainingConfiguration"
+          },
+          "count": {
+            "default": 1,
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "epoch": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "framework": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "title": "Framework",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "seed": {
+            "default": 42,
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "framework",
+          "base_model",
+          "configuration",
+          "request_id"
+        ],
+        "title": "TrainingPreviewRequestOut",
         "type": "object"
       },
       "TrainingProgress": {
@@ -63738,10 +63770,7 @@
           },
           "framework": {
             "default": "ultralytics",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -64187,10 +64216,7 @@
             "title": "Compatible"
           },
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -101103,10 +101129,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "ultralytics",
-                    "libreyolo"
-                  ],
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
                   "type": "string"
                 },
                 {
@@ -104153,10 +104176,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "ultralytics",
-                    "libreyolo"
-                  ],
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
                   "type": "string"
                 },
                 {
@@ -104375,10 +104395,7 @@
             "name": "framework",
             "required": true,
             "schema": {
-              "enum": [
-                "ultralytics",
-                "libreyolo"
-              ],
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
               "title": "Framework",
               "type": "string"
             }
@@ -104464,10 +104481,7 @@
             "name": "framework",
             "required": true,
             "schema": {
-              "enum": [
-                "ultralytics",
-                "libreyolo"
-              ],
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
               "title": "Framework",
               "type": "string"
             }
@@ -118180,10 +118194,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "ultralytics",
-                    "libreyolo"
-                  ],
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
                   "type": "string"
                 },
                 {

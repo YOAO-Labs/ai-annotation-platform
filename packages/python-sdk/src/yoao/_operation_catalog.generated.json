@@ -18161,10 +18161,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "ultralytics",
-                  "libreyolo"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
@@ -20215,10 +20212,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "ultralytics",
-                  "libreyolo"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
@@ -20389,10 +20383,7 @@
           "schema": {
             "title": "Framework",
             "type": "string",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ]
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
           }
         },
         {
@@ -20482,10 +20473,7 @@
           "schema": {
             "title": "Framework",
             "type": "string",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ]
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
           }
         },
         {
@@ -27057,10 +27045,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "ultralytics",
-                  "libreyolo"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
