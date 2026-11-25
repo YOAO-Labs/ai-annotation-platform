@@ -533,7 +533,7 @@ Docker 部署已支持选择 MinIO 宿主机数据目录；本 Epic 新增的是
 - User documentation: `docs-site/user-guide/datasets/storage-connections.md`; current UI includes dynamic locations, source diagnostics and verified reference registration/reading delivered by successor slices.
 - API and developer documentation: `docs-site/api/guides/storage-locations.md`, `docs-site/dev/concepts/storage-connections.md`, `DEV.md`, generated environment/API references and SDK coverage manifest.
 - Deployment documentation: `docs-site/ops/deploy/docker-compose.md`; unified roots and explicit container/image distinction. No real business mount or backend image was changed.
-- ADR: `docs/adr/archive/0092-controlled-storage-registry.md`. CHANGELOG: Unreleased entry added.
+- ADR: `docs/adr/archive/0191-controlled-storage-registry.md`. CHANGELOG: Unreleased entry added.
 - Verification: 29 focused tests passed, including two real direct workers with readable/missing-root configurations; 106 compatibility checks passed and the shared-bucket case passed after correcting its fixture owner. SDK OpenAPI contract: 4 passed. Fresh/reversible/forward/restore migration validation passed through 0195 with no leftover owned databases. Final real offline-worker timeout and referenced-location rollback guard passed. Documentation build, ADR/frontmatter and internal-link checks passed. Base/production Compose parsed with empty/synthetic root maps.
 - Remaining work: E02-B binding-switch safety and non-Item historical object identity, location retirement/impact and full write/browser capability qualification. E04 scanning, E05 strict reads, E03 registration and E09 primary UI are now delivered in their own plans; they are not remaining E02 prerequisites. This Epic stays active.
 
@@ -1052,7 +1052,7 @@ registry按Authority、session、资源与完整冻结来源复用ready stage；
 
 ## E02-B13-B2-B1 Outcome — 视频原件准备与可复用范围读取
 
-已完成协议基础，主集成 `e7a085b41`；范围/租约组件分别为 `1df0bf575`、`a67301eb0`，边界修正为 `5f995e94b`、`fd34bb61d`。Task/Item 的 Bearer prepare、准确路径 HttpOnly Cookie、当前授权复核的 GET/HEAD、本人资源/session DELETE、进程内有界完整stage及reaper/lifespan收尾已接通。原完整下载复用授权快照并保持原行为；视频DTO、工作台与转码/精确帧消费者尚未迁移。API/OpenAPI/Web类型、SDK内部接口分类、README/CHANGELOG、架构与运维文档及ADR0107同步。
+已完成协议基础，主集成 `e7a085b41`；范围/租约组件分别为 `1df0bf575`、`a67301eb0`，边界修正为 `5f995e94b`、`fd34bb61d`。Task/Item 的 Bearer prepare、准确路径 HttpOnly Cookie、当前授权复核的 GET/HEAD、本人资源/session DELETE、进程内有界完整stage及reaper/lifespan收尾已接通。原完整下载复用授权快照并保持原行为；视频DTO、工作台与转码/精确帧消费者尚未迁移。API/OpenAPI/Web类型、SDK内部接口分类、README/CHANGELOG、架构与运维文档及ADR0206同步。
 
 主树242个不同API/服务/纯测试及4个SDK合同用例通过；主体241项、Cookie补充2项去重计242，不重复计入组件验证。覆盖真实保存桶、错身份/非video零读取、内容损坏、JWT/API Key自然期限及撤权、关系/Gate变更、await之后租约过期/退休、同键复用/容量、独立偏移、Range/If-Range/HEAD/空内容、重复取消、发送失败、未知关闭占额及shutdown。集成发现的await后能力失效、空内容正后缀范围及If-Range求值顺序已修正；HTTPS浏览器经现有Host改写代理时仍设置Secure Cookie。首次原下载回归因测试启动目录错误未能准备数据库，改用 `apps/api` 下的隔离runner后23项通过，未放宽生产合同。Ruff/format、正常提交hooks、Web类型/codegen、最终文档构建和diff检查通过。
 

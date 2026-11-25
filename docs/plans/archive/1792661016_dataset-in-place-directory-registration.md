@@ -254,7 +254,7 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 - 本地浏览器：在隔离 dev 环境用两张临时图片完成实际 Celery 扫描、管理员登记/预览、项目关联和矩形标注落库；普通标注员也已在工作台读取第二张原图并保存矩形标注。并发重复登记返回同一 Item，重复关联只保留两个 Task；取任务与编辑锁并发五轮均成功。覆盖第一张原图后，严格读取和标注 PATCH 均返回409，原标注保留，工作台显示来源变化并禁止提交。托管桶仅有数据集的零字节目录占位，没有原图对象；没有 DatasetAssetLocation 副本。浏览器未见未捕获异常。
 - 自动验证：内容/扫描/存储与迁移回归、引用任务权限与标注保护、项目关联和任务生命周期均通过；前端鉴权图片及图片源11项、工作树 Python43项/Node11项、SDK契约4项通过。类型检查、ESLint、CSS token 检查、Ruff、OpenAPI快照检查及文档构建通过。最后增补锁序断言及坏源释放编辑锁回归后，引用与任务锁21项再次通过。此记录为本地结果，不代表远程 CI 或生产挂载资格。
 - 用户文档：`docs-site/user-guide/datasets/import-images.md`、`index.md`、`storage-connections.md`；开发与 API：`docs-site/dev/concepts/storage-connections.md`、`docs-site/api/guides/dataset-sources.md`、`verified-content.md`，以及 `README.md`/`DEV.md`。
-- ADR：`docs/adr/0095-immutable-directory-reference-tasks.md`；CHANGELOG：Unreleased 已补充用户影响。OpenAPI 与 SDK 路由清单已同步。
+- ADR：`docs/adr/0194-immutable-directory-reference-tasks.md`；CHANGELOG：Unreleased 已补充用户影响。OpenAPI 与 SDK 路由清单已同步。
 - 环境边界：仅当前 checkout 独占修改并使用临时 dev/test 数据库、桶、Redis和来源目录；未修改共享配置或业务挂载，未重建镜像。检查完成后销毁本轮隔离环境并清理日志、临时原图、凭据和截图。
 - 下一切片：E03-A2 大目录后台批量登记、完整预检估算、取消/恢复及错误明细；启动前重新核对扫描/注册所有权和预算。E03-B 远端适配器、周期同步、持久缓存、完整 E08/E09 和训练适配另行评审。已有引用的回退继续保留0198及兼容读取，禁止把引用标识交给旧 S3 resolver。
 
@@ -264,7 +264,7 @@ A2 新增 `DatasetRegistrationRun/Entry` 和迁移0199，不复用扫描 entry.s
 - 边界复核：初始 Key 证明贯穿 I/O，write-only Key 可确认；确认固定预检代次；容量不足不消费正常候选；前8个文件不可读不阻断后续图片；文件错误和根目录离线分开；旧 worker/消息/失败信号不能写入新尝试。当前批量入口仍为 reference/none，不能宣称完成整个 E03。
 - 浏览器：隔离 API 8101/Web 3101，真实 Celery worker 扫描241候选、排除1目录；预检在2条核验结果后取消，关闭重开继续，240正常/1损坏；异常筛选→修复→单项重试后241通过。正式登记在1条提交后取消并恢复，观察到123已登记/118待登记，最终241已登记、0异常；结果第二页21–40/241、全局后台任务入口可用。鉴权原图640×400正常解码，关联生成241个任务，Workbench读图并保存矩形标注，API确认1条标注落库。源目录242文件摘要清单未变；原图桶与媒体缓存桶均0对象/0字节；浏览器无未捕获异常。
 - 自动验证：相关API/DB/引用/内容/扫描/迁移62项通过，新增替换/缺失/根离线3项、租约过期恢复及任务历史清理后继续2项通过；SDK契约4项通过。Ruff、TypeScript、ESLint、CSS token检查、OpenAPI导出与客户端生成、文档构建和ADR编号检查通过。CSS检查仅报告既有训练比较页2处z-index建议；这些是本地结果，不代表远端CI。
-- 文档：`README.md`、`CHANGELOG.md` Unreleased、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/dataset-sources.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0096-durable-directory-registration.md`；OpenAPI与SDK覆盖清单已同步。
+- 文档：`README.md`、`CHANGELOG.md` Unreleased、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/dataset-sources.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0195-durable-directory-registration.md`；OpenAPI与SDK覆盖清单已同步。
 - 清理：检查后销毁本轮owned dev/test模式，清理临时来源、凭据、JUnit、日志及浏览器截图；不改共享配置、业务挂载或镜像。
 - 继续：最小位置/数据集授权、ownership/cache策略与派生计量、来源生命周期及外部S3/SFTP持续引用；完整E03验收矩阵仍未全部闭合，计划留根目录，不归档。
 
@@ -308,7 +308,7 @@ managed_copy必须真实从受控目录的安全快照复制到平台托管位�
 - 真实浏览器：隔离API8100/Web3100和本工作树host workers，完成reference/preview、managed_copy/preview、reference/none、managed_copy/none四组合的扫描、预检与批量登记。引用来源自然离线时已授权旧SHA预览仍解码256×160，严格原图409；恢复后200，停用时新增标注409，注销后旧标注保留。托管来源离线且注销后严格原图200，Workbench实际显示640×400并可新增标注。浏览器会话无未捕获异常。
 - 实物核对：4个源文件的名称、目录结构和SHA与登记账本一致。datasets桶6对象中4个为0字节目录占位，仅2个托管原件共3270字节；media-cache仅2个来源预览，各156字节，共312字节。none组合派生0字节。真实worker执行旧媒体回填后仍无legacy thumbnail，引用与复制各1条标注保留。
 - 本地验证：核心策略/登记/引用/内容/金字塔回归74项通过；策略/Asset/授权/关联/Task回归72项通过（两组有重叠）；缓存替换回滚专项1项通过。0194–0200迁移回归12项通过，最后新增无映射策略回滚保护后0200专项6项通过。SDK合同4项、鉴权图片Hook4项通过；Ruff、TypeScript、ESLint、CSS token、OpenAPI导出/校验/客户端生成、文档构建及diff检查通过。CSS仅有训练比较页既有2处z-index建议；不代表远端CI结果。
-- 文档：README、CHANGELOG Unreleased、用户导入说明、来源/位置API、存储架构、ADR0097与SDK覆盖清单已同步。无需新环境变量、镜像重建或版本分配。
+- 文档：README、CHANGELOG Unreleased、用户导入说明、来源/位置API、存储架构、ADR0196与SDK覆盖清单已同步。无需新环境变量、镜像重建或版本分配。
 - 清理：关闭本轮浏览器并停止host进程，销毁owned dev/test数据库、Redis和桶；清理本轮临时原图、凭据、截图、日志、JUnit及文档构建产物，保留工作树身份。未改共享配置与宿主机业务目录。
 - 边界与后续：提交结果未知、清理失败或进程崩溃可能留下对象，当前按数据库和精确键人工核对，不声称已具备自动GC。外部S3/SFTP持续引用尚未完成，后续继续E03-B；周期同步、完整原图缓存、Agent和训练冻结仍属相应Epic。本计划不归档，完整E03继续active。
 
@@ -334,7 +334,7 @@ S3根目录的既有ScanEntry.observed保存有界分页检查点，页结果与
 - 真实版本服务：另一来源登记1个启用版本控制的对象；新增版本后旧样本仍200且SHA与固定版本一致。验收夹具删除固定版本后409 path_unavailable，不回退最新对象；独立缓存仍200/256×160。两个来源均注销成功，最终数据库仍保留1条标注；注销未改外部文件。
 - 物理核对：7条不可变映射、0条托管原图位置；原图桶2个零字节目录占位对象、0图片字节。7个预览账本与实际对象一致，共1098字节（第一来源6个/942字节）。原未版本化来源桶7对象（含排除的相邻前缀）最终名称及逐对象SHA与基线一致。MinIO拒绝连续斜线/点段PUT，此类键仅有协议回归覆盖，不作为真实服务通过项。
 - 本地验证：主要API回归115通过，资产/并发专项36通过，最终S3专项18通过，另加来源整体故障worker回归1通过；这些套件存在重叠。整体故障停止尝试且保留剩余候选，恢复后可继续。SDK4通过；Ruff、TypeScript、ESLint、CSS token、OpenAPI一致性、文档构建及diff检查通过。浏览器无未捕获异常；未运行远端CI。
-- 正式文档：`README.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/{dataset-sources,storage-locations,verified-content}.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0098-strict-external-s3-references.md`与CHANGELOG Unreleased同步。发布安排未定。
+- 正式文档：`README.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/{dataset-sources,storage-locations,verified-content}.md`、`docs-site/dev/concepts/storage-connections.md`、`docs/adr/0197-strict-external-s3-references.md`与CHANGELOG Unreleased同步。发布安排未定。
 - 清理：关闭本次浏览器并删除临时认证档案；停止API/Web和两类worker，销毁owned dev/test数据库、Redis、桶和本地目录；移除临时密钥、凭据、截图、日志与文档构建中间物。
 - 下一切片：SFTP持续引用必须具备部署侧服务器隔离与主机身份资格，不能将普通路径open或前后lstat当作原子nofollow。随后对E03故事与验收矩阵做整体核对。本计划保持根目录且完整E03继续active；周期同步、Agent、完整原图缓存和训练冻结仍由对应Epic承担。
 
@@ -362,7 +362,7 @@ Paramiko 使用只含该部署公钥的独立 HostKeys 与 RejectPolicy，在认
 - 真实浏览器与 worker：隔离 API8101/Web3101，目录浏览选择 `data/collection`，扫描4文件、3链接排除、1子目录；预检及确认得到3可用/1损坏，原图新增0字节，预览470字节。鉴权缓存解码256×160，关联创建3任务，Workbench显示640×400并鼠标画框保存1条标注。同大小、同 mtime 改字节后读图/新标注均409 content_mismatch，旧标注保留；恢复字节及观测后200。服务离线时读写409 content_source_unavailable、独立预览200；重扫再次登记仍3 Item/3 Task，3路径识别已登记，未重复。最终浏览器注销来源成功，旧标注保留，无未捕获浏览器异常。
 - 物理核对：来源4普通文件、3链接和1目录的名称、结构、链接目标、文件 SHA 与基线一致。3条引用映射、0托管原图位置、3任务及1条标注保留；datasets桶1个0字节占位，media-cache桶3个预览共470字节，逐对象SHA/大小与账本一致。
 - 本地验证：相关后端162项通过；补充坏私钥/错误口令后 SFTP17项通过（与前组重叠）；SDK合同4项通过。Ruff、TypeScript、ESLint、CSS token、OpenAPI一致性、ADR编号和文档构建通过，diff检查通过。CSS仅有训练比较页既有2处z-index建议。最终刷新API与相关worker，API和指定worker样本read探测均verified。未运行远端CI或生产资格验收。
-- 文档：README/DEV、CHANGELOG Unreleased、数据集首页/导入/连接器、来源/位置/严格内容API、存储架构、部署指南、环境变量参考及ADR0099同步。
+- 文档：README/DEV、CHANGELOG Unreleased、数据集首页/导入/连接器、来源/位置/严格内容API、存储架构、部署指南、环境变量参考及ADR0198同步。
 - 清理：关闭浏览器并删除临时认证档案；停止本轮API/Web/worker，销毁owned dev/test数据库、Redis和桶；移除专属SFTP容器与临时凭据、原图、日志、截图、JUnit及文档构建输出。共享配置、宿主机业务数据和镜像保持原状。
 - 完整E03范围已具备收尾条件；下一提交逐条记录故事/验收矩阵并归档本计划。周期同步、Agent、训练冻结和完整原图缓存归其他Epic；自动GC及十万图片性能资格不在当前交付中宣称完成。
 
@@ -386,6 +386,6 @@ Paramiko 使用只含该部署公钥的独立 HostKeys 与 RejectPolicy，在认
 | AC10 本机上传 | S06 | 接入面板明确本机文件夹通过上传；服务器根/远端来源独立选择，保留多文件/文件夹/ZIP与复制导入入口 |
 
 - 跨 Epic 边界：受控位置/节点证据、持久扫描账本、严格内容/标注门禁和最小授权已随 E03 主链路验证；周期同步与变化接纳归 E04，远端 Agent 归 E06，完整原图缓存归 E05，训练冻结归 E10，完整工作台重整归 E08/E09。它们不再列为本计划剩余实施项。
-- 正式知识已进入 README/DEV、用户数据集与存储说明、来源/位置/内容API、存储架构、部署与环境参考、ADR0095–0099及CHANGELOG Unreleased。API/SDK合同保持同步，未调整版本或发布安排。
+- 正式知识已进入 README/DEV、用户数据集与存储说明、来源/位置/内容API、存储架构、部署与环境参考、ADR0194–0198及CHANGELOG Unreleased。API/SDK合同保持同步，未调整版本或发布安排。
 - 本轮最终验证与清理见前节 SFTP Outcome；代码与文档检查通过，owned dev/test资源、SFTP容器、浏览器、临时凭据及构建/测试输出均已清理。未重建后端镜像、未推送、未发布。
 - 归档：完整 E03 无剩余必做项，移入 archive 并同步总览和所有 Markdown 引用。历史 Outcome 的“尚未完成”属于当时阶段记录，以本节最终结论为准。
