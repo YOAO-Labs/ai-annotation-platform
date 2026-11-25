@@ -982,12 +982,12 @@ def test_domain_package_no_intra_package_local_imports(spec: DomainSpec) -> None
 
 
 @pytest.mark.parametrize(
-    "spec", DOMAIN_PACKAGES, ids=[d.package for d in DOMAIN_PACKAGES]
+    "spec",
+    [spec for spec in DOMAIN_PACKAGES if spec.lazy_roots],
+    ids=lambda spec: spec.package,
 )
 def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
     """Package ``__init__`` must not eager-import modules flagged as lazy roots."""
-    if not spec.lazy_roots:
-        pytest.skip("no lazy-root rule for this domain")
     files = _iter_domain_files(spec.package)
     if not files:
         pytest.skip(f"package app.services.{spec.package} not created yet")

@@ -1,15 +1,24 @@
 """Public degraded health does not expose internal exception details."""
 
-import json
-
+import httpx
 import pytest
 
 from app.api import health
 
 
+@pytest.fixture
+async def health_client(app_module):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+    ) as client:
+        yield client
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("component", ["db", "redis", "minio", "celery"])
-async def test_public_component_health_redacts_diagnostics(monkeypatch, component):
+async def test_public_component_health_redacts_diagnostics(
+    monkeypatch, health_client, component
+):
     raw = {
         "status": "error",
         "latency_ms": None,
@@ -25,15 +34,17 @@ async def test_public_component_health_redacts_diagnostics(monkeypatch, componen
             return raw
 
     monkeypatch.setattr(health, f"_check_{component}", fake)
-    response = await getattr(health, f"health_{component}")()
+    response = await health_client.get(f"/health/{component}")
     assert response.status_code == 503
-    body = json.loads(response.body)
+    body = response.json()
     assert body["status"] == "error" and "secret" not in body["detail"]
     assert raw["detail"] == "postgresql://user:secret@internal/db"
 
 
 @pytest.mark.asyncio
-async def test_overall_public_health_preserves_check_status_and_redacts(monkeypatch):
+async def test_overall_public_health_preserves_check_status_and_redacts(
+    monkeypatch, health_client
+):
     async def db():
         return {"status": "error", "detail": "secret connection failure"}
 
@@ -53,9 +64,9 @@ async def test_overall_public_health_preserves_check_status_and_redacts(monkeypa
             "workers": [],
         },
     )
-    response = await health.health_all()
+    response = await health_client.get("/health")
     assert response.status_code == 503
-    body = json.loads(response.body)
+    body = response.json()
     assert body["status"] == "degraded"
     assert body["checks"]["redis"]["latency_ms"] == 1.2
-    assert "secret" not in response.body.decode()
+    assert "secret" not in response.text

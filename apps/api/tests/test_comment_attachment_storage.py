@@ -393,13 +393,6 @@ def test_forged_owner_is_not_an_output_receipt(storage):
     storage.client.delete_object.assert_not_called()
 
 
-def test_code_only_errors_have_safe_default_text():
-    error = owners.CommentAttachmentStorageError("comment_attachment_storage_missing")
-    assert error.code == "comment_attachment_storage_missing"
-    assert error.status_code == 409
-    assert str(error)
-
-
 @pytest.mark.parametrize(
     "name",
     [

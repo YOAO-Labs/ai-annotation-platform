@@ -132,7 +132,7 @@ API 的 SAVEPOINT、ASGI 客户端和角色夹具由 `apps/api/tests/conftest.py
 
 ### OpenAPI 契约测试
 
-公开路由或 Pydantic Schema 变更后用 `pnpm openapi:export` 刷新快照，`pnpm openapi:check` 检查漂移，并运行 `pnpm codegen`。`tests/test_openapi_contract.py` 核对快照和实际路由，Web 类型和 SDK 都消费该快照。详见 [OpenAPI Codegen](./concepts/api-schema-boundary#openapi-codegen)。
+公开路由或 Pydantic Schema 变更后用 `pnpm openapi:export` 刷新快照，`pnpm openapi:check` 核对快照与实际路由，再运行 `pnpm codegen`。后端 CI 在第 0 片运行同一漂移检查；失败仍会阻止 `Backend tests` 通过。Web 类型和 SDK 都消费该快照。详见 [OpenAPI Codegen](./concepts/api-schema-boundary#openapi-codegen)。
 
 ### 源码注释门禁
 

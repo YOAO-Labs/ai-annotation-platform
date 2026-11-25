@@ -3,7 +3,7 @@
 前端 codegen (apps/web/scripts/gen-capability-vocab.mjs) 读此 snapshot 生成受控词表常量。
 改 capability_registry.py / schemas/ml_capabilities.py 后本地跑:
     cd apps/api && uv run python ../../scripts/export_capability_registry.py
-刷新 apps/api/capability-registry.snapshot.json 并一并提交。镜像 test_openapi_contract。
+刷新 apps/api/capability-registry.snapshot.json 并一并提交。
 """
 
 from __future__ import annotations

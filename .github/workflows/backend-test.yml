@@ -95,12 +95,9 @@ jobs:
           MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
         run: uv run python ../../scripts/validate_migrations.py
       - name: OpenAPI snapshot drift check
+        if: inputs.shard-index == 0
         working-directory: apps/api
-        run: |
-          if ! uv run python ../../scripts/export_openapi.py --check; then
-            echo "::error::OpenAPI snapshot drift. 请在 apps/api 下运行 'uv run python ../../scripts/export_openapi.py' 重生 snapshot 并提交（建议本地装 pre-commit 让它自动跑）。"
-            exit 1
-          fi
+        run: uv run python ../../scripts/export_openapi.py --check
       - name: Run API test shard
         working-directory: apps/api
         run: >-
