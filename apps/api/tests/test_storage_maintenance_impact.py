@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, event, func, select, update
+from yoao_assets_source.saved_io import SavedIOClient
 
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
@@ -32,11 +33,9 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
 from app.schemas.dataset_source import SourceLifecycleChange
 from app.services import (
-    content_snapshot,
     dataset_source_lifecycle,
     dataset_source_revisions,
     filesystem_storage,
-    reference_storage,
     storage_maintenance_impact as maintenance,
 )
 from app.services.dataset_references import reference_context
@@ -120,12 +119,12 @@ def forbid_source_io(monkeypatch):
         "location_directory",
         "capture_anchor",
         "probe_directory",
+        "content_file",
         "scan_directory",
     ):
         monkeypatch.setattr(filesystem_storage, name, unexpected)
-    monkeypatch.setattr(reference_storage, "configuration", unexpected)
-    monkeypatch.setattr(reference_storage, "content_file", unexpected)
-    monkeypatch.setattr(content_snapshot, "capture", unexpected)
+    for name in ("command", "download", "upload"):
+        monkeypatch.setattr(SavedIOClient, name, unexpected)
     for name in (
         "head_object",
         "list_objects_v2",
