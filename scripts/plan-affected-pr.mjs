@@ -1,5 +1,6 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const { affected_pr: suites } = JSON.parse(
@@ -44,29 +45,58 @@ function protectedMarkdown(text) {
   return fence || comment ? null : protectedLines.join("\n");
 }
 
-const frameworkFallback =
-  /^( +: String\(run\.config\.framework \?\? "[^"\\\r\n]*"\)\})(?:\{" "\})?(?:\n +<span className="[\w -]+">\n +\{String\(run\.config\.framework_version \?\? "[^"\\\r\n]*"\)\}\n +<\/span>)?$(?=\n +<\/td>)/gm;
-function frameworkCell(text) {
-  return text.replace(frameworkFallback, "$1");
+const webRequire = createRequire(new URL("../apps/web/package.json", import.meta.url));
+
+function renderContract(ts, text) {
+  const source = ts.createSourceFile(
+    "view.tsx",
+    text,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
+  if (source.parseDiagnostics.length) return null;
+  const signatures = [];
+  const calls = new Set();
+  const interactions = [];
+  function visit(node) {
+    if (ts.isCallExpression(node) || ts.isNewExpression(node))
+      calls.add(node.expression.getText(source));
+    if (
+      ((ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) &&
+        /^(?:[A-Z]|canvas$|video$|audio$|iframe$|input$)/.test(node.tagName.getText(source))) ||
+      (ts.isJsxAttribute(node) && /^(?:on[A-Z]|href$|src$|to$)/.test(node.name.getText(source))) ||
+      ts.isAwaitExpression(node) ||
+      ts.isTaggedTemplateExpression(node) ||
+      (ts.isCallExpression(node) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          /^(?:useEffect|useLayoutEffect|fetch|require)$/.test(node.expression.getText(source))))
+    )
+      interactions.push(node.getText(source));
+    ts.forEachChild(node, visit);
+  }
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.body) {
+      signatures.push(text.slice(statement.getStart(source), statement.body.getStart(source)));
+      visit(statement.body);
+    } else signatures.push(statement.getText(source));
+  }
+  return { boundary: JSON.stringify([signatures, interactions]), calls };
 }
 
-function splitProportions(text) {
-  return text
-    .replace(
-      /^  const total = (?:known|unknown|\d+)(?: [+-] (?:known|unknown|\d+))*;$/gm,
-      "<TOTAL>",
-    )
-    .replace(
-      /\{total \? (\(\(splits\[split\]\.images \/ total\) \* 100\)\.toFixed\(1\)) : "0\.0"\}%/g,
-      "{$1}%",
-    )
-    .replace(
-      /(\{splits\[split\]\.images\} 张 ·)(?:\{" "\})?\s+(?=\{\(\(splits\[split\]\.images \/ total\))/g,
-      "$1 ",
-    );
+function viewBodyOnly(before, after) {
+  const ts = webRequire("typescript");
+  const from = renderContract(ts, before);
+  const to = renderContract(ts, after);
+  return (
+    from &&
+    to &&
+    from.boundary === to.boundary &&
+    [...to.calls].every((call) => from.calls.has(call))
+  );
 }
 
-function addedChartAssertions(before, after) {
+function addsVisibleAssertions(before, after) {
   const original = before.split("\n");
   const candidate = after.split("\n");
   let i = 0;
@@ -84,18 +114,13 @@ function addedChartAssertions(before, after) {
 
 function reviewedEdit(suite, path, before, after, approvePython) {
   const production = path === suite.source;
-  switch (suite.rule) {
-    case "framework-cell":
-      return production && frameworkCell(before) === frameworkCell(after);
-    case "split-proportions":
-      return production
-        ? splitProportions(before) === splitProportions(after)
-        : addedChartAssertions(before, after);
-    case "monthly-summary":
-      return approvePython(production ? "calculation" : "test", before, after);
-    default:
-      return false;
-  }
+  if (!production && !suite.testAdditions) return false;
+  if (suite.runner === "api")
+    return approvePython(production ? "calculation" : "test", before, after);
+  return (
+    suite.runner === "web" &&
+    (production ? viewBodyOnly(before, after) : addsVisibleAssertions(before, after))
+  );
 }
 
 export function planAffected(changes, approvePython) {
@@ -121,7 +146,7 @@ export function planAffected(changes, approvePython) {
     const suite = suites.find(({ source, test }) => source === path || test === path);
     if (!suite || status !== "M") return full(`No reviewed change rule for ${at}`);
     if (!reviewedEdit(suite, path, before, after, approvePython)) {
-      return full(`Outside the ${suite.rule} edit rule: ${at}`);
+      return full(`Changed the reviewed boundary for ${suite.owner}: ${at}`);
     }
     if (owner && owner !== suite.owner)
       return full(`Multiple owners (${owner}, ${suite.owner}): ${at}`);

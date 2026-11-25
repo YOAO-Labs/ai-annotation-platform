@@ -4,7 +4,6 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -23,12 +22,32 @@ const chart = `${project}TrainingDatasetCharts.tsx`;
 const chartTest = `${project}TrainingDatasetCharts.test.tsx`;
 const summary = "apps/api/app/services/audit_summary.py";
 const summaryTest = "apps/api/tests/test_audit_summary.py";
-const baseline = Object.fromEntries(
-  [table, panelTest, chart, chartTest, summary, summaryTest, "README.md", "DEV.md"].map((path) => [
-    path,
-    readFileSync(new URL(`../${path}`, import.meta.url), "utf8"),
-  ]),
-);
+const baseline = {
+  "README.md": "# Project\n\n```sh\npnpm docs:dev\n```\n",
+  "DEV.md": "# Development\n",
+  [table]:
+    "export function TrainingRunTable({ version }: { version: string }) { return <td>{version}</td>; }\n",
+  [panelTest]: 'it("shows the training list", () => {});\n',
+  [chart]: `export function Chart({ totalMembers, known, unknown }: { totalMembers?: number; known: number; unknown: number }) {
+  const total = known + unknown;
+  return <span>{total ? total.toFixed(1) : "0.0"}</span>;
+}\n`,
+  [chartTest]: `describe("chart", () => {
+  it("reports the denominator", () => {
+    expect(screen.getByText("2 张 · 40.0%")).toBeVisible();
+  });
+});\n`,
+  [summary]: `def build_monthly_summary(
+    month: str, month_start, month_end, rows
+):
+    for row in rows:
+        is_error = int(row.status_family) in (4, 5)
+    return [offset for offset in range((month_end - month_start).days)]
+`,
+  [summaryTest]: `def test_local_summary_keeps_exact_counts_empty_dimensions_and_tie_order():
+    assert len(summary.daily) == days
+`,
+};
 
 function fixture(t, files) {
   const root = mkdtempSync(join(tmpdir(), "affected-pr-"));
@@ -79,13 +98,10 @@ const affected = (docs, web = [], api = []) => ({ scope: "affected", docs, web, 
 const full = { scope: "full", docs: false, web: [], api: [] };
 const dayRange = "for offset in range((month_end - month_start).days)";
 const changedSummary = baseline[summary].replace(dayRange, `${dayRange.slice(0, -1)} - 1)`);
-const withoutVersion = baseline[table].replace(
-  /\n +<span className="text-muted-foreground">\n +\{String\(run\.config\.framework_version \?\? ""\)\}\n +<\/span>/,
-  "",
-);
+const withoutVersion = baseline[table].replace("<td>{version}</td>", "<td>—</td>");
 const directPercentage = baseline[chart].replace(
-  '{total ? ((splits[split].images / total) * 100).toFixed(1) : "0.0"}%',
-  "{((splits[split].images / total) * 100).toFixed(1)}%",
+  'total ? total.toFixed(1) : "0.0"',
+  "total.toFixed(1)",
 );
 const addedAuditTest = `\n\ndef test_error_totals_exclude_redirects():
     rows = [SimpleNamespace(day=date(2026, 10, 1), action="read", target_type="task",

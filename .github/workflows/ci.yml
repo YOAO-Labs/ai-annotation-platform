@@ -55,10 +55,19 @@ jobs:
             test "$(git rev-parse HEAD^1)" = "$BASE"
             test "$(git rev-parse HEAD^2)" = "$HEAD"
             if git cat-file -e "$BASE:scripts/plan-affected-pr.mjs"; then
-              policy=$(mktemp -d)
+              trusted=$(mktemp -d)
+              policy="$trusted/scripts"
+              mkdir "$policy"
               for file in plan-affected-pr.mjs affected-pr-python.py test-suites.json; do
                 git show "$BASE:scripts/$file" > "$policy/$file"
               done
+              if ! git diff --quiet "$BASE" "$GITHUB_SHA" -- 'apps/web/src/**/*.tsx'; then
+                version=$(git show "$BASE:pnpm-lock.yaml" | sed -nE 's/^  typescript@([0-9]+\.[0-9]+\.[0-9]+):$/\1/p')
+                if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                  (cd "$trusted" && npm install --silent --ignore-scripts --no-save --no-audit --no-fund "typescript@$version") ||
+                    echo '::warning::TypeScript parser unavailable; web sources will use full CI.'
+                fi
+              fi
               plan=$(node "$policy/plan-affected-pr.mjs" "$BASE" "$GITHUB_SHA" | jq -ce .)
             else
               plan=$(jq -c '.reason="Base predates the affected-check policy"' <<< "$plan")

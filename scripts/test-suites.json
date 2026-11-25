@@ -1,7 +1,7 @@
 {
   "affected_pr": [
     {
-      "rule": "framework-cell",
+      "testAdditions": false,
       "owner": "training-view",
       "source": "apps/web/src/pages/Projects/TrainingRunTable.tsx",
       "consumers": ["apps/web/src/pages/Projects/ProjectTrainingPanel.tsx"],
@@ -10,7 +10,7 @@
       "services": []
     },
     {
-      "rule": "split-proportions",
+      "testAdditions": true,
       "owner": "training-view",
       "source": "apps/web/src/pages/Projects/TrainingDatasetCharts.tsx",
       "consumers": ["apps/web/src/pages/Projects/TrainingDatasetInsights.tsx"],
@@ -19,7 +19,7 @@
       "services": []
     },
     {
-      "rule": "monthly-summary",
+      "testAdditions": true,
       "owner": "audit-summary",
       "source": "apps/api/app/services/audit_summary.py",
       "consumers": ["apps/api/app/api/v1/audit_logs.py", "apps/api/experiments/bench_cost.py"],

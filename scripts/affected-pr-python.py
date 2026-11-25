@@ -1,14 +1,24 @@
 import ast
 import json
-import re
 import sys
 
 
-CALCULATION = re.compile(
-    r"(?m)^(?:(?P<day>        for offset in range\(\(month_end - month_start\)\.days)"
-    r"(?: [+-] \d+)?\)$|(?P<status>        is_error = int\(row\.status_family\) in )"
-    r"\([1-5](?:, [1-5])+,?\)$)"
-)
+def calculation_contract(text):
+    module = ast.parse(text)
+    calls = set()
+    for fn in module.body:
+        if not isinstance(fn, ast.FunctionDef):
+            continue
+        for statement in fn.body:
+            for node in ast.walk(statement):
+                if isinstance(node, ast.Call):
+                    calls.add(ast.dump(node.func))
+                elif isinstance(
+                    node, (ast.Import, ast.ImportFrom, ast.Global, ast.Nonlocal)
+                ):
+                    calls.add(ast.dump(node))
+        fn.body.clear()
+    return ast.dump(module), calls
 
 
 def add_test(before, after):
@@ -75,11 +85,9 @@ def approves(kind, before, after):
     if kind == "test":
         return add_test(before, after)
     if kind == "calculation":
-
-        def without_operands(s):
-            return CALCULATION.sub(lambda m: m["day"] or m["status"], s)
-
-        return without_operands(before) == without_operands(after)
+        old_api, old_calls = calculation_contract(before)
+        new_api, new_calls = calculation_contract(after)
+        return old_api == new_api and new_calls <= old_calls
     return False
 
 
