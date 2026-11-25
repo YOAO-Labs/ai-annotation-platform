@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import hashlib
@@ -95,6 +96,7 @@ class _TestBackendControlTransport:
         self._factory = factory
         self.mode_handler = None
 
+    @asynccontextmanager
     async def control_binding(self, _backend_id, *, request_id, operation):
         yield BackendEndpointBinding(
             kind="control",
@@ -532,10 +534,8 @@ async def test_pending_membership_atomically_activates_and_receives_signed_ack(
         assert membership.state == "active"
         assert fence.runtime_epoch_high_water == 1
         assert fence.control_epoch_high_water == 1
-        assert fence.token_expiry_high_water == datetime.fromtimestamp(
-            claims.exp,
-            tz=UTC,
-        )
+        assert fence.token_expiry_high_water is not None
+        assert int(fence.token_expiry_high_water.timestamp()) == claims.exp
 
 
 async def test_ready_is_revoked_before_mode_http_after_epoch_advance(
@@ -827,16 +827,15 @@ async def test_control_epoch_overflow_rolls_back_activation(promotion_db) -> Non
         )
     signer, _private_key = _signer()
 
-    result = await _promote_backend(
+    (result,) = await _promote_resource(
         promotion_db,
-        signer,
-        backend_id,
-        gpu_resource_id=_RESOURCE_A,
-        membership_epoch=1,
+        _RESOURCE_A,
+        signer_factory=lambda: signer,
         readiness_demoter=_demote_ready,
         mode_response_handler=lambda _backend: pytest.fail("unexpected mode HTTP"),
     )
 
+    assert result.backend_id == str(backend_id)
     assert result.status == "unavailable"
     async with factory() as db:
         membership = await db.get(

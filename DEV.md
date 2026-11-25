@@ -33,7 +33,7 @@
 
 完整 CI 的四个 API 分片共用经清单校验的 runtime wheel。各片分别运行 `alembic upgrade head`；从空库和旧版升级的迁移验收只在第 0 片运行一次。需要独立数据库的托管资源用例复用封存至 `0267` 的迁移模板，后续迁移和数据写入仍在各自的数据库里完成。
 
-分片依据完整 CI 的四份 JUnit 报告调度最慢的模块，其余按模块路径哈希分配。复现第 3 片时，在隔离测试环境的 `apps/api` 中运行 `uv run pytest -q --shard-index 3 --shard-count 4 --shard-plan tests/ci-shard-plan.json`。工作树与维护用例单独并行。pytest 和 Vitest 默认不采集覆盖率。
+分片依据完整 CI 的四份 JUnit 报告调度最慢的模块，其余按模块路径哈希分配。复现第 3 片时，在隔离测试环境的 `apps/api` 中运行 `uv run pytest -q --shard-index 3 --shard-count 4 --shard-plan tests/ci-shard-plan.json --ignore=tests/test_gpu_membership_activation.py`。GPU 成员激活用例由并行的 `Backend GPU membership activation` 负责。它在独立数据库中使用专用进程角色，运行整个文件并上传 JUnit 报告。工作树与维护用例也单独并行。pytest 和 Vitest 默认不采集覆盖率。
 
 ## 按主题查阅
 
