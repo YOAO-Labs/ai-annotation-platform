@@ -13,6 +13,7 @@
 ## 提交前检查
 
 按改动范围选择命令，不用在日常开发库运行会迁移或写数据的测试。
+排查 PR 等待时间时，先看 `CI scope` 选了哪些检查，再区分最长任务的排队时间和执行时间。
 
 - 静态检查：`pnpm lint`、`pnpm format:check`。
 - Web：`pnpm test`、`pnpm typecheck`。首次直接运行类型检查前用 `pnpm codegen`；`pnpm dev:web` 与 `pnpm build:web` 启动前会按需生成。
