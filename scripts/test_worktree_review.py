@@ -36,6 +36,7 @@ class ReviewRegressions(unittest.TestCase):
         for acquired in (True, False):
             with self.subTest(different_server=acquired):
                 owner, runtime_connection = AsyncMock(), AsyncMock()
+                owner.engine.url = backend.url.set(database="postgres")
                 rows = Mock()
                 rows.mappings.return_value.first.return_value = {
                     "owner": "fixture",
@@ -54,7 +55,10 @@ class ReviewRegressions(unittest.TestCase):
                         with self.assertRaisesRegex(WorktreeError, "同一个"):
                             asyncio.run(backend.database())
                     else:
-                        self.assertIsNotNone(asyncio.run(backend.database()))
+                        self.assertEqual(
+                            asyncio.run(backend.database()),
+                            {"owner": "fixture", "sessions": 0},
+                        )
                 urls = [call.args[0] for call in create.call_args_list]
                 self.assertEqual([url.host for url in urls], ["::1", "127.0.0.1"])
                 self.assertEqual(
