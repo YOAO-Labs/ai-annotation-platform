@@ -1,4 +1,4 @@
-# 0099 — SFTP 持续引用要求部署核验的只读 jail
+# 0198 — SFTP 持续引用要求部署核验的只读 jail
 
 - **Status:** Accepted
 - **Date:** 2026-10-23

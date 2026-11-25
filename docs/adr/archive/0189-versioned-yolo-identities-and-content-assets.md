@@ -1,4 +1,4 @@
-# 0090 — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
+# 0189 — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
 
 - **Status:** Accepted
 - **Date:** 2026-10-20
@@ -63,5 +63,5 @@ YOLO26 使用精确原生端到端分支，固定 `nms=false`，区分真实 L1 
 - 共享登记、资产与版本策略：`apps/_shared/training_contract/training_contract/`。
 - 目录与节点匹配：`apps/api/app/services/training_runs.py`。
 - 原生执行与安装：`apps/training-executor/`、`apps/yolo-backend/managed_models.py`。
-- 相关决策：[受控训练初始化](0081-controlled-training-initialization.md)、[任务隔离的实例学习](0089-task-scoped-native-instance-learning.md)。
+- 相关决策：[受控训练初始化](0081-controlled-training-initialization.md)、[任务隔离的实例学习](0188-task-scoped-native-instance-learning.md)。
 - 无新增数据库迁移；现有冻结配置与部署证据 JSON 保存新增身份。

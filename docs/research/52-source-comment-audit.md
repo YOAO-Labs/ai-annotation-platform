@@ -41,7 +41,7 @@ TSV 每行一个原文件，`classifications` 列按词法顺序给出 `类别�
 
 ## 首批去向
 
-- 完整处理 `apps/training-executor/` 的 77 个解释性 token。训练与预览之间的资源约束、日志、受控初始化和模型回传等理由进入原有 [0077](../adr/archive/0077-native-augmentation-preview-cpu-ownership.md)、[0078](../adr/archive/0078-attempt-observability-and-redacted-logs.md)、[0081](../adr/archive/0081-controlled-training-initialization.md)、[0082](../adr/archive/0082-budgeted-training-studies.md)、[0084](../adr/archive/0084-qualified-libreyolo-model-return.md)、[0089](../adr/archive/0089-task-scoped-native-instance-learning.md)、[0090](../adr/archive/0090-versioned-yolo-identities-and-content-assets.md)。
+- 完整处理 `apps/training-executor/` 的 77 个解释性 token。训练与预览之间的资源约束、日志、受控初始化和模型回传等理由进入原有 [0077](../adr/archive/0077-native-augmentation-preview-cpu-ownership.md)、[0078](../adr/archive/0078-attempt-observability-and-redacted-logs.md)、[0081](../adr/archive/0081-controlled-training-initialization.md)、[0082](../adr/archive/0082-budgeted-training-studies.md)、[0084](../adr/archive/0084-qualified-libreyolo-model-return.md)、[0188](../adr/archive/0188-task-scoped-native-instance-learning.md)、[0189](../adr/archive/0189-versioned-yolo-identities-and-content-assets.md)。
 - 已建单：[固定 batch 依赖私有 OOM 计数器](https://github.com/YOAO-Labs/ai-annotation-platform/issues/156)、[验证字体在训练时复制改名](https://github.com/YOAO-Labs/ai-annotation-platform/issues/157)、[成员综合分使用固定活跃值](https://github.com/YOAO-Labs/ai-annotation-platform/issues/158)、[图片性能基准的尺寸和密度标签不控制实际 fixture](https://github.com/YOAO-Labs/ai-annotation-platform/issues/159)。移除解释并不等于修复了实现。
 - 数据集关联弹窗已经使用 `useLinkProject`；受跟踪 OpenAPI 快照已经包含 `keypoint_schema`、`rendering_config`、`default_variants` 等字段。相反的旧说明已删除，没有为已不存在的绕路建单。性能 smoke 的说明也不再计入它没有执行的交互。
 

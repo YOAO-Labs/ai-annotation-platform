@@ -1,4 +1,4 @@
-# 0100 — 增量差异固定已接纳基线，接纳范围贯穿恢复
+# 0199 — 增量差异固定已接纳基线，接纳范围贯穿恢复
 
 - **Status:** Accepted
 - **Date:** 2026-10-23
@@ -29,4 +29,4 @@
 
 - 服务：`apps/api/app/services/dataset_source_changes.py`、`dataset_registration.py`
 - 迁移：`apps/api/alembic/versions/0201_dataset_source_changes.py`
-- API：[目录来源与观测扫描](../../docs-site/api/guides/dataset-sources.md#手动增量差异)
+- API：[目录来源与观测扫描](https://github.com/YOAO-Labs/YOAO-Docs/blob/main/api/guides/dataset-sources.md#手动增量差异)

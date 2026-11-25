@@ -23,6 +23,8 @@
 
 如果决策被推翻，新建一份 ADR，把旧的状态改为 `Superseded by ADR-XXXX`，但**保留旧文档**。
 
+历史引用中的 `0088` 至 `0107` 曾用于两组决策。模块与服务决策保留原号。2026-10-20 至 2026-10-24 的模型、数据集、受控来源和原生视频暂存决策使用旧编号加 99，对应 `0187` 至 `0206`。查旧引用时，按文件名和标题核对[更名前的 ADR 目录](https://github.com/YOAO-Labs/YOAO/tree/581993e5a4b7c5352cf29952dfedaa5a15535ab8/docs/adr)。
+
 ## 模板
 
 见 [`TEMPLATE.md`](TEMPLATE.md)。复制为 `NNNN-short-kebab-title.md`，填入元数据与各章节即可。
@@ -59,8 +61,8 @@
 - [0164](0164-workspace-transactional-project-maintenance.md) — Workspace 相邻项目写入的同事务能力（限定本地定向验收通过）
 - [0163](0163-identity-registration-policy-owner.md) — Identity 注册状态与部署默认值的统一读取（限定本地定向验收通过）
 - [0162](0162-identity-read-relations-and-consumer-grants.md) — Identity 集合读取关系与独立 API 消费者权限（限定本地定向验收通过）
-- [0157](0157-video-execution-claims-and-route-binding.md) — 视频执行代次、原子路由绑定与当前写入检查（完整恢复继续实施）
-- [0156](0156-scoped-inference-retirement.md) — 推理执行范围的定向退役与作业交接边界（定向退役通过限定本地验收）
+- [0161](0161-identity-current-authority-consumers.md) — 同事务 Identity 账号读取与已接受 API-key 最终授权
+- [0160](0160-coordinated-video-restore.md) — 视频执行与推理路由的受控恢复
 - [0009](0009-task-events-table-and-partition.md) — task_events 表与按月分区方案
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化
@@ -233,32 +235,32 @@
 - [0158 — 视频窗口账本与会话重放](0158-video-window-journals-and-replay.md)
 - [0159 — Labeling 视频 worker 最终写入 owner](0159-independent-labeling-video-writer.md)
 
-- [0088](archive/0088-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
+- [0187](archive/0187-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
 
-- [0089](archive/0089-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
+- [0188](archive/0188-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
 
-- [0090](archive/0090-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
+- [0189](archive/0189-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
 
-- [0091](archive/0091-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
+- [0190](archive/0190-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
 
-- [0092](archive/0092-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证
+- [0191](archive/0191-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证
 
-- [0093](archive/0093-resumable-directory-inventory.md) — 目录观测按完整目录提交并以执行代次恢复
+- [0192](archive/0192-resumable-directory-inventory.md) — 目录观测按完整目录提交并以执行代次恢复
 
-- [0094](archive/0094-verified-request-content-snapshots.md) — 可变原图通过有界请求快照核验后交付
+- [0193](archive/0193-verified-request-content-snapshots.md) — 可变原图通过有界请求快照核验后交付
 
-- [0095](0095-immutable-directory-reference-tasks.md) — 目录样本固定内容身份并在任务锁内复核写入
-- [0096](0096-durable-directory-registration.md) — 目录批量登记使用独立的两阶段持久账本
-- [0097](0097-directory-ownership-previews-and-lifecycle.md) — 目录原图所有权、鉴权派生预览与来源生命周期分离
-- [0098](0098-strict-external-s3-references.md) — 外部 S3 引用保存精确定位并逐次验证条件读取
-- [0099](0099-qualified-sftp-references.md) — SFTP 持续引用以部署核验的只读 jail 和固定主机公钥为准入边界
-- [0100](0100-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复
-- [0101](0101-periodic-source-coordination.md) — 周期来源协调沿用领域运行和人工接纳
-- [0102](0102-explicit-directory-content-revisions.md) — 内容修订追加业务身份并推进来源路径头
-- [0103](0103-explicit-same-content-revalidation.md) — 同内容重新核验追加读取凭据并保留业务身份
-- [0104](0104-explicit-source-relocations.md) — 来源内移动通过明确接纳的新定位保留原业务身份
+- [0194](0194-immutable-directory-reference-tasks.md) — 目录样本固定内容身份并在任务锁内复核写入
+- [0195](0195-durable-directory-registration.md) — 目录批量登记使用独立的两阶段持久账本
+- [0196](0196-directory-ownership-previews-and-lifecycle.md) — 目录原图所有权、鉴权派生预览与来源生命周期分离
+- [0197](0197-strict-external-s3-references.md) — 外部 S3 引用保存精确定位并逐次验证条件读取
+- [0198](0198-qualified-sftp-references.md) — SFTP 持续引用以部署核验的只读 jail 和固定主机公钥为准入边界
+- [0199](0199-preflight-owned-source-differences.md) — 增量差异固定已接纳基线，接纳范围贯穿恢复
+- [0200](0200-periodic-source-coordination.md) — 周期来源协调沿用领域运行和人工接纳
+- [0201](0201-explicit-directory-content-revisions.md) — 内容修订追加业务身份并推进来源路径头
+- [0202](0202-explicit-same-content-revalidation.md) — 同内容重新核验追加读取凭据并保留业务身份
+- [0203](0203-explicit-source-relocations.md) — 来源内移动通过明确接纳的新定位保留原业务身份
 
-- [0105](0105-opt-in-pure-addition-sync.md) — 周期计划按明确策略自动接纳纯新增轮次
+- [0204](0204-opt-in-pure-addition-sync.md) — 周期计划按明确策略自动接纳纯新增轮次
 
-- [0106](0106-reviewed-source-selection-changes.md) — 扫描选择规则通过影响预览变更，保留旧业务读取
-- [0107](0107-scoped-native-video-stages.md) — 原生视频通过路径 Cookie 读取有界完整核验暂存
+- [0205](0205-reviewed-source-selection-changes.md) — 扫描选择规则通过影响预览变更，保留旧业务读取
+- [0206](0206-scoped-native-video-stages.md) — 原生视频通过路径 Cookie 读取有界完整核验暂存

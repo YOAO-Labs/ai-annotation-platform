@@ -1,4 +1,4 @@
-# 0089 — 实例分割采用原生掩码训练与按任务隔离的在线学习
+# 0188 — 实例分割采用原生掩码训练与按任务隔离的在线学习
 
 - **Status:** Accepted
 - **Date:** 2026-10-20
@@ -43,4 +43,4 @@
 
 - 开发说明：`docs-site/dev/concepts/instance-segmentation-learning.md`
 - 数据迁移：`0192_task_model_releases.py`、`0193_task_learning_policies.py`
-- 相关决策：ADR 0076、0079、0081、0083、0085、0086、0087、0088。
+- 相关决策：ADR 0076、0079、0081、0083、0085、0086、0087、0187。

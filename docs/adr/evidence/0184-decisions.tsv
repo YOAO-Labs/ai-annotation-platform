@@ -1,6 +1,6 @@
 id	source_at_e8a4f595	related_adr	constraint_and_reason
-0184-0001	apps/_shared/filesystem_read/src/yoao_filesystem_read/roots.py:261;apps/_shared/filesystem_read/src/yoao_filesystem_read/stage.py:145-146	archive/0094-verified-request-content-snapshots.md	打开的目录描述符只能固定对象，不能证明原路径仍指向该对象；打开后须按预期锚点重新解析以发现目录替换。即使文件已读完，也要等源上下文退出、文件与目录检查通过后才交付字节。
-0184-0002	apps/_shared/filesystem_read/src/yoao_filesystem_read/roots.py:366	archive/0094-verified-request-content-snapshots.md	列举探测最多取一条，且只能证明 list 成功；不能用它替代文件读取探测，否则仅有列举权限也会被判为可读。
+0184-0001	apps/_shared/filesystem_read/src/yoao_filesystem_read/roots.py:261;apps/_shared/filesystem_read/src/yoao_filesystem_read/stage.py:145-146	archive/0193-verified-request-content-snapshots.md	打开的目录描述符只能固定对象，不能证明原路径仍指向该对象；打开后须按预期锚点重新解析以发现目录替换。即使文件已读完，也要等源上下文退出、文件与目录检查通过后才交付字节。
+0184-0002	apps/_shared/filesystem_read/src/yoao_filesystem_read/roots.py:366	archive/0193-verified-request-content-snapshots.md	列举探测最多取一条，且只能证明 list 成功；不能用它替代文件读取探测，否则仅有列举权限也会被判为可读。
 0184-0003	apps/_shared/identity_admission/src/yoao_identity_admission/client.py:25	0115-identity-admission-and-durable-revocation.md	将 httpx 保留为可选安装项；改成必装依赖会迫使不使用 HTTP 客户端的调用方也安装它。
 0184-0004	apps/_shared/inference_contract/src/yoao_inference_contract/execution_client.py:121-122	-	before_dispatch 在 owner 等待传输准入之前运行，只能作为预检；若用其结果替代 owner 内部的发送授权，等待期间发生的授权变化就不会在实际发送时生效。
 0184-0005	apps/_shared/inference_contract/src/yoao_inference_contract/health_observation_outcome.py:117	-	健康观测结果编码后复用接收端的解码校验，避免发送端生成自己认为合法、接收端却拒绝的结果；其中长度按 UTF-8 字节数而非字符数计算。
@@ -165,7 +165,7 @@ id	source_at_e8a4f595	related_adr	constraint_and_reason
 0184-0164	apps/api/tests/test_batch_preannotation_listing.py:39	-	批次列表支持多状态筛选后，省略 status 仍表示不按状态过滤；若将省略解释为默认状态集合，原有未传参的调用方会漏掉其他状态的批次。
 0184-0165	apps/api/tests/test_batch_predict_idempotency.py:138-139	-	预标注请求返回已受理时，作业 ID 必须已能从持久化作业端点查到；若等 worker 启动后才使作业可查，调用方拿到 ID 后会在排队期间查不到作业。
 0184-0166	apps/api/tests/test_batch_result_consumers_native.py:782;apps/api/tests/test_batch_result_worker_live.py:377-378	-	broker 投递只能定位已获准的预标注 Job，不能替代执行授权；未绑定的消息不得自行创建预测重试。经正常准入的失败则不能因实际 worker 丢失而失去恢复资格。
-0184-0167	apps/api/tests/test_bug_attachment_uploads.py:333-336,875,884-885;apps/api/tests/test_content_snapshot.py:264	archive/0094-verified-request-content-snapshots.md	附件物理操作账本独立于业务 SAVEPOINT：PUT 结果未知或源句柄未确认全关时，保留未结算记录（storage_operation_unsettled），不能用业务回滚清账。报告可先结束业务状态，但读取句柄是否关闭未明时不得回收字节。
+0184-0167	apps/api/tests/test_bug_attachment_uploads.py:333-336,875,884-885;apps/api/tests/test_content_snapshot.py:264	archive/0193-verified-request-content-snapshots.md	附件物理操作账本独立于业务 SAVEPOINT：PUT 结果未知或源句柄未确认全关时，保留未结算记录（storage_operation_unsettled），不能用业务回滚清账。报告可先结束业务状态，但读取句柄是否关闭未明时不得回收字节。
 0184-0168	apps/api/tests/test_comment_attachment_storage_migration.py:480	-	评论附件迁移按创建后 2160 小时计算过期，而不是按日历天推算；跨夏令时切换时，日历天算法会改变回执的实际有效时长。
 0184-0169	apps/api/tests/test_comment_attachment_uploads.py:260-261	-	评论上传回执只能由原上传者认领；参与该标注讨论的权限不能替代回执归属，否则同项目的成员可将他人上传的附件绑定到自己的评论。
 0184-0170	apps/api/tests/test_comment_attachment_uploads.py:585	-	评论上传的提交后检查必须使用提交前冻结的事实；若提交后才从 ORM 对象取值，字段可能已失效，检查就不能可靠地依据本次提交的事实。
@@ -177,7 +177,7 @@ id	source_at_e8a4f595	related_adr	constraint_and_reason
 0184-0176	apps/api/tests/test_conftest_db_url.py:117	-	测试数据库 URL 解析失败时须抑制底层异常链；只清理外层错误消息还不够，内层解析异常的 traceback 仍可能暴露原始 URL 中的凭据。
 0184-0177	apps/api/tests/test_connector_crypto_guard.py:21-22	-	Fernet 明文泄露断言须使用足够长且独特的标记；随机 IV 使 Base64 密文可能偶然包含短标记，导致并未泄露明文的测试间歇性失败。
 0184-0178	apps/api/tests/test_connector_crypto_guard.py:177-178	-	连接器的域名白名单不能代替对解析结果的检查：只允许全局可路由 IP，命中白名单但解析到内网仍须拒绝，否则 DNS 重绑定可绕过网络访问限制。
-0184-0179	apps/api/tests/test_content_snapshot.py:235	archive/0094-verified-request-content-snapshots.md	内容快照遇到取消时，哪怕外层任务连续两次收到取消，也要等底层实际 Future 完成；外层取消不证明底层已停止，不能据此提前认定存储操作结束。
+0184-0179	apps/api/tests/test_content_snapshot.py:235	archive/0193-verified-request-content-snapshots.md	内容快照遇到取消时，哪怕外层任务连续两次收到取消，也要等底层实际 Future 完成；外层取消不证明底层已停止，不能据此提前认定存储操作结束。
 0184-0180	apps/api/tests/test_controlled_segmentation.py:18	-	受控分割不能用前景连通性替代实例归属；带孔环形区域和与它不连通的前景区域仍可能属于同一实例，按连通分量切分会将其误拆。
 0184-0181	apps/api/tests/test_create_tasks_worker.py:78	-	创建任务的 worker 只能依赖已提交的 ProjectDataset 关联；生产者事务内的 flush 不会让该关联对 worker 可见，提前派发会使其读不到创建任务的前提。
 0184-0182	apps/api/tests/test_cross_frame_born_dataset_scope.py:393	-	跨帧 Job 的范围证明依赖规范来源关联；唯一的规范关联被删除后，Job 仍存在也不能当作其结构已获证明，否则会按已不存在的来源关系认定范围。
