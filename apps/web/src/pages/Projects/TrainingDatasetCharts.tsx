@@ -103,8 +103,7 @@ export function TrainingDatasetSplitChart({
                 <span className="min-w-0 flex-1 text-xs">
                   <span className="font-medium">{split === "train" ? "训练集" : "验证集"}</span>
                   <span className="mt-1 block tabular-nums">
-                    {splits[split].images} 张 ·{" "}
-                    {total ? ((splits[split].images / total) * 100).toFixed(1) : "0.0"}%
+                    {splits[split].images} 张 · {((splits[split].images / total) * 100).toFixed(1)}%
                   </span>
                   <span className="mt-1 block text-2xs text-muted-foreground">
                     {splits[split].instances ?? "未知"} 个实例
