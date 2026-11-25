@@ -496,7 +496,7 @@ jobs:
           uv tool run --from pre-commit==4.6.1 pre-commit run "${scope[@]}" --hook-stage manual --show-diff-on-failure
       - name: Repository Node script tests
         if: needs.e2e-plan.outputs.docs-only != 'true'
-        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs docs-site/scripts/*.test.mjs
+        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs
       - name: Check Python SDK documentation snippets
         if: needs.e2e-plan.outputs.docs-only == 'true'
         run: uv run --no-project --with pytest pytest --noconftest -q packages/python-sdk/tests/test_docs_snippets.py

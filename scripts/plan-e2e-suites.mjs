@@ -404,7 +404,7 @@ const sharedPaths = [
   ".npmrc",
   ".env.example",
 ];
-const knownRoots = new Set(["apps", "packages", "scripts", ".github", "docs-site"]);
+const knownRoots = new Set(["apps", "packages", "scripts", ".github", "examples"]);
 
 function matches(path, triggers) {
   return triggers.some((trigger) =>
