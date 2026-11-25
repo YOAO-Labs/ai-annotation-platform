@@ -1,21 +1,21 @@
 # 训练器插件化架构与实施计划
 
-> 状态：规划草案（待维护者确认后按 T0 至 T4 分阶段实施）。
+> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）已完成，待维护者确认 ADR-0189 后推进 T1 至 T4。
 >
 > 创建日期：2026-11-25。
 >
-> 关联上下文：承接已收口的 [平台插件化计划（M0-M4）](1795366269_platform-pluginization.md) 与 [ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)、[ADR-0090（版本化 YOLO 身份与资产）](../adr/archive/0090-versioned-yolo-identities-and-content-assets.md) 与在线学习设计约束（[训练数据集与执行器架构](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets)）。统一插件 SDK 落点为独立仓库 `YOAO-Labs/Plugin-SDK`（`yoao-plugin-sdk[trainer]` 与 `@yoao/plugin-sdk`）。
+> 关联上下文：承接已收口的 [平台插件化计划（M0-M4）](1795366269_platform-pluginization.md)、[ADR-0189（训练器扩展点）](../adr/0189-trainer-extension-point.md)、[ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)、[ADR-0090（版本化 YOLO 身份与资产）](../adr/archive/0090-versioned-yolo-identities-and-content-assets.md) 与在线学习设计约束（[训练数据集与执行器架构](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets)）。统一插件 SDK 落点为独立仓库 `YOAO-Labs/Plugin-SDK`（`yoao-plugin-sdk[trainer]` 与 `@yoao/plugin-sdk`）。
 
 ## 1. 目标与非目标
 
 ### 目标
 
 | 编号 | 目标                                                                                                                                                                                                                                                                       |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| G1   | **训练框架彻底解耦**：把 `ultralytics`、`libreyolo` 等具体训练框架从平台核心镜像（`apps/training-executor`）、共享契约（`apps/_shared/training_contract`）、API 校验与 `yoao_learning_v1` SQL 中抽离为独立可安装的 `trainer` 扩展点。                                      |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1   | **训练框架彻底解耦**：把 `ultralytics`、`libreyolo` 等具体训练框架从平台核心镜像（`apps/training-executor`）、共享契约（`packages/python-sdk/src/training_contract`）、API 校验与 `yoao_learning_v1` SQL 中抽离为独立可安装的 `trainer` 扩展点。                           |
 | G2   | **保留在线学习全部硬不变量**：冻结数据集快照、单调序号流、GPU 互斥锁与孤儿作业回收、`lost` 状态保租约、单调时钟 `ProcessBudget`、预签名对象存储回读校验与受控模型回流资格不得因插件化而退化。                                                                              |
 | G3   | **统一扩展点与多环境隔离**：训练器插件使用统一清单 `yoao-extension-manifest/v1`（`extension_point: "trainer"`、`protocol_version: "yoao-trainer/v1"`）与 `yoao-plugin-sdk[trainer]`，每个训练器镜像独立锁定 Python、PyTorch、CUDA 与框架依赖，无需修改或重建平台核心镜像。 |
-| G4   | **数据驱动的训练到推理兼容匹配**：废除 `framework == "ultralytics"                                                                                                                                                                                                         | "libreyolo"`硬编码分派，改为由训练器产出声明式产物兼容性描述符，与推理插件的`managed_model_compatibility` 和能力声明进行结构化比对。 |
+| G4   | **数据驱动的训练到推理兼容匹配**：废除 `framework == "ultralytics"` / `"libreyolo"` 硬编码分派，改为由训练器产出声明式产物兼容性描述符，与推理插件的 `managed_model_compatibility` 和能力声明进行结构化比对。                                                              |
 
 ### 非目标
 
@@ -30,7 +30,7 @@
 
 | 层级         | 关键文件与位置                                                                                                                                                                                                                                                                                                                                                                                                            | 耦合表现                                                                                                                                                                                                                                                                                                                 |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 共享契约     | `apps/_shared/training_contract/training_contract/{catalog,models,validation,dataset,native_architecture,model_return,inference_runtime,initialization,preview}.py` 与 `native_inventory*.json`                                                                                                                                                                                                                           | 硬编码 `ADAPTERS`、34 个 `MODEL_SPECS`、`ULTRA`/`LIBRE` 参数字典、4 套 YOLO/RLE 数据集契约、`model_return.py` 中的 `LIBRE_RUNTIME`/`SEGMENTATION_RUNTIME` 源码哈希、`inference_runtime.py` 中的 `LIBRE_CUDA_RUNTIME`、`ultralytics` 专属初始化与预览策略。                                                               |
+| 共享契约     | `packages/python-sdk/src/training_contract/{catalog,models,validation,dataset,native_architecture,model_return,inference_runtime,initialization,preview}.py` 与 `native_inventory*.json`                                                                                                                                                                                                                                  | 硬编码 `ADAPTERS`、34 个 `MODEL_SPECS`、`ULTRA`/`LIBRE` 参数字典、4 套 YOLO/RLE 数据集契约、`model_return.py` 中的 `LIBRE_RUNTIME`/`SEGMENTATION_RUNTIME` 源码哈希、`inference_runtime.py` 中的 `LIBRE_CUDA_RUNTIME`、`ultralytics` 专属初始化与预览策略。                                                               |
 | 训练执行器   | `apps/training-executor/{Dockerfile,pyproject.toml}` 与 `training_executor/{worker,adapters,train,ultralytics_adapter,libreyolo_adapter,instance_rle,native_identity,initialization,preview,preview_worker,evaluation}.py`                                                                                                                                                                                                | 单一镜像同时烘焙 `ultralytics`、`libreyolo`、`torch` 与字体；`adapters.py:194-201` 静态 `if/elif` 分派；`worker.py:70,101-125` 直接 `import torch` 并强制反射 `ultralytics` 版本；`instance_rle.py` 顶层导入 `torch`/`ultralytics`；`evaluation.py:57-163` 硬编码两套评估器源码哈希。                                    |
 | API 与服务   | `apps/api/app/config.py:223-228`、`apps/api/app/schemas/{training_run,training_hub,training_study,learning_policy,training_recipe,training_preview,training_initialization,training_dataset,sample_evaluation}.py`、`apps/api/app/services/{training_adapters,training_runs,training_claims,training_evaluations,trained_models,managed_inference,sample_evaluations,active_learning,plugin_installation_observation}.py` | 全局单执行器配置（单 `training_gpu_uuid` 与单预览槽位）；Pydantic 与路由查询字面量限定 `Literal["ultralytics", "libreyolo"]`；冻结样本评估与主动学习拒绝 `framework != "ultralytics"`；`trained_models.py` 直接实例化 `MLBackendService`、`JobsDomainQueryPostgresData` 并调用私有 `MLBackendRouter._build_candidates`。 |
 | 数据库与 SQL | `apps/api/alembic/sql/0491_learning_dataset_boundary.sql:1-55`、`apps/api/alembic/sql/0492_learning_models.sql:331,974,982`、`apps/api/alembic/sql/0493_learning_selection.sql:78-94`、`apps/api/app/db/models/trained_model.py:103,148`                                                                                                                                                                                  | `advance_model_deployment_retirement()` 写死 `AND v.framework = 'libreyolo'`；`pending_dataset_mask_*` 按 `v.snapshot->>'bridge' = 'ultralytics-instance-rle-1'` 过滤；任务约束限定 `('detect', 'segment')`；数据集默认格式写死 `'ultralytics-yolo'`。                                                                   |
@@ -112,7 +112,7 @@
    - 校验冻结训练配置、架构 YAML 与可选初始化权重兼容性，退出码 `0` 时输出规范化响应模型（`ValidateConfigResultV1`，含 `resolved_config` 与 `schema_digest`），失败返回结构化错误 JSON。
 3. **`<entrypoint> train --spec /work/input/spec.json --output /work/output`**（`--network=none`，单卡 GPU 或显式 CPU）
    - 只读输入目录 `/work/input`：
-     - `spec.json`（`TrainSpecV1`：`run_id`、`attempt_id`、`framework_id`、`task`、`architecture_id`、`dataset_contract`、`dataset_dir`、`parameters`、`base_weights_path`、`resume_checkpoint_path`、`init_weights_path`、`native_budget`；`resume_checkpoint_path` 与 `init_weights_path` 互斥）
+     - `spec.json`（`TrainSpecV1`：`protocol_version`、`run_id`、`attempt_id`、`framework_id`、`task`、`architecture_id`、`dataset_contract`、`dataset_dir`、`dataset_snapshot_digest`、`config_digest`、`classes_digest`、成对可选 `schema_id`/`schema_digest`、`parameters`、`base_weights_path`、`resume_checkpoint_path`、`init_weights_path`、`native_budget`；`resume_checkpoint_path` 与 `init_weights_path` 互斥）
      - `dataset/`（校验通过后的冻结数据集目录）
      - `assets/`（节点本地只读预置基座权重与离线字体）
    - 可写输出目录 `/work/output`：
@@ -141,7 +141,7 @@
 
 - 产出架构决策文档 `docs/adr/0189-trainer-extension-point.md`（正式冻结一次性作业协议、容器化互斥与崩溃恢复语义、离线安全边界、资格门禁与数据驱动的模型回流兼容规则）。
 - 在 `Plugin-SDK`（`yoao_plugin_sdk.trainer` 与 `@yoao/plugin-sdk`）补齐并冻结 `yoao-trainer/v1` 全量模型：既有 `TrainerCapabilitiesV1`、`TrainSpecV1`、`TrainEventV1`、`TrainReceiptV1`、`ServingCompatibilityV1`、`write_event_jsonl`、`atomic_write_json`，以及本阶段补齐的 `ValidateConfigResultV1`、`PreviewSpecV1`、`PreviewReportV1` 和冻结数据集/配置摘要字段。
-- 明确与主仓 `yoao-sdk` 单包收敛的衔接：平台侧框架无关契约保留在 `training_contract`（后续并入 `yoao-sdk`），不再新增任何具体框架常量。
+- 明确与主仓 `yoao-sdk` 单包收敛的衔接：平台侧框架无关契约落位在 `packages/python-sdk/src/training_contract/trainer_plugin.py`（`yoao-sdk`），与 `yoao_plugin_sdk.trainer` 保持 JSON Schema 对等，不再新增任何具体框架常量。
 - **验收**：`Plugin-SDK` Python 3.10/3.11/3.12 与 Node 20 契约测试全部通过；ADR 获维护者确认。
 
 ### T1：Learning Owner 边界收口与 SQL 泛化（前置清理切片）
@@ -174,7 +174,7 @@
 - 在 `YOAO-Plugins` 新增 `plugins/trainer/ultralytics/` 与 `plugins/trainer/libreyolo/`，各自独立维护 `manifest.json`、Dockerfile、哈希锁定 `requirements.lock` 与 CI 校验，统一依赖 `yoao-plugin-sdk[trainer]`：
   - `plugins/trainer/ultralytics/` 完整承接 `UltralyticsAttemptTrainer`（离线字体拦截、首 epoch 禁 OOM 自动减半 batch）、`InstanceRLETrainer`、`native_identity`、权重初始化张量指纹校验、`input-membership.json`、评估器源码哈希与增强预览逻辑。
   - `plugins/trainer/libreyolo/` 完整承接 `weights_only=True` 检查点校验、`StrictResumeLogging`、`ObservedTrainer`/`ObservedValidator` 与 `libreyolo-native-state-dict-1.0` 回流描述符。
-- 在主仓删除旧 `apps/training-executor/training_executor/{ultralytics_adapter,libreyolo_adapter,instance_rle,evaluation,train,preview,native_identity,initialization}.py`、移除 `adapters.py` 中的框架静态分派，以及删除 `apps/_shared/training_contract` 中所有框架专属字典、版本常量与 `native_inventory*.json`（按“迁移调用方后立即删除旧实现”原则，不在核心保留双轨兼容层）。
+- 在主仓删除旧 `apps/training-executor/training_executor/{ultralytics_adapter,libreyolo_adapter,instance_rle,evaluation,train,preview,native_identity,initialization}.py`、移除 `adapters.py` 中的框架静态分派，以及删除 `packages/python-sdk/src/training_contract` 中所有框架专属字典、版本常量与 `native_inventory*.json`（按“迁移调用方后立即删除旧实现”原则，不在核心保留双轨兼容层）。
 - **验收**：主仓代码不再出现 `import ultralytics`、`import libreyolo` 或执行器侧 `import torch`；官方两款训练器在 `YOAO-Plugins` 独立 CI 下通过契约校验与离线构建。
 
 ### T4：真实单卡 GPU 端到端验收与模型回流资格验证
@@ -196,7 +196,7 @@
 
 ## 6. 当前状态与待决事项
 
-- **当前状态**：已完成训练子系统全链路耦合盘点、`Plugin-SDK` `yoao-trainer/v1` 核心模型落地，以及主仓 5 个便携契约包合并为单一 `yoao-sdk`（`>=3.10`）（待进入 T0 ADR 编写并补齐 `ValidateConfigResultV1`/`PreviewSpecV1`/`PreviewReportV1`）。
-- **待维护者确认**：
-  1. `T0` 启动时机：是否立即按 T0 -> T1 -> T2 -> T3 -> T4 顺序推进。
+- **当前状态**：已完成 **T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）**，已产出 [ADR-0189](../adr/0189-trainer-extension-point.md)，并在 `YOAO-Labs/Plugin-SDK`（`yoao_plugin_sdk.trainer`、`@yoao/plugin-sdk`）与主仓 `yoao-sdk`（`packages/python-sdk/src/training_contract/trainer_plugin.py`）双向冻结全量 `yoao-trainer/v1` 模型、校验器与规范摘要函数（T0 实测已覆盖 Python 3.10、Node、TypeScript strict 与双仓 13 模型 JSON Schema 对等校验）。
+- **待维护者确认（进入 T1 前）**：
+  1. 确认 [ADR-0189](../adr/0189-trainer-extension-point.md) 架构决策并授权启动 **T1（Learning Owner 边界收口与前向 SQL 泛化）**。
   2. 训练器镜像执行方式：自托管默认 `training-supervisor` 通过受限容器运行通道调用本地 Docker Engine 启动训练器容器（宿主 API 仍绝不接触 Docker socket），还是同时保留 Podman/OCI runtime 抽象接口。
