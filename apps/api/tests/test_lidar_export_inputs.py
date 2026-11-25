@@ -256,6 +256,7 @@ async def attach_nuscenes(
             },
         )
         db.add(scene)
+        await db.flush()
     item.scene_id, item.frame_index = scene.id, 0
     await db.commit()
 
