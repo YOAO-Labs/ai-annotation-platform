@@ -6,7 +6,7 @@ import json
 import uuid
 
 import pytest
-from sqlalchemy import inspect, text, update
+from sqlalchemy import inspect, null, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -222,7 +222,7 @@ async def test_saved_owner_refuses_ordinary_rewrite(owned_db, change):
     elif change == "endpoint":
         ref["endpoint_url"] = "https://other.invalid"
     else:
-        ref = None
+        ref = null()
     output_id = row.id
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():

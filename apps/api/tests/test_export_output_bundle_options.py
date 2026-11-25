@@ -1,5 +1,3 @@
-"""ZIP creation options against the export ledger, and real-thread drainage."""
-
 import asyncio
 from contextvars import ContextVar
 from dataclasses import replace

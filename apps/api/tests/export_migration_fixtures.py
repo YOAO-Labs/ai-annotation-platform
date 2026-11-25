@@ -1,5 +1,3 @@
-"""Export rows for tests that run migrations in an owned PostgreSQL schema."""
-
 from sqlalchemy import Table, text
 from sqlalchemy.orm import registry
 
