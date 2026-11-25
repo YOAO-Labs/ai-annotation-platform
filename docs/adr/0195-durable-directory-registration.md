@@ -1,4 +1,4 @@
-# 0096 — 目录批量登记使用独立的两阶段持久账本
+# 0195 — 目录批量登记使用独立的两阶段持久账本
 
 - **Status:** Accepted
 - **Date:** 2026-10-23
@@ -34,4 +34,4 @@
 
 ## Notes
 
-实现入口为 `services/dataset_registration.py`、`workers/dataset_registration.py` 与迁移0199。接口见[目录来源与批量登记](../../docs-site/api/guides/dataset-sources.md)，管理员流程见[服务器目录原地引用](../../docs-site/user-guide/datasets/import-images.md#服务器目录原地引用)。继承[ADR0095](0095-immutable-directory-reference-tasks.md)的不可变内容与任务写入边界。
+实现入口为 `services/dataset_registration.py`、`workers/dataset_registration.py` 与迁移0199。接口见[目录来源与批量登记](../../docs-site/api/guides/dataset-sources.md)，管理员流程见[服务器目录原地引用](../../docs-site/user-guide/datasets/import-images.md#服务器目录原地引用)。继承[ADR0194](0194-immutable-directory-reference-tasks.md)的不可变内容与任务写入边界。
