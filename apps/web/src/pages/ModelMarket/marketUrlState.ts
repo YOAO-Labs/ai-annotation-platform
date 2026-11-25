@@ -3,8 +3,15 @@ import type { UrlStateCodec, UrlStateIssue } from "@/hooks/useUrlFilterState";
 export type MarketTab = "models" | "protocol" | "runtime" | "registry";
 export const MARKET_TAB_VALUES = ["models", "protocol", "runtime", "registry"] as const;
 
-export type RegistryView = "pools" | "instances" | "gpu" | "projects" | "issues";
-export const REGISTRY_VIEW_VALUES = ["pools", "instances", "gpu", "projects", "issues"] as const;
+export type RegistryView = "pools" | "instances" | "plugins" | "gpu" | "projects" | "issues";
+export const REGISTRY_VIEW_VALUES = [
+  "pools",
+  "instances",
+  "plugins",
+  "gpu",
+  "projects",
+  "issues",
+] as const;
 
 export const PROJECT_ADMIN_REGISTRY_VIEWS: readonly RegistryView[] = ["pools", "instances"];
 
@@ -455,6 +462,7 @@ export const REGISTRY_VIEW_URL_KEYS: Record<RegistryView, readonly string[]> = {
     MARKET_URL_KEYS.instancePool,
     MARKET_URL_KEYS.instanceId,
   ],
+  plugins: [],
   gpu: [MARKET_URL_KEYS.gpuQ, MARKET_URL_KEYS.gpuId],
   projects: [MARKET_URL_KEYS.projectQ, MARKET_URL_KEYS.bindingView, MARKET_URL_KEYS.bindingPool],
   issues: [

@@ -14,6 +14,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/shadcn/ui/tooltip";
+import {
+  INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY,
+  adminInferencePluginsApi,
+} from "@/api/adminInferencePlugins";
 import { adminMlIntegrationsApi } from "@/api/adminMlIntegrations";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
@@ -30,6 +34,7 @@ import { collectDiagnostics, mergeTopologyAndSnapshot } from "./runtimeTopology"
 import { GlobalBackendFormModal } from "./GlobalBackendFormModal";
 import { ServicePoolsSection } from "./registry/ServicePoolsSection";
 import { BackendInstancesSection } from "./registry/BackendInstancesSection";
+import { InferencePluginInstallationsSection } from "./registry/InferencePluginInstallationsSection";
 import { GPUResourcesSection } from "./registry/GPUResourcesSection";
 import { ProjectBindingsSection } from "./registry/ProjectBindingsSection";
 import { IssueCenter } from "./registry/IssueCenter";
@@ -107,6 +112,13 @@ export function RegisteredBackendsTab(): ReactNode {
     staleTime: 60_000,
   });
 
+  const pluginsQ = useQuery({
+    queryKey: INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY,
+    queryFn: () => adminInferencePluginsApi.list(),
+    staleTime: 60_000,
+    enabled: isSuperAdmin,
+  });
+
   const refreshAll = () => {
     topologyQ.refetch();
     if (canReadProjectCounts) primaryPoolProjectCountsQ.refetch();
@@ -114,13 +126,15 @@ export function RegisteredBackendsTab(): ReactNode {
       snapshotQ.refetch();
       gpuQ.refetch();
       overviewQ.refetch();
+      pluginsQ.refetch();
     }
     allQ.refetch();
   };
   const refreshing =
     topologyQ.isFetching ||
     primaryPoolProjectCountsQ.isFetching ||
-    (isSuperAdmin && (snapshotQ.isFetching || gpuQ.isFetching || overviewQ.isFetching)) ||
+    (isSuperAdmin &&
+      (snapshotQ.isFetching || gpuQ.isFetching || overviewQ.isFetching || pluginsQ.isFetching)) ||
     allQ.isFetching;
 
   const topology = topologyQ.data ?? null;
@@ -161,6 +175,9 @@ export function RegisteredBackendsTab(): ReactNode {
   const instanceCountPending = allQ.isLoading;
   const instanceCountError = allQ.isError;
   const instanceCount = allQ.data?.items.length ?? 0;
+  const pluginCountPending = isSuperAdmin && pluginsQ.isLoading;
+  const pluginCount = pluginsQ.data?.length ?? 0;
+  const pluginCountError = isSuperAdmin && pluginsQ.isError;
   const gpuCountPending = isSuperAdmin && gpuQ.isLoading;
   const gpuCount = gpuQ.data?.resources.length ?? 0;
   const gpuCountError = isSuperAdmin && gpuQ.isError;
@@ -189,6 +206,13 @@ export function RegisteredBackendsTab(): ReactNode {
     },
   };
 
+  const pluginsTab = (
+    <TabsTrigger value="plugins">
+      <Icon name="box" size={12} />
+      插件安装
+      <TabCount value={pluginCountPending ? "…" : pluginCountError ? "?" : pluginCount} />
+    </TabsTrigger>
+  );
   const gpuTab = (
     <TabsTrigger value="gpu">
       <Icon name="activity" size={12} />
@@ -237,12 +261,22 @@ export function RegisteredBackendsTab(): ReactNode {
             </Badge>
           )}
           <div className="ml-auto flex items-center gap-2">
-            {(snapshotQ.isError || gpuQ.isError || overviewQ.isError || allQ.isError) && (
+            {(snapshotQ.isError ||
+              gpuQ.isError ||
+              overviewQ.isError ||
+              pluginsQ.isError ||
+              allQ.isError) && (
               <div className="flex flex-wrap items-center gap-1.5">
                 {isSuperAdmin && snapshotQ.isError && (
                   <SourceErrorBadge
                     label="运行时快照"
                     message={(snapshotQ.error as Error)?.message ?? "运行时快照加载失败"}
+                  />
+                )}
+                {isSuperAdmin && pluginsQ.isError && (
+                  <SourceErrorBadge
+                    label="插件安装"
+                    message={(pluginsQ.error as Error)?.message ?? "插件安装列表加载失败"}
                   />
                 )}
                 {isSuperAdmin && gpuQ.isError && (
@@ -300,6 +334,7 @@ export function RegisteredBackendsTab(): ReactNode {
                 value={instanceCountPending ? "…" : instanceCountError ? "?" : instanceCount}
               />
             </TabsTrigger>
+            {isSuperAdmin && pluginsTab}
             {isSuperAdmin && gpuTab}
             {isSuperAdmin && projectsTab}
             {isSuperAdmin && issuesTab}
@@ -335,6 +370,11 @@ export function RegisteredBackendsTab(): ReactNode {
               />
             )}
           </TabsContent>
+          {isSuperAdmin && (
+            <TabsContent value="plugins">
+              <InferencePluginInstallationsSection />
+            </TabsContent>
+          )}
           {isSuperAdmin && (
             <TabsContent value="gpu">
               <GPUResourcesSection

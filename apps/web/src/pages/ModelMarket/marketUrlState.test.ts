@@ -4,6 +4,7 @@ import {
   MARKET_URL_KEYS,
   MARKET_TAB_DEFAULTS,
   CATALOG_URL_DEFAULTS,
+  PROJECT_ADMIN_REGISTRY_VIEWS,
   REGISTRY_URL_DEFAULTS,
   catalogUrlCodec,
   parseCatalogUrlWithIssues,
@@ -80,6 +81,22 @@ describe("registryUrlCodec.parse", () => {
     expect(state.poolQ).toBe("sam");
     expect(state.instanceId).toBe("bk-1");
     expect(issues).toEqual([]);
+  });
+
+  it("plugins 子视图解析与编码往返幂等，且仅对超管开放", () => {
+    const { state, issues } = parseRegistryUrlWithIssues("?registry_view=plugins");
+    expect(state.registryView).toBe("plugins");
+    expect(issues).toEqual([]);
+
+    const encoded = registryUrlCodec.encode(new URLSearchParams("tab=registry"), {
+      ...REGISTRY_URL_DEFAULTS,
+      registryView: "plugins",
+    });
+    expect(encoded.get(MARKET_URL_KEYS.registryView)).toBe("plugins");
+    expect(encoded.get("tab")).toBe("registry");
+    expect(parseRegistryUrlWithIssues(encoded).state.registryView).toBe("plugins");
+    expect(PROJECT_ADMIN_REGISTRY_VIEWS).toEqual(["pools", "instances"]);
+    expect(PROJECT_ADMIN_REGISTRY_VIEWS).not.toContain("plugins");
   });
 
   it("未知子视图 / 非法枚举 → 默认值 + 可见 issue", () => {
