@@ -1,7 +1,9 @@
 name: Documentation
 
 on:
+  workflow_call:
   pull_request:
+    branches-ignore: [dev, "ci/**"]
     paths:
       - "docs/**"
       - "DEV.md"
@@ -13,6 +15,7 @@ on:
       - "scripts/check-adr.mjs"
       - "scripts/check-plans-freshness.mjs"
       - "scripts/check-changelog-version.mjs"
+      - ".github/actions/validate-repository-docs/**"
       - ".github/workflows/docs-validate.yml"
   push:
     branches: [main, dev]
@@ -27,6 +30,7 @@ on:
       - "scripts/check-adr.mjs"
       - "scripts/check-plans-freshness.mjs"
       - "scripts/check-changelog-version.mjs"
+      - ".github/actions/validate-repository-docs/**"
       - ".github/workflows/docs-validate.yml"
 
 permissions:
@@ -43,15 +47,4 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: ADR numbering and status
-        run: node scripts/check-adr.mjs
-
-      - name: Plans freshness
-        run: node scripts/check-plans-freshness.mjs
-
-      - name: Changelog vs git tag
-        run: node scripts/check-changelog-version.mjs
-
-      - name: Internal Markdown links
-        run: node scripts/check-dead-links.mjs docs
+      - uses: ./.github/actions/validate-repository-docs

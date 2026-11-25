@@ -1,4 +1,33 @@
 {
+  "affected_pr": [
+    {
+      "rule": "framework-cell",
+      "owner": "training-view",
+      "source": "apps/web/src/pages/Projects/TrainingRunTable.tsx",
+      "consumers": ["apps/web/src/pages/Projects/ProjectTrainingPanel.tsx"],
+      "runner": "web",
+      "test": "apps/web/src/pages/Projects/ProjectTrainingPanel.test.tsx",
+      "services": []
+    },
+    {
+      "rule": "split-proportions",
+      "owner": "training-view",
+      "source": "apps/web/src/pages/Projects/TrainingDatasetCharts.tsx",
+      "consumers": ["apps/web/src/pages/Projects/TrainingDatasetInsights.tsx"],
+      "runner": "web",
+      "test": "apps/web/src/pages/Projects/TrainingDatasetCharts.test.tsx",
+      "services": []
+    },
+    {
+      "rule": "monthly-summary",
+      "owner": "audit-summary",
+      "source": "apps/api/app/services/audit_summary.py",
+      "consumers": ["apps/api/app/api/v1/audit_logs.py", "apps/api/experiments/bench_cost.py"],
+      "runner": "api",
+      "test": "apps/api/tests/test_audit_summary.py",
+      "services": []
+    }
+  ],
   "ml_cpu": [
     {
       "id": "shared-protocol-v2",
@@ -56,7 +85,7 @@
     {
       "paths": ["scripts"],
       "owner": "repository Python scripts and runtime tooling",
-      "selection_source": "ci.yml worktree-tests; backend-test.yml shard 0 for remaining scripts",
+      "selection_source": "ci-full.yml worktree-tests; backend-test.yml shard 0 for remaining scripts",
       "resources": "API test environment and script-specific dependencies",
       "skip_policy": "explicit prerequisites; no plugin native qualification"
     },
@@ -70,14 +99,14 @@
     {
       "paths": ["packages/python-sdk/tests"],
       "owner": "Python SDK, CLI and TUI",
-      "selection_source": "ci.yml python-sdk-pytest (scripts/test-sdk-distributions.py)",
+      "selection_source": "ci-full.yml python-sdk-pytest (scripts/test-sdk-distributions.py)",
       "resources": "installed SDK wheel, sdist tests, repository snapshot and verified plugin runtime",
       "skip_policy": "no skipped SDK or archive vector cases; not a GPU qualification"
     },
     {
       "paths": ["apps/training-executor/tests"],
       "owner": "training executor",
-      "selection_source": "ci.yml training-executor-tests",
+      "selection_source": "ci-full.yml training-executor-tests",
       "resources": "executor environment",
       "skip_policy": "native model qualification remains separate"
     },
@@ -88,7 +117,7 @@
         "apps/_shared/site_agent_contract/tests"
       ],
       "owner": "storage agent and portable filesystem contracts",
-      "selection_source": "ci.yml storage-agent-tests",
+      "selection_source": "ci-full.yml storage-agent-tests",
       "resources": "temporary filesystem and local TLS",
       "skip_policy": "not a deployed agent topology qualification"
     },
@@ -98,7 +127,7 @@
         "examples/ml-backend/mock-v2-backend/tests"
       ],
       "owner": "protocol documentation examples",
-      "selection_source": "ci.yml examples-pytest",
+      "selection_source": "ci-full.yml examples-pytest",
       "resources": "each example's test extra",
       "skip_policy": "no native model qualification"
     },

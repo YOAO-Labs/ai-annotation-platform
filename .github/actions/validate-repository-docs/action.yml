@@ -1,0 +1,52 @@
+name: Validate repository documentation
+description: Check the platform repository's ADRs, plans, changelog, and Markdown links.
+inputs:
+  base:
+    description: Limit validation to documentation changed since this commit.
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Select changed documentation
+      id: changed
+      if: inputs.base != ''
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+      run: |
+        [[ "$BASE" =~ ^[0-9a-f]{40}$ ]]
+        files=$(mktemp "$RUNNER_TEMP/affected-docs.XXXXXXXX")
+        git diff --name-only -z --no-renames --diff-filter=AMT "$BASE" "$GITHUB_SHA" -- '*.md' > "$files"
+        test -s "$files"
+        adr=false plans=false changelog=false
+        while IFS= read -r -d '' file; do
+          case "$file" in
+            docs/adr/*) adr=true ;;
+            docs/plans/*) plans=true ;;
+            CHANGELOG.md|docs/changelogs/*) changelog=true ;;
+          esac
+        done < "$files"
+        printf 'files=%s\nadr=%s\nplans=%s\nchangelog=%s\n' "$files" "$adr" "$plans" "$changelog" >> "$GITHUB_OUTPUT"
+    - name: Internal Markdown links
+      shell: bash
+      env:
+        FILES: ${{ steps.changed.outputs.files }}
+      run: |
+        args=(docs)
+        if [[ -n "$FILES" ]]; then
+          mapfile -d '' -t files < "$FILES"
+          args=(--include-historical -- "${files[@]}")
+        fi
+        node scripts/check-dead-links.mjs "${args[@]}"
+    - name: ADR numbering and status
+      if: ${{ !cancelled() && (inputs.base == '' || steps.changed.outputs.adr == 'true') }}
+      shell: bash
+      run: node scripts/check-adr.mjs
+    - name: Plans freshness
+      if: ${{ !cancelled() && (inputs.base == '' || steps.changed.outputs.plans == 'true') }}
+      shell: bash
+      run: node scripts/check-plans-freshness.mjs
+    - name: Changelog vs git tag
+      if: ${{ !cancelled() && (inputs.base == '' || steps.changed.outputs.changelog == 'true') }}
+      shell: bash
+      run: node scripts/check-changelog-version.mjs
