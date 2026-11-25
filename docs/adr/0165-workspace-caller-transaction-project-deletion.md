@@ -53,7 +53,7 @@ JSON 文本中的整数精度。返回事务内回执不等于最终提交成功
 当前发现的视频执行清理缺口不会因调用包迁移而消失。删除会移除 canonical Job，
 写围栏随后返回 `job_missing`，但运行态摘要和未退役输入 pin 可能继续存在。删除规则
 仍待决定，整项项目删除安全验收尚未完成；剩余状态只维护在
-[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)。
 
 ## Notes
 

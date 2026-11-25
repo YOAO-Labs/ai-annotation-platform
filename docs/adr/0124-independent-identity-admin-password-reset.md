@@ -239,7 +239,7 @@ Negative:
 - The public route is in `apps/api/app/api/v1/users.py`, with HTTP composition
   in `apps/api/app/api/v1/admin_password_commands.py`. Its former reset workflow
   and password generator have been removed from `legacy_user_lifecycle.py`.
-- The [Identity private runtime protocol](../../docs-site/api/guides/identity-runtime.md#管理员临时密码重置)
+- The [Identity private runtime protocol](https://yoao-labs.github.io/YOAO-Docs/api/guides/identity-runtime#管理员临时密码重置)
   documents the private wire, role rules and optional DSN.
 - Directory remains separately locally qualified under
   [ADR-0123](0123-independent-identity-directory-reads.md). Its historical

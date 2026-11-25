@@ -337,7 +337,7 @@ Negative:
   preserve DELETE/offboarding and shared lock, metadata and credential helpers.
 - Existing accepted self-deactivation and its reservation behavior remain under
   [ADR-0121](0121-identity-self-deactivation-and-notification-delivery.md).
-- The [Identity private runtime guide](../../docs-site/api/guides/identity-runtime#管理员停用与恢复账号)
+- The [Identity private runtime guide](https://yoao-labs.github.io/YOAO-Docs/api/guides/identity-runtime#管理员停用与恢复账号)
   documents the private commands and preserved HTTP boundary.
 - Full module progress remains in
   `docs/plans/archive/1792160873_backend-module-decoupling.md`.

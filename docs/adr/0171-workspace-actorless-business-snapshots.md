@@ -41,7 +41,7 @@ actor 的失败预测元数据 relay 及 Node 直接调用均通过，不经 Pyt
 
 两处 Labeling 计数写入 getter、三个测试 seed、Batch 排序项目排他锁和其余集合／
 标量查询仍分别保留。它们及数据集解绑、视频退役安全缺口、完整模块凭据与工件
-继续由[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)跟踪。
+继续由[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)跟踪。
 本项不代替完整 Workspace 独立部署、冷安装、镜像或恢复资格。
 
 ## Notes

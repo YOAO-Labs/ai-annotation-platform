@@ -153,7 +153,7 @@ cutover, remote CI, push, or provider-language replacement is claimed.
 The implementation is a local architecture slice, not a provider-language
 replacement. The full Workspace and Identity goals, ten-module/seven-gate
 qualification, production capacity validation, and primary cutover remain
-unfinished. See the [Workspace runtime guide](../../docs-site/api/guides/workspace-runtime.md).
+unfinished. See the [Workspace runtime guide](https://yoao-labs.github.io/YOAO-Docs/api/guides/workspace-runtime).
 The repository implementation ledger is
 `docs/plans/archive/1792160873_backend-module-decoupling.md`.
 

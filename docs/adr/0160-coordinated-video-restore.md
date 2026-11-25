@@ -64,4 +64,4 @@ Inference 在 UID10008、禁网、只读根文件系统、1 CPU／256 MiB 下冷
 只提取各 cohort 中实际通过的对应场景，不把含其他失败的整份报告标记通过。镜像报告为
 `video-restore-inference-image-qualified.json` 与 `video-restore-api-image-final-artifact.json`。
 源码已集成，独立安装 CLI 已实际运行；日常主环境未切换，未推送或部署生产。
-当前完成的是此协调恢复能力，完整模块仍按唯一[剩余工作台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进，下一项为完整 Identity。
+当前完成的是此协调恢复能力，完整模块仍按唯一[剩余工作台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)推进，下一项为完整 Identity。

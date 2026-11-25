@@ -133,7 +133,7 @@ Negative:
   `mail_v2_postgres.py`; runtime entrypoint `aap_identity_runtime.mail_worker_v2`.
 - API adapter: `apps/api/app/services/identity_invitation_commands.py` and
   `identity_invitation_data.py`.
-- Deployment details: [Identity private runtime protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期)
+- Deployment details: [Identity private runtime protocol](https://yoao-labs.github.io/YOAO-Docs/api/guides/identity-runtime#邀请生命周期)
   and the repository's `docker-compose.identity.yml`.
 - Full-module progress remains in
   `docs/plans/archive/1792160873_backend-module-decoupling.md`.

@@ -49,7 +49,7 @@ Project 继续使用 KEY SHARE，允许普通计数的 NO KEY UPDATE，围栏负
 
 本次不代表完整 Workspace 的最小凭据或独立工件已经闭合。应用兼容账号还承担其他
 操作；非锁定读取、完整装配及删除安全状态见
-[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)。
 
 ## Notes
 

@@ -305,7 +305,7 @@ Negative:
   `management.role_impact_preview`/`management.platform_role_change_blockers`,
   `legacy_user_lifecycle.change_user_role` and its unused `set_platform_role`
   helper. Preserve the remaining lifecycle implementation.
-- The [Identity private runtime guide](../../docs-site/api/guides/identity-runtime#平台角色预览与变更)
+- The [Identity private runtime guide](https://yoao-labs.github.io/YOAO-Docs/api/guides/identity-runtime#平台角色预览与变更)
   documents the versioned command and preserved HTTP boundary.
 - Completed administrator-password and Directory qualifications are recorded
   independently in ADR-0124 and ADR-0123; their evidence is not counted as

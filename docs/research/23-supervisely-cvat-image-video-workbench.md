@@ -212,7 +212,7 @@ Supervisely 的 Center Out 在拖动边或角时保持中心不动，适合车�
 
 ### 4.4 P1：Polygon 创建阶段少点几次，编辑阶段不重做
 
-本项目已有顶点插入、删除、拖动、8px 屏幕距离吸附、并集、差集和未选中态 LOD，编辑内核不弱。明确缺口是 [`polygon.md`](../../docs-site/user-guide/workbench/polygon.md) 已记录的 Slice，以及创建复杂边界时仍需逐点单击。
+本项目已有顶点插入、删除、拖动、8px 屏幕距离吸附、并集、差集和未选中态 LOD，编辑内核不弱。明确缺口是 [`polygon.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/polygon) 已记录的 Slice，以及创建复杂边界时仍需逐点单击。
 
 建议按风险从低到高推进：
 
@@ -226,7 +226,7 @@ Slice 可以复用当前布尔几何、Mask 预览和一次撤销合同，避免
 
 ### 4.5 P0：Mask 的主动作必须说出结果
 
-当前 Mask 能力覆盖 Paint、Erase、Lasso、Region、Morphology、Components、Holes、Instance Split / Copy / Merge、Non-overlap、Convert、QC 和 Compare。能力深度是优势，但 [`mask-brush.md`](../../docs-site/user-guide/workbench/mask-brush.md) 也说明 `Enter` 会依状态执行三类不同动作：应用区域预览、提交实例预览或提交整个 Mask；`Esc` 也会先取消预览，再退出会话。
+当前 Mask 能力覆盖 Paint、Erase、Lasso、Region、Morphology、Components、Holes、Instance Split / Copy / Merge、Non-overlap、Convert、QC 和 Compare。能力深度是优势，但 [`mask-brush.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/mask-brush) 也说明 `Enter` 会依状态执行三类不同动作：应用区域预览、提交实例预览或提交整个 Mask；`Esc` 也会先取消预览，再退出会话。
 
 快捷键复用本身不是问题，问题是界面没有始终把“这一次会发生什么”放在主位置。
 
@@ -302,7 +302,7 @@ CVAT 的 Objects、Labels、Issues 三个页签和按 Label 批量隐藏 / 锁�
 
 ### 5.1 先承认现有时间轴已经领先
 
-本项目的 [`video-playback.md`](../../docs-site/user-guide/workbench/video-playback.md) 和 [`video-track.md`](../../docs-site/user-guide/workbench/video-track.md) 已覆盖：
+本项目的 [`video-playback.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/video-playback) 和 [`video-track.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/video-track) 已覆盖：
 
 - 播放、反向播放、多速率与逐帧精确定位。
 - 采样网格和 `Shift + ← / →` 源帧微调。
@@ -377,7 +377,7 @@ CVAT 的 keyframe/outside 与 Supervisely 的 episode object/figure 结构进一
 
 ### 5.6 P0：追踪候选审阅保持范围可见
 
-[`video-propagate.md`](../../docs-site/user-guide/workbench/video-propagate.md) 所描述的按目标、按帧窗口接受 / 拒绝，以及人工关键帧保护，是本项目的明显优势。需要优化的是审阅期间的可见性：
+[`video-propagate.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/video-propagate) 所描述的按目标、按帧窗口接受 / 拒绝，以及人工关键帧保护，是本项目的明显优势。需要优化的是审阅期间的可见性：
 
 - 当前选择的目标数、帧范围、已决 / 未决数量始终显示在时间轴上方。
 - 时间轴把本次审阅范围作为高对比底色，窗口外候选降噪。

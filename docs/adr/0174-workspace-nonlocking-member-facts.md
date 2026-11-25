@@ -58,5 +58,5 @@ Native／HTTP／Node、16 项客户端／SQL 检查及 72 项实际消费者。�
 通知后两条 Project SQL、提及 manager join 和管理看板 Project 查询刻意留待后续。
 `lan-production-grants.sql` 既有宽应用角色仍保留兼容私表权限；本轮只增加视图 SELECT，
 受限 API 的定向撤权验收不等于默认生产／开发凭据已收紧。完整 Workspace 凭据、
-冷安装／镜像、恢复和容量按[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)
+冷安装／镜像、恢复和容量按[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)
 集中收口。本次不切换主环境、不推送、发布、部署生产或扩展 Go。

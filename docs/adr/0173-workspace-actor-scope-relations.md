@@ -58,5 +58,5 @@ autoflush 差异，以及 HTTP 夹具未选择 AUTH／Briefs owner。ID-only 合
 汇总 `.worktree/workspace-actor-scope-qualification.json` 绑定源和证据。冻结 Native
 安装／回滚及限定迁移往返通过；完整 Workspace 凭据、冷工件、恢复和容量仍集中
 验收。其余成员集合、Project 投影／owner 子查询及视频删除安全缺口继续由
-[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)跟踪。
+[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)跟踪。
 本次不切换主环境、不推送、部署生产、发布或扩展 Go。

@@ -75,7 +75,7 @@ API 私表 Project SELECT／UPDATE 被撤销，独立函数账号和 Node 无私
 
 本轮仅本地整合与限定验收，未切换日常环境、推送、发布、部署生产或扩展 Go。
 完整凭据、冷工件、备份恢复和容量继续按
-[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)推进。
 
 ## Follow-up — accepted tracker-input retention
 
