@@ -48,6 +48,10 @@
 - 以 `--read-only --cap-drop ALL --security-opt no-new-privileges --memory 128m --user 1000:1000` 启动容器，经 `docker inspect` 确认非特权、只读根文件系统、全 capability 剥离、128 MiB 内存上限、UID `1000:1000` 且不含平台数据库／JWT／加密密钥环境变量，应用文件归属 `root:root`（运行用户不可修改自身源码）。
 - 经 YOAO `mode="managed"` 注册并携带 `manifest`，完成英文用户 `/verify-address` 与 `task.rejected` 端到端卡片投递（标题 `Task rejected`，零自由文本泄露）。
 
-## 4. 未覆盖范围与待办
+## 4. 真实飞书开放平台一次实测（2026-11-25）
 
-- **真实飞书开放平台测试应用冒烟**：尚未执行（`real_feishu_live_verified: false`）。需由维护者提供临时飞书测试应用凭据（`FEISHU_APP_ID`、`FEISHU_APP_SECRET` 及测试收件人 `open_id`，仅注入运行环境、严禁入库）后完成最后一次真实飞书私信验证。
+- 在可销毁隔离环境（一次性 `postgres:16-alpine` + `redis:7-alpine` + 真实 `YOAO-Plugins/plugins/notification-channel/feishu-dm/src/server.mjs` 监听私网网桥 `172.17.0.1` 通过 SSRF 护栏）使用维护者临时测试应用完成端到端真实飞书私信冒烟（`real_feishu_live_verified: true`）：
+  1. `POST /api/v1/admin/notification-channels` 注册直连档通道（实时拉通 `GET /setup`，返回 `201 Created`），用户绑定 `open_id`（`200 OK`）。
+  2. `POST /api/v1/notification-channels/feishu_dm/verify-address` 经真实 `https://open.feishu.cn` 投递验证卡片（`200 OK`，`Content-Length: 82`）。
+  3. `PUT /api/v1/notification-preferences` 开启 `task.rejected` 外部通道偏好（`200 OK`），业务同事务调用 `NotificationService.notify(type="task.rejected", ...)` 入队并由 `run_notification_channel_deliveries` 投递真实飞书交互卡片（`200 OK`，`Content-Length: 82`）。
+  4. 维护者已在真实飞书客户端核对两张卡片送达且白名单脱敏生效，随后删除临时测试应用；全部临时容器与进程在脚本退出时即刻销毁，未写入任何凭据或真实 `open_id`。
