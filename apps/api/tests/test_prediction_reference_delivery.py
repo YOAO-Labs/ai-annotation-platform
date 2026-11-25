@@ -9,19 +9,27 @@ from urllib.parse import urlsplit
 import uuid
 from unittest.mock import Mock
 
-from fastapi import HTTPException
 from PIL import Image
 import pytest
 from sqlalchemy import func, select
+from starlette.requests import Request
 
+from yoao_assets_input_manifests.contract import ManifestPageRequest
+
+from app.application.preannotation_contract import BatchPredictionRequest
+from app.application.preannotation_execution import run_preannotation
 from app.core.security import create_access_token, hash_password
-from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.prediction_input import PredictionInputLease
 from app.services import prediction_references as refs, async_job as jobs
+from app.deps import bearer_scheme, get_current_principal
+from app.services.accepted_input_manifests import SqlAlchemyManifestDatabase
 from app.services.content_snapshot import ContentError
+from app.services.identity_gateway import IdentityGateway
+from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.jobs_lifecycle_data import job_lock_statement
 from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction import PredictionService
@@ -34,7 +42,7 @@ from tests.inference_execution_test_ports import (
     run_client_task_pipeline,
 )
 from tests.conftest import create_registry_with_pool
-from tests.factory import create_task
+from tests.factory import create_api_key, create_task
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_prediction_inputs import input_world as input_world
@@ -338,12 +346,30 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
     )
 
 
+async def implicit_manifest_tasks(db, job, dispatch):
+    envelope = dispatch.call_args.kwargs
+    assert envelope["args"][2] is None
+    assert envelope["kwargs"]["accepted_input_manifest_id"] == str(job.id)
+    page = await SqlAlchemyManifestDatabase(db, commit=False).call(
+        "read_accepted_image_input_manifest_page",
+        ManifestPageRequest(
+            job_id=job.id,
+            actor_id=job.user_id,
+            project_id=job.project_id,
+            selection_digest=envelope["kwargs"]["accepted_input_manifest_digest"],
+        ),
+    )
+    assert page.manifest.selection.task_ids is None
+    assert page.next_cursor is None
+    return [str(member.task_id) for member in page.members]
+
+
 async def test_implicit_selection_and_pending_republish_preserve_original_tasks_and_proof(
     db_session, httpx_client, reference_world, super_admin, monkeypatch
 ):
     _, project, task, content = reference_world
     key = uuid.uuid4().hex
-    job, backend, body, dispatch = await enqueue(
+    job, _, body, dispatch = await enqueue(
         db_session,
         httpx_client,
         reference_world,
@@ -354,7 +380,7 @@ async def test_implicit_selection_and_pending_republish_preserve_original_tasks_
     )
     original = deepcopy(job.payload["prediction_authority"])
     snapshot_id = job.execution_snapshot_id
-    late = await create_task(db_session, project_id=project.id)
+    await create_task(db_session, project_id=project.id)
     task.total_predictions = 5
     content[5].config_revision += 1
     await db_session.commit()
@@ -365,8 +391,7 @@ async def test_implicit_selection_and_pending_republish_preserve_original_tasks_
     )
     assert response.status_code == 200, response.text
     assert response.json()["job_id"] == str(job.id)
-    assert dispatch.call_args.kwargs["args"][2] == [str(task.id)]
-    assert str(late.id) not in dispatch.call_args.kwargs["args"][2]
+    assert await implicit_manifest_tasks(db_session, job, dispatch) == [str(task.id)]
     assert job.payload["prediction_authority"] == original
     assert job.execution_snapshot_id == snapshot_id
 
@@ -402,7 +427,7 @@ async def test_skipped_reference_freezes_only_remaining_scope_without_read_scope
         auth=auth,
     )
     expected = [str(other.id)] if managed else []
-    assert dispatch.call_args.kwargs["args"][2] == expected
+    assert await implicit_manifest_tasks(db_session, job, dispatch) == expected
     proof = deepcopy(job.payload["prediction_authority"])
     assert proof["schema"] == 2 and proof["api_key_id"] == issued["id"]
     assert [row["task_id"] for row in proof["tasks"]] == expected
@@ -418,13 +443,12 @@ async def test_skipped_reference_freezes_only_remaining_scope_without_read_scope
         headers={**auth, "Idempotency-Key": key},
     )
     assert repeated.status_code == 200, repeated.text
-    assert dispatch.call_args.kwargs["args"][2] == expected
+    assert repeated.json()["job_id"] == str(job.id)
+    assert await implicit_manifest_tasks(db_session, job, dispatch) == expected
     assert job.payload["prediction_authority"] == proof
 
 
-async def prepared(
-    db, world, key_id=None, node="worker:content@test", *, key_token=None
-):
+async def prepared(db, world, *, node="worker:content@test", key_token=None):
     _, project, task, content = world
     task.status, task.assignee_id = "pending", None
     backend = await backend_for(db, project)
@@ -443,18 +467,14 @@ async def prepared(
             "text_threshold": 0.25,
         },
     )
-    if key_id is None:
-        token = create_access_token(subject=str(content[2].id), role=content[2].role)
-        scopes = None
-    else:
-        assert key_token is not None, (
-            "a Key proof requires its real presented credential"
-        )
-        token = key_token
-        scopes = list((await db.get(ApiKey, key_id)).scopes)
-    request = SimpleNamespace(
-        state=SimpleNamespace(api_key_id=key_id, api_key_scopes=scopes),
-        headers={"authorization": "Bearer " + token},
+    token = key_token or create_access_token(
+        subject=str(content[2].id), role=content[2].role
+    )
+    request = Request(
+        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    )
+    await get_current_principal(
+        request, await bearer_scheme(request), db, IdentityGateway()
     )
     proof = await refs.capture_authority(
         db,
@@ -472,7 +492,12 @@ async def prepared(
         kind="batch_predict",
         user_id=content[2].id,
         project_id=project.id,
-        payload={"prediction_authority": proof},
+        payload={
+            "prediction_authority": proof,
+            "execution_scope": proof["execution_scope"],
+            "batch_id": proof["batch_id"],
+            "task_ids": [str(task.id)],
+        },
     )
     await jobs.bind_execution_snapshot(
         db, job, actor_id=content[2].id, snapshot_id=snapshot.id
@@ -512,25 +537,17 @@ async def test_authority_and_binding_changes_block_delivery(
     db_session, reference_world, input_world, mutation
 ):
     actor = reference_world[3][2]
-    token = "ak_fixture_" + uuid.uuid4().hex
-    key = ApiKey(
-        user_id=actor.id,
-        name="prediction",
-        key_prefix="ak_reference",
-        key_hash=hash_password(token),
-        scopes=["tasks:read"],
+    key, token = await create_api_key(
+        db_session, actor.id, "prediction", ["tasks:read"]
     )
-    db_session.add(key)
-    await db_session.flush()
-    job, owner, task, project, actor = await prepared(
+    _, owner, task, _, _ = await prepared(
         db_session,
         reference_world,
-        key.id,
         node="worker:unknown" if mutation == "worker" else "worker:content@test",
         key_token=token,
     )
     if mutation == "key_rotate":
-        key.key_hash = "replacement"
+        key.key_hash = hash_password("rotated_" + uuid.uuid4().hex)
     elif mutation == "key_revoke":
         key.revoked_at = datetime.now(timezone.utc)
     elif mutation == "key_expire":
@@ -542,7 +559,12 @@ async def test_authority_and_binding_changes_block_delivery(
     elif mutation == "version":
         task.version += 1
     await db_session.flush()
-    with pytest.raises((ContentError, HTTPException)):
+    expected_error = {
+        "source": "source_unavailable",
+        "version": "prediction_scope_changed",
+        "worker": "worker_read_not_verified",
+    }.get(mutation, "api_key_authority_revoked")
+    with pytest.raises(ContentError, match=f"^{expected_error}$"):
         await owner.open_inputs(task, input_world.factory)
     assert not input_world.puts
 
@@ -551,6 +573,16 @@ async def test_receipt_is_private_and_bound_to_task_session_and_transaction(
     db_session, reference_world, input_world
 ):
     job, owner, task, project, actor = await prepared(db_session, reference_world)
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=actor.id,
+        actor_known=True,
+        operation="preannotation",
+        execution_scope="bulk",
+        execution_scope_known=True,
+        job_id=job.id,
+        job_id_known=True,
+    )
     await owner.open_inputs(task, input_world.factory)
     task_id, project_id = task.id, project.id
     try:
@@ -585,22 +617,28 @@ async def test_receipt_is_private_and_bound_to_task_session_and_transaction(
         async with db_session.begin_nested():
             with pytest.raises(ContentError):
                 await refs.validate_receipt(db_session, task_id, project_id, receipt)
-        prediction = await PredictionService(db_session).create_from_ml_result(
-            task_id,
-            project_id,
-            None,
-            [],
-            reference_receipt=receipt,
-            pipeline_extra={
-                "reference_input": {"sha256": "forged"},
-                "reference_native": {"schema": 1, "kind": "forged"},
-            },
-            token_meta={"reference_native": {"schema": 1, "kind": "forged"}},
+        prediction = await PredictionService(db_session).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task_id,
+                project_id=project_id,
+                ml_backend_id=None,
+                result=[],
+                write_scope=write_scope,
+                reference_receipt=receipt,
+                pipeline_extra={
+                    "reference_input": {"sha256": "forged"},
+                    "reference_native": {"schema": 1, "kind": "forged"},
+                },
+                token_meta={"reference_native": {"schema": 1, "kind": "forged"}},
+            )
         )
         meta = await db_session.scalar(
             select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
         )
-        assert meta.extra["reference_input"]["sha256"] != "forged"
+        assert (
+            meta.extra["reference_input"]["sha256"]
+            == hashlib.sha256(reference_world[3][1]).hexdigest()
+        )
         assert "reference_native" not in meta.extra
         await db_session.commit()
         with pytest.raises(ContentError):
@@ -657,12 +695,11 @@ async def test_reference_frame_execution_cannot_reach_legacy_cleanup(
     db_session, httpx_client, reference_world, super_admin, monkeypatch
 ):
     _, project, task, _ = reference_world
-    task.status = "pending"
-    task.assignee_id = None
-    backend = await backend_for(db_session, project)
+    job, backend, _, dispatch = await enqueue(
+        db_session, httpx_client, reference_world, super_admin, monkeypatch
+    )
     stages = [{**pipeline(backend)[0], "source": {"execution_unit": "frame"}}]
-    dispatch = Mock()
-    monkeypatch.setattr(worker.batch_predict, "apply_async", dispatch)
+    dispatch.reset_mock()
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/preannotate",
         headers=headers(super_admin),
@@ -682,12 +719,19 @@ async def test_reference_frame_execution_cannot_reach_legacy_cleanup(
     fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
     monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", fake_engine)
     monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", fake_factory)
-    with pytest.raises(ContentError):
-        await run_batch_request(
-            project_id=str(project.id),
-            ml_backend_id=str(backend.id),
-            task_ids=[str(task.id)],
-            predict_mode="overwrite",
-            execution_unit="frame",
+    with pytest.raises(
+        ValueError, match="^frame execution requires a retained video manifest$"
+    ):
+        await run_preannotation(
+            BatchPredictionRequest(
+                project_id=str(project.id),
+                ml_backend_id=str(backend.id),
+                task_ids=[str(task.id)],
+                user_id=str(super_admin[0].id),
+                async_job_id=str(job.id),
+                predict_mode="overwrite",
+                execution_unit="frame",
+            ),
+            execution_id=str(job.id),
         )
     cleanup.assert_not_called()
