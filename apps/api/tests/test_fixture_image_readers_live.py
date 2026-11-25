@@ -708,7 +708,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     async with test_engine.begin() as db:
         await db.execute(
             text(
-                "GRANT EXECUTE ON FUNCTION yoao_assets_v1.get_catalog_dataset(uuid,uuid) "
+                "GRANT EXECUTE ON FUNCTION yoao_assets_v1.get_catalog_dataset_detail(uuid,uuid) "
                 f'TO "{role}"'
             )
         )

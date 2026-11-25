@@ -20,9 +20,9 @@ field from user input. The Assets SQL functions recheck active status and
 current manager role in the write transaction. User API-key scopes and public
 HTTP errors remain the gateway's responsibility.
 
-For `GET /api/v1/datasets/{dataset_id}`, the API reads `archived_at`, `archived_by`,
-and `lifecycle_revision` from Assets dataset metadata in the same transaction as
-the authorized catalog summary. The frozen `/v1/catalog/get` reply omits these fields.
+`GET /api/v1/datasets/{dataset_id}` reads the catalog summary, `archived_at`,
+`archived_by`, and `lifecycle_revision` from one database snapshot after the
+catalog admits the actor. The frozen `/v1/catalog/get` reply omits the lifecycle fields.
 
 The PostgreSQL login is checked on startup. It must have only `EXECUTE` on the
 29 catalog, association and spatial functions, no table/column/sequence grants, no other owner-schema

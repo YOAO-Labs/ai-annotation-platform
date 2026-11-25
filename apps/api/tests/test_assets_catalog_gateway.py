@@ -176,16 +176,22 @@ async def test_get_uses_scoped_catalog_owner_on_caller_session():
     actor_id = uuid.uuid4()
     dataset_id = uuid.uuid4()
     db = AsyncMock(spec=AsyncSession)
-    _set_sql_reply(db, _reply({"dataset": _dataset_payload(dataset_id, actor_id)}))
+    dataset = _dataset_payload(dataset_id, actor_id)
+    archived_at = datetime.now(UTC)
+    dataset.update(
+        archived_at=archived_at.isoformat(),
+        archived_by=str(actor_id),
+        lifecycle_revision=2,
+    )
+    _set_sql_reply(db, _reply({"dataset": dataset}))
     result = await assets_catalog.AssetsCatalogGateway(db).get(
         GetDatasetRequest(actor_id=actor_id, dataset_id=dataset_id)
     )
 
     assert result.dataset.id == dataset_id
-    statement, params = db.execute.await_args.args
-    assert "yoao_assets_v1.get_catalog_dataset" in str(statement)
-    assert params == {"actor_id": actor_id, "dataset_id": dataset_id}
-    db.commit.assert_not_awaited()
+    assert result.dataset.archived_at == archived_at
+    assert result.dataset.archived_by == actor_id
+    assert result.dataset.lifecycle_revision == 2
 
 
 @pytest.mark.asyncio

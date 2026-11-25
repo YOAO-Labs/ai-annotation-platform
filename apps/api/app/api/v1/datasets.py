@@ -385,18 +385,10 @@ async def get_dataset(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    from app.services.dataset_workbench import require_dataset
-
     result = await AssetsCatalogGateway(db).get(
         GetDatasetRequest(actor_id=current_user.id, dataset_id=dataset_id)
     )
-    metadata = await require_dataset(db, result.dataset.id)
-    return DatasetOut(
-        **result.dataset.model_dump(),
-        archived_at=metadata.archived_at,
-        archived_by=metadata.archived_by,
-        lifecycle_revision=metadata.lifecycle_revision,
-    )
+    return result.dataset
 
 
 @router.put(

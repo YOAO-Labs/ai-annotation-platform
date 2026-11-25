@@ -144,6 +144,7 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.fixture_media_ordinary_gc(text,uuid,integer),
     yoao_assets_v1.fixture_media_owner_exists(text,uuid),
     yoao_assets_v1.get_catalog_dataset(uuid,uuid),
+    yoao_assets_v1.get_catalog_dataset_detail(uuid,uuid),
     yoao_assets_v1.get_spatial_scene(uuid,uuid),
     yoao_assets_v1.guard_spatial_actor(uuid,text),
     yoao_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb),
