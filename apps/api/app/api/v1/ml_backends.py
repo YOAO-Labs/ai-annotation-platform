@@ -95,8 +95,10 @@ from app.observability.metrics import (
 )
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.labeling_core_read_relations import (
+    VideoTaskDecisionBusy,
     get_core_row,
     lock_task_for_core_read,
+    lock_task_for_video_decision,
     task_row,
 )
 
@@ -136,17 +138,13 @@ async def _assert_annotation_write_access(
 
 
 async def _reacquire_write_boundary(
-    db: AsyncSession, task_id: uuid.UUID, user: User | IdentityActorFacts
+    db: AsyncSession,
+    task_id: uuid.UUID,
+    user: User | IdentityActorFacts,
+    *,
+    video_decision_project_id: uuid.UUID | None = None,
 ) -> tuple[Task, ProjectAccess]:
-    """Re-acquire task and locked membership at the final write boundary.
-
-    Long-running ML compute must not hold database locks.  Immediately before a
-    restricted write or response we re-check the active account, re-resolve the
-    current membership and lock the refreshed task row ``NOWAIT`` so a concurrent
-    revocation or role change cannot slip a stale authority through and a busy
-    resource cannot block the request indefinitely. Account-first, then project,
-    membership, and the bounded task lock.
-    """
+    """Refresh the account, project membership and Task after model execution."""
 
     from app.services.task_lock import assert_task_user_active
 
@@ -162,17 +160,18 @@ async def _reacquire_write_boundary(
     access = await task_access.resolve_task_access(
         db, task, user.id, lock_membership=True
     )
-    task = await _lock_task_nowait(db, task_id)
-    task_access.assert_annotation_write_allowed(task, access)
-    await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
-    return task, access
-
-
-async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     try:
-        task = await lock_task_for_core_read(
-            db, task_id, nowait=True, populate_existing=True
-        )
+        if video_decision_project_id is None:
+            task = await lock_task_for_core_read(
+                db, task_id, nowait=True, populate_existing=True
+            )
+        else:
+            task_access.assert_annotation_write_allowed(task, access)
+            task = await lock_task_for_video_decision(
+                db, task_id, project_id=video_decision_project_id
+            )
+    except VideoTaskDecisionBusy as exc:
+        raise HTTPException(409, detail={"reason": "task_busy"}) from exc
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -181,7 +180,9 @@ async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
         raise
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    task_access.assert_annotation_write_allowed(task, access)
+    await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
+    return task, access
 
 
 MAX_FRAME_UPLOAD_BYTES = 32 * 1024 * 1024
@@ -1591,7 +1592,14 @@ async def predict_frame(
 
         score = next((r.score for r in results if r.score is not None), None)
         await inputs.close()
-        await _reacquire_write_boundary(db, task.id, current_user)
+        await _reacquire_write_boundary(
+            db,
+            task.id,
+            current_user,
+            video_decision_project_id=(
+                project_id if write_scope.source_file_type == "video" else None
+            ),
+        )
         prediction_writer: ApplyPredictionResultPort = PredictionService(db)
         prediction = await prediction_writer.apply_prediction_result(
             ApplyPredictionResultRequest(
