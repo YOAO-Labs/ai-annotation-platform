@@ -24,10 +24,8 @@ from tests.test_reference_original_cache import referenced_cache as referenced_c
 async def committed_feedback_world(referenced_cache, app_module, monkeypatch):
     owner = referenced_cache
     async with owner.factory() as db:
-        users = [
-            await db.get(User, user.id)
-            for user in (owner.actor, owner.stranger, owner.manager)
-        ]
+        actors = [user.id for user in (owner.actor, owner.stranger, owner.manager)]
+        users = [await db.get(User, actor_id) for actor_id in actors]
 
         async def database():
             yield db
@@ -50,7 +48,6 @@ async def committed_feedback_world(referenced_cache, app_module, monkeypatch):
                 )
             finally:
                 await db.rollback()
-                actors = [user.id for user in users]
                 reports = select(BugReport.id).where(BugReport.reporter_id.in_(actors))
                 await db.execute(
                     delete(BugComment).where(BugComment.bug_report_id.in_(reports))
