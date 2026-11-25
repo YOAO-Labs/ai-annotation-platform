@@ -1,0 +1,141 @@
+name: Run affected PR checks
+description: Check changed files and run the tests selected for this checkout.
+inputs:
+  plan:
+    description: JSON from the trusted affected PR planner.
+    required: true
+  base:
+    description: Base commit used by the planner.
+    required: true
+  manifest:
+    description: Verified Plugin SDK manifest location (API tests only).
+    required: false
+  manifest-sha256:
+    description: Expected SHA256 of the Plugin SDK manifest (API tests only).
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Identify the checkout and selected tests
+      id: plan
+      shell: bash
+      env:
+        PLAN: ${{ inputs.plan }}
+        BASE: ${{ inputs.base }}
+      run: |
+        head=$(git rev-parse HEAD)
+        printf '### Affected checks\n\nCommit `%s`, run `%s`, attempt `%s`.\n' \
+          "$head" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" >> "$GITHUB_STEP_SUMMARY"
+        [[ "$head" = "$GITHUB_SHA" && "$BASE" =~ ^[0-9a-f]{40}$ ]]
+        reports=$(mktemp -d "$RUNNER_TEMP/affected.XXXXXXXX")
+        python3 scripts/affected_test_receipts.py prepare "$reports" >> "$GITHUB_OUTPUT"
+        echo "reports=$reports" >> "$GITHUB_OUTPUT"
+
+    - uses: pnpm/action-setup@v4
+      if: steps.plan.outputs.web == 'true'
+    - uses: actions/setup-node@v4
+      id: node
+      with:
+        node-version: "22"
+        cache: ${{ steps.plan.outputs.web == 'true' && 'pnpm' || '' }}
+    - uses: actions/setup-python@v5
+      if: steps.plan.outputs.api == 'true' || steps.plan.outputs.web == 'true'
+      with:
+        python-version: ${{ steps.plan.outputs.api == 'true' && '3.11' || '3.12' }}
+    - name: Install uv for source checks
+      if: steps.plan.outputs.api == 'true' || steps.plan.outputs.web == 'true'
+      id: uv
+      shell: bash
+      run: python -m pip install uv
+    - name: Install locked web dependencies
+      if: steps.plan.outputs.web == 'true'
+      id: web-install
+      shell: bash
+      run: pnpm install --frozen-lockfile
+
+    - name: Check changed files
+      id: quality
+      shell: bash
+      env:
+        BASE: ${{ inputs.base }}
+      run: python3 scripts/check_affected_files.py "$BASE" "$GITHUB_SHA"
+    - uses: ./.github/actions/validate-repository-docs
+      id: docs
+      if: ${{ !cancelled() && steps.node.outcome == 'success' && steps.plan.outputs.docs == 'true' }}
+      with:
+        base: ${{ inputs.base }}
+
+    - name: Generate web types from the committed snapshot
+      if: ${{ !cancelled() && steps.web-install.outcome == 'success' }}
+      id: codegen
+      shell: bash
+      working-directory: apps/web
+      env:
+        OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
+      run: pnpm codegen
+    - name: Typecheck the web app
+      if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+      id: typecheck
+      shell: bash
+      working-directory: apps/web
+      run: pnpm typecheck
+    - name: Run selected Vitest files
+      if: ${{ !cancelled() && steps.codegen.outcome == 'success' }}
+      id: vitest
+      shell: bash
+      working-directory: apps/web
+      env:
+        REPORTS: ${{ steps.plan.outputs.reports }}
+      run: |
+        mapfile -d '' -t tests < "$REPORTS/web.files"
+        (( ${#tests[@]} > 0 ))
+        pnpm exec vitest run --reporter=default --reporter=json --reporter=junit \
+          --outputFile.json="$REPORTS/web.json" --outputFile.junit="$REPORTS/web.xml" "${tests[@]}"
+
+    - name: Install locked API dependencies with the verified runtime wheel
+      if: ${{ !cancelled() && steps.plan.outputs.api == 'true' && steps.uv.outcome == 'success' }}
+      id: api-install
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest }}
+        SHA256: ${{ inputs.manifest-sha256 }}
+      run: |
+        python scripts/fetch-python-artifacts.py --manifest "$MANIFEST" --sha256 "$SHA256" \
+          --output .artifacts/python/plugin-sdk --package yoao-backend-runtime
+        cd apps/api
+        uv sync --python 3.11 --locked --extra test
+    - name: Run selected pytest files
+      if: ${{ !cancelled() && steps.api-install.outcome == 'success' }}
+      id: pytest
+      shell: bash
+      working-directory: apps/api
+      env:
+        REPORTS: ${{ steps.plan.outputs.reports }}
+      run: |
+        mapfile -d '' -t tests < "$REPORTS/api.files"
+        (( ${#tests[@]} > 0 ))
+        uv run --no-sync python -m pytest -q -o junit_family=xunit1 \
+          --junitxml="$REPORTS/api.xml" -- "${tests[@]}"
+
+    - name: Verify selected checks and report per-file counts
+      if: ${{ always() && steps.plan.outcome == 'success' }}
+      shell: bash
+      env:
+        PLAN: ${{ inputs.plan }}
+        REPORTS: ${{ steps.plan.outputs.reports }}
+        QUALITY: ${{ steps.quality.outcome }}
+        DOCS: ${{ steps.docs.outcome }}
+        TYPECHECK: ${{ steps.typecheck.outcome }}
+        VITEST: ${{ steps.vitest.outcome }}
+        PYTEST: ${{ steps.pytest.outcome }}
+      run: python3 scripts/affected_test_receipts.py summarize "$REPORTS" | tee -a "$GITHUB_STEP_SUMMARY"
+    - name: Upload affected test reports
+      if: ${{ always() && steps.plan.outcome == 'success' && (steps.plan.outputs.web == 'true' || steps.plan.outputs.api == 'true') }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: affected-test-results-${{ github.run_id }}-${{ github.run_attempt }}
+        path: |
+          ${{ steps.plan.outputs.reports }}/*.xml
+          ${{ steps.plan.outputs.reports }}/web.json
+        if-no-files-found: error
+        retention-days: 7
