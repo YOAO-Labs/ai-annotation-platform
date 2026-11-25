@@ -26,6 +26,7 @@ from app.api.v1.async_jobs import cancel_async_job
 from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
+from app.db.models.dataset import DatasetItem
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.notification import Notification
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
@@ -957,6 +958,11 @@ async def test_frame_fanout_preserves_its_existing_reset_contract(
     async with world.factory() as db:
         actor_id, project_id, plan = await _ready_plan(db, count=2)
         task = await db.get(Task, plan.input.task.task_id)
+        source_key = await db.scalar(
+            select(DatasetItem.file_path).where(
+                DatasetItem.id == plan.input.source.dataset_item_id
+            )
+        )
         backend = MLBackendRegistry(
             name=f"frame-commit-{uuid.uuid4().hex}",
             url=f"http://frame-{uuid.uuid4().hex}.invalid",
@@ -999,7 +1005,7 @@ async def test_frame_fanout_preserves_its_existing_reset_contract(
     async def head_object(storage, _client, bucket, key):
         assert (bucket, key) == (
             storage.config.datasets_bucket,
-            plan.input.source.file_path,
+            source_key,
         )
         return ObjectIdentity(**plan.input.source.object_identity.model_dump()), {}
 
