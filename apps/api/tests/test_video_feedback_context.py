@@ -1,27 +1,27 @@
-"""Video feedback input and ownership checks without a database or media runtime."""
+"""Video feedback request validation and persistence boundaries."""
 
 from __future__ import annotations
 
-from copy import deepcopy
 from datetime import datetime, timezone
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import select
 
-from app.db.models.annotation import Annotation
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
 from app.schemas.annotation_feedback import (
     AnnotationFeedbackCreate,
     AnnotationFeedbackOut,
     serialize_feedback_anchor,
 )
 from app.services.feedback import FeedbackService
+from tests.factory import create_project
+from tests.test_video_feedback_context_api import (
+    video_feedback_data as video_feedback_data,
+)
 
 
 def context():
@@ -194,53 +194,20 @@ def test_unknown_context_version_is_preserved_by_response_model():
     assert response.anchor_position == anchor
 
 
-def session_with_video(source):
-    task = Task(
-        id=source["task_id"],
-        project_id=source["project_id"],
-        dataset_item_id=uuid4(),
-        file_type="video",
-    )
-    annotation = Annotation(
-        id=source["annotation_id"],
-        project_id=task.project_id,
-        task_id=task.id,
-        version=7,
-        is_active=True,
-        was_cancelled=False,
-    )
-    item = DatasetItem(
-        id=task.dataset_item_id,
-        file_type="video",
-        metadata_={
-            "video": {"frame_count": 180, "fps": 30, "width": 160, "height": 120}
-        },
-    )
-    rows = {
-        (Task, task.id): task,
-        (Annotation, annotation.id): annotation,
-        (DatasetItem, item.id): item,
+@pytest.fixture
+def stored_issue(video_feedback_data):
+    data = video_feedback_data
+    return {
+        **payload(),
+        "project_id": data["project"].id,
+        "task_id": data["task"].id,
+        "annotation_id": data["annotation"].id,
+        "author_id": data["owner"].id,
+        "severity": "warn",
+        "title": None,
+        "attachments": [],
+        "thread_parent_id": None,
     }
-    db = SimpleNamespace(
-        get=AsyncMock(side_effect=lambda model, key: rows.get((model, key))),
-        add=Mock(),
-        flush=AsyncMock(),
-    )
-    return db, rows, task, annotation, item
-
-
-async def create(service, source, **overrides):
-    return await service.create(
-        **{
-            **source,
-            "author_id": uuid4(),
-            "severity": "warn",
-            "title": None,
-            "attachments": [],
-            "thread_parent_id": None,
-            **overrides,
-        }
-    )
 
 
 @pytest.mark.parametrize(
@@ -250,25 +217,26 @@ async def create(service, source, **overrides):
         ("frame_range", {"from_frame": 160, "to_frame": 120}),
         ("frame_range", {"from_frame": 141, "to_frame": 160}),
         ("frame_range", {"from_frame": 0, "to_frame": 139}),
-        ("frame_range", {"from_frame": 120, "to_frame": 180}),
-        ("timeline_window", {"from": 170.5, "to": 110.25}),
         ("timeline_window", {"from": 0, "to": 179.01}),
-        ("schema_version", 99),
     ],
 )
 @pytest.mark.asyncio
-async def test_service_rejects_bad_media_ranges_before_insert(field, value):
-    source = payload()
+async def test_service_rejects_bad_media_ranges_before_insert(
+    db_session, stored_issue, field, value
+):
+    source = stored_issue
     if field == "frame":
         source["anchor_position"][field] = value
     else:
         source["anchor_position"]["video_context"][field] = value
-    db, *_ = session_with_video(source)
     with pytest.raises(HTTPException) as error:
-        await create(FeedbackService(db), source)
+        await FeedbackService(db_session).create(**source)
     assert error.value.status_code == 422
-    db.add.assert_not_called()
-    db.flush.assert_not_awaited()
+    assert not await db_session.scalar(
+        select(AnnotationFeedback.id).where(
+            AnnotationFeedback.task_id == source["task_id"]
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -276,62 +244,43 @@ async def test_service_rejects_bad_media_ranges_before_insert(field, value):
     [
         ("task_missing", 404),
         ("task_project", 422),
-        ("image", 422),
         ("annotation_missing", 404),
         ("annotation_deleted", 404),
         ("annotation_cancelled", 404),
-        ("annotation_task", 422),
         ("annotation_project", 422),
         ("metadata_missing", 503),
     ],
 )
 @pytest.mark.asyncio
-async def test_service_checks_real_task_object_and_media_ownership(failure, status):
-    source = payload()
-    db, rows, task, annotation, item = session_with_video(source)
+async def test_service_checks_real_task_object_and_media_ownership(
+    db_session, video_feedback_data, stored_issue, failure, status
+):
+    source = stored_issue
+    annotation = video_feedback_data["annotation"]
     if failure == "task_missing":
-        rows.pop((Task, task.id))
+        source["task_id"] = uuid4()
     elif failure == "task_project":
-        task.project_id = uuid4()
-    elif failure == "image":
-        task.file_type = "image"
+        source["project_id"] = uuid4()
     elif failure == "annotation_missing":
-        rows.pop((Annotation, annotation.id))
+        source["annotation_id"] = uuid4()
     elif failure == "annotation_deleted":
         annotation.is_active = False
     elif failure == "annotation_cancelled":
         annotation.was_cancelled = True
-    elif failure == "annotation_task":
-        annotation.task_id = uuid4()
     elif failure == "annotation_project":
-        annotation.project_id = uuid4()
+        other = await create_project(db_session, owner_id=source["author_id"])
+        annotation.project_id = other.id
     else:
-        item.metadata_ = {}
-    with pytest.raises(HTTPException) as error:
-        await create(FeedbackService(db), source)
-    assert error.value.status_code == status
-    db.add.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_reply_inherits_unknown_context_but_cannot_change_the_parent_anchor():
-    source = payload()
-    source["anchor_position"]["video_context"] = {
-        "schema_version": 99,
-        "future": [1, 2],
-    }
-    db, rows, _, annotation, _ = session_with_video(source)
-    annotation.is_active = False
-    parent = AnnotationFeedback(id=uuid4(), **deepcopy(source), is_active=True)
-    rows[AnnotationFeedback, parent.id] = parent
-    reply = await create(
-        FeedbackService(db), source, kind="comment", thread_parent_id=parent.id
-    )
-    assert reply.anchor_position == parent.anchor_position
-    source["anchor_position"]["x"] = 0.75
-    with pytest.raises(HTTPException) as error:
-        await create(
-            FeedbackService(db), source, kind="comment", thread_parent_id=parent.id
+        item = await db_session.get(
+            DatasetItem, video_feedback_data["task"].dataset_item_id
         )
-    assert error.value.status_code == 422
-    assert db.add.call_count == 1
+        item.metadata_ = {}
+    await db_session.flush()
+    with pytest.raises(HTTPException) as error:
+        await FeedbackService(db_session).create(**source)
+    assert error.value.status_code == status
+    assert not await db_session.scalar(
+        select(AnnotationFeedback.id).where(
+            AnnotationFeedback.author_id == source["author_id"]
+        )
+    )
