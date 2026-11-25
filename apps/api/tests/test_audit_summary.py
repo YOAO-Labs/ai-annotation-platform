@@ -52,3 +52,27 @@ def test_local_summary_keeps_exact_counts_empty_dimensions_and_tie_order():
     assert [bucket.key for bucket in summary.top_actions] == ["a.action", "z.action"]
     assert summary.target_types[0].key == summary.actor_roles[0].key == ""
     assert summary.target_types[0].event_count == 2 * large
+
+
+def test_redirects_are_not_errors_in_the_daily_audit_breakdown():
+    day = date(2026, 10, 8)
+    rows = [
+        SimpleNamespace(
+            day=day,
+            action="read",
+            target_type="task",
+            actor_role="user",
+            status_family=family,
+            event_count=count,
+        )
+        for family, count in [(3, 2), (4, 3), (5, 7)]
+    ]
+    summary = build_monthly_summary(
+        month="2026-10",
+        month_start=date(2026, 10, 1),
+        month_end=date(2026, 11, 1),
+        materialized_through=None,
+        rows=rows,
+    )
+    point = summary.daily[7]
+    assert (point.day, point.event_count, point.error_count) == (day, 12, 10)
