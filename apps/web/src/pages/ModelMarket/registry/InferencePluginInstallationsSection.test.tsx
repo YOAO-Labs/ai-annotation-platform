@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -11,6 +11,10 @@ import type {
 } from "@/api/adminInferencePlugins";
 
 const mockPushToast = vi.fn();
+let mockRole: "super_admin" | "project_admin" | "annotator" = "super_admin";
+vi.mock("@/hooks/usePermissions", () => ({
+  usePermissions: () => ({ role: mockRole }),
+}));
 vi.mock("@/components/ui/Toast", async () => {
   const actual =
     await vi.importActual<typeof import("@/components/ui/Toast")>("@/components/ui/Toast");
@@ -257,6 +261,7 @@ function renderSection(props?: { onChanged?: () => void }) {
 
 describe("InferencePluginInstallationsSection", () => {
   beforeEach(() => {
+    mockRole = "super_admin";
     mockPushToast.mockReset();
     mockList.mockReset();
     mockRegisterDirect.mockReset();
@@ -676,5 +681,104 @@ describe("InferencePluginInstallationsSection", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent(/状态或修订版本已变更/);
     });
+  });
+
+  it("非超管挂载时不触发插件安装列表查询", () => {
+    mockRole = "project_admin";
+    renderSection();
+    expect(mockList).not.toHaveBeenCalled();
+  });
+
+  it("排空后立即退役同步使用最新修订版本且忽略跨插件过期探活回包", async () => {
+    const user = userEvent.setup();
+    const pluginA = makeDirectInstallation({
+      installation_id: "inst-a",
+      display_name: "插件 A",
+      status: "disabled",
+      revision: 5,
+    });
+    const pluginB = makeDirectInstallation({
+      installation_id: "inst-b",
+      display_name: "插件 B",
+      status: "active",
+      revision: 2,
+    });
+    mockList
+      .mockResolvedValueOnce([pluginA, pluginB])
+      .mockImplementation(() => new Promise(() => {}));
+    mockQuiesce.mockResolvedValueOnce({
+      ...makeDirectInstallation({
+        installation_id: "inst-a",
+        display_name: "插件 A",
+        status: "disabled",
+        revision: 6,
+      }),
+      safe_to_stop: true,
+      launch: null,
+    });
+    mockRetire.mockResolvedValueOnce(
+      makeDirectInstallation({
+        installation_id: "inst-a",
+        display_name: "插件 A",
+        status: "retired",
+        revision: 7,
+      }),
+    );
+
+    const probeBDeferred: {
+      resolve?: (val: DirectPluginProbeResponse) => void;
+    } = {};
+    mockProbe.mockImplementationOnce(
+      () =>
+        new Promise<DirectPluginProbeResponse>((resolve) => {
+          probeBDeferred.resolve = resolve;
+        }),
+    );
+
+    renderSection();
+    const rowA = (await screen.findByText("插件 A")).closest("tr")!;
+    await user.click(within(rowA).getByRole("button", { name: "排空" }));
+    await waitFor(() => expect(mockQuiesce).toHaveBeenCalledWith("inst-a", 5));
+
+    await user.click(within(rowA).getByRole("button", { name: "退役" }));
+    const retireDialog = await screen.findByRole("alertdialog");
+    await user.click(within(retireDialog).getByRole("button", { name: "确认退役" }));
+    await waitFor(() => expect(mockRetire).toHaveBeenCalledWith("inst-a", 6));
+
+    await user.click(within(rowA).getByRole("button", { name: /详情/ }));
+    const modalA = await screen.findByRole("dialog");
+    expect(within(modalA).getByRole("button", { name: /只读探活/ })).toBeDisabled();
+    await user.click(within(modalA).getAllByRole("button", { name: "关闭" })[0]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    const rowB = screen.getByText("插件 B").closest("tr")!;
+    await user.click(within(rowB).getByRole("button", { name: /详情 \/ 探活/ }));
+    const modalB = await screen.findByRole("dialog");
+    await user.click(within(modalB).getByRole("button", { name: "只读探活" }));
+    await user.click(within(modalB).getAllByRole("button", { name: "关闭" })[0]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(within(rowA).getByRole("button", { name: /详情/ }));
+    await act(async () => {
+      probeBDeferred.resolve?.({
+        registry_id: "reg-b",
+        installation_id: "inst-b",
+        execution_mode: "direct",
+        status: "active",
+        healthy: true,
+        protocol_version: "2.0",
+        boot_id: "stale-boot-b",
+        device: "cuda",
+        observed_models: [],
+        observed_pools: {},
+        observed_managed_model_compatibility: [],
+        observed_managed_evaluation: false,
+        terminal_drain_supported: false,
+        matches_manifest: true,
+        mismatch_reason: null,
+      });
+    });
+    const reopenedModalA = await screen.findByRole("dialog");
+    expect(within(reopenedModalA).queryByText("stale-boot-b")).not.toBeInTheDocument();
   });
 });

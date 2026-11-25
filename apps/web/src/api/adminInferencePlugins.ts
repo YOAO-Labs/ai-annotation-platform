@@ -45,33 +45,36 @@ export const adminInferencePluginsApi = {
   get: (id: string) =>
     apiClient.get<PluginInstallationResponse>(`/admin/ml-integrations/plugins/installations/${id}`),
   registerDirect: (payload: RegisterDirectPluginRequest) =>
-    apiClient.post<PluginInstallationResponse>("/admin/ml-integrations/plugins/direct", payload),
+    apiClient.silentPost<PluginInstallationResponse>(
+      "/admin/ml-integrations/plugins/direct",
+      payload,
+    ),
   probe: (id: string) =>
-    apiClient.post<DirectPluginProbeResponse>(
+    apiClient.silentPost<DirectPluginProbeResponse>(
       `/admin/ml-integrations/plugins/installations/${id}/probe`,
     ),
   activateDirect: (id: string, expectedRevision: number) =>
-    apiClient.post<PluginInstallationResponse>(
+    apiClient.silentPost<PluginInstallationResponse>(
       `/admin/ml-integrations/plugins/installations/${id}/activate`,
       { expected_revision: expectedRevision } satisfies PluginActivateRequest,
     ),
   disable: (id: string, expectedRevision: number) =>
-    apiClient.post<PluginInstallationResponse>(
+    apiClient.silentPost<PluginInstallationResponse>(
       `/admin/ml-integrations/plugins/installations/${id}/disable`,
       { expected_revision: expectedRevision } satisfies PluginInstallationCommand,
     ),
   quiesce: (id: string, expectedRevision: number) =>
-    apiClient.post<PluginQuiesceResponse>(
+    apiClient.silentPost<PluginQuiesceResponse>(
       `/admin/ml-integrations/plugins/installations/${id}/quiesce`,
       { expected_revision: expectedRevision } satisfies PluginInstallationCommand,
     ),
   retire: (id: string, expectedRevision: number) =>
-    apiClient.post<PluginInstallationResponse>(
+    apiClient.silentPost<PluginInstallationResponse>(
       `/admin/ml-integrations/plugins/installations/${id}/retire`,
       { expected_revision: expectedRevision } satisfies PluginInstallationCommand,
     ),
   cancelPrepared: (id: string, expectedRevision: number) =>
-    apiClient.post<PluginInstallationResponse>(
+    apiClient.silentPost<PluginInstallationResponse>(
       `/admin/ml-integrations/plugins/installations/${id}/cancel-prepared`,
       { expected_revision: expectedRevision } satisfies PluginInstallationCommand,
     ),
@@ -146,8 +149,19 @@ export function extractInferencePluginErrorDetail(error: unknown): ParsedPluginE
   };
 }
 
+const GENERIC_HTTP_STATUS_TEXTS = new Set([
+  "Bad Request",
+  "Conflict",
+  "Forbidden",
+  "Internal Server Error",
+  "Not Found",
+  "Service Unavailable",
+  "Unprocessable Content",
+  "Unprocessable Entity",
+]);
+
 function appendDetail(base: string, detail?: string): string {
-  if (!detail) return base;
+  if (!detail || GENERIC_HTTP_STATUS_TEXTS.has(detail)) return base;
   return `${base}（${detail}）`;
 }
 
@@ -180,8 +194,10 @@ export function formatInferencePluginError(error: unknown): string {
         "该直连插件声明了终端排空能力，需在端点可达且返回终端排空证明后才能排空",
         parsed.message,
       );
+    case "plugin_installation_not_found":
+      return "未找到该插件安装记录，请刷新列表。";
     case "plugin_installation_conflict":
-      return "插件安装状态或修订版本已变更，请刷新列表后重试。";
+      return "插件安装状态或修订版本已变更，已刷新列表，请确认后重试。";
     case "plugin_installation_retired":
       return "已退役的插件安装不支持只读探活。";
     case "plugin_endpoint_unavailable":
@@ -193,8 +209,15 @@ export function formatInferencePluginError(error: unknown): string {
       return appendDetail("推理路由替换或控制请求被拒绝", parsed.reason ?? parsed.message);
     case "plugin_routing_control_unavailable":
     case "plugin_routing_control_incomplete":
+    case "plugin_control_invalid":
     case "inference_backend_control_unavailable":
-      return "推理路由或后端控制通道暂不可用，请稍后重试。";
+    case "inference_health_observation_unavailable":
+      return "推理路由、健康观测或控制通道暂不可用，请稍后重试。";
+    case "ml_backend_member_draining":
+    case "ml_backend_member_not_quiescent":
+    case "ml_backend_active_scopes":
+    case "ml_backend_routing_uncertain":
+      return appendDetail("插件仍有在途请求或未完成的路由作用域，暂不能完成排空", parsed.message);
     case "plugin_launch_unrecorded":
       return "容器插件尚未记录启动收据，请通过 yoao plugins CLI 执行。";
     case "plugin_launch_receipt_required":
@@ -202,6 +225,8 @@ export function formatInferencePluginError(error: unknown): string {
     case "plugin_direct_receipt_unexpected":
       return "直连插件激活不接受容器启动收据或资格报告。";
     default:
-      return parsed.message ?? "插件操作失败，请稍后重试。";
+      return parsed.message && !GENERIC_HTTP_STATUS_TEXTS.has(parsed.message)
+        ? parsed.message
+        : "插件操作失败，请稍后重试。";
   }
 }

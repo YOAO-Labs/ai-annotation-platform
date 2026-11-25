@@ -16,6 +16,7 @@ from yoao._plugin_docker import (
 from yoao.container_runtime import (
     ContainerImageInfo,
     ContainerInspection,
+    ContainerMount,
     ContainerRuntimePort,
     ContainerStateInfo,
     DetachedContainerSpec,
@@ -359,6 +360,60 @@ def test_container_runtime_port_protocol_and_validation():
             image="registry.example/sam-service:latest",
             command=("sam-service", "describe"),
         ).validate()
+
+    for bad_host in (
+        Path("/run/podman/podman.sock"),
+        Path("/run/containerd/containerd.sock"),
+        Path('/tmp/bad"quote'),
+    ):
+        with pytest.raises(SDKError, match="safe absolute path"):
+            OneShotContainerSpec(
+                image=image,
+                command=("sam-service", "describe"),
+                mounts=(
+                    ContainerMount(source=bad_host, target="/data", readonly=True),
+                ),
+            ).validate()
+
+
+def test_local_docker_runtime_missing_container_returns_none_and_normalizes_bare_image_id(
+    monkeypatch,
+):
+    import subprocess
+    from yoao.container_runtime import LocalDockerRuntime
+
+    cid = "a" * 64
+    bare_img = "b" * 64
+    image = "registry.example/sam-service@sha256:" + "1" * 64
+    calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kwargs):
+        calls.append(cmd)
+        if cmd[1:3] == ["container", "inspect"]:
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout="", stderr=f"Error: No such container: {cid}\n"
+            )
+        if cmd[1:3] == ["image", "inspect"]:
+            return subprocess.CompletedProcess(
+                cmd,
+                0,
+                stdout=json.dumps(
+                    {
+                        "Id": bare_img,
+                        "RepoDigests": [image],
+                        "Config": {"Labels": {}},
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    rt = LocalDockerRuntime()
+    assert rt.inspect_container(container_id=cid) is None
+    rt.stop_and_remove(cid)
+    info = rt.inspect_image(image)
+    assert info.image_id == f"sha256:{bare_img}"
 
 
 def test_non_libreyolo_plugin_end_to_end_with_injected_runtime_port(

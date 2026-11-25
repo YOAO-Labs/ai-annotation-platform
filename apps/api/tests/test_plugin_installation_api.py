@@ -410,6 +410,7 @@ async def test_framework_agnostic_cuda_qualification_and_top_level_fallback():
             "cuda_build": "12.8",
             "driver_version": "driver-2",
             "total_memory_mb": 16384,
+            "tf32": False,
             "runtime_versions": {
                 "custom_detector": "2.1.0",
                 "torch": "2.6.0+cu128",
@@ -519,6 +520,66 @@ async def test_framework_agnostic_cuda_qualification_and_top_level_fallback():
     with pytest.raises(PluginObservationRejected):
         verify_endpoint_observation(
             installation, receipt, **{**kwargs, "setup": drifted_nested}
+        )
+
+    identity_only_nested = deepcopy(setup)
+    identity_only_nested["runtime_info"]["runtime_versions"] = {
+        "plugin_id": "custom.detector"
+    }
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": identity_only_nested}
+        )
+
+    missing_tf32_nested = deepcopy(setup)
+    missing_tf32_nested["runtime_info"].pop("tf32")
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": missing_tf32_nested}
+        )
+
+    string_tf32_nested = deepcopy(setup)
+    string_tf32_nested["runtime_info"]["tf32"] = "true"
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": string_tf32_nested}
+        )
+
+    hw_only_top_level = deepcopy(setup)
+    hw_only_top_level["runtime_info"].pop("runtime_versions")
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation,
+            receipt,
+            **{
+                **kwargs,
+                "setup": hw_only_top_level,
+                "qualification": make_qualification(
+                    {
+                        "cuda_build": "12.8",
+                        "custom_detector": "2.1.0",
+                        "tf32": "false",
+                    }
+                ),
+            },
+        )
+
+    bad_type_top_level = deepcopy(hw_only_top_level)
+    bad_type_top_level["runtime_info"].update(
+        {"custom_detector": None, "torch": "2.6.0+cu128"}
+    )
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": bad_type_top_level}
+        )
+
+    top_level_onnx_bypass = deepcopy(hw_only_top_level)
+    top_level_onnx_bypass["runtime_info"].update(
+        {"onnxruntime": "1.20.0", "custom_detector": "2.1.0", "torch": "2.6.0+cu128"}
+    )
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": top_level_onnx_bypass}
         )
 
     tf32_nested = deepcopy(setup)

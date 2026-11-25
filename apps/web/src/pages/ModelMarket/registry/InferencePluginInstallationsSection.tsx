@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import {
   INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY,
   adminInferencePluginsApi,
+  extractInferencePluginErrorDetail,
   formatInferencePluginError,
   resolveInferencePluginSummary,
   type DirectPluginProbeResponse,
@@ -11,6 +12,7 @@ import {
   type ManagedModelCompatibility,
   type PluginInstallationResponse,
 } from "@/api/adminInferencePlugins";
+import { usePermissions } from "@/hooks/usePermissions";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
 import {
   AlertDialog,
@@ -49,8 +51,8 @@ export interface InferencePluginInstallationsSectionProps {
 type ExecutionModeFilter = "all" | "direct" | "container";
 type StatusFilter = "all" | "active" | "disabled" | "prepared" | "retired";
 type ConfirmAction =
-  | { kind: "retire"; item: PluginInstallationResponse }
-  | { kind: "cancelPrepared"; item: PluginInstallationResponse };
+  | { kind: "retire"; installationId: string }
+  | { kind: "cancelPrepared"; installationId: string };
 
 const STATUS_META: Record<
   InferencePluginSummary["status"],
@@ -95,6 +97,29 @@ const CAPABILITY_LABELS: Record<string, string> = {
   managed_evaluation: "受控评估",
 };
 
+function patchInstallationInCache(qc: QueryClient, updated: PluginInstallationResponse): void {
+  const normalized: PluginInstallationResponse = {
+    registry_id: updated.registry_id,
+    installation: updated.installation,
+    summary: updated.summary ?? resolveInferencePluginSummary(updated),
+  };
+  qc.setQueryData<PluginInstallationResponse[]>(
+    INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY,
+    (prev) => {
+      if (!prev) return prev;
+      const exists = prev.some(
+        (entry) => entry.installation.installation_id === normalized.installation.installation_id,
+      );
+      if (!exists) return [normalized, ...prev];
+      return prev.map((entry) =>
+        entry.installation.installation_id === normalized.installation.installation_id
+          ? normalized
+          : entry,
+      );
+    },
+  );
+}
+
 function invalidatePluginQueries(qc: QueryClient): void {
   qc.invalidateQueries({ queryKey: INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "topology"] });
@@ -117,6 +142,8 @@ function labelForInstallation(item: PluginInstallationResponse): string {
 export function InferencePluginInstallationsSection({
   onChanged,
 }: InferencePluginInstallationsSectionProps): ReactNode {
+  const { role } = usePermissions();
+  const isSuperAdmin = role === "super_admin";
   const queryClient = useQueryClient();
   const pushToast = useToastStore((s) => s.push);
 
@@ -128,132 +155,186 @@ export function InferencePluginInstallationsSection({
   const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [quiescedRevisions, setQuiescedRevisions] = useState<Record<string, number>>({});
+
+  const markBusy = (id: string) => {
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
+  const clearBusy = (id: string) => {
+    setBusyIds((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  };
+
+  const clearQuiesced = (id: string) => {
+    setQuiescedRevisions((prev) => {
+      if (!(id in prev)) return prev;
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  };
 
   const listQ = useQuery({
     queryKey: INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY,
     queryFn: () => adminInferencePluginsApi.list(),
     staleTime: 60_000,
+    enabled: isSuperAdmin,
   });
 
   const installations = listQ.data ?? EMPTY_INSTALLATIONS;
 
-  const syncAfterMutation = () => {
+  const syncAfterMutation = (updated?: PluginInstallationResponse) => {
+    if (updated) {
+      patchInstallationInCache(queryClient, updated);
+    }
     invalidatePluginQueries(queryClient);
     onChanged?.();
+  };
+
+  const handleConflictRefresh = (err: unknown) => {
+    if (extractInferencePluginErrorDetail(err).errorCode === "plugin_installation_conflict") {
+      queryClient.invalidateQueries({ queryKey: INFERENCE_PLUGIN_INSTALLATIONS_QUERY_KEY });
+    }
   };
 
   const activateMut = useMutation({
     mutationFn: ({ id, revision }: { id: string; revision: number }) =>
       adminInferencePluginsApi.activateDirect(id, revision),
     onMutate: ({ id }) => {
-      setBusyId(id);
+      markBusy(id);
       setActionError(null);
       setActionNotice(null);
     },
     onSuccess: (updated) => {
+      clearQuiesced(updated.installation.installation_id);
       const title = labelForInstallation(updated);
       pushToast({ msg: `已启用直连插件「${title}」`, kind: "success" });
-      syncAfterMutation();
+      syncAfterMutation(updated);
     },
     onError: (err) => {
+      handleConflictRefresh(err);
       const message = formatInferencePluginError(err);
       setActionError(message);
       pushToast({ msg: "启用插件失败", sub: message, kind: "error" });
     },
-    onSettled: () => setBusyId(null),
+    onSettled: (_data, _err, { id }) => clearBusy(id),
   });
 
   const disableMut = useMutation({
     mutationFn: ({ id, revision }: { id: string; revision: number }) =>
       adminInferencePluginsApi.disable(id, revision),
     onMutate: ({ id }) => {
-      setBusyId(id);
+      markBusy(id);
       setActionError(null);
       setActionNotice(null);
     },
     onSuccess: (updated) => {
+      clearQuiesced(updated.installation.installation_id);
       const title = labelForInstallation(updated);
       pushToast({ msg: `已停用插件「${title}」`, kind: "success" });
-      syncAfterMutation();
+      syncAfterMutation(updated);
     },
     onError: (err) => {
+      handleConflictRefresh(err);
       const message = formatInferencePluginError(err);
       setActionError(message);
       pushToast({ msg: "停用插件失败", sub: message, kind: "error" });
     },
-    onSettled: () => setBusyId(null),
+    onSettled: (_data, _err, { id }) => clearBusy(id),
   });
 
   const quiesceMut = useMutation({
     mutationFn: ({ id, revision }: { id: string; revision: number }) =>
       adminInferencePluginsApi.quiesce(id, revision),
     onMutate: ({ id }) => {
-      setBusyId(id);
+      markBusy(id);
       setActionError(null);
       setActionNotice(null);
     },
     onSuccess: (result) => {
+      const id = result.installation.installation_id;
+      if (result.safe_to_stop) {
+        setQuiescedRevisions((prev) => ({ ...prev, [id]: result.installation.revision }));
+      }
       const title = labelForInstallation(result);
       const notice = result.safe_to_stop
         ? `插件「${title}」已完成排空（safe_to_stop: 是），现在可安全停止外部插件进程或执行退役。`
         : `插件「${title}」排空请求已返回（safe_to_stop: 否），请待活动工作结束后再停止进程。`;
       setActionNotice(notice);
       pushToast({ msg: `已完成排空「${title}」`, sub: notice, kind: "success" });
-      syncAfterMutation();
+      syncAfterMutation(result);
     },
     onError: (err) => {
+      handleConflictRefresh(err);
       const message = formatInferencePluginError(err);
       setActionError(message);
       pushToast({ msg: "排空插件失败", sub: message, kind: "error" });
     },
-    onSettled: () => setBusyId(null),
+    onSettled: (_data, _err, { id }) => clearBusy(id),
   });
 
   const retireMut = useMutation({
     mutationFn: ({ id, revision }: { id: string; revision: number }) =>
       adminInferencePluginsApi.retire(id, revision),
     onMutate: ({ id }) => {
-      setBusyId(id);
+      markBusy(id);
       setActionError(null);
       setActionNotice(null);
     },
     onSuccess: (updated) => {
+      clearQuiesced(updated.installation.installation_id);
       const title = labelForInstallation(updated);
       setConfirmAction(null);
       pushToast({ msg: `已退役插件「${title}」`, kind: "success" });
-      syncAfterMutation();
+      syncAfterMutation(updated);
     },
-    onError: (err) => {
+    onError: (err, { id, revision }) => {
+      handleConflictRefresh(err);
       setConfirmAction(null);
-      const message = formatInferencePluginError(err);
+      const detail = extractInferencePluginErrorDetail(err);
+      const message =
+        detail.errorCode === "plugin_installation_conflict" && quiescedRevisions[id] !== revision
+          ? "退役前需先执行「排空」取得排空证明，或安装状态已变更，列表已自动刷新。"
+          : formatInferencePluginError(err);
       setActionError(message);
       pushToast({ msg: "退役插件失败", sub: message, kind: "error" });
     },
-    onSettled: () => setBusyId(null),
+    onSettled: (_data, _err, { id }) => clearBusy(id),
   });
 
   const cancelPreparedMut = useMutation({
     mutationFn: ({ id, revision }: { id: string; revision: number }) =>
       adminInferencePluginsApi.cancelPrepared(id, revision),
     onMutate: ({ id }) => {
-      setBusyId(id);
+      markBusy(id);
       setActionError(null);
       setActionNotice(null);
     },
     onSuccess: (updated) => {
+      clearQuiesced(updated.installation.installation_id);
       const title = labelForInstallation(updated);
       setConfirmAction(null);
       pushToast({ msg: `已取消预留安装「${title}」`, kind: "success" });
-      syncAfterMutation();
+      syncAfterMutation(updated);
     },
     onError: (err) => {
+      handleConflictRefresh(err);
       setConfirmAction(null);
       const message = formatInferencePluginError(err);
       setActionError(message);
       pushToast({ msg: "取消预留失败", sub: message, kind: "error" });
     },
-    onSettled: () => setBusyId(null),
+    onSettled: (_data, _err, { id }) => clearBusy(id),
   });
 
   const filteredItems = useMemo(() => {
@@ -288,14 +369,18 @@ export function InferencePluginInstallationsSection({
     [detailId, installations],
   );
 
+  const confirmItem = useMemo(
+    () =>
+      confirmAction
+        ? (installations.find(
+            (item) => item.installation.installation_id === confirmAction.installationId,
+          ) ?? null)
+        : null,
+    [confirmAction, installations],
+  );
+
   const hasFilters =
     searchQuery.trim().length > 0 || modeFilter !== "all" || statusFilter !== "all";
-  const anyPending =
-    activateMut.isPending ||
-    disableMut.isPending ||
-    quiesceMut.isPending ||
-    retireMut.isPending ||
-    cancelPreparedMut.isPending;
 
   const toolbar = (
     <div className="flex flex-wrap items-center gap-2">
@@ -353,6 +438,20 @@ export function InferencePluginInstallationsSection({
         </button>
       )}
       <div className="ml-auto flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => listQ.refetch()}
+          disabled={listQ.isFetching}
+          title="刷新推理插件安装列表"
+        >
+          <Icon
+            name={listQ.isFetching ? "loader2" : "refresh"}
+            size={11}
+            className={listQ.isFetching ? "spin" : undefined}
+          />
+          刷新
+        </Button>
         <Button size="sm" variant="primary" onClick={() => setRegisterOpen(true)}>
           <Icon name="plus" size={11} />
           注册直连插件
@@ -447,7 +546,7 @@ export function InferencePluginInstallationsSection({
               <PluginInstallationRow
                 key={item.installation.installation_id}
                 item={item}
-                busy={busyId === item.installation.installation_id && anyPending}
+                busy={busyIds.has(item.installation.installation_id)}
                 onOpenDetail={() => setDetailId(item.installation.installation_id)}
                 onActivate={() =>
                   activateMut.mutate({
@@ -467,8 +566,18 @@ export function InferencePluginInstallationsSection({
                     revision: item.installation.revision,
                   })
                 }
-                onRequestRetire={() => setConfirmAction({ kind: "retire", item })}
-                onRequestCancelPrepared={() => setConfirmAction({ kind: "cancelPrepared", item })}
+                onRequestRetire={() =>
+                  setConfirmAction({
+                    kind: "retire",
+                    installationId: item.installation.installation_id,
+                  })
+                }
+                onRequestCancelPrepared={() =>
+                  setConfirmAction({
+                    kind: "cancelPrepared",
+                    installationId: item.installation.installation_id,
+                  })
+                }
               />
             ))}
             {filteredItems.length === 0 && (
@@ -487,16 +596,16 @@ export function InferencePluginInstallationsSection({
       <DirectInferencePluginModal
         open={registerOpen}
         onClose={() => setRegisterOpen(false)}
-        onSuccess={() => {
+        onSuccess={(created) => {
           setActionError(null);
-          syncAfterMutation();
+          syncAfterMutation(created);
         }}
       />
 
       <PluginInstallationDetailModal item={detailItem} onClose={() => setDetailId(null)} />
 
       <AlertDialog
-        open={confirmAction !== null}
+        open={confirmAction !== null && confirmItem !== null}
         onOpenChange={(open) => {
           if (!open && !retireMut.isPending && !cancelPreparedMut.isPending) {
             setConfirmAction(null);
@@ -509,10 +618,15 @@ export function InferencePluginInstallationsSection({
               {confirmAction?.kind === "retire" ? "确认退役插件安装" : "确认取消预留安装"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {confirmAction?.kind === "retire"
-                ? `确认退役插件「${labelForInstallation(confirmAction.item)}」？退役会不可逆地清除运行态凭据，并要求不存在活跃模型发布或冻结执行；直连插件需先停用并完成排空。`
-                : confirmAction
-                  ? `确认取消预留插件「${labelForInstallation(confirmAction.item)}」？该操作将释放预留占位并要求无活跃引用。`
+              {confirmAction?.kind === "retire" && confirmItem
+                ? `确认退役插件「${labelForInstallation(confirmItem)}」？退役会不可逆地清除运行态凭据，并要求不存在活跃模型发布或冻结执行。${
+                    quiescedRevisions[confirmItem.installation.installation_id] !==
+                    confirmItem.installation.revision
+                      ? "提示：若当前版本尚未执行排空，请先点击「排空」取得排空证明后再退役。"
+                      : ""
+                  }`
+                : confirmItem
+                  ? `确认取消预留插件「${labelForInstallation(confirmItem)}」？该操作将释放预留占位并要求无活跃引用。`
                   : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -522,13 +636,13 @@ export function InferencePluginInstallationsSection({
             </AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              disabled={retireMut.isPending || cancelPreparedMut.isPending}
+              disabled={retireMut.isPending || cancelPreparedMut.isPending || !confirmItem}
               onClick={(event) => {
                 event.preventDefault();
-                if (!confirmAction) return;
+                if (!confirmAction || !confirmItem) return;
                 const payload = {
-                  id: confirmAction.item.installation.installation_id,
-                  revision: confirmAction.item.installation.revision,
+                  id: confirmItem.installation.installation_id,
+                  revision: confirmItem.installation.revision,
                 };
                 if (confirmAction.kind === "retire") {
                   retireMut.mutate(payload);
@@ -720,7 +834,12 @@ function PluginInstallationRow({
                 >
                   排空
                 </Button>
-                <Button size="xs" variant="danger" onClick={onRequestRetire} disabled={busy}>
+                <Button
+                  size="xs"
+                  variant="danger"
+                  disabled
+                  title="容器插件需先通过 yoao plugins uninstall CLI 完成排空与安全退役"
+                >
                   退役
                 </Button>
               </>
@@ -772,6 +891,8 @@ function PluginInstallationDetailModal({
   const [probeError, setProbeError] = useState<string | null>(null);
 
   const installationId = item?.installation.installation_id ?? null;
+  const activeIdRef = useRef<string | null>(installationId);
+  activeIdRef.current = installationId;
 
   useEffect(() => {
     setProbeResult(null);
@@ -783,17 +904,23 @@ function PluginInstallationDetailModal({
     onMutate: () => {
       setProbeError(null);
     },
-    onSuccess: (snapshot) => {
+    onSuccess: (snapshot, probedId) => {
+      if (activeIdRef.current !== probedId) return;
       setProbeResult(snapshot);
     },
-    onError: (err) => {
+    onError: (err, probedId) => {
+      if (activeIdRef.current !== probedId) return;
       setProbeResult(null);
       setProbeError(formatInferencePluginError(err));
     },
   });
 
   if (!item) {
-    return null;
+    return (
+      <Modal open={false} onClose={onClose} title="插件安装详情" width={720}>
+        {null}
+      </Modal>
+    );
   }
 
   const inst = item.installation;

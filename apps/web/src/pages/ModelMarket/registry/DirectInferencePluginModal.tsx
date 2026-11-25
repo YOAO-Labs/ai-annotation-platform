@@ -121,6 +121,57 @@ export function DirectInferencePluginModal({
     setCompatRows((prev) => prev.filter((row) => row.rowKey !== rowKey));
   };
 
+  const validateDirectEndpointUrl = (value: string): string | null => {
+    if (/\s/.test(value)) {
+      return "服务地址不能包含空白字符。";
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      return "服务地址不是有效的 HTTP(S) URL。";
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return "服务地址必须以 http:// 或 https:// 开头。";
+    }
+    if (!parsed.hostname || parsed.username || parsed.password || parsed.search || parsed.hash) {
+      return "服务地址必须是无凭据、无查询参数与锚点的 HTTP(S) 基础地址。";
+    }
+    return null;
+  };
+
+  const validatePublicHomepageUrl = (value: string): string | null => {
+    if (/\s/.test(value)) {
+      return "主页地址不能包含空白字符。";
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      return "主页地址不是有效的 HTTPS URL。";
+    }
+    const host = parsed.hostname.toLowerCase();
+    const isIpLiteral = /^\d+(?:\.\d+){3}$/.test(host) || host.includes(":");
+    if (
+      parsed.protocol !== "https:" ||
+      !host ||
+      parsed.username ||
+      parsed.password ||
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      isIpLiteral ||
+      !host.includes(".")
+    ) {
+      return "主页地址必须是公开可访问的 https:// 域名链接。";
+    }
+    return null;
+  };
+
+  const scrubSecret = (message: string, secret: string): string => {
+    if (!secret) return message;
+    return message.split(secret).join("[已脱敏]");
+  };
+
   const handleSubmit = async () => {
     setError(null);
     const trimmedName = name.trim();
@@ -135,8 +186,9 @@ export function DirectInferencePluginModal({
       setError("服务地址不能为空。");
       return;
     }
-    if (!/^https?:\/\//i.test(trimmedUrl)) {
-      setError("服务地址必须以 http:// 或 https:// 开头。");
+    const urlError = validateDirectEndpointUrl(trimmedUrl);
+    if (urlError) {
+      setError(urlError);
       return;
     }
     if (trimmedToken.length < 32) {
@@ -145,9 +197,12 @@ export function DirectInferencePluginModal({
     }
 
     const trimmedHomepage = homepage.trim();
-    if (trimmedHomepage && !/^https:\/\//i.test(trimmedHomepage)) {
-      setError("主页地址必须以 https:// 开头。");
-      return;
+    if (trimmedHomepage) {
+      const homepageError = validatePublicHomepageUrl(trimmedHomepage);
+      if (homepageError) {
+        setError(homepageError);
+        return;
+      }
     }
 
     const trimmedSha = assetManifestSha256.trim().toLowerCase();
@@ -217,7 +272,7 @@ export function DirectInferencePluginModal({
       onSuccess?.(created);
       onClose();
     } catch (err) {
-      setError(formatInferencePluginError(err));
+      setError(scrubSecret(formatInferencePluginError(err), trimmedToken));
     } finally {
       setSubmitting(false);
     }

@@ -23,24 +23,35 @@ _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _USER = re.compile(r"^[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?$")
 
 
+_FORBIDDEN_SOCKET_NAMES = ("docker.sock", "podman.sock", "containerd.sock")
+
+
+class _ContainerNotFoundError(SDKError):
+    """Raised internally when the container runtime reports a missing container."""
+
+
 def _validate_safe_host_path(path: Path, label: str) -> None:
     text = str(path)
+    lowered = text.lower()
     if (
         not path.is_absolute()
         or "," in text
-        or "docker.sock" in text
+        or '"' in text
+        or any(socket_name in lowered for socket_name in _FORBIDDEN_SOCKET_NAMES)
         or any(ch in text for ch in "\x00\r\n")
     ):
         raise SDKError(f"{label} must have a safe absolute path")
 
 
 def _validate_safe_target_path(target: str, label: str) -> None:
+    lowered = target.lower() if isinstance(target, str) else ""
     if (
         not isinstance(target, str)
         or not target.startswith("/")
         or ":" in target
         or "," in target
-        or "docker.sock" in target
+        or '"' in target
+        or any(socket_name in lowered for socket_name in _FORBIDDEN_SOCKET_NAMES)
         or any(ch in target for ch in "\x00\r\n")
     ):
         raise SDKError(f"{label} must be a safe container mount target")
@@ -322,6 +333,13 @@ class LocalDockerRuntime:
         except OSError as exc:
             raise SDKError("Container runtime CLI is unavailable") from exc
         if result.returncode:
+            stderr = (result.stderr or "").strip().lower()
+            if args[:2] == ("container", "inspect") and (
+                "no such" in stderr or "not found" in stderr
+            ):
+                raise _ContainerNotFoundError(
+                    f"Container runtime {args[0]} failed (exit {result.returncode})"
+                )
             raise SDKError(
                 f"Container runtime {args[0]} failed (exit {result.returncode})"
             )
@@ -391,6 +409,8 @@ class LocalDockerRuntime:
         if not isinstance(digests, list) or image not in digests:
             raise SDKError("Local image does not have the approved digest")
         image_id = payload.get("Id")
+        if isinstance(image_id, str) and _CONTAINER_ID.fullmatch(image_id):
+            image_id = f"sha256:{image_id}"
         if not isinstance(image_id, str) or not _IMAGE_ID.fullmatch(image_id):
             raise SDKError("Container runtime returned an invalid image ID")
         config = payload.get("Config")
@@ -512,7 +532,12 @@ class LocalDockerRuntime:
         )
         if resolved_id is None:
             return None
-        raw = self._run("container", "inspect", "--format", "{{json .}}", resolved_id)
+        try:
+            raw = self._run(
+                "container", "inspect", "--format", "{{json .}}", resolved_id
+            )
+        except _ContainerNotFoundError:
+            return None
         try:
             payload = json.loads(raw)
         except ValueError as exc:

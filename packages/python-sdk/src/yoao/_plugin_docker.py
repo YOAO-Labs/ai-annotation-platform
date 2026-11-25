@@ -6,7 +6,7 @@ mounts are accepted. Container identity is checked before every mutation.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 import hashlib
 import json
@@ -315,7 +315,7 @@ class Docker:
         }
         if config.candidate_token is not None:
             expected[_LABEL_CANDIDATE] = config.candidate_token
-        if not isinstance(info.labels, dict) or any(
+        if not isinstance(info.labels, Mapping) or any(
             info.labels.get(k) != v for k, v in expected.items()
         ):
             raise SDKError(
@@ -325,9 +325,9 @@ class Docker:
             raise SDKError("Container image does not match the installation receipt")
         host = info.host_config
         mounts = info.mounts
-        devices = host.get("DeviceRequests") if isinstance(host, dict) else None
+        devices = host.get("DeviceRequests") if isinstance(host, Mapping) else None
         if (
-            not isinstance(host, dict)
+            not isinstance(host, Mapping)
             or host.get("Privileged") is not False
             or host.get("PidMode") != ""
             or host.get("NetworkMode") != config.network

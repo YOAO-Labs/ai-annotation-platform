@@ -381,6 +381,7 @@ def verify_qualification(
     live_versions = runtime.get("runtime_versions")
     is_onnx = (
         setup.get("infra") == "onnx"
+        or "onnxruntime" in runtime
         or (type(live_versions) is dict and "onnxruntime" in live_versions)
         or "onnxruntime" in deployment["runtime_versions"]
     )
@@ -441,6 +442,11 @@ def verify_qualification(
         "gpu_resource_id": resource.gpu_resource_id,
         "driver_version": gpu["driver_version"],
     }
+    identity_and_hw_keys = set(required) | {"device", "cuda_build"}
+    if "cuda_build" in versions and versions["cuda_build"] != gpu["runtime_version"]:
+        raise PluginObservationRejected(
+            "qualification runtime versions differ from endpoint"
+        )
     if live_versions is not None:
         if (
             type(live_versions) is not dict
@@ -450,39 +456,78 @@ def verify_qualification(
                 for key, value in live_versions.items()
             )
             or any(versions.get(key) != value for key, value in live_versions.items())
+            or not any(key not in identity_and_hw_keys for key in live_versions)
             or (is_onnx and "onnxruntime" not in live_versions)
         ):
             raise PluginObservationRejected(
                 "qualification runtime versions differ from endpoint"
             )
     else:
-        matched_version_keys: set[str] = set()
-        non_version_keys = set(required) | {"device"}
-        for key, value in runtime.items():
-            if key not in versions:
-                continue
-            if type(value) is bool:
-                normalized = "true" if value else "false"
-            elif type(value) is str:
-                normalized = value
-            else:
-                continue
-            if versions[key] != normalized:
-                raise PluginObservationRejected(
-                    "qualification runtime versions differ from endpoint"
-                )
-            if key not in non_version_keys:
-                matched_version_keys.add(key)
-        if not matched_version_keys or (
-            is_onnx and "onnxruntime" not in matched_version_keys
+        optional_preload_keys = frozenset({"precision", "half", "amp"})
+        expected_version_keys = set(versions) - identity_and_hw_keys
+        if not expected_version_keys or (
+            is_onnx and "onnxruntime" not in expected_version_keys
         ):
             raise PluginObservationRejected(
                 "qualification runtime versions differ from endpoint"
             )
-    if versions.get("tf32") == "false" and runtime.get("tf32") is True:
-        raise PluginObservationRejected(
-            "qualification runtime versions differ from endpoint"
-        )
+        matched_version_keys: set[str] = set()
+        for key in expected_version_keys:
+            if key not in runtime:
+                raise PluginObservationRejected(
+                    "qualification runtime versions differ from endpoint"
+                )
+            value = runtime[key]
+            if value is None and key in optional_preload_keys:
+                continue
+            if type(value) is bool:
+                normalized = "true" if value else "false"
+            elif type(value) is int:
+                normalized = str(value)
+            elif type(value) is str and value:
+                normalized = value
+            else:
+                raise PluginObservationRejected(
+                    "qualification runtime versions differ from endpoint"
+                )
+            if versions[key] != normalized:
+                raise PluginObservationRejected(
+                    "qualification runtime versions differ from endpoint"
+                )
+            matched_version_keys.add(key)
+        if not matched_version_keys:
+            raise PluginObservationRejected(
+                "qualification runtime versions differ from endpoint"
+            )
+        for key, value in runtime.items():
+            if key not in versions or key in expected_version_keys:
+                continue
+            if value is None and key in optional_preload_keys:
+                continue
+            if type(value) is bool:
+                normalized = "true" if value else "false"
+            elif type(value) is int:
+                normalized = str(value)
+            elif type(value) is str and value:
+                normalized = value
+            else:
+                raise PluginObservationRejected(
+                    "qualification runtime versions differ from endpoint"
+                )
+            if versions[key] != normalized:
+                raise PluginObservationRejected(
+                    "qualification runtime versions differ from endpoint"
+                )
+    if versions.get("tf32") == "false":
+        tf32_proven_disabled = (
+            type(live_versions) is dict and live_versions.get("tf32") == "false"
+        ) or runtime.get("tf32") is False
+        if not tf32_proven_disabled or (
+            "tf32" in runtime and runtime["tf32"] is not False
+        ):
+            raise PluginObservationRejected(
+                "qualification runtime versions differ from endpoint"
+            )
     if any(versions.get(key) != value for key, value in required.items()):
         raise PluginObservationRejected(
             "qualification identity or runtime differs from reservation"

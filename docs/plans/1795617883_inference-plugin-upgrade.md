@@ -98,5 +98,5 @@
 
 ## 5. 当前状态与待决事项
 
-- **当前状态**：已完成 **I0（ADR-0190 确认与双仓统一推理清单契约对齐）** 与 **I1（前向 SQL 迁移 `bo0513` 与 D1 非容器直连档闭环）**。I1 在主仓落地 `bo0513` 前向函数升级（含 `prepare_plugin_installation`、`command_plugin_installation`、`authorize_plugin_routing_replacement`、`set_plugin_asset_approval`、`prediction_scope_reserve`、`prediction_test_scope_reserve`，不改动任何冻结历史 SQL）、Inference 自有异步 IP 固定出网守卫（`host_guard.py`，完整映射 `httpcore` 异常、放行白名单 IPv6 `::1` 并硬拦截 `0.0.0.0/8` 与元数据地址，并接入主传输、路由控制与 scope 退役通道）、D1 无资产清单放行与可选 `asset_manifest_sha256` 审批、本机受管 GPU UUID 大小写归一化与 `index:*` 失败关闭双层守卫、`managed_evaluation` 端到端闭环、`POST /api/v1/admin/ml-integrations/plugins/direct`（SAVEPOINT 探活失败自动回滚 + `cancel_prepared` 释放 URL 占位）与只读 `POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe`（拒绝退役实例探活）、统一只读投影 `summary` 及 `yoao plugins register-direct` / `probe` SDK 与 CLI 命令，并在隔离 PostgreSQL 16 上通过迁移往返校验（`fresh` + `forward`）与全量回归。
-- **下一步**：进入 **I2（清除全部 LibreYOLO 硬编码与抽离 `ContainerRuntimePort`）** 与 **I3 前端（Web 管理页直连插件支持）**（可在独立 git worktree 并行实施）。
+- **当前状态**：已完成 **I0（ADR-0190 确认与双仓统一推理清单契约对齐）**、**I1（前向 SQL 迁移 `bo0513` 与 D1 非容器直连档闭环）**、**I2（清除全部 LibreYOLO 推理插件硬编码、通用 OCI `io.yoao.plugin.prepare-assets-command` 与 `ContainerRuntimePort` 抽离）** 与 **I3 前端（Web 超管直连插件管理页、只读探活与 M5 可复用独立组件）**，均已在隔离工作树实施、合回 `plugin/plugin-opt` 并通过本地全量回归与独立只读审查修复。
+- **下一步**：执行 **I3 收尾验收与收口**（一次性测试库 + 真实无 Docker 本机 `venv` 直连插件与容器插件双轨端到端与 `agent-browser` 验收、将主仓遗留 `docker-compose.ml*.yml` 按方案迁移至 `YOAO-plugins`、更新 ADR-0190 状态与修订 ADR-0189），随后转入训练器插件化 **T2**。

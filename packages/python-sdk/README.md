@@ -78,7 +78,7 @@ yoao plugins install --state-dir ./rapidocr-state --yes --json
 yoao plugins status --state-dir ./rapidocr-state --json
 ```
 
-CUDA 插件另需执行机具备 NVIDIA Container Toolkit、显式授权的单张物理 GPU（`GPU-...`）和 Ed25519 公钥映射文件（`gpu_verify_keyring`，仅含公钥不含签发私钥）。`prepare-assets` 仅服务于入口声明为 `yoao-libreyolo` 的 LibreYOLO 镜像；其他插件按各自获准资产流程准备权重。
+CUDA 插件另需执行机具备 NVIDIA Container Toolkit、显式授权的单张物理 GPU（`GPU-...`）和 Ed25519 公钥映射文件（`gpu_verify_keyring`，仅含公钥不含签发私钥）。镜像在 OCI 标签中声明 `io.yoao.plugin.prepare-assets-command` 时，可通过 `yoao plugins prepare-assets` 在非 root 临时容器中执行资产准备；未声明该标签的插件按各自获准资产流程准备权重。
 
 ### 2. CUDA 资格验证与安装
 
@@ -99,7 +99,7 @@ yoao plugins prepare \
   --state-dir ./libreyolo-state \
   --yes --json
 
-# 仅 LibreYOLO 提供此显式资产准备命令
+# 仅声明了 io.yoao.plugin.prepare-assets-command 的镜像支持此命令
 yoao plugins prepare-assets --state-dir ./libreyolo-state --json
 
 # 方式 A：一步运行隔离资格检查并激活
