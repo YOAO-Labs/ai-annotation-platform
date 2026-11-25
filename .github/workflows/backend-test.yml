@@ -89,6 +89,7 @@ jobs:
         working-directory: apps/api
         run: uv run alembic upgrade head
       - name: Migration validation (Beta fresh / forward)
+        if: inputs.shard-index == 0
         working-directory: apps/api
         env:
           AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}

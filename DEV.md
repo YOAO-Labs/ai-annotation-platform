@@ -31,7 +31,9 @@
 
 普通 PR 的十分钟从 GitHub 收到更新算到 `CI verdict` 完成，包含排队和安装。单次 `CI affected` 通过只证明该提交选中的检查；完整门禁和正式达标样本分开计时。
 
-完整 CI 让四个 API 分片复用经清单校验的 runtime wheel；工作树与维护用例单独并行，不在各片重复。复现第 3 片时，在隔离测试环境的 `apps/api` 中运行 `uv run pytest -q --shard-index 3 --shard-count 4 --shard-plan tests/ci-shard-plan.json`。pytest 和 Vitest 默认不采集覆盖率。
+完整 CI 的四个 API 分片共用经清单校验的 runtime wheel。各片分别运行 `alembic upgrade head`；从空库和旧版升级的迁移验收只在第 0 片运行一次。需要独立数据库的托管资源用例复用封存至 `0267` 的迁移模板，后续迁移和数据写入仍在各自的数据库里完成。
+
+分片依据完整 CI 的四份 JUnit 报告调度最慢的模块，其余按模块路径哈希分配。复现第 3 片时，在隔离测试环境的 `apps/api` 中运行 `uv run pytest -q --shard-index 3 --shard-count 4 --shard-plan tests/ci-shard-plan.json`。工作树与维护用例单独并行。pytest 和 Vitest 默认不采集覆盖率。
 
 ## 按主题查阅
 
