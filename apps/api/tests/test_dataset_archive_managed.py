@@ -228,7 +228,12 @@ async def test_direct_managed_writers_reject_archived_dataset(
     svc = DatasetService(db)
     with pytest.raises(HTTPException) as error:
         if operation == "update":
-            await svc.update(row.id, "must not rename", "must not rewrite")
+            await svc.update(
+                row.id,
+                "must not rename",
+                "must not rewrite",
+                actor_id=super_admin[0].id,
+            )
         elif operation == "add_item":
             await svc.add_item(row.id, "new.png", "new.png", "image")
         elif operation == "delete":
@@ -335,22 +340,21 @@ async def test_fresh_managed_ticket_can_build_tasks_after_restore(
     db_session, super_admin, httpx_client
 ):
     db = db_session
-    row, _, project, *_ = await world(db, super_admin[0])
+    row = await dataset(db, super_admin[0])
+    project = await create_project(db, owner_id=super_admin[0].id)
     new_item = DatasetItem(
         dataset_id=row.id, file_name="waiting.png", file_path="waiting.png"
     )
     db.add(new_item)
     await db.commit()
     await archive_restore(httpx_client, row, super_admin)
-    ticket = await access.capture_dataset_write(db, row.id, super_admin[0], None)
-    result = await build_tasks_for_link(
-        db,
-        dataset_id=row.id,
-        project_id=project.id,
-        directory_authority=ticket,
-        chunk_size=1,
+    response = await httpx_client.post(
+        path(row) + "/link",
+        headers=headers(super_admin),
+        json={"project_id": str(project.id)},
     )
-    assert result == {"created": 1, "total": 1}
+    assert response.status_code == 200, response.text
+    assert response.json()["created_tasks"] == 1
     linked = await db.scalar(
         select(Task).where(
             Task.project_id == project.id, Task.dataset_item_id == new_item.id
@@ -547,7 +551,7 @@ async def test_archived_excluded_or_unselected_rows_do_not_block_new_freeze(
 async def test_existing_frozen_version_remains_readable_after_dataset_archive(
     db_session, super_admin, httpx_client, source_headers, monkeypatch
 ):
-    from app.workers.training_dataset import assert_dataset_authority
+    from app.workers.training_dataset import require_authority
 
     db = db_session
     row, project, _, _ = await managed_training_world(
@@ -566,11 +570,15 @@ async def test_existing_frozen_version_remains_readable_after_dataset_archive(
     await db.commit()
     await transition(httpx_client, row, super_admin)
     forbid_source_io(monkeypatch)
-    await assert_dataset_authority(db, version)
+    source_headers.calls.clear()
+    await require_authority(db, version)
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/training-datasets/{version.id}",
         headers=headers(super_admin),
     )
     assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ready"
+    assert response.json()["snapshot_digest"] == report["digest"]
+    assert not source_headers.calls
     await db.refresh(version)
     assert version.status == "ready" and version.snapshot == snapshot
