@@ -15,28 +15,33 @@ import pytest
 
 from app.config import settings
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import TrainingRun
-from app.schemas.training_run import ExecutorFinish, TrainingArtifactSpec
+from app.db.models.trained_model import TrainedModelVersion
+from app.db.models.training_run import (
+    TrainingAttempt,
+    TrainingResourceLease,
+    TrainingRun,
+)
+from app.schemas.training_run import ExecutorFinish, ExecutorUpload
 from app.services import training_dataset_storage, training_run_storage
 from app.services import training_runs as runs, training_observability as observations
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import content_digest
+from app.services.training_datasets import bind_training_authority
+from tests.factory import create_project
+from tests.test_training_runs import (
+    create_run,
+    executor_claim,
+    ready_dataset,
+    training_config as training_config,
+)
+from tests.training_consumer_fixtures import mock_legacy_transport
 
 
 @pytest.fixture(autouse=True)
 def legacy_transport_boundary(monkeypatch):
-    from app.services import training_storage_io
-    from app.services.storage import storage_service
-
-    async def run(db, owner, purpose, callback, *args, **kwargs):
-        return callback(storage_service, *args, **kwargs)
-
-    monkeypatch.setattr(training_storage_io, "run", run)
-    monkeypatch.setattr(
-        training_storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
-    )
+    mock_legacy_transport(monkeypatch)
 
 
 class Objects:
@@ -179,50 +184,170 @@ def finish_body(status):
     )
 
 
-async def test_upload_authorization_signs_the_saved_run_bucket(owned, monkeypatch):
-    value = artifact(owned)
-    owned.attempt.upload_inventory = {}
-    monkeypatch.setattr(
-        runs, "fenced", AsyncMock(return_value=(None, owned.run, owned.attempt))
+@pytest.fixture
+async def saved_dataset(db_session, project_admin):
+    owner, _ = project_admin
+    project = await create_project(db_session, owner_id=owner.id)
+    version_id, build_id = uuid.uuid4(), uuid.uuid4()
+    ref = reference(
+        project.id,
+        version_id,
+        purpose="training-dataset",
+        bucket="dataset-input-bucket",
     )
-    monkeypatch.setattr(runs.jobs, "update_progress", AsyncMock())
-    body = SimpleNamespace(
-        artifacts=[
-            TrainingArtifactSpec(**{k: v for k, v in value.items() if k != "key"})
-        ]
+    dataset = TrainingDatasetVersion(
+        id=version_id,
+        project_id=project.id,
+        creator_id=owner.id,
+        request_id=uuid.uuid4(),
+        request_digest="a" * 64,
+        snapshot={},
+        snapshot_digest="b" * 64,
+        name="Frozen inputs",
+        status="ready",
+        attempt_id=build_id,
+        storage_ref=ref,
+        package_key=f"{ref['prefix']}attempts/{build_id}/dataset.zip",
+        package_sha256="c" * 64,
+        size_bytes=32,
     )
-    result = await runs.authorize_upload(
-        SimpleNamespace(commit=AsyncMock()), owned.attempt.id, body
+    db_session.add(dataset)
+    await db_session.flush()
+    return dataset
+
+
+async def historical_run(db, dataset, *, bucket, status, config):
+    run_id = uuid.uuid4()
+    run = TrainingRun(
+        id=run_id,
+        project_id=dataset.project_id,
+        creator_id=dataset.creator_id,
+        dataset_id=dataset.id,
+        request_id=uuid.uuid4(),
+        request_digest=content_digest(config),
+        config=config,
+        config_digest=content_digest(config),
+        name="Historical run",
+        status=status,
+        storage_ref=(
+            reference(dataset.project_id, run_id, purpose="training-run", bucket=bucket)
+            if bucket is not None
+            else None
+        ),
     )
-    assert result["best.pt"]["url"].startswith(f"https://owned-storage/{owned.bucket}/")
-    assert owned.client.calls == [("sign-put_object", owned.bucket, value["key"])]
+    db.add(run)
+    await db.flush()
+    return run
+
+
+@pytest.fixture
+def make_flow(db_session, saved_dataset, owned):
+    async def make(*, pinned=True, status="training", initialization=None):
+        claim = executor_claim()
+        config = {
+            "framework": "ultralytics",
+            "framework_version": claim.runtime["frameworks"]["ultralytics"],
+            "image_digest": claim.runtime["image_digest"],
+            "resource_id": claim.resource_id,
+        }
+        if initialization is not None:
+            config["initialization"] = initialization
+        run = await historical_run(
+            db_session,
+            saved_dataset,
+            bucket=owned.bucket if pinned else None,
+            status=status,
+            config=config,
+        )
+        attempt = TrainingAttempt(run_id=run.id, ordinal=1, status=status)
+        db_session.add(attempt)
+        await db_session.flush()
+        job = await runs.jobs.create_job(
+            db_session,
+            kind="training_run",
+            project_id=run.project_id,
+            user_id=run.creator_id,
+            payload={
+                "run_id": str(run.id),
+                "attempt_id": str(attempt.id),
+                "name": run.name,
+            },
+        )
+        run.current_attempt_id, run.async_job_id = attempt.id, job.id
+        token = runs.claim_token(attempt, claim.claim_id)
+        if status == "training":
+            attempt.executor_id, attempt.boot_id = claim.executor_id, claim.boot_id
+            attempt.resource_id, attempt.claim_id = claim.resource_id, claim.claim_id
+            attempt.lease_digest = hashlib.sha256(token.encode()).hexdigest()
+            await runs.lock_resource(db_session, claim.resource_id)
+            lease = await db_session.get(TrainingResourceLease, claim.resource_id)
+            lease.attempt_id = attempt.id
+            lease.executor_id, lease.boot_id = claim.executor_id, claim.boot_id
+        await db_session.flush()
+        return SimpleNamespace(
+            run=run,
+            attempt=attempt,
+            dataset=saved_dataset,
+            client=owned.client,
+            bucket=owned.bucket,
+            claim=claim,
+            fence={
+                "executor_id": claim.executor_id,
+                "boot_id": claim.boot_id,
+                "lease_token": token,
+            },
+        )
+
+    return make
+
+
+async def finish(db, flow, status):
+    return await runs.finish(
+        db,
+        flow.attempt.id,
+        ExecutorFinish(**flow.fence, status=status, process_exited=True),
+        training_authority=bind_training_authority(db),
+    )
+
+
+async def test_upload_authorization_signs_the_saved_run_bucket(make_flow, db_session):
+    flow = await make_flow()
+    value = artifact(flow)
+    request = ExecutorUpload(
+        **flow.fence, artifacts=[{k: v for k, v in value.items() if k != "key"}]
+    )
+    result = await runs.authorize_upload(db_session, flow.attempt.id, request)
+    assert (
+        result["best.pt"]["url"]
+        == f"https://owned-storage/{flow.bucket}/{value['key']}"
+    )
+    assert flow.client.calls == [("sign-put_object", flow.bucket, value["key"])]
+    await db_session.refresh(flow.attempt)
+    assert flow.attempt.upload_inventory == {
+        "best.pt": request.artifacts[0].model_dump()
+    }
 
 
 @pytest.mark.parametrize("invalid", ["missing-pin", "wrong-origin", "foreign-attempt"])
 async def test_upload_authorization_rejects_unknown_owner_before_signing(
-    owned, monkeypatch, invalid
+    make_flow, db_session, invalid
 ):
-    value = artifact(owned)
-    if invalid == "missing-pin":
-        owned.run.storage_ref = None
-    elif invalid == "wrong-origin":
-        owned.client.meta.endpoint_url = "https://other-origin.invalid"
-    else:
-        owned.attempt.run_id = uuid.uuid4()
-    monkeypatch.setattr(
-        runs, "fenced", AsyncMock(return_value=(None, owned.run, owned.attempt))
-    )
-    body = SimpleNamespace(
+    flow = await make_flow(pinned=invalid != "missing-pin")
+    if invalid == "wrong-origin":
+        flow.client.meta.endpoint_url = "https://other-origin.invalid"
+    elif invalid == "foreign-attempt":
+        flow.run.current_attempt_id = uuid.uuid4()
+    request = ExecutorUpload(
+        **flow.fence,
         artifacts=[
-            TrainingArtifactSpec(**{k: v for k, v in value.items() if k != "key"})
-        ]
+            {"name": "best.pt", "role": "weights", "sha256": "a" * 64, "size_bytes": 32}
+        ],
     )
     with pytest.raises(HTTPException) as error:
-        await runs.authorize_upload(
-            SimpleNamespace(commit=AsyncMock()), owned.attempt.id, body
-        )
+        await runs.authorize_upload(db_session, flow.attempt.id, request)
     assert error.value.status_code == 409
-    assert owned.client.calls == [] and owned.attempt.upload_inventory == {}
+    await db_session.refresh(flow.attempt)
+    assert flow.client.calls == [] and flow.attempt.upload_inventory == {}
 
 
 async def test_new_attempt_never_implicitly_pins_a_historical_run(owned, monkeypatch):
@@ -334,80 +459,73 @@ def test_native_configuration_observation_uses_saved_owner(owned, monkeypatch):
     assert owned.client.calls == [("get", owned.bucket, receipt["key"])]
 
 
+async def lease_holder(db, flow):
+    lease = await runs.data.get_lease(db, flow.claim.resource_id)
+    return lease.attempt_id
+
+
 @pytest.mark.parametrize("status", ["failed", "cancelled"])
 async def test_unpinned_stopped_receipt_can_settle_without_storage_resolution(
-    owned, monkeypatch, status
+    make_flow, db_session, monkeypatch, status
 ):
-    value = artifact(owned)
-    owned.attempt.upload_inventory = {
-        "best.pt": {k: v for k, v in value.items() if k != "key"}
+    flow = await make_flow(pinned=False)
+    before = {
+        "best.pt": {
+            "name": "best.pt",
+            "role": "weights",
+            "sha256": "a" * 64,
+            "size_bytes": 32,
+        }
     }
-    before = deepcopy(owned.attempt.upload_inventory)
-    owned.run.storage_ref = None
-    lease = SimpleNamespace(attempt_id=owned.attempt.id)
-    monkeypatch.setattr(
-        runs, "fenced", AsyncMock(return_value=(lease, owned.run, owned.attempt))
-    )
-    monkeypatch.setattr(
-        runs,
-        "storage_owner",
-        lambda *args: (_ for _ in ()).throw(
-            AssertionError("no storage resolution on stop")
-        ),
-    )
-    terminal = AsyncMock()
-    monkeypatch.setattr(runs, "mark_terminal", terminal)
-    result = await runs.finish(
-        SimpleNamespace(commit=AsyncMock()), owned.attempt.id, finish_body(status)
-    )
-    assert result is owned.attempt and lease.attempt_id is None
-    assert owned.attempt.upload_inventory == before
-    assert owned.attempt.artifacts == {} and owned.client.calls == []
-    assert terminal.await_args.args[3] == status
+    flow.attempt.upload_inventory = before
+
+    def refuse_resolution(*args):
+        pytest.fail("A stopped, unpinned attempt must not resolve storage")
+
+    monkeypatch.setattr(runs, "storage_owner", refuse_resolution)
+    result = await finish(db_session, flow, status)
+    assert result.id == flow.attempt.id and result.status == status
+    await db_session.refresh(flow.attempt)
+    assert flow.attempt.status == status and flow.attempt.upload_inventory == before
+    assert flow.attempt.artifacts == {} and flow.client.calls == []
+    assert await lease_holder(db_session, flow) is None
 
 
 async def test_success_cannot_release_a_lease_when_storage_is_unknown(
-    owned, monkeypatch
+    make_flow, db_session
 ):
-    owned.run.storage_ref = None
-    lease = SimpleNamespace(attempt_id=owned.attempt.id)
-    monkeypatch.setattr(
-        runs, "fenced", AsyncMock(return_value=(lease, owned.run, owned.attempt))
-    )
-    monkeypatch.setattr(runs, "authority", AsyncMock())
-    terminal = AsyncMock()
-    monkeypatch.setattr(runs, "mark_terminal", terminal)
+    flow = await make_flow(pinned=False)
     with pytest.raises(HTTPException) as error:
-        await runs.finish(
-            SimpleNamespace(commit=AsyncMock()),
-            owned.attempt.id,
-            finish_body("succeeded"),
-        )
+        await finish(db_session, flow, "succeeded")
     assert error.value.status_code == 409
-    assert lease.attempt_id == owned.attempt.id and owned.client.calls == []
-    terminal.assert_not_awaited()
+    assert error.value.detail["code"] == "training_storage_unpinned"
+    await db_session.refresh(flow.attempt)
+    assert flow.attempt.status == "training" and flow.client.calls == []
+    assert await lease_holder(db_session, flow) == flow.attempt.id
 
 
 async def test_failed_receipt_for_foreign_attempt_cannot_release_gpu(
-    owned, monkeypatch
+    make_flow, db_session
 ):
-    owned.run.storage_ref = None
-    owned.attempt.run_id = uuid.uuid4()
-    lease = SimpleNamespace(attempt_id=owned.attempt.id)
-    monkeypatch.setattr(
-        runs, "fenced", AsyncMock(return_value=(lease, owned.run, owned.attempt))
+    flow = await make_flow(pinned=False)
+    foreign = await historical_run(
+        db_session, flow.dataset, bucket=None, status="training", config=flow.run.config
     )
+    flow.attempt.run_id = foreign.id
     with pytest.raises(HTTPException) as error:
-        await runs.finish(
-            SimpleNamespace(commit=AsyncMock()), owned.attempt.id, finish_body("failed")
-        )
-    assert error.value.status_code == 409 and lease.attempt_id == owned.attempt.id
-    assert owned.client.calls == []
+        await finish(db_session, flow, "failed")
+    assert (
+        error.value.status_code == 409 and error.value.detail["code"] == "stale_attempt"
+    )
+    assert await lease_holder(db_session, flow) == flow.attempt.id
+    await db_session.refresh(flow.attempt)
+    assert flow.attempt.status == "training" and flow.client.calls == []
 
 
 async def test_successful_finish_verifies_every_artifact_in_saved_bucket(
-    owned, monkeypatch
+    make_flow, db_session
 ):
+    flow = await make_flow()
     roles = {
         "best.pt": "weights",
         "last.pt": "checkpoint",
@@ -415,296 +533,266 @@ async def test_successful_finish_verifies_every_artifact_in_saved_bucket(
         "config.json": "config",
         "train.log": "log",
     }
-    for name, role in roles.items():
-        value = artifact(owned, name, role, (name + " frozen bytes").encode())
-        owned.attempt.upload_inventory[name] = {
-            k: v for k, v in value.items() if k != "key"
-        }
-    lease = SimpleNamespace(attempt_id=owned.attempt.id)
-    monkeypatch.setattr(
-        runs, "fenced", AsyncMock(return_value=(lease, owned.run, owned.attempt))
+    inventory = {
+        name: artifact(flow, name, role, (name + " frozen bytes").encode())
+        for name, role in roles.items()
+    }
+    flow.attempt.upload_inventory = {
+        name: {k: v for k, v in spec.items() if k != "key"}
+        for name, spec in inventory.items()
+    }
+    result = await finish(db_session, flow, "succeeded")
+    await db_session.refresh(flow.attempt)
+    assert result.artifacts == flow.attempt.artifacts == inventory
+    assert flow.attempt.status == "succeeded"
+    assert sorted(flow.client.calls) == sorted(
+        ("get", flow.bucket, spec["key"]) for spec in inventory.values()
     )
-    monkeypatch.setattr(runs, "authority", AsyncMock())
-    terminal = AsyncMock()
-    monkeypatch.setattr(runs, "mark_terminal", terminal)
-    await runs.finish(
-        SimpleNamespace(commit=AsyncMock()), owned.attempt.id, finish_body("succeeded")
-    )
-    assert set(owned.attempt.artifacts) == set(roles)
-    assert len(owned.client.calls) == len(roles)
-    assert {call[1] for call in owned.client.calls} == {owned.bucket}
-    assert lease.attempt_id is None and terminal.await_args.args[3] == "succeeded"
+    assert await lease_holder(db_session, flow) is None
 
 
 @pytest.mark.parametrize("log", [False, True])
-async def test_api_artifact_download_uses_the_saved_run_bucket(owned, monkeypatch, log):
-    from app.api.v1 import training_runs as api
-
+async def test_api_artifact_download_uses_the_saved_run_bucket(
+    make_flow, db_session, project_admin, httpx_client, log
+):
+    flow = await make_flow(status="succeeded")
     value = artifact(
-        owned,
+        flow,
         "train.log" if log else "best.pt",
         "log" if log else "weights",
         b"safe frozen output\n",
     )
-    owned.attempt.status = "succeeded"
-    owned.attempt.artifacts[value["name"]] = value
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
-    db = SimpleNamespace(
-        scalar=AsyncMock(return_value=owned.run),
-        get=AsyncMock(return_value=owned.attempt),
+    flow.attempt.artifacts = {value["name"]: value}
+    await db_session.flush()
+    path = (
+        f"/api/v1/projects/{flow.run.project_id}/training-runs/{flow.run.id}"
+        f"/attempts/{flow.attempt.id}/artifacts/{value['name']}"
     )
-    result = await api.download_artifact(
-        owned.run.id,
-        owned.attempt.id,
-        value["name"],
-        project=SimpleNamespace(id=owned.run.project_id),
-        user=SimpleNamespace(),
-        db=db,
-    )
-    assert result["url"]
-    assert {call[1] for call in owned.client.calls} == {owned.bucket}
-    signed = [c for c in owned.client.calls if c[0] == "sign-get_object"]
+    _, token = project_admin
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await httpx_client.get(path + "/download", headers=headers)
+    assert response.status_code == 200, response.text
+    result = response.json()
     if log:
         assert result["requires_authentication"] is True
-        assert result["url"].endswith("/artifacts/train.log/content")
-        assert not signed and all(call[0] != "put" for call in owned.client.calls)
+        assert result["url"] == path.removeprefix("/api/v1") + "/content"
+        content = await httpx_client.get("/api/v1" + result["url"], headers=headers)
+        assert content.status_code == 200 and content.content == b"safe frozen output\n"
+        assert flow.client.calls == [("get", flow.bucket, value["key"])] * 2
     else:
-        assert len(signed) == 1 and signed[0][2].startswith(
-            owned.run.storage_ref["prefix"]
+        assert result["url"] and result["sha256"] == value["sha256"]
+        assert flow.client.calls == [
+            ("head", flow.bucket, value["key"]),
+            ("sign-get_object", flow.bucket, value["key"]),
+        ]
+
+
+async def test_run_creation_allocates_before_its_first_attempt(
+    db_session, project_admin, httpx_client, training_config
+):
+    owner, token = project_admin
+    project, dataset = await ready_dataset(db_session, owner)
+    data, _ = await create_run(httpx_client, token, project, dataset)
+    run = await runs.data.get_run(db_session, project.id, uuid.UUID(data["id"]))
+    attempt = await runs.data.get_attempt(db_session, run.current_attempt_id)
+    assert run.storage_ref["bucket"] == dataset.storage_ref["bucket"]
+    assert run.storage_ref["prefix"] == f"projects/{project.id}/runs/{run.id}/"
+    assert str(attempt.id) == data["current_attempt_id"]
+    assert attempt.run_id == run.id and attempt.ordinal == 1
+
+
+async def parent_checkpoint(db, flow, *, invalid=None):
+    run = flow.run
+    if invalid == "foreign-run":
+        run = await historical_run(
+            db,
+            flow.dataset,
+            bucket="other-run-bucket",
+            status="failed",
+            config=run.config,
         )
-
-
-async def test_run_creation_allocates_before_its_first_attempt(owned, monkeypatch):
-    from app.api.v1 import training_runs as api
-
-    events = []
-    added = []
-    project, user = (
-        SimpleNamespace(id=owned.run.project_id),
-        SimpleNamespace(id=uuid.uuid4()),
-    )
-    config = {"dataset_id": str(owned.dataset.id)}
-    body = SimpleNamespace(
-        request_id=uuid.uuid4(),
-        request_payload=lambda: {"name": "new run"},
-        dataset_id=owned.dataset.id,
-        preflight_digest=content_digest(config),
-        origin=None,
-        name="Pinned before attempt",
-    )
-
-    class Session:
-        execute = AsyncMock()
-        scalar = AsyncMock(return_value=None)
-        commit = AsyncMock()
-
-        def add(self, run):
-            added.append(run)
-
-        async def flush(self):
-            added[-1].id = uuid.uuid4()
-
-    async def allocate(db, run):
-        assert isinstance(run, TrainingRun) and run.id
-        run.storage_ref = reference(
-            project.id, run.id, purpose="training-run", bucket=owned.bucket
-        )
-        events.append("allocate")
-
-    async def attempt(db, run):
-        assert run.storage_ref is not None
-        events.append("attempt")
-
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
-    monkeypatch.setattr(api.service, "frozen_config", AsyncMock(return_value=config))
-    monkeypatch.setattr(api.recipes, "origin_snapshot", AsyncMock(return_value=None))
-    monkeypatch.setattr(api.service, "allocate_storage", allocate)
-    monkeypatch.setattr(api.service, "new_attempt", attempt)
-    result = await api.create_run(
-        body,
-        request=SimpleNamespace(state=SimpleNamespace()),
-        project=project,
-        user=user,
-        db=Session(),
-    )
-    assert result is added[0] and events == ["allocate", "attempt"]
+    flow.attempt.ordinal = 2
+    await db.flush()
+    parent = TrainingAttempt(run_id=run.id, ordinal=1, status="failed")
+    db.add(parent)
+    await db.flush()
+    key_attempt = uuid.uuid4() if invalid == "foreign-key" else parent.id
+    checkpoint = {
+        "role": "checkpoint",
+        "key": run.storage_ref["prefix"] + f"attempts/{key_attempt}/last.pt",
+        "sha256": "d" * 64,
+        "size_bytes": 5,
+    }
+    parent.artifacts = {} if invalid == "no-checkpoint" else {"last.pt": checkpoint}
+    flow.attempt.resume_from_id = parent.id
+    await db.flush()
+    return checkpoint
 
 
 @pytest.mark.parametrize("resume", [False, True])
-async def test_assignment_keeps_dataset_and_run_sources_separate(owned, resume):
-    parent = SimpleNamespace(id=uuid.uuid4(), run_id=owned.run.id)
-    key = owned.run.storage_ref["prefix"] + f"attempts/{parent.id}/last.pt"
-    parent.artifacts = {"last.pt": {"key": key, "role": "checkpoint"}}
-    if resume:
-        owned.attempt.resume_from_id = parent.id
-
-    async def get(model, identifier):
-        return owned.dataset if model is TrainingDatasetVersion else parent
-
-    before = deepcopy(owned.run.config)
+async def test_assignment_keeps_dataset_and_run_sources_separate(
+    make_flow, db_session, resume
+):
+    flow = await make_flow()
+    checkpoint = await parent_checkpoint(db_session, flow) if resume else None
+    before = deepcopy(flow.run.config)
     result = await runs.assignment(
-        SimpleNamespace(get=get, commit=AsyncMock()), owned.run, owned.attempt, "token"
+        db_session, flow.run, flow.attempt, flow.fence["lease_token"]
     )
-    assert result["dataset_url"].startswith(
-        "https://owned-storage/dataset-input-bucket/"
+    dataset_key = flow.dataset.package_key
+    assert (
+        result["dataset_url"]
+        == f"https://owned-storage/dataset-input-bucket/{dataset_key}"
     )
+    expected_calls = [("sign-get_object", "dataset-input-bucket", dataset_key)]
     if resume:
-        assert result["resume"]["url"].startswith(
-            f"https://owned-storage/{owned.bucket}/"
-        )
+        assert result["resume"] == {
+            **checkpoint,
+            "url": f"https://owned-storage/{flow.bucket}/{checkpoint['key']}",
+        }
+        expected_calls.append(("sign-get_object", flow.bucket, checkpoint["key"]))
     else:
         assert result["resume"] is None
-    assert owned.run.config == before
-    assert all(call[1] != "new-current-bucket" for call in owned.client.calls)
+    assert result["config"] == flow.run.config == before
+    assert flow.client.calls == expected_calls
 
 
 @pytest.mark.parametrize("invalid", ["foreign-run", "foreign-key", "no-checkpoint"])
-async def test_resume_cannot_sign_another_attempt_owner(owned, invalid):
-    parent = SimpleNamespace(id=uuid.uuid4(), run_id=owned.run.id)
-    key = owned.run.storage_ref["prefix"] + f"attempts/{parent.id}/last.pt"
-    if invalid == "foreign-run":
-        parent.run_id = uuid.uuid4()
-    elif invalid == "foreign-key":
-        key = owned.run.storage_ref["prefix"] + f"attempts/{uuid.uuid4()}/last.pt"
-    parent.artifacts = {"last.pt": {"key": key, "role": "checkpoint"}}
-    if invalid == "no-checkpoint":
-        parent.artifacts = {}
-    owned.attempt.resume_from_id = parent.id
-
-    async def get(model, identifier):
-        return owned.dataset if model is TrainingDatasetVersion else parent
-
+async def test_resume_cannot_sign_another_attempt_owner(make_flow, db_session, invalid):
+    flow = await make_flow()
+    await parent_checkpoint(db_session, flow, invalid=invalid)
     with pytest.raises(HTTPException) as error:
         await runs.assignment(
-            SimpleNamespace(get=get, commit=AsyncMock()),
-            owned.run,
-            owned.attempt,
-            "token",
+            db_session, flow.run, flow.attempt, flow.fence["lease_token"]
         )
     assert error.value.status_code == 409
-    assert not any(call[1] == owned.bucket for call in owned.client.calls)
+    assert flow.client.calls == []
 
 
 @pytest.mark.parametrize("foreign_attempt", [False, True])
 async def test_assignment_initialization_uses_its_source_run_owner(
-    owned, monkeypatch, foreign_attempt
+    make_flow, db_session, saved_dataset, foreign_attempt
 ):
-    source_run_id, source_attempt_id = uuid.uuid4(), uuid.uuid4()
-    source_ref = reference(
-        owned.run.project_id,
-        source_run_id,
-        purpose="training-run",
+    source = await historical_run(
+        db_session,
+        saved_dataset,
         bucket="source-model-bucket",
+        status="succeeded",
+        config={"framework": "ultralytics", "framework_version": "8.4.177"},
     )
-    source_owner = training_run_storage.resolve_ref(source_ref)
-    key_attempt = uuid.uuid4() if foreign_attempt else source_attempt_id
-    pin = {
-        "run_id": str(source_run_id),
-        "attempt_id": str(source_attempt_id),
-        "source_digest": "b" * 64,
-        "artifact": {
-            "key": source_owner.key(f"attempts/{key_attempt}/best.pt"),
-            "role": "weights",
-            "size_bytes": 12,
-            "sha256": "c" * 64,
-        },
+    source_attempt = TrainingAttempt(run_id=source.id, ordinal=1, status="succeeded")
+    db_session.add(source_attempt)
+    await db_session.flush()
+    source.current_attempt_id = source_attempt.id
+    key_attempt = uuid.uuid4() if foreign_attempt else source_attempt.id
+    weights = {
+        "key": source.storage_ref["prefix"] + f"attempts/{key_attempt}/best.pt",
+        "role": "weights",
+        "size_bytes": 12,
+        "sha256": "c" * 64,
     }
-    owned.run.config["initialization"] = pin
-    before = deepcopy(owned.run.config)
-    source_resolver = AsyncMock(return_value=source_owner)
-    monkeypatch.setattr(runs.initialization, "source_storage_owner", source_resolver)
-    db = SimpleNamespace(get=AsyncMock(return_value=owned.dataset), commit=AsyncMock())
+    source_attempt.artifacts = {"best.pt": weights}
+    version = TrainedModelVersion(
+        project_id=source.project_id,
+        creator_id=source.creator_id,
+        run_id=source.id,
+        attempt_id=source_attempt.id,
+        request_id=uuid.uuid4(),
+        request_digest="a" * 64,
+        name="Frozen source model",
+        framework="ultralytics",
+        framework_version=source.config["framework_version"],
+        artifact=weights,
+        classes=["car"],
+        bindings=[],
+        binding_digest=content_digest([]),
+        provenance={},
+    )
+    db_session.add(version)
+    await db_session.flush()
+    frozen = {
+        "project_id": str(source.project_id),
+        "model_version_id": str(version.id),
+        "run_id": str(source.id),
+        "attempt_id": str(source_attempt.id),
+        "source_digest": "b" * 64,
+        "artifact": dict(weights),
+    }
+    flow = await make_flow(initialization=frozen)
+    before = deepcopy(flow.run.config)
     if foreign_attempt:
         with pytest.raises(HTTPException) as error:
-            await runs.assignment(db, owned.run, owned.attempt, "token")
-        assert error.value.status_code == 409
-        assert not any(call[1] == "source-model-bucket" for call in owned.client.calls)
+            await runs.assignment(
+                db_session, flow.run, flow.attempt, flow.fence["lease_token"]
+            )
+        assert error.value.status_code == 409 and flow.client.calls == []
     else:
-        result = await runs.assignment(db, owned.run, owned.attempt, "token")
-        assert result["initialization"]["url"].startswith(
-            "https://owned-storage/source-model-bucket/"
+        result = await runs.assignment(
+            db_session, flow.run, flow.attempt, flow.fence["lease_token"]
         )
-        assert result["dataset_url"].startswith(
-            "https://owned-storage/dataset-input-bucket/"
-        )
-        assert {call[1] for call in owned.client.calls} == {
-            "dataset-input-bucket",
-            "source-model-bucket",
+        assert result["initialization"] == {
+            **weights,
+            "source_digest": frozen["source_digest"],
+            "url": f"https://owned-storage/source-model-bucket/{weights['key']}",
         }
-    source_resolver.assert_awaited_once_with(db, pin)
-    assert owned.run.config == before
+        assert (
+            result["dataset_url"]
+            == f"https://owned-storage/dataset-input-bucket/{flow.dataset.package_key}"
+        )
+        assert flow.client.calls == [
+            ("sign-get_object", "dataset-input-bucket", flow.dataset.package_key),
+            ("sign-get_object", "source-model-bucket", weights["key"]),
+        ]
+    assert flow.run.config == before
 
 
-async def test_unknown_active_claim_replay_retains_its_gpu_lease(owned, monkeypatch):
-    body = SimpleNamespace(
-        resource_id="owned-gpu",
-        runtime={"gpu_uuid": settings.training_gpu_uuid},
-        executor_id=uuid.uuid4(),
-        boot_id=uuid.uuid4(),
-        claim_id=uuid.uuid4(),
-        recover_only=True,
-    )
-    owned.run.storage_ref = None
-    owned.attempt.executor_id, owned.attempt.boot_id, owned.attempt.claim_id = (
-        body.executor_id,
-        body.boot_id,
-        body.claim_id,
-    )
-    owned.attempt.lease_digest = hashlib.sha256(
-        runs.claim_token(owned.attempt, body.claim_id).encode()
-    ).hexdigest()
-    lease = SimpleNamespace(attempt_id=owned.attempt.id)
-
-    async def get(model, identifier):
-        return owned.run if model is TrainingRun else owned.attempt
-
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
-    monkeypatch.setattr(runs, "resource_id", lambda: "owned-gpu")
-    monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
-    monkeypatch.setattr(runs, "observe_lost", AsyncMock())
-    terminal = AsyncMock()
-    monkeypatch.setattr(runs, "mark_terminal", terminal)
+async def test_unknown_active_claim_replay_retains_its_gpu_lease(
+    make_flow, db_session, training_config
+):
+    flow = await make_flow(pinned=False)
     with pytest.raises(HTTPException) as error:
-        await runs.claim(SimpleNamespace(get=get), body)
-    assert error.value.status_code == 409
-    assert lease.attempt_id == owned.attempt.id and owned.client.calls == []
-    terminal.assert_not_awaited()
+        await runs.claim(
+            db_session,
+            flow.claim.model_copy(update={"recover_only": True}),
+            training_authority=bind_training_authority(db_session),
+        )
+    assert (
+        error.value.status_code == 409
+        and error.value.detail["code"] == "training_storage_unpinned"
+    )
+    assert await lease_holder(db_session, flow) == flow.attempt.id
+    await db_session.refresh(flow.attempt)
+    assert flow.attempt.status == "training" and flow.client.calls == []
 
 
 @pytest.mark.parametrize("foreign_attempt", [False, True])
 async def test_unpinned_queued_run_cannot_acquire_gpu(
-    owned, monkeypatch, foreign_attempt
+    make_flow, db_session, training_config, foreign_attempt
 ):
-    owned.run.storage_ref = None
-    owned.run.config["resource_id"] = "owned-gpu"
-    owned.run.status = owned.attempt.status = "queued"
-    lease = SimpleNamespace(attempt_id=None)
-    body = SimpleNamespace(
-        resource_id="owned-gpu",
-        runtime={"gpu_uuid": settings.training_gpu_uuid},
-        executor_id=uuid.uuid4(),
-        boot_id=uuid.uuid4(),
-        recover_only=False,
-    )
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
-    monkeypatch.setattr(runs, "resource_id", lambda: "owned-gpu")
-    monkeypatch.setattr(runs, "runtime_compatible", lambda *args: True)
-    monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
-    monkeypatch.setattr(runs, "observe_lost", AsyncMock())
-    terminal = AsyncMock()
-    monkeypatch.setattr(runs, "mark_terminal", terminal)
-    db = SimpleNamespace(
-        scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [owned.run])),
-        get=AsyncMock(return_value=owned.attempt),
-    )
+    flow = await make_flow(pinned=False, status="queued")
+    authority = bind_training_authority(db_session)
     if foreign_attempt:
-        owned.attempt.run_id = uuid.uuid4()
+        foreign = await historical_run(
+            db_session,
+            flow.dataset,
+            bucket=None,
+            status="failed",
+            config=flow.run.config,
+        )
+        flow.attempt.run_id = foreign.id
         with pytest.raises(HTTPException) as error:
-            await runs.claim(db, body)
+            await runs.claim(db_session, flow.claim, training_authority=authority)
         assert error.value.status_code == 409
-        terminal.assert_not_awaited()
-        assert lease.attempt_id is None and owned.client.calls == []
-        return
-    assert await runs.claim(db, body) is None
-    assert lease.attempt_id is None and owned.client.calls == []
-    assert terminal.await_args.args[3] == "failed"
+    else:
+        assert (
+            await runs.claim(db_session, flow.claim, training_authority=authority)
+            is None
+        )
+    await db_session.refresh(flow.run)
+    await db_session.refresh(flow.attempt)
+    assert (
+        flow.run.status
+        == flow.attempt.status
+        == ("queued" if foreign_attempt else "failed")
+    )
+    assert await lease_holder(db_session, flow) is None and flow.client.calls == []
