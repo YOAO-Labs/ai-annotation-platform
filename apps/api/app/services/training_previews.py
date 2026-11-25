@@ -219,14 +219,11 @@ async def create(db, project, user, body, api_key_id):
         configuration=body.configuration,
         request_id=body.request_id,
     )
-    config = await training.frozen_config(
+    config, version = await training.frozen_inputs(
         db, project.id, run_body, observe_members=False
     )
     try:
         validate_request(config, body.seed, body.epoch, body.count)
-        version = await datasets.read_version(
-            db, body.dataset_id, project_id=project.id
-        )
         sources, summary = select_sources(version, body.seed)
     except (ValueError, TrainingDatasetError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

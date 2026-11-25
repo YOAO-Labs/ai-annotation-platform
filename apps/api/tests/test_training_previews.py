@@ -6,7 +6,6 @@ import io
 import json
 import uuid
 from datetime import timedelta
-from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -63,14 +62,21 @@ def fence(claim, assignment):
     )
 
 
+async def ready_preview_dataset(db, owner, specs):
+    project, dataset = await ready_dataset(db, owner)
+    dataset.snapshot, dataset.manifest = inputs(specs, classes=["car"])
+    dataset.snapshot_digest = dataset.manifest["source_digest"]
+    await db.flush()
+    return project, dataset
+
+
 async def preview(db, client, owner, *, boxes=1, create=True):
     user, token = owner
-    project, dataset = await ready_dataset(db, user)
-    dataset.snapshot, dataset.manifest = inputs(
+    project, dataset = await ready_preview_dataset(
+        db,
+        user,
         [{"content": "a", "labels": ["car"] * boxes}, {"content": "b", "split": "val"}],
-        classes=["car"],
     )
-    await db.flush()
     assert (
         await service.claim(
             db, claim_body(), training_authority=bind_training_authority(db)
@@ -105,15 +111,23 @@ async def preview(db, client, owner, *, boxes=1, create=True):
 class Objects:
     def __init__(self):
         self.objects = {}
-        self.reads = 0
 
     def generate_presigned_url(self, operation, **kwargs):
         return "http://owned-storage/" + operation + "/" + kwargs["Params"]["Key"]
 
-    def get_object(self, *, Key, **kwargs):
-        self.reads += 1
-        raw, metadata = self.objects[Key]
+    def get_object(self, *, Bucket, Key, **kwargs):
+        raw, metadata = self.objects[Bucket, Key]
         return dict(Body=io.BytesIO(raw), Metadata=metadata, ContentLength=len(raw))
+
+
+@pytest.fixture
+def preview_objects(monkeypatch):
+    objects = Objects()
+    monkeypatch.setattr(
+        service.storage.client, "generate_presigned_url", objects.generate_presigned_url
+    )
+    monkeypatch.setattr(service.storage.client, "get_object", objects.get_object)
+    return objects
 
 
 def evidence(row, objects, *, change=None):
@@ -168,11 +182,12 @@ def evidence(row, objects, *, change=None):
     if change:
         change(report)
     blobs = {"preview-0.png": png, "report.json": json.dumps(report).encode()}
+    bucket, prefix = row.storage_ref["bucket"], row.storage_ref["prefix"]
     inventory = []
     for name, raw in blobs.items():
         sha = hashlib.sha256(raw).hexdigest()
         inventory.append(dict(name=name, sha256=sha, size_bytes=len(raw)))
-        objects.objects[service.prefix(row) + name] = (
+        objects.objects[bucket, prefix + name] = (
             raw,
             {
                 "preview-id": str(row.id),
@@ -408,9 +423,9 @@ async def test_internal_preview_http_responses_preserve_idle_lost_stop_and_recei
     super_admin,
     httpx_client,
     training_config,
-    monkeypatch,
+    preview_objects,
 ):
-    _project, _dataset, path, headers, body = await preview(
+    _project, dataset, path, headers, body = await preview(
         db_session, httpx_client, super_admin, create=False
     )
     executor_headers = {"x-training-executor-token": TOKEN}
@@ -429,8 +444,6 @@ async def test_internal_preview_http_responses_preserve_idle_lost_stop_and_recei
     assert created.status_code == 202, created.text
     row = await db_session.get(TrainingPreview, uuid.UUID(created.json()["id"]))
 
-    objects = Objects()
-    monkeypatch.setattr(service.storage, "client", objects)
     claimed = await httpx_client.post(
         claim_path,
         headers=executor_headers,
@@ -453,6 +466,10 @@ async def test_internal_preview_http_responses_preserve_idle_lost_stop_and_recei
         "sources",
         "pool_summary",
     } <= assignment["spec"].keys()
+    config = assignment["spec"]["config"]
+    assert config["validation_digest"] == dataset.manifest["validation_digest"]
+    assert "input_contract" not in config
+    assert assignment["spec"]["dataset_snapshot_digest"] == dataset.snapshot_digest
     assert set(assignment["source_urls"]) == {
         source["task_id"] for source in row.spec["sources"]
     }
@@ -553,10 +570,8 @@ async def test_dense_256_box_report_publishes_and_cache_still_verifies_storage(
     super_admin,
     httpx_client,
     training_config,
-    monkeypatch,
+    preview_objects,
 ):
-    objects = Objects()
-    monkeypatch.setattr(service.storage, "client", objects)
     row, path, headers, _ = await preview(
         db_session, httpx_client, super_admin, boxes=256
     )
@@ -572,7 +587,7 @@ async def test_dense_256_box_report_publishes_and_cache_still_verifies_storage(
     assert assignment["preview_id"] == str(row.id)
     assert assignment["stop"] is False
     assert len(row.spec["sources"][0]["labels"]) > 8192
-    inventory = evidence(row, objects)
+    inventory = evidence(row, preview_objects)
     assignment_fence = fence(claim, assignment)
     upload_response = await httpx_client.post(
         f"/api/v1/internal/training/previews/{row.id}/uploads",
@@ -602,13 +617,15 @@ async def test_dense_256_box_report_publishes_and_cache_still_verifies_storage(
         image.status_code == 200
         and image.headers["cache-control"] == "private, no-store"
     )
+    await db_session.refresh(row, ["artifacts"])
     report_spec = row.artifacts["report.json"]
     with pytest.raises(ValueError, match="string"):
         training_artifacts.read_json_artifact(
             report_spec, row.id, metadata_key="preview-id"
         )
-    raw, metadata = objects.objects[report_spec["key"]]
-    objects.objects[report_spec["key"]] = (raw, {**metadata, "input-digest": "0" * 64})
+    locator = row.storage_ref["bucket"], report_spec["key"]
+    raw, metadata = preview_objects.objects[locator]
+    preview_objects.objects[locator] = (raw, {**metadata, "input-digest": "0" * 64})
     assert (
         await httpx_client.get(path + f"/{row.id}", headers=headers)
     ).status_code == 422
@@ -620,11 +637,9 @@ async def test_publish_rejects_mismatched_report_or_image_and_retains_lease(
     super_admin,
     httpx_client,
     training_config,
-    monkeypatch,
+    preview_objects,
     corruption,
 ):
-    objects = Objects()
-    monkeypatch.setattr(service.storage, "client", objects)
     row, *_ = await preview(db_session, httpx_client, super_admin)
     claim, assignment = await claimed(db_session, row)
 
@@ -638,7 +653,7 @@ async def test_publish_rejects_mismatched_report_or_image_and_retains_lease(
         elif corruption == "counts":
             report["outputs"][0]["filtered"] = 1
 
-    inventory = evidence(row, objects, change=change)
+    inventory = evidence(row, preview_objects, change=change)
     await service.uploads(
         db_session,
         row.id,
@@ -646,9 +661,9 @@ async def test_publish_rejects_mismatched_report_or_image_and_retains_lease(
         training_authority=bind_training_authority(db_session),
     )
     if corruption == "image":
-        key = service.prefix(row) + "preview-0.png"
-        raw, metadata = objects.objects[key]
-        objects.objects[key] = (raw + b"changed", metadata)
+        locator = row.storage_ref["bucket"], row.storage_ref["prefix"] + "preview-0.png"
+        raw, metadata = preview_objects.objects[locator]
+        preview_objects.objects[locator] = (raw + b"changed", metadata)
     with pytest.raises(HTTPException) as failure:
         await service.finish(
             db_session,
@@ -807,26 +822,19 @@ async def test_expiry_hides_results_and_cleanup_waits_for_put_window(
     assert await db_session.get(TrainingPreview, row.id, populate_existing=True) is None
 
 
-def test_pool_bounds_and_missing_labels_are_explicit():
-    snapshot, manifest = inputs(
+async def test_pool_bounds_and_missing_labels_are_explicit(db_session, super_admin):
+    _, dataset = await ready_preview_dataset(
+        db_session,
+        super_admin[0],
         [
             {"content": "oversize", "width": 16000001},
             {"content": "missing"},
             {"content": "negative", "labels": []},
             {"content": "val", "split": "val"},
         ],
-        classes=["car"],
     )
-    snapshot["samples"][1].pop("annotations")
-    selected, summary = service.select_sources(
-        SimpleNamespace(
-            snapshot=snapshot,
-            manifest=manifest,
-            project_id=uuid.uuid4(),
-            id=uuid.uuid4(),
-        ),
-        42,
-    )
+    dataset.snapshot["samples"][1].pop("annotations")
+    selected, summary = service.select_sources(dataset, 42)
     assert len(selected) == 1 and selected[0]["labels"] == ""
     assert summary["selected"] == 1 and sum(summary["skipped"].values()) == 2
 
@@ -909,11 +917,9 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
             f"preview-race-{uuid.uuid4()}@test.local",
             "Preview race",
         )
-        project, dataset = await ready_dataset(seed, owner)
-        dataset.snapshot, dataset.manifest = inputs(
-            [{"content": "a"}, {"content": "b", "split": "val"}], classes=["car"]
+        project, dataset = await ready_preview_dataset(
+            seed, owner, [{"content": "a"}, {"content": "b", "split": "val"}]
         )
-        await seed.flush()
         await service.claim(
             seed, claim_body(), training_authority=bind_training_authority(seed)
         )

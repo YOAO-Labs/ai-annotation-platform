@@ -301,9 +301,12 @@ async def authority(
         ) from exc
 
 
-async def frozen_config(
-    db, project_id, body: TrainingRunCreate, *, observe_members=True
-):
+async def frozen_config(db, project_id, body: TrainingRunCreate):
+    config, _ = await frozen_inputs(db, project_id, body, observe_members=True)
+    return config
+
+
+async def frozen_inputs(db, project_id, body: TrainingRunCreate, *, observe_members):
     options = catalog()
     if not options["enabled"]:
         raise HTTPException(status_code=409, detail="训练执行器尚未配置，请联系管理员")
@@ -333,10 +336,7 @@ async def frozen_config(
             )
     if not await datasets.hold_version(db, body.dataset_id, project_id):
         raise HTTPException(status_code=404, detail="训练数据版本不存在")
-    read_dataset = (
-        datasets.read_version if observe_members else datasets.read_version_facts
-    )
-    dataset = await read_dataset(db, body.dataset_id, project_id=project_id)
+    dataset = await datasets.read_version(db, body.dataset_id, project_id=project_id)
     if dataset is None:
         raise HTTPException(status_code=404, detail="训练数据版本不存在")
     if dataset.status != "ready" or not dataset.package_sha256:
@@ -438,7 +438,7 @@ async def frozen_config(
         raise HTTPException(status_code=422, detail="训练数据成员清单无效") from exc
     if inputs is not None:
         config["input_contract"] = inputs
-    return config
+    return config, dataset
 
 
 def storage_owner(run):
