@@ -8,23 +8,25 @@ from app.services import dataset_registration as registration
 from app.services import dataset_source_access as access
 from app.services import content_snapshot as snapshots
 from app.services import storage_location as locations
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    create_content_world,
+    headers,
+)
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_dataset_registration import start
 
 
 @pytest.fixture
-async def managed_world(db_session, content_world, project_admin):
+async def managed_world(db_session, super_admin, project_admin, tmp_path, monkeypatch):
     actor = project_admin[0]
-    content_world[3].created_by = actor.id
-    location = content_world[4]
-    location.config = {
-        **location.config,
-        "scope": "restricted",
-        "use_user_ids": [str(actor.id)],
-    }
+    world = await create_content_world(
+        db_session, super_admin[0], tmp_path, monkeypatch, use_user_ids=[actor.id]
+    )
+    world[3].created_by = actor.id
     await db_session.commit()
-    return content_world, actor
+    return world, actor
 
 
 async def test_manager_scope_inherits_dataset_owner_and_location_grant(
@@ -86,7 +88,7 @@ async def test_grant_withdrawal_hides_every_source_resource_and_jobs(
     assert (
         await httpx_client.get(f"/api/v1/async-jobs/{job_id}", headers=auth)
     ).status_code == 200
-    world[4].config = {**world[4].config, "use_user_ids": []}
+    await change_content_location(db_session, world, use_user_ids=[])
     await db_session.commit()
     for path in paths:
         response = await httpx_client.get("/api/v1" + path, headers=auth)
@@ -120,7 +122,7 @@ async def test_revocation_during_snapshot_prevents_receipt(
     async def revoked(*args, **kwargs):
         snapshot = await original(*args, **kwargs)
         if revocation == "grant":
-            world[4].config = {**world[4].config, "use_user_ids": []}
+            await change_content_location(db_session, world, use_user_ids=[])
         else:
             actor.role = "employee"
         await db_session.commit()
@@ -143,17 +145,15 @@ async def test_management_preview_revocation_keeps_assigned_task_reading(
 ):
     registered, _, task, world = reference_world
     world[3].created_by = project_admin[0].id
-    world[4].config = {
-        **world[4].config,
-        "scope": "restricted",
-        "use_user_ids": [str(project_admin[0].id)],
-    }
+    world = await change_content_location(
+        db_session, world, scope="restricted", use_user_ids=[project_admin[0].id]
+    )
     await db_session.commit()
     preview = f"/api/v1/dataset-items/{registered['item_id']}/content?sha256={registered['sha256']}"
     assert (
         await httpx_client.get(preview, headers=headers(project_admin))
     ).status_code == 200
-    world[4].config = {**world[4].config, "use_user_ids": []}
+    await change_content_location(db_session, world, use_user_ids=[])
     await db_session.commit()
     assert (
         await httpx_client.get(preview, headers=headers(project_admin))
@@ -213,7 +213,7 @@ async def test_directory_browse_checks_grants_after_io(
 
     async def revoked(*args, **kwargs):
         result = await original(*args, **kwargs)
-        world[4].config = {**world[4].config, "use_user_ids": []}
+        await change_content_location(db_session, world, use_user_ids=[])
         await db_session.commit()
         return result
 
@@ -327,7 +327,7 @@ async def test_probe_does_not_publish_after_grant_is_withdrawn(
 
     async def revoked(*args, **kwargs):
         result = await original(*args, **kwargs)
-        world[4].config = {**world[4].config, "use_user_ids": []}
+        await change_content_location(db_session, world, use_user_ids=[])
         await db_session.commit()
         return result
 

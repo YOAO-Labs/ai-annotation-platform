@@ -35,7 +35,11 @@ from yoao_inference_contract.backend_control import BackendControlSetupResult
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from app.services.reference_inference import validate_native_receipt
 from tests.inference_execution_test_ports import FakeModelExecutionPort
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_dataset_references import reference_world as reference_world
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
@@ -232,7 +236,9 @@ async def test_response_rechecks_original_authority_and_binding(
         elif change == "source":
             w.content[5].config_revision += 1
         elif change == "location":
-            w.content[4].config_revision += 1
+            await change_content_location(
+                db_session, w.content, name=f"{w.content[4].name}-renamed"
+            )
         elif change == "account":
             super_admin[0].is_active = False
         elif change == "ai_disabled":

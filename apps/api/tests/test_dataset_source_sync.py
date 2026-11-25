@@ -22,7 +22,11 @@ from app.services import (
 )
 from app.services import filesystem_storage as fs, storage_location as locations
 from app.workers import dataset_source_sync as worker
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_dataset_source_changes import accept_all_files
 from tests.test_dataset_registration import drain, begin_confirmed
 
@@ -281,7 +285,7 @@ async def test_revoked_authority_or_configuration_blocks_without_io(
     elif change == "source_revision":
         world[5].config_revision += 1
     else:
-        world[4].config_revision += 1
+        await change_content_location(db, world, name=f"{world[4].name}-renamed")
     await db.commit()
     work = await sync.claim_due(db, row.source_id)
     await db.commit()

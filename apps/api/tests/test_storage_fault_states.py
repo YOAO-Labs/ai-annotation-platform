@@ -21,7 +21,11 @@ from app.db.models.storage_fault import StorageFaultState as State
 from app.services import storage_fault_events as events, storage_fault_state as states
 from app.services import storage_location as locations
 from app.services import storage_observation_rates as rates
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_directory_policies import object_store as object_store
 from tests.test_storage_observation_rates_db import committed_world as committed_world
 from tests.test_workspace_consumer_profile_native import _grants
@@ -244,8 +248,8 @@ async def test_get_pages_and_counts_share_current_source_visibility_without_io(
 ):
     from app.services import reference_storage, content_snapshot
 
+    world = await change_content_location(db_session, world, scope="global")
     location = world[4]
-    location.config = {**location.config, "scope": "global"}
     await states.record(
         db_session,
         await token(db_session, world),
@@ -380,7 +384,7 @@ async def test_get_role_downgrade_rejects_previously_broader_page(
     world, db_session, httpx_client, super_admin, monkeypatch
 ):
     original = states.visible_page
-    world[4].config = {**world[4].config, "scope": "global"}
+    await change_content_location(db_session, world, scope="global")
 
     async def downgrade(*args, **kwargs):
         result = await original(*args, **kwargs)
@@ -410,11 +414,9 @@ async def test_original_cache_hit_does_not_recover_source_fault(
         db_session, world[6].id, world[7].path_digest, world[2], verify=True
     )
     world[5].cache_policy = "on_demand"
-    world[4].config = {
-        **world[4].config,
-        "cache_policy": "on_demand",
-        "original_cache_quota_bytes": 1000000,
-    }
+    world = await change_content_location(
+        db_session, world, cache_policy="on_demand", original_cache_quota_bytes=1000000
+    )
     failure = await token(db_session, world, operation="reference_read")
     await states.record(
         db_session, failure, ("root_unavailable", "root_not_configured")

@@ -10,7 +10,11 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.dataset_source import DatasetSource, DatasetSourcePreview
 from app.services.storage import storage_service
 from tests.factory import create_project, create_task
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_dataset_source_changes import (
     accept_all_files,
     picture,
@@ -202,9 +206,10 @@ async def test_location_filter_counts_unique_visible_datasets_and_revokes(
     db_session, content_world, super_admin, project_admin, httpx_client
 ):
     db, world = db_session, content_world
-    ds, loc = world[3:5]
+    ds = world[3]
     ds.created_by = project_admin[0].id
-    loc.config = {**loc.config, "scope": "global"}
+    world = await change_content_location(db, world, scope="global")
+    loc = world[4]
     db.add(
         DatasetSource(
             dataset_id=ds.id, location_id=loc.id, name="second", config=world[5].config
@@ -239,7 +244,7 @@ async def test_location_filter_counts_unique_visible_datasets_and_revokes(
         )
     ).json()
     assert summary["total"] == 2 and summary["dataset_count"] == 1
-    loc.config = {**loc.config, "scope": "restricted", "use_user_ids": []}
+    await change_content_location(db, world, scope="restricted", use_user_ids=[])
     await db.commit()
     assert (
         await httpx_client.get(url, headers=headers(project_admin))

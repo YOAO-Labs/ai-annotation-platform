@@ -62,16 +62,13 @@ async def referenced_cache(test_engine, monkeypatch, tmp_path):
     async with factory() as db:
         db.add_all(users)
         await db.commit()
-        content = await create_content_world(db, users[0], tmp_path, monkeypatch)
+        content = await create_content_world(
+            db, users[0], tmp_path, monkeypatch, original_cache_copies=2
+        )
         registration, project, task, _ = await create_reference_world(
             db, content, users[1]
         )
         location, source = content[4:6]
-        location.config = {
-            **location.config,
-            "cache_policy": "on_demand",
-            "original_cache_quota_bytes": len(content[1]) * 2,
-        }
         source.cache_policy = "on_demand"
         await db.commit()
     world = SimpleNamespace(
