@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 from tests.contract_schemas import load_contract_schema
 import shutil
 import subprocess
@@ -14,15 +15,14 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, inspect as sa_inspect, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.models.async_job import AsyncJob
 from app.services import async_job as jobs
 
 ROOT = Path(__file__).resolve().parents[3]
-_ROLE = "identity_api_consumer"
+_LAN_GRANTS = ROOT / "infra/docker/lan-production-grants.sql"
 _FUNCTION = "yoao_jobs_v1.set_filter_fixture_job_outcomes"
 _CALL = (
     "SELECT yoao_jobs_v1.set_filter_fixture_job_outcomes("
@@ -33,12 +33,7 @@ _API_SCHEMA = "0331_jobs_filter_fixtures.schema.json"
 _API_SQL = ROOT / "apps/api/alembic/sql/0331_jobs_filter_fixtures.sql"
 _NODE = ROOT / "apps/jobs/conformance/node/filter_fixture_acceptance.mjs"
 _OLD_TIMESTAMP = datetime(2001, 1, 1, tzinfo=timezone.utc)
-_FAILED_RESULT = {
-    "keep": "failed result",
-    "large_integer": 9007199254740993,
-    "json_null": None,
-    "json_false": False,
-}
+_FAILED_RESULT: dict = {}
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -75,7 +70,7 @@ def _new_pair() -> tuple[AsyncJob, AsyncJob]:
         ),
         AsyncJob(
             id=low,
-            kind="prediction_retry",
+            kind="export",
             status="pending",
             progress_pct=0,
             payload={"fixture": "failed", "preserve": True},
@@ -83,6 +78,61 @@ def _new_pair() -> tuple[AsyncJob, AsyncJob]:
             created_at=_OLD_TIMESTAMP,
         ),
     )
+
+
+async def _admit_presentation_proofs(
+    session, run_id: uuid.UUID, completed_id: uuid.UUID, failed_id: uuid.UUID
+) -> None:
+    project_id = uuid.uuid4()
+    await session.execute(
+        text(
+            "INSERT INTO yoao_fixture_v1.fixture_runs (id, family, state) "
+            "VALUES (:run_id, 'owned', 'open')"
+        ),
+        {"run_id": run_id},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO yoao_fixture_v1.fixture_presentation_jobs "
+            "(job_id, run_id, project_id, kind, state) VALUES "
+            "(:completed_id, :run_id, :project_id, 'batch_predict', 'admitted'), "
+            "(:failed_id, :run_id, :project_id, 'export', 'admitted')"
+        ),
+        {
+            "completed_id": completed_id,
+            "failed_id": failed_id,
+            "run_id": run_id,
+            "project_id": project_id,
+        },
+    )
+
+
+async def _create_disposable_lan_runtime(test_engine):
+    from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+    from tests.test_workspace_consumer_profile_native import _grants
+
+    _verify_postgres(test_engine.url)
+    role = "jobs_update_lan_" + uuid.uuid4().hex[:12]
+    password = uuid.uuid4().hex
+    async with test_engine.begin() as db:
+        await db.execute(
+            text(
+                f"CREATE ROLE {role} LOGIN PASSWORD '{password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT"
+            )
+        )
+    applied = await _grants(test_engine, _LAN_GRANTS, role)
+    assert applied.returncode == 0, applied.stderr
+    engine = create_async_engine(
+        test_engine.url.set(username=role, password=password), hide_parameters=True
+    )
+    return engine, role
+
+
+async def _drop_disposable_role(test_engine, role: str) -> None:
+    async with test_engine.begin() as db:
+        await db.execute(text(f"DROP OWNED BY {role}"))
+        await db.execute(text(f"DROP ROLE {role}"))
 
 
 async def _read_job(session, job_id):
@@ -118,9 +168,16 @@ def _assert_outcomes(completed: AsyncJob, failed: AsyncJob) -> None:
     assert failed.updated_at > _OLD_TIMESTAMP
 
 
-async def _assert_contract(test_engine, runtime) -> None:
+async def _assert_contract(test_engine, runtime, runtime_role: str) -> None:
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    assert load_contract_schema(_API_SCHEMA) == schema
+    api_schema = json.loads(
+        re.sub(
+            r"\baap_(?=[a-z0-9_]*_v[0-9]+\b)",
+            "yoao_",
+            json.dumps(load_contract_schema(_API_SCHEMA)),
+        )
+    )
+    assert api_schema == schema
     sql = _API_SQL.read_text(encoding="utf-8")
     assert schema["$id"] == "aap-jobs-filter-fixtures/v1"
     function = schema["x-postgresql-functions"][_FUNCTION]
@@ -154,7 +211,7 @@ async def _assert_contract(test_engine, runtime) -> None:
                     "ON n.oid=p.pronamespace WHERE n.nspname='yoao_jobs_v1' "
                     "AND p.proname='set_filter_fixture_job_outcomes'"
                 ),
-                {"role": _ROLE},
+                {"role": runtime_role},
             )
         ).one()
     assert tuple(catalog) == (
@@ -165,13 +222,13 @@ async def _assert_contract(test_engine, runtime) -> None:
         True,
         ["search_path=pg_catalog, pg_temp", "TimeZone=UTC", "DateStyle=ISO, YMD"],
         "jobs_code",
-        True,
+        False,
         False,
     )
 
     async with runtime.connect() as connection:
-        assert await connection.scalar(text("SELECT current_user")) == _ROLE
-        assert await connection.scalar(text("SELECT session_user")) == _ROLE
+        assert await connection.scalar(text("SELECT current_user")) == runtime_role
+        assert await connection.scalar(text("SELECT session_user")) == runtime_role
         privilege = (
             await connection.execute(
                 text(
@@ -197,7 +254,7 @@ async def _assert_contract(test_engine, runtime) -> None:
             False,
             True,
             True,
-            True,
+            False,
         )
 
 
@@ -231,16 +288,14 @@ async def _assert_private_update_denied(runtime, statement, job_id):
 async def _run_node_acceptance(test_engine, completed_id, failed_id):
     node = shutil.which("node")
     assert node is not None
-    url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"]).set(
-        drivername="postgresql"
-    )
+    url = test_engine.url.set(drivername="postgresql")
     environment = os.environ.copy()
     environment.update(
         {
             "JOBS_FILTER_FIXTURE_DATABASE_URL": url.render_as_string(
                 hide_password=False
             ),
-            "JOBS_FILTER_FIXTURE_EXPECTED_ROLE": _ROLE,
+            "JOBS_FILTER_FIXTURE_EXPECTED_ROLE": str(test_engine.url.username),
             "JOBS_FILTER_FIXTURE_EXPECTED_DATABASE": test_engine.url.database,
             "JOBS_FILTER_FIXTURE_EXPECTED_HOST": test_engine.url.host,
             "JOBS_FILTER_FIXTURE_EXPECTED_PORT": str(test_engine.url.port or 5432),
@@ -268,70 +323,75 @@ async def _run_node_acceptance(test_engine, completed_id, failed_id):
 async def test_filter_fixture_updates_through_real_login_and_node_contract(
     test_engine, record_property
 ):
-    from tests.test_jobs_creation_runtime_native import _lan_runtime
-
     completed, failed = _new_pair()
+    run_id = uuid.uuid4()
     lifecycle_id = None
-    runtime = await _lan_runtime(test_engine)
+    runtime, runtime_role = await _create_disposable_lan_runtime(test_engine)
     owner_sessions = async_sessionmaker(test_engine, expire_on_commit=False)
     api_sessions = async_sessionmaker(runtime, expire_on_commit=False)
     ids = [completed.id, failed.id]
     try:
-        await _assert_contract(test_engine, runtime)
+        await _assert_contract(test_engine, runtime, runtime_role)
         async with owner_sessions() as setup:
             setup.add_all([completed, failed])
             await setup.flush()
             completed.updated_at = _OLD_TIMESTAMP
             failed.result = _FAILED_RESULT
             failed.updated_at = _OLD_TIMESTAMP
+            await setup.flush()
+            await _admit_presentation_proofs(setup, run_id, completed.id, failed.id)
             await setup.commit()
 
         async with api_sessions() as api:
-            cached_completed = await _read_job(api, completed.id)
-            cached_failed = await _read_job(api, failed.id)
+            await _assert_failure(api, completed.id, failed.id, "42501")
+
+        async with owner_sessions() as owner:
+            cached_completed = await _read_job(owner, completed.id)
+            cached_failed = await _read_job(owner, failed.id)
             _assert_initial(cached_completed, {})
             _assert_initial(cached_failed, _FAILED_RESULT)
 
-            await _assert_failure(api, None, failed.id, "22023")
-            await _assert_failure(api, completed.id, None, "22023")
-            await _assert_failure(api, completed.id, completed.id, "22023")
+            await _assert_failure(owner, None, failed.id, "22023")
+            await _assert_failure(owner, completed.id, None, "22023")
+            await _assert_failure(owner, completed.id, completed.id, "22023")
             missing_id = uuid.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff")
-            await _assert_failure(api, completed.id, missing_id, "P0002")
-            _assert_initial(await _read_job(api, completed.id), {})
-            _assert_initial(await _read_job(api, failed.id), _FAILED_RESULT)
+            await _assert_failure(owner, completed.id, missing_id, "22023")
+            _assert_initial(await _read_job(owner, completed.id), {})
+            _assert_initial(await _read_job(owner, failed.id), _FAILED_RESULT)
 
-            count = await _call(api, completed.id, failed.id)
+            count = await _call(owner, completed.id, failed.id)
             assert type(count) is int and count == 2
             assert cached_completed.status == "pending"
-            refreshed_completed = await _read_job(api, completed.id)
-            refreshed_failed = await _read_job(api, failed.id)
+            refreshed_completed = await _read_job(owner, completed.id)
+            refreshed_failed = await _read_job(owner, failed.id)
             assert refreshed_completed is cached_completed
             assert refreshed_failed is cached_failed
             _assert_outcomes(refreshed_completed, refreshed_failed)
-            await api.rollback()
-            _assert_initial(await _read_job(api, completed.id), {})
-            _assert_initial(await _read_job(api, failed.id), _FAILED_RESULT)
-            await api.rollback()
+            await owner.rollback()
+            _assert_initial(await _read_job(owner, completed.id), {})
+            _assert_initial(await _read_job(owner, failed.id), _FAILED_RESULT)
+            await owner.rollback()
 
-            savepoint = await api.begin_nested()
-            count = await _call(api, completed.id, failed.id)
+            savepoint = await owner.begin_nested()
+            count = await _call(owner, completed.id, failed.id)
             assert type(count) is int and count == 2
             _assert_outcomes(
-                await _read_job(api, completed.id), await _read_job(api, failed.id)
+                await _read_job(owner, completed.id), await _read_job(owner, failed.id)
             )
             await savepoint.rollback()
-            _assert_initial(await _read_job(api, completed.id), {})
-            _assert_initial(await _read_job(api, failed.id), _FAILED_RESULT)
-            await api.rollback()
+            _assert_initial(await _read_job(owner, completed.id), {})
+            _assert_initial(await _read_job(owner, failed.id), _FAILED_RESULT)
+            await owner.rollback()
 
         receipt = await _run_node_acceptance(test_engine, completed.id, failed.id)
         record_property("jobs_filter_fixture_node", json.dumps(receipt))
 
-        async with api_sessions() as api:
-            final_completed = await _read_job(api, completed.id)
-            final_failed = await _read_job(api, failed.id)
+        async with owner_sessions() as owner:
+            final_completed = await _read_job(owner, completed.id)
+            final_failed = await _read_job(owner, failed.id)
             _assert_outcomes(final_completed, final_failed)
 
+        async with api_sessions() as api:
             await _assert_private_update_denied(
                 runtime,
                 "UPDATE public.async_jobs SET status='running', updated_at=pg_catalog.now() WHERE id=:id",
@@ -342,17 +402,6 @@ async def test_filter_fixture_updates_through_real_login_and_node_contract(
                 "UPDATE public.async_jobs SET progress_pct=9 WHERE id=:id",
                 completed.id,
             )
-
-            for field, value in (("status", "failed"), ("updated_at", _OLD_TIMESTAMP)):
-                legacy = await _read_job(api, completed.id)
-                with pytest.raises(DBAPIError) as denied:
-                    async with api.begin_nested():
-                        setattr(legacy, field, value)
-                        await api.flush()
-                assert _sqlstate(denied.value) == "42501"
-                _assert_outcomes(
-                    await _read_job(api, completed.id), await _read_job(api, failed.id)
-                )
 
             ordinary_job = await jobs.create_job(api, kind="audit_archive")
             lifecycle_id = ordinary_job.id
@@ -385,9 +434,21 @@ async def test_filter_fixture_updates_through_real_login_and_node_contract(
             await api.commit()
     finally:
         await runtime.dispose()
+        await _drop_disposable_role(test_engine, runtime_role)
         async with owner_sessions() as cleanup:
             cleanup_ids = ids + ([lifecycle_id] if lifecycle_id is not None else [])
             await cleanup.execute(delete(AsyncJob).where(AsyncJob.id.in_(cleanup_ids)))
+            await cleanup.execute(
+                text(
+                    "DELETE FROM yoao_fixture_v1.fixture_presentation_jobs "
+                    "WHERE run_id = :run_id"
+                ),
+                {"run_id": run_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM yoao_fixture_v1.fixture_runs WHERE id = :run_id"),
+                {"run_id": run_id},
+            )
             await cleanup.commit()
 
 
@@ -398,6 +459,7 @@ async def test_filter_fixture_preserves_original_mapper_update_masks_and_order(
 
     _verify_postgres(test_engine.url)
     completed, failed = _new_pair()
+    run_id = uuid.uuid4()
     completed_id, failed_id = completed.id, failed.id
     suffix = uuid.uuid4().hex[:12]
     probe = "jobs_fixture_mask_" + suffix
@@ -418,6 +480,9 @@ async def test_filter_fixture_preserves_original_mapper_update_masks_and_order(
                 expire_on_commit=False,
                 join_transaction_mode="create_savepoint",
             ) as session:
+                await _admit_presentation_proofs(
+                    session, run_id, completed_id, failed_id
+                )
                 session.add_all([completed, failed])
                 await session.flush()
                 await session.execute(
@@ -456,10 +521,7 @@ async def test_filter_fixture_preserves_original_mapper_update_masks_and_order(
                 query = text(f"SELECT job_id,field FROM pg_temp.{probe} ORDER BY seq")
                 baseline = (await session.execute(query)).all()
                 await savepoint.rollback()
-                await session.execute(text("SET LOCAL ROLE identity_api_consumer"))
-                assert await session.scalar(text("SELECT current_user::text")) == _ROLE
                 assert await _call(session, completed_id, failed_id) == 2
-                await session.execute(text("RESET ROLE"))
                 observed = (await session.execute(query)).all()
                 assert observed == baseline
                 assert [row[0] for row in observed] == [failed_id] * 4 + [

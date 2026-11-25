@@ -694,6 +694,7 @@ GRANT SELECT ON yoao_assets_v1.video_chapter_facts,
     yoao_assets_v1.scale_seed_dataset_item_facts TO :"labeling_owner";
 GRANT SELECT ON yoao_labeling_v1.annotation_draft_rows TO :"labeling_owner";
 
+REVOKE SELECT ON public.tasks FROM :"labeling_owner";
 GRANT SELECT (total_annotations, is_labeled),
     UPDATE (total_annotations, is_labeled)
     ON public.tasks TO :"labeling_owner";
@@ -5465,7 +5466,6 @@ GRANT SELECT (copy_id, status, source_operation_id, target_operation_id)
     ON public.storage_migration_copy_attempts TO :"assets_owner";
 GRANT SELECT, INSERT ON public.storage_operations TO :"assets_owner";
 GRANT SELECT, UPDATE (location_id) ON public.storage_maintenance_gates TO :"assets_owner";
-GRANT SELECT ON public.tasks TO :"labeling_owner";
 GRANT SELECT (id, point_cloud_quality_config), UPDATE (id) ON public.projects TO :"workspace_owner";
 
 GRANT USAGE, CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
