@@ -69,12 +69,6 @@
     "app.workers.frame_preannotate.predict_video_segment": {
       "queue": "ml"
     },
-    "app.workers.identity_mail_delivery.relay_credential_mail": {
-      "queue": "default"
-    },
-    "app.workers.identity_mail_v2_delivery.relay_invitation_mail": {
-      "queue": "default"
-    },
     "app.workers.image_pyramid.execute_image_media": {
       "queue": "image-pyramid"
     },
