@@ -174,16 +174,6 @@ def artifact(owned, name="best.pt", role="weights", raw=b"frozen output"):
     return {**spec, "key": key}
 
 
-def finish_body(status):
-    return ExecutorFinish(
-        executor_id="flow-executor",
-        boot_id=uuid.uuid4(),
-        lease_token="exact-fenced-token-32-characters-long",
-        status=status,
-        process_exited=True,
-    )
-
-
 @pytest.fixture
 async def saved_dataset(db_session, project_admin):
     owner, _ = project_admin
