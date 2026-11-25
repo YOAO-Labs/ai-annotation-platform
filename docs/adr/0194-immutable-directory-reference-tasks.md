@@ -38,4 +38,4 @@ Workbench 使用鉴权 Blob，并以账号、登录会话、token、任务内容
 
 ## Notes
 
-实现：`services/dataset_references.py`、`reference_access.py`、`reference_keys.py`，Alembic0198，`useVerifiedImage.ts`、`useSessionGuard.ts` 和目录管理面板。接口与预算见[严格读取](../../docs-site/api/guides/verified-content.md)，操作见[目录接入](../../docs-site/user-guide/datasets/import-images.md#服务器目录原地引用)。
+实现：`services/dataset_references.py`、`reference_access.py`、`reference_keys.py`，Alembic0198，`useVerifiedImage.ts`、`useSessionGuard.ts` 和目录管理面板。接口与预算见[严格读取](https://github.com/YOAO-Labs/YOAO-Docs/blob/main/api/guides/verified-content.md)，操作见[目录接入](https://github.com/YOAO-Labs/YOAO-Docs/blob/main/user-guide/datasets/import-images.md#服务器目录原地引用)。

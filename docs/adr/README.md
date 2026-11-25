@@ -23,7 +23,7 @@
 
 如果决策被推翻，新建一份 ADR，把旧的状态改为 `Superseded by ADR-XXXX`，但**保留旧文档**。
 
-历史引用中的 `0088` 至 `0107` 曾用于两组决策。模块与服务决策保留原号。2026-10-20 至 2026-10-24 的模型、数据集、受控来源和原生视频暂存决策使用旧编号加 99，对应 `0187` 至 `0206`。查旧引用时，按文件名和标题核对[更名前的 ADR 目录](https://github.com/YOAO-Labs/ai-annotation-platform/tree/581993e5a4b7c5352cf29952dfedaa5a15535ab8/docs/adr)。
+历史引用中的 `0088` 至 `0107` 曾用于两组决策。模块与服务决策保留原号。2026-10-20 至 2026-10-24 的模型、数据集、受控来源和原生视频暂存决策使用旧编号加 99，对应 `0187` 至 `0206`。查旧引用时，按文件名和标题核对[更名前的 ADR 目录](https://github.com/YOAO-Labs/YOAO/tree/581993e5a4b7c5352cf29952dfedaa5a15535ab8/docs/adr)。
 
 ## 模板
 
@@ -61,8 +61,8 @@
 - [0164](0164-workspace-transactional-project-maintenance.md) — Workspace 相邻项目写入的同事务能力（限定本地定向验收通过）
 - [0163](0163-identity-registration-policy-owner.md) — Identity 注册状态与部署默认值的统一读取（限定本地定向验收通过）
 - [0162](0162-identity-read-relations-and-consumer-grants.md) — Identity 集合读取关系与独立 API 消费者权限（限定本地定向验收通过）
-- [0157](0157-video-execution-claims-and-route-binding.md) — 视频执行代次、原子路由绑定与当前写入检查（完整恢复继续实施）
-- [0156](0156-scoped-inference-retirement.md) — 推理执行范围的定向退役与作业交接边界（定向退役通过限定本地验收）
+- [0161](0161-identity-current-authority-consumers.md) — 同事务 Identity 账号读取与已接受 API-key 最终授权
+- [0160](0160-coordinated-video-restore.md) — 视频执行与推理路由的受控恢复
 - [0009](0009-task-events-table-and-partition.md) — task_events 表与按月分区方案
 - [0025](0025-webhook-event-envelope-versioning.md) — Webhook 事件信封与版本化（草案，未实现）
 - [0034](0034-lidar-axis-convention.md) — 点云数据集 lidar 坐标系约定：dataset 级声明 + 加载侧归一化
