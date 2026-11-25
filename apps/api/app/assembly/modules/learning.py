@@ -15,7 +15,7 @@ from app.assembly.contracts import (
 
 MANIFEST = BuiltinModuleManifest(
     module_id="learning",
-    owner_packages=("yoao-training-contract",),
+    owner_packages=(),
     routers=(
         RouterMount(
             module_path="app.api.v1.training_datasets", tags=("training-datasets",)

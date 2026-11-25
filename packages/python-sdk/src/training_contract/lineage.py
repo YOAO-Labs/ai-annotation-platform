@@ -64,8 +64,9 @@ def _timestamp(value):
         return
     if not isinstance(value, str) or len(value) > 64 or "T" not in value:
         _invalid("冻结来源时间必须是带时区的 ISO 时间或未知")
+    normalized = value[:-1] + "+00:00" if value.endswith(("Z", "z")) else value
     try:
-        parsed = datetime.fromisoformat(value)
+        parsed = datetime.fromisoformat(normalized)
     except ValueError:
         _invalid("冻结来源时间必须是带时区的 ISO 时间或未知")
     if parsed.tzinfo is None or parsed.utcoffset() is None:

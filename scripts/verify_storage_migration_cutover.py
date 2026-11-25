@@ -410,7 +410,7 @@ class Cutover(OriginalReads):
         }
         child.update(
             PYTHONDONTWRITEBYTECODE="1",
-            PYTHONPATH="/app:/_shared/task_contract/src:/_shared/protocol_v2/src:/_shared/training_contract",
+            PYTHONPATH="/app:/python-sdk/src",
         )
         require(
             all(
@@ -440,6 +440,8 @@ class Cutover(OriginalReads):
                 str(ROOT / "apps/api") + ":/app:ro",
                 "--volume",
                 str(ROOT / "apps/_shared") + ":/_shared:ro",
+                "--volume",
+                str(ROOT / "packages/python-sdk/src") + ":/python-sdk/src:ro",
                 "--entrypoint",
                 "/opt/venv/bin/python",
             ),

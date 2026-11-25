@@ -16,7 +16,6 @@ MANIFEST = BuiltinModuleManifest(
     owner_packages=(
         "yoao-labeling",
         "yoao-labeling-mask-gc",
-        "yoao-task-contract",
     ),
     routers=(
         RouterMount(module_path="app.api.v1.task_views", tags=("task-views",)),

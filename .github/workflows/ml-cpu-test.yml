@@ -51,7 +51,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/uv
-          key: ml-cpu-uv-${{ runner.os }}-${{ matrix.suite }}-${{ hashFiles('apps/_shared/*/uv.lock', 'apps/_shared/*/pyproject.toml', 'scripts/test-suites.json', 'scripts/run-ml-cpu-tests.sh') }}
+          key: ml-cpu-uv-${{ runner.os }}-${{ matrix.suite }}-${{ hashFiles('packages/python-sdk/uv.lock', 'packages/python-sdk/pyproject.toml', 'apps/_shared/*/uv.lock', 'apps/_shared/*/pyproject.toml', 'scripts/test-suites.json', 'scripts/run-ml-cpu-tests.sh') }}
           restore-keys: |
             ml-cpu-uv-${{ runner.os }}-${{ matrix.suite }}-
       - name: Run suite

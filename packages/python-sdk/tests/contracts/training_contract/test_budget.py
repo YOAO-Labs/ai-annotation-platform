@@ -35,8 +35,8 @@ def test_measured_overrun_is_not_clamped_and_recovery_remains_unknown():
 @pytest.mark.parametrize(
     "key,value",
     [
-        ("reservation_id", str(uuid.uuid4())),
-        ("attempt_id", str(uuid.uuid4())),
+        ("reservation_id", "11111111-1111-4111-8111-111111111111"),
+        ("attempt_id", "22222222-2222-4222-8222-222222222222"),
         ("config_digest", "b" * 64),
         ("allowance_seconds", 3.0),
         ("native_seconds", float("nan")),

@@ -48,6 +48,7 @@
 
 ### Changed
 
+- 将平台内部 5 个独立便携契约包（`yoao-task-contract`、`yoao-lifecycle-contract`、`yoao-inference-contract`、`yoao-protocol-v2`、`yoao-training-contract`）合并收编至单一 `yoao-sdk` 发行包（`packages/python-sdk`，支持 Python `>=3.10`，原有顶层导入路径保持不变），并通过可选 `yoao-sdk[protocol]` 提供 FastAPI／cryptography／PyJWT 协议运行时依赖；`apps/api`、`apps/inference`、`apps/workspace`、`apps/training-executor`、`scripts/build-plugin-contracts.py` 与 `scripts/test-sdk-distributions.py` 同步切换至单一 `yoao-sdk`。
 - 推理插件安装器与 `yoao-protocol-v2` 路由控制运行时全面切到 YOAO 命名：Docker 所有权标签改为 `yoao.installation`／`yoao.owner`／`yoao.image`／`yoao.config`／`yoao.candidate`，容器名前缀改为 `yoao-plugin-`，挂载目录统一为 `/var/lib/yoao-plugin` 与 `/var/lib/yoao-qualification/*`，容器环境变量改为 `YOAO_PLUGIN_*`、`YOAO_QUALIFICATION_*` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_REGISTRY_ID` 非空时启动阶段失败关闭）。不保留旧别名；既有插件容器须用原匹配 CLI 停用或退役后再部署，外部 `Plugin-SDK` 与 `YOAO-Plugins` 制品须同步升级以匹配新运行契约。
 - 超级管理员模型服务文档的“可安装推理插件”章节拆分为“操作步骤”和“安全原理”两层，移除面向运维的内部实现术语；插件安装状态机、OCI 标签规范、资格容器隔离约束与历史本地收据迁移说明移至开发者概念文档（插件安装生命周期）。
 - 文档站已从主仓库 `docs-site/` 迁移至独立仓库 `YOAO-Labs/YOAO-Docs`，在线访问地址更新为 <https://yoao-labs.github.io/YOAO-Docs/>；主仓库 GitHub Pages 保留路径无损重定向，架构决策（ADR）、计划文档与路线图留在主仓库维护，不再在文档站镜像发布。可执行示例后端迁至 `examples/ml-backend/`。

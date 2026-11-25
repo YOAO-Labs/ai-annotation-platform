@@ -8,10 +8,14 @@ import ast
 import inspect
 import json
 import sys
-import tomllib
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = ROOT / "packages" / "python-sdk"

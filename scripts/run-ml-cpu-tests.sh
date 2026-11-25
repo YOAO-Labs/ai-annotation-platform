@@ -100,7 +100,7 @@ install_editable() {
   shift 3
   new_venv "$python_version"
   log "install $dir editable [$extras] (python $python_version)"
-  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e "$ROOT/apps/_shared/task_contract" -e ".[$extras]" "$@"
+  run_in "$dir" uv pip install --python "$VENV_PATH/bin/python" -e ".[$extras]" "$@"
 }
 
 
@@ -120,14 +120,13 @@ run() {
   local suite="${1:?suite name required}"
   case "$suite" in
     shared-protocol-v2)
-      install_editable "apps/_shared/protocol_v2" "3.10" "test"
-      run_pytest "apps/_shared/task_contract" "$VENV_PATH"
-      run_pytest "apps/_shared/protocol_v2" "$VENV_PATH"
+      install_editable "packages/python-sdk" "3.10" "protocol,test"
+      run_pytest "packages/python-sdk" "$VENV_PATH" tests/contracts/task_contract tests/contracts/protocol_v2
       ;;
     controlled-assets)
       new_venv "3.12"
       run_in "." uv pip install --python "$VENV_PATH/bin/python" \
-        -e "$ROOT/apps/_shared/task_contract" -e "$ROOT/apps/_shared/training_contract" pytest
+        -e "$ROOT/packages/python-sdk" pytest
       run_pytest "." "$VENV_PATH" scripts/test_controlled_model_assets.py
       ;;
     *)

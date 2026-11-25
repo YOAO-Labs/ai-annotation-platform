@@ -232,7 +232,7 @@ class ProvisionTests(unittest.TestCase):
             self.assertNotIn("DOCKER_HOST", payload)
             self.assertNotIn("/host/python", payload)
             self.assertIn(
-                "PYTHONPATH=/app:/_shared/task_contract/src:/_shared/protocol_v2/src:/_shared/training_contract\n",
+                "PYTHONPATH=/app:/python-sdk/src\n",
                 payload,
             )
             self.assertEqual(fixture.media_vips, [8, 14, 1])
@@ -240,6 +240,9 @@ class ProvisionTests(unittest.TestCase):
             self.assertIn("--pull=never", args)
             self.assertIn(str(base.ROOT / "apps/api") + ":/app:ro", args)
             self.assertIn(str(base.ROOT / "apps/_shared") + ":/_shared:ro", args)
+            self.assertIn(
+                str(base.ROOT / "packages/python-sdk/src") + ":/python-sdk/src:ro", args
+            )
             self.assertIn("/opt/venv/bin/python", args)
             self.assertIn("--queues=media", owner.service.call_args.kwargs["cmd"])
 

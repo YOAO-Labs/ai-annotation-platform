@@ -8,8 +8,12 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 from yoao.errors import SDKError
 

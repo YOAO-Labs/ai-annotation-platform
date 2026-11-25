@@ -5,7 +5,7 @@ description: Change or diagnose training dataset freezes, native training attemp
 
 # Online learning contracts
 
-Read the affected section of [training architecture](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets) and the actual capability registry before editing. A framework's training support does not imply augmentation preview, evaluation, active selection, CPU/CUDA inference, or model-return support. Inspect this checkout's shared contracts under `apps/_shared/training_contract` and `apps/_shared/task_contract`; do not copy a capability matrix or runtime version from an old session.
+Read the affected section of [training architecture](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets) and the actual capability registry before editing. A framework's training support does not imply augmentation preview, evaluation, active selection, CPU/CUDA inference, or model-return support. Inspect this checkout's shared contracts under `packages/python-sdk/src/training_contract` and `packages/python-sdk/src/yoao_task_contract`; do not copy a capability matrix or runtime version from an old session.
 
 Keep acceptance within the requested learning slice. A storage change does not automatically require a large-scale training benchmark, a new executor deployment, or repeated rollback drills; exercise those only when the requested capability or a concrete changed boundary requires them.
 

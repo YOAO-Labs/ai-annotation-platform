@@ -18,7 +18,7 @@ def _e2e_seed_routes_enabled(settings: Any) -> bool:
 
 MANIFEST = BuiltinModuleManifest(
     module_id="platform",
-    owner_packages=("yoao-owner-data",),
+    owner_packages=("yoao-owner-data", "yoao-sdk"),
     routers=(
         RouterMount(
             module_path="app.api.health",

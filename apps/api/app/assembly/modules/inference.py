@@ -17,10 +17,7 @@ MANIFEST = BuiltinModuleManifest(
     module_id="inference",
     owner_packages=(
         "yoao-inference",
-        "yoao-inference-contract",
-        "yoao-lifecycle-contract",
         "yoao-preannotation-results",
-        "yoao-protocol-v2",
     ),
     routers=(
         RouterMount(module_path="app.api.v1.model_catalog", tags=("model-catalog",)),

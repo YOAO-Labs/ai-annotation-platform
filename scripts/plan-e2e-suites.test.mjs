@@ -427,8 +427,8 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
     );
 
     const sharedBase = git("rev-parse", "HEAD");
-    mkdirSync(join(cwd, "apps/_shared/protocol_v2/src"), { recursive: true });
-    writeFileSync(join(cwd, "apps/_shared/protocol_v2/src/schemas.py"), "pass\n");
+    mkdirSync(join(cwd, "packages/python-sdk/src/yoao_protocol_v2"), { recursive: true });
+    writeFileSync(join(cwd, "packages/python-sdk/src/yoao_protocol_v2/schemas.py"), "pass\n");
     git("add", ".");
     git(
       "-c",
@@ -475,7 +475,7 @@ test("large PR reports use files while suite dispatch and final audit outputs st
       { length: 1730 },
       (_, index) => `apps/web/changed-${String(index).padStart(4, "0")}-${"x".repeat(120)}.ts`,
     );
-    paths.push("apps/_shared/protocol_v2/changed.py");
+    paths.push("packages/python-sdk/src/yoao_protocol_v2/changed.py");
     for (const path of paths) {
       mkdirSync(resolve(cwd, path, ".."), { recursive: true });
       writeFileSync(join(cwd, path), "fixture\n");

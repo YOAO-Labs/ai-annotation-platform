@@ -5,7 +5,7 @@ owner transfer, project and template configuration, and template, project and
 directory queries.
 The core uses Pydantic and shared Workspace, Inference, task, Audit, and
 owner-data contracts. Saved pipeline structure and normalization come from
-`yoao-inference-contract`; the core and conformance image do not install the
+`yoao-sdk` (`yoao_inference_contract`); the core and conformance image do not install the
 Inference provider. The PostgreSQL extra includes the HTTP client used for the
 credential-owning Inference probe.
 

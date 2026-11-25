@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 780,
+  "operation_count": 787,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -3292,6 +3292,107 @@
           }
         }
       }
+    },
+    {
+      "name": "GET /api/v1/admin/format-adapters",
+      "method": "GET",
+      "path": "/api/v1/admin/format-adapters",
+      "operation_id": "list_format_adapter_plugins_api_v1_admin_format_adapters_get",
+      "summary": "List Format Adapter Plugins",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "include_retired",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Include Retired",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Response List Format Adapter Plugins Api V1 Admin Format Adapters Get",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
+    },
+    {
+      "name": "GET /api/v1/admin/format-adapters/{format_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/format-adapters/{format_id}",
+      "operation_id": "get_format_adapter_plugin_api_v1_admin_format_adapters__format_id__get",
+      "summary": "Get Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
     },
     {
       "name": "GET /api/v1/admin/ml-backend-operations/jobs/{job_id}",
@@ -31233,6 +31334,276 @@
               "schema": {
                 "$ref": "#/components/schemas/HTTPValidationError"
               }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters",
+      "operation_id": "register_format_adapter_plugin_api_v1_admin_format_adapters_post",
+      "summary": "Register Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "201": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/activate",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/activate",
+      "operation_id": "activate_format_adapter_plugin_api_v1_admin_format_adapters__format_id__activate_post",
+      "summary": "Activate Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/disable",
+      "operation_id": "disable_format_adapter_plugin_api_v1_admin_format_adapters__format_id__disable_post",
+      "summary": "Disable Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/probe",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/probe",
+      "operation_id": "probe_format_adapter_plugin_api_v1_admin_format_adapters__format_id__probe_post",
+      "summary": "Probe Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterProbeResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/retire",
+      "operation_id": "retire_format_adapter_plugin_api_v1_admin_format_adapters__format_id__retire_post",
+      "summary": "Retire Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
             }
           }
         }

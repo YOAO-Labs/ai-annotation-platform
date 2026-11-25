@@ -407,6 +407,8 @@ watched_tags = ["*"]
 "DELETE /api/v1/video-tracker-jobs/{job_id}" = { status = "covered" }
 "DELETE /api/v1/videos/{dataset_item_id}/chapters/{chapter_id}" = { status = "covered" }
 "GET /api/v1/admin/analytics/{panel_name}" = { status = "covered" }
+"GET /api/v1/admin/format-adapters" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/admin/format-adapters/{format_id}" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/admin/notification-channels" = { status = "covered" }
 "GET /api/v1/admin/notification-channels/{channel_id}" = { status = "covered" }
 "GET /api/v1/admin/preannotate-queue" = { status = "covered" }
@@ -527,6 +529,11 @@ watched_tags = ["*"]
 "PATCH /api/v1/users/{user_id}/group" = { status = "covered" }
 "PATCH /api/v1/users/{user_id}/role" = { status = "covered" }
 "PATCH /api/v1/videos/{dataset_item_id}/chapters/{chapter_id}" = { status = "covered" }
+"POST /api/v1/admin/format-adapters" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/activate" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/disable" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/probe" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/retire" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/admin/notification-channels" = { status = "covered" }
 "POST /api/v1/admin/notification-channels/{channel_id}/disable" = { status = "covered" }
 "POST /api/v1/admin/notification-channels/{channel_id}/enable" = { status = "covered" }

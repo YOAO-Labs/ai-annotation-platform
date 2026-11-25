@@ -908,26 +908,6 @@ requires-dist = [
 provides-extras = ["http"]
 
 [[package]]
-name = "yoao-inference-contract"
-version = "0.1.0"
-source = { editable = "../_shared/inference_contract" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "yoao-task-contract" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
-]
-provides-extras = ["client", "test"]
-
-[[package]]
 name = "yoao-notifications"
 version = "0.1.0"
 source = { editable = "../notifications" }
@@ -939,6 +919,9 @@ dependencies = [
 requires-dist = [
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
+    { name = "cryptography", marker = "extra == 'channels'", specifier = ">=43.0.0" },
+    { name = "cryptography", marker = "extra == 'test'", specifier = ">=43.0.0" },
+    { name = "httpx", marker = "extra == 'channels'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.10.0" },
@@ -958,7 +941,7 @@ requires-dist = [
     { name = "yoao-identity-admission", extras = ["http"], marker = "extra == 'websocket'", editable = "../_shared/identity_admission" },
     { name = "yoao-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
 ]
-provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
+provides-extras = ["postgres", "runtime", "publication-client", "channels", "websocket", "test"]
 
 [[package]]
 name = "yoao-owner-data"
@@ -966,9 +949,43 @@ version = "0.1.0"
 source = { editable = "../_shared/owner_data" }
 
 [[package]]
-name = "yoao-task-contract"
-version = "0.1.0"
-source = { editable = "../_shared/task_contract" }
+name = "yoao-sdk"
+source = { editable = "../../packages/python-sdk" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", marker = "extra == 'protocol'", specifier = ">=43.0.0" },
+    { name = "cryptography", marker = "extra == 'test'", specifier = ">=43.0.0" },
+    { name = "fastapi", marker = "extra == 'protocol'", specifier = ">=0.110" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.110" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pyjwt", marker = "extra == 'protocol'", specifier = ">=2.10,<3" },
+    { name = "pyjwt", marker = "extra == 'test'", specifier = ">=2.10,<3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+    { name = "respx", marker = "extra == 'test'", specifier = ">=0.21" },
+    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
+    { name = "rich", marker = "extra == 'plugins'", specifier = ">=13.0" },
+    { name = "rich", marker = "extra == 'test'", specifier = ">=13.0" },
+    { name = "rich", marker = "extra == 'tui'", specifier = ">=13.0" },
+    { name = "textual", marker = "extra == 'test'", specifier = ">=8.2,<9" },
+    { name = "textual", marker = "extra == 'tui'", specifier = ">=8.2,<9" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12" },
+    { name = "typer", marker = "extra == 'plugins'", specifier = ">=0.12" },
+    { name = "typer", marker = "extra == 'test'", specifier = ">=0.12" },
+    { name = "typer", marker = "extra == 'tui'", specifier = ">=0.12" },
+    { name = "websockets", marker = "extra == 'streams'", specifier = ">=12" },
+    { name = "websockets", marker = "extra == 'test'", specifier = ">=12" },
+    { name = "websockets", marker = "extra == 'tui'", specifier = ">=12" },
+]
+provides-extras = ["protocol", "cli", "plugins", "streams", "tui", "test"]
 
 [[package]]
 name = "yoao-workspace"
@@ -978,8 +995,8 @@ dependencies = [
     { name = "pydantic" },
     { name = "yoao-assets-cleanup" },
     { name = "yoao-audit-contract" },
-    { name = "yoao-inference-contract" },
     { name = "yoao-owner-data" },
+    { name = "yoao-sdk" },
     { name = "yoao-workspace-contract" },
 ]
 
@@ -1024,8 +1041,8 @@ requires-dist = [
     { name = "yoao-assets-source", extras = ["client"], marker = "extra == 'runtime'", editable = "../assets-source" },
     { name = "yoao-audit-contract", editable = "../_shared/audit_contract" },
     { name = "yoao-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
-    { name = "yoao-inference-contract", editable = "../_shared/inference_contract" },
     { name = "yoao-owner-data", editable = "../_shared/owner_data" },
+    { name = "yoao-sdk", editable = "../../packages/python-sdk" },
     { name = "yoao-workspace-contract", editable = "../_shared/workspace_contract" },
 ]
 provides-extras = ["postgres", "runtime", "client", "test"]

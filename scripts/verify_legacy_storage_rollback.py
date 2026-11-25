@@ -379,6 +379,7 @@ def archive(directory, commit):
             resolved,
             "apps/api/app",
             "apps/_shared",
+            "packages/python-sdk/src",
         ],
         cwd=ROOT,
         check=True,
@@ -412,6 +413,7 @@ def running_legacy(directory, archive_root, accounts):
             str(path)
             for path in [
                 archive_root / "apps/api",
+                archive_root / "packages/python-sdk/src",
                 *sorted((archive_root / "apps/_shared").glob("*/src")),
             ]
         ),

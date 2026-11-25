@@ -84,7 +84,9 @@ def test_legacy_serialization_is_explicit_and_separate():
 
 
 def test_import_has_no_service_or_native_framework_dependency():
-    source = Path(__file__).resolve().parents[1] / "src"
+    import yoao_task_contract
+
+    source = Path(yoao_task_contract.__file__).resolve().parents[1]
     code = (
         f"import sys; sys.path.insert(0, {str(source)!r}); import yoao_task_contract; "
         "assert not {'yoao_protocol_v2', 'fastapi', 'pydantic', 'torch'} & sys.modules.keys()"

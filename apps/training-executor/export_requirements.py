@@ -10,8 +10,7 @@ for package in lock["package"]:
     name = package["name"]
     if name in {
         "yoao-training-executor",
-        "yoao-training-contract",
-        "yoao-task-contract",
+        "yoao-sdk",
         "torch",
         "torchvision",
         "triton",

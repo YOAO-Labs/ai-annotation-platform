@@ -46,7 +46,7 @@ repos:
         name: Regenerate OpenAPI snapshot (apps/api)
         entry: bash -c 'cd apps/api && uv run python ../../scripts/export_openapi.py && cd ../.. && git add apps/api/openapi.snapshot.json 2>/dev/null || true'
         language: system
-        files: ^(apps/api/app/(config\.py|(api|schemas)/.*\.py)|apps/_shared/protocol_v2/src/.*\.py|apps/(inference|workspace)/src/.*\.py)$
+        files: ^(apps/api/app/(config\.py|(api|schemas)/.*\.py)|packages/python-sdk/src/yoao_protocol_v2/.*\.py|apps/(inference|workspace)/src/.*\.py)$
         pass_filenames: false
         stages: [pre-commit]
 

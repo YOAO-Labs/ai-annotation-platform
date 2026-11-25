@@ -71,7 +71,7 @@ Local implementation, installed-artifact qualification, real consumers, restore 
 ## Verification
 
 ```sh
-uv run --project apps/inference --locked --extra runtime --extra test python -m pytest apps/inference/tests apps/_shared/inference_contract/tests
+uv run --project apps/inference --locked --extra runtime --extra test python -m pytest apps/inference/tests packages/python-sdk/tests/contracts/inference_contract
 ```
 
 Database-backed scenarios run only through the repository's disposable-resource verifier. Runtime configuration, permissions and upgrade order are documented in the [Inference runtime guide](../../docs-site/api/guides/inference-runtime.md).

@@ -191,12 +191,12 @@
 | 仓库                               | 包名                                                                         | 在训练器插件化中的角色                                                                                                                                                                                                                                                         |
 | ---------------------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `YOAO-Labs/Plugin-SDK`             | `yoao-plugin-sdk`（`[trainer]` extra，无额外运行时依赖）、`@yoao/plugin-sdk` | 训练器作者唯一依赖的公开开发包：提供 `yoao-extension-manifest/v1`（`extension_point: "trainer"`）校验、`yoao-trainer/v1` 协议数据模型、原子事件/检查点写入原语与 `yoao-plugin init --type trainer` / `validate` CLI。支持 Python `>=3.10`，不强绑定任何 PyTorch 或 CUDA 版本。 |
-| `YOAO-Labs/ai-annotation-platform` | 现有 5 个便携契约包（后续收敛为单一 `yoao-sdk`）                             | 平台核心与 `training-supervisor` 消费的平台侧契约与控制面客户端（含管理员 `yoao plugins` 安装与资格管理 CLI）。训练器插件作者无需安装主仓内部契约包即可开发兼容 `yoao-trainer/v1` 的训练器。                                                                                   |
+| `YOAO-Labs/ai-annotation-platform` | 单一 `yoao-sdk`（已合并原 5 个便携契约包，支持 Python `>=3.10`）             | 平台核心与 `training-supervisor` 消费的平台侧契约与控制面客户端（含管理员 `yoao plugins` 安装与资格管理 CLI）。训练器插件作者无需安装主仓内部契约包即可开发兼容 `yoao-trainer/v1` 的训练器。                                                                                   |
 | `YOAO-Labs/YOAO-Plugins`           | `plugins/trainer/ultralytics`、`plugins/trainer/libreyolo`                   | 官方训练器参考实现与发布镜像源，与现有 `plugins/inference/*`、`plugins/notification-channel/*`、`plugins/format-adapter/*` 并列组织。                                                                                                                                          |
 
 ## 6. 当前状态与待决事项
 
-- **当前状态**：已完成训练子系统全链路耦合盘点与 `Plugin-SDK` `yoao-trainer/v1` 核心模型落地（待进入 T0 ADR 编写并补齐 `ValidateConfigResultV1`/`PreviewSpecV1`/`PreviewReportV1`）。
+- **当前状态**：已完成训练子系统全链路耦合盘点、`Plugin-SDK` `yoao-trainer/v1` 核心模型落地，以及主仓 5 个便携契约包合并为单一 `yoao-sdk`（`>=3.10`）（待进入 T0 ADR 编写并补齐 `ValidateConfigResultV1`/`PreviewSpecV1`/`PreviewReportV1`）。
 - **待维护者确认**：
-  1. `T0` 启动时机：是否立即按 T0 -> T1 -> T2 -> T3 -> T4 顺序推进，还是先完成 `ai-annotation-platform` 内部 5 个契约包合并为 `yoao-sdk`。
+  1. `T0` 启动时机：是否立即按 T0 -> T1 -> T2 -> T3 -> T4 顺序推进。
   2. 训练器镜像执行方式：自托管默认 `training-supervisor` 通过受限容器运行通道调用本地 Docker Engine 启动训练器容器（宿主 API 仍绝不接触 Docker socket），还是同时保留 Podman/OCI runtime 抽象接口。

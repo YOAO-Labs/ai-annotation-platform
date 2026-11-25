@@ -32,10 +32,10 @@ python -m pip install /absolute/path/yoao_sdk-0.20.0-py3-none-any.whl
 python -m pip install 'yoao-sdk[cli] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
 python -m pip install 'yoao-sdk[tui] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
 python -m pip install 'yoao-sdk[plugins] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
+python -m pip install 'yoao-sdk[protocol] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
 ```
 
-核心只依赖 httpx 与 pydantic；CLI、TUI 和本机插件部署分别按需选装。`plugins` 还需提供
-对应 `yoao-*-contract` 实际构建制品；包名切换不代表这些制品已经公开发布。
+核心支持 Python `>=3.10`，内置平台客户端与五组便携协议契约（`yoao_task_contract`、`yoao_lifecycle_contract`、`yoao_inference_contract`、`yoao_protocol_v2`、`training_contract`），仅依赖 httpx 与 pydantic（Python 3.10 额外引入纯 Python 的 `tomli`）。CLI、TUI、本机插件部署与协议运行时（`[protocol]`：FastAPI / cryptography / PyJWT）按需选装，不再要求单独安装 5 个独立的 `yoao-*-contract` 发行包。
 
 旧客户端升级时显式运行 `yoao migrate-config`（支持 `--json`）：它把
 `~/.config/ai-annotation/config.toml` 复制到 `~/.config/yoao/config.toml`，保留原文件，
@@ -131,7 +131,7 @@ yoao plugins uninstall --state-dir ./plugin-state --yes --json
 
 完整超管指南见[可安装推理插件](../../docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)；OCI 标签契约、资格容器隔离、`incarnation` 替换、崩溃恢复与历史收据迁移（`migrate-state`）见[推理插件安装、资格与生命周期](../../docs-site/dev/concepts/plugin-installation-lifecycle.md)。
 
-SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化安装动作。本机部署使用 `plugins` extra，须提供可信来源的生命周期、推理和训练契约 wheel；验证报告不需要 backend runtime、FastAPI 或 Torch。
+SDK core 仍只依赖 httpx 和 pydantic（Python 3.10 额外引入纯 Python 的 tomli），并已内置五组便携契约；`client.plugins` 提供类型化安装动作，本机部署使用 `plugins` extra，无需再额外提供独立的 `yoao-*-contract` wheel；验证报告不需要 backend runtime、FastAPI 或 Torch。
 
 ## 快速上手
 
