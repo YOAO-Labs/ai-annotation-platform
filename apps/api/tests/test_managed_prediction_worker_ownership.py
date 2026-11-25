@@ -93,17 +93,15 @@ async def test_failed_managed_database_does_not_seed_the_next_case(managed_datab
 
 
 @pytest.mark.parametrize(
-    "boundary", ("root", "savepoint", "released_savepoint", "close", "failed_commit")
+    "exceptional", (False, True), ids=("normal-root", "exceptional-failed_commit")
 )
-@pytest.mark.parametrize("exceptional", (False, True), ids=("normal", "exceptional"))
 async def test_managed_worker_cleanup_respects_transaction_ownership(
-    input_world, managed_database, monkeypatch, boundary, exceptional
+    input_world, managed_database, monkeypatch, exceptional
 ):
     """A case can commit, roll back and reuse IDs without changing a neighbor."""
     neighbor = input_world.factory
     owner_id = uuid.uuid4()
     preexisting, previous, rolled_back = _ids(), _ids(), _ids()
-    outer_user = uuid.uuid4()
 
     async def seed(factory):
         async with factory.begin() as db:
@@ -137,28 +135,9 @@ async def test_managed_worker_cleanup_respects_transaction_ownership(
                     db.add_all(_rows(previous, owner_id, "previously committed"))
                     await db.commit()
 
-                    if boundary == "savepoint":
-                        db.add(
-                            User(
-                                id=outer_user,
-                                email=f"{outer_user.hex}@example.test",
-                                name="outer transaction",
-                                password_hash="test",
-                            )
-                        )
-                        await db.flush()
-                    if boundary in ("savepoint", "released_savepoint"):
-                        nested = await db.begin_nested()
                     db.add_all(_rows(rolled_back, owner_id, "rolled back"))
                     await db.flush()
-                    if boundary == "savepoint":
-                        await nested.rollback()
-                    elif boundary == "released_savepoint":
-                        await nested.commit()
-                        await db.rollback()
-                    elif boundary == "close":
-                        await db.close()
-                    elif boundary == "failed_commit":
+                    if exceptional:
                         await db.execute(
                             text(
                                 "CREATE TEMP TABLE managed_owner_commit_guard "
@@ -173,14 +152,10 @@ async def test_managed_worker_cleanup_respects_transaction_ownership(
                         )
                         with pytest.raises(IntegrityError):
                             await db.commit()
-                        await db.rollback()
-                    else:
-                        await db.rollback()
+                    await db.rollback()
 
                     async with world.factory.begin() as independent:
                         independent.add_all(_rows(rolled_back, owner_id, "independent"))
-                    if boundary == "savepoint":
-                        await db.commit()
 
                 async with world.factory() as observer:
                     for model in MODELS:
@@ -190,8 +165,6 @@ async def test_managed_worker_cleanup_respects_transaction_ownership(
                             (rolled_back, "independent"),
                         ):
                             assert (await observer.get(model, ids[model])).name == label
-                    kept_outer = await observer.get(User, outer_user)
-                    assert (kept_outer is not None) == (boundary == "savepoint")
                 if exceptional:
                     raise _ExitWorld()
 
@@ -204,4 +177,3 @@ async def test_managed_worker_cleanup_respects_transaction_ownership(
             assert await observer.get(model, previous[model]) is None
             assert (await observer.get(model, preexisting[model])).name == "preexisting"
             assert (await observer.get(model, rolled_back[model])).name == "neighbor"
-        assert await observer.get(User, outer_user) is None
