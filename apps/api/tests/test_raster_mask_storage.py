@@ -738,37 +738,22 @@ async def test_single_frame_video_mask_matches_video_size_and_frame_count(monkey
 async def test_mask_geometry_context_separates_image_8k_from_video_4k_limit(
     monkeypatch,
 ):
-    image_db = SimpleNamespace(
-        get=AsyncMock(
-            return_value=SimpleNamespace(
-                file_type="image",
-                width=8192,
-                height=8192,
-                metadata_={},
-            )
-        )
+    monkeypatch.setattr(
+        "app.services.assets_media_summary.AssetsTaskMediaSummaryReader.current_image_summary",
+        AsyncMock(return_value=(8192, 8192)),
     )
+    db = object()
     task = SimpleNamespace(dataset_item_id="item-1")
     await validate_mask_geometry_for_task(
-        image_db,
+        db,
         task,
         {"type": "raster_mask", "mask": {"size": [8192, 8192]}},
     )
 
     _patch_video_summary(monkeypatch, width=4097, height=1, frame_count=1)
-    video_db = SimpleNamespace(
-        get=AsyncMock(
-            return_value=SimpleNamespace(
-                file_type="video",
-                width=4097,
-                height=1,
-                metadata_={"video": {"frame_count": 1}},
-            )
-        )
-    )
     with pytest.raises(RasterMaskContractError) as captured:
         await validate_mask_geometry_for_task(
-            video_db,
+            db,
             task,
             {
                 "type": "video_track_mask",
