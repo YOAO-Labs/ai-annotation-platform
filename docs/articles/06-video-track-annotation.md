@@ -3,7 +3,7 @@
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、目标跟踪、SAM、人工智能、开源项目<br>
 > 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/YOAO-Docs/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -112,9 +112,9 @@ AI 追踪完成不会立刻改写轨迹。画布先叠加候选，顶部「AI �
 AI Annotation Platform 采用 MIT License 开源。视频工作台、轨迹与关键帧、传播机制、候选审阅的实现、文档与测试都在同一个仓库里。
 
 - GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
-- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
-- 视频追踪标注：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/workbench/video-track>
-- 关键帧传播与 AI 追踪：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/workbench/video-propagate>
+- 在线文档：<https://yoao-labs.github.io/YOAO-Docs/>
+- 视频追踪标注：<https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/video-track>
+- 关键帧传播与 AI 追踪：<https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/video-propagate>
 - License：MIT
 
 系列下一篇会进入 3D 点云工作台：多视角环视图片与点云怎样对齐，3D 框种子和跨帧轨迹如何标注。
@@ -159,4 +159,4 @@ AI Annotation Platform 把视频标注拆成三层：关键帧加插值处理匀
 6. `video-tracker-positive-negative.gif`：双公交车正负点约束与整批采纳；
 7. `video-track-batch-propagate.gif`：双轨迹多选批量延展与一次回填。
 
-这里使用的是既有七段 GIF，原发布记录注明它们由 4K60 源素材派生。发布到知乎或公众号时逐张上传，不要保留仓库相对路径。`video-track.gif` 与 `video-tracker-positive-negative.gif` 宽 800px，移动端小字可能不清，图注避免引用具体参数数字；其余五段宽 1280px。各 `-cover.png` 为 1600px 静态封面帧，供知乎头图或公众号封面裁切。对比 GIF 停在候选审阅与回填完成的画面，图注不要写成「已通过质检」；文本发现与批量延展段采纳后仍属人工接管前的轨迹状态。只有明确要求更新某段时，才按[按需截图与录屏](../../docs-site/dev/how-to/update-screenshots.md)替换指定素材。
+这里使用的是既有七段 GIF，原发布记录注明它们由 4K60 源素材派生。发布到知乎或公众号时逐张上传，不要保留仓库相对路径。`video-track.gif` 与 `video-tracker-positive-negative.gif` 宽 800px，移动端小字可能不清，图注避免引用具体参数数字；其余五段宽 1280px。各 `-cover.png` 为 1600px 静态封面帧，供知乎头图或公众号封面裁切。对比 GIF 停在候选审阅与回填完成的画面，图注不要写成「已通过质检」；文本发现与批量延展段采纳后仍属人工接管前的轨迹状态。只有明确要求更新某段时，才按[按需截图与录屏](https://yoao-labs.github.io/YOAO-Docs/dev/how-to/update-screenshots)替换指定素材。

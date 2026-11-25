@@ -3,13 +3,9 @@
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { dirname, resolve, relative, basename, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { rewrites } from "../docs-site/.vitepress/content.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(here, "..");
-const REWRITE_SOURCE_BY_ROUTE = new Map(
-  Object.entries(rewrites).map(([source, target]) => [target.replace(/\.md$/, ""), source]),
-);
 
 const SKIP_DIRS = new Set([
   "node_modules",
@@ -25,14 +21,7 @@ const SKIP_DIRS = new Set([
   ".cache",
 ]);
 
-const SKIP_PATH_PREFIXES = [
-  ".claude/worktrees/",
-  "docs-site/changelog/",
-  "docs-site/roadmap/",
-  "docs-site/dev/adr/",
-  "docs-site/.vitepress/cache/",
-  "docs-site/.vitepress/dist/",
-];
+const SKIP_PATH_PREFIXES = [".claude/worktrees/"];
 
 const SKIP_PATH_SEGMENTS = ["/vendor/", "/third_party/", "/third-party/"];
 
@@ -151,12 +140,7 @@ function resolveTarget(sourceFile, target) {
 
   let abs;
   if (t.startsWith("/")) {
-    const relSource = relative(REPO, sourceFile).split(sep).join("/");
-    if (relSource.startsWith("docs-site/")) {
-      abs = resolve(REPO, "docs-site", "." + t);
-    } else {
-      abs = resolve(REPO, "." + t);
-    }
+    abs = resolve(REPO, "." + t);
   } else {
     abs = resolve(dirname(sourceFile), t);
   }
@@ -256,45 +240,7 @@ function main() {
   }
 
   function tryResolveWithExtensions(abs) {
-    if (existsAny(abs, abs + ".md", resolve(abs, "index.md"))) return true;
-
-    const rel = relative(REPO, abs).split(sep).join("/");
-
-    if (rel.startsWith("docs-site/")) {
-      const route = rel.slice("docs-site/".length).replace(/\/$/, "");
-      const source = REWRITE_SOURCE_BY_ROUTE.get(route);
-      if (source && existsSync(resolve(REPO, "docs-site", source))) return true;
-    }
-
-    if (rel.startsWith("docs-site/dev/adr/")) {
-      const sub = rel.slice("docs-site/dev/adr/".length);
-      const srcBase = resolve(REPO, "docs/adr", sub);
-      if (existsAny(srcBase, srcBase + ".md")) return true;
-    }
-    if (rel.startsWith("docs-site/changelog/")) {
-      const sub = rel.slice("docs-site/changelog/".length);
-      const srcBase = resolve(REPO, "docs/changelogs", sub);
-      if (existsAny(srcBase, srcBase + ".md")) return true;
-      if (sub === "" || sub === "index") {
-        if (existsSync(resolve(REPO, "CHANGELOG.md"))) return true;
-      }
-    }
-    if (rel.startsWith("docs-site/roadmap/")) {
-      const rawSub = rel.slice("docs-site/roadmap/".length);
-      const sub = rawSub.startsWith("archived-")
-        ? `archive/${rawSub.slice("archived-".length)}`
-        : rawSub;
-      const srcBase = resolve(REPO, "ROADMAP", sub);
-      if (existsAny(srcBase, srcBase + ".md")) return true;
-      if (sub === "" || sub === "index") {
-        if (existsSync(resolve(REPO, "ROADMAP.md"))) return true;
-      }
-    }
-    if (rel.startsWith("docs-site/") && !rel.startsWith("docs-site/public/")) {
-      const sub = rel.slice("docs-site/".length);
-      if (existsSync(resolve(REPO, "docs-site/public", sub))) return true;
-    }
-    return false;
+    return existsAny(abs, abs + ".md", resolve(abs, "index.md"));
   }
 
   const dead = [];

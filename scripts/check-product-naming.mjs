@@ -23,7 +23,7 @@ const rules = [
   ],
 ];
 const active =
-  /^(?:README\.md$|DEV\.md$|docker-compose[^/]*\.ya?ml$|(?:apps|packages|infra|scripts|docs-site)\/)/;
+  /^(?:README\.md$|DEV\.md$|docker-compose[^/]*\.ya?ml$|(?:apps|packages|infra|scripts)\/)/;
 const preserved =
   /(?:^|\/)(?:alembic|sql|vendor|third_party|fixtures|changelogs?|adr|archive|generated|public)(?:\/|$)|(?:\.lock|\.snapshot\.json|\.generated\.\w+)$/;
 
@@ -85,7 +85,6 @@ function main(args) {
       "packages",
       "infra",
       "scripts",
-      "docs-site",
       ":(exclude,glob)**/alembic/**",
       ":(exclude,glob)**/fixtures/**",
       ":(exclude,glob)**/*.lock",

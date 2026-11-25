@@ -3,7 +3,7 @@
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、人工智能、开源项目、产品设计<br>
 > 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/YOAO-Docs/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -13,7 +13,7 @@
 
 我做 AI Annotation Platform 的出发点，就是把这三类对象放进同一个系统：团队通过用户与权限协作，标注员通过交互式工作台完成判断，AI 模型通过可管理的工作流参与生产。
 
-![AI 辅助标注工作台](../../docs-site/public/home/ai-assisted-annotation-poster.webp)
+![AI 辅助标注工作台](https://yoao-labs.github.io/YOAO-Docs/home/ai-assisted-annotation-poster.webp)
 
 _在真实道路图片中调用模型生成候选，再由人工确认类别和结果。_
 
@@ -44,11 +44,11 @@ _数据从导入到交付的主要路径。_
 
 用户管理页集中处理成员邀请、角色调整、数据组、账号停用与解封、API Key 和权限矩阵。角色权限会继续作用到项目、任务、审核、数据与模型管理入口，而不是只在用户列表里显示一个标签。
 
-![用户与权限管理](../../docs-site/user-guide/images/superadmin/users/list.png)
+![用户与权限管理](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/users/list.png)
 
 _管理员可以查看团队成员、角色、数据组和邀请记录。_
 
-![角色权限矩阵](../../docs-site/user-guide/images/superadmin/users/permission-matrix.png)
+![角色权限矩阵](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/users/permission-matrix.png)
 
 _权限矩阵明确不同角色可以执行的项目、任务、用户、数据和模型操作。_
 
@@ -66,7 +66,7 @@ _权限矩阵明确不同角色可以执行的项目、任务、用户、数据�
 
 平台用模型市场集中展示 ML Backend、模型能力和运行状态；项目管理员再按项目启用所需模型。运行侧同时支持当前题推理、批量预标、视频追踪和多阶段编排，模型结果统一进入候选审阅，而不是绕过人工流程直接写成最终标注。
 
-![模型市场与能力目录](../../docs-site/user-guide/images/superadmin/model-market/list.png)
+![模型市场与能力目录](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/model-market/list.png)
 
 _模型市场集中呈现模型能力、连接状态和基础设施信息。_
 
@@ -82,39 +82,39 @@ _模型市场集中呈现模型能力、连接状态和基础设施信息。_
 
 除了常规目标检测，平台也在持续处理更接近真实生产的问题。例如大图需要按视口加载瓦片，栅格掩码需要控制浏览器内存与计算资源，复杂对象则需要画笔、布尔运算和边界修正。对使用者来说，它们最后仍然应该表现为一个顺手的工作台，而不是一组需要手动拼装的底层能力。
 
-![图像标注工作台布局](../../docs-site/user-guide/images/workbench/layout-overview.png)
+![图像标注工作台布局](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/workbench/layout-overview.png)
 
 _图像工作台把工具、画布、对象列表和任务操作集中在同一页面。_
 
-![OCR 真实场景推理](../../docs-site/public/media/ai/ocr-current-task-poster.webp)
+![OCR 真实场景推理](https://yoao-labs.github.io/YOAO-Docs/media/ai/ocr-current-task-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/ai/ocr-current-task.mp4)：OCR 当前题推理从启动模型到生成文本区域候选。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/ai/ocr-current-task.mp4)：OCR 当前题推理从启动模型到生成文本区域候选。_
 
 ### 视频轨迹标注
 
 视频不是把图片标注重复很多次。平台提供关键帧、轨迹、插值、outside 区段、帧缓存与 chunk 服务，让同一个目标可以沿时间轴持续编辑和检查。
 
-![视频轨迹标注工作台](../../docs-site/public/media/video/workbench-overview-poster.webp)
+![视频轨迹标注工作台](https://yoao-labs.github.io/YOAO-Docs/media/video/workbench-overview-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/video/workbench-overview.mp4)：在时间轴中查看关键帧，并持续编辑同一目标的轨迹。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/video/workbench-overview.mp4)：在时间轴中查看关键帧，并持续编辑同一目标的轨迹。_
 
 ### 点云与多模态联动
 
 三维工作台支持点云 3D 框、点级分割和 scene 时序数据，并处理 LiDAR 坐标归一化与相机投影联动。标注员可以在三维视图里确认空间位置，也可以借助图像视角判断目标边界。
 
-![点云标注工作台](../../docs-site/public/media/pointcloud/orbit-poster.webp)
+![点云标注工作台](https://yoao-labs.github.io/YOAO-Docs/media/pointcloud/orbit-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/pointcloud/orbit.mp4)：旋转三维视角，检查空间结构和标注位置。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/pointcloud/orbit.mp4)：旋转三维视角，检查空间结构和标注位置。_
 
 ### Data Manager、审核与数据交付
 
 标注结果不能只留在画布里。Data Manager 提供任务、对象和轨迹视图，用来筛选数据、查看进度和定位异常。审核流程支持通过、回退与反馈，导出侧覆盖 COCO、YOLO、DAVIS、MOT、KITTI、nuScenes、Point Mask 等格式。
 
-![Data Manager 数据视图](../../docs-site/user-guide/images/projects/data-manager-overview.png)
+![Data Manager 数据视图](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/projects/data-manager-overview.png)
 
 _Data Manager 用于查看任务、对象、轨迹和聚合信息。_
 
-![质检审阅工作台](../../docs-site/.vitepress/theme/assets/home/hero/review.webp)
+![质检审阅工作台](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/.vitepress/theme/assets/home/hero/review.webp)
 
 _审核员可以检查标注结果，并将有问题的任务退回修正。_
 
@@ -130,27 +130,27 @@ _审核员可以检查标注结果，并将有问题的任务退回修正。_
 - Magic Box：先画一个粗框，再由模型自动收紧；
 - Exemplar：给出一个视觉示例，查找画面中外观相似的目标。
 
-![智能点生成对象轮廓](../../docs-site/public/media/sam/smart-point-poster.webp)
+![智能点生成对象轮廓](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-point-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/smart-point.mp4)：智能点单击目标后生成可选择的轮廓候选。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-point.mp4)：智能点单击目标后生成可选择的轮廓候选。_
 
-![智能框提取目标边界](../../docs-site/public/media/sam/smart-box-poster.webp)
+![智能框提取目标边界](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-box-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/smart-box.mp4)：智能框拖出目标范围，由模型提取框内对象边界。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/smart-box.mp4)：智能框拖出目标范围，由模型提取框内对象边界。_
 
-![Magic Box 自动收紧粗框](../../docs-site/public/media/ai/assisted-annotation-poster.webp)
+![Magic Box 自动收紧粗框](https://yoao-labs.github.io/YOAO-Docs/media/ai/assisted-annotation-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/ai/assisted-annotation.mp4)：Magic Box 从一个粗略矩形开始，自动得到贴合目标的检测框。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/ai/assisted-annotation.mp4)：Magic Box 从一个粗略矩形开始，自动得到贴合目标的检测框。_
 
-![Exemplar 查找相似目标](../../docs-site/public/media/sam/exemplar-poster.webp)
+![Exemplar 查找相似目标](https://yoao-labs.github.io/YOAO-Docs/media/sam/exemplar-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/sam/exemplar.mp4)：Exemplar 用一个示例目标查找画面中的相似对象。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/sam/exemplar.mp4)：Exemplar 用一个示例目标查找画面中的相似对象。_
 
 项目级 AI 预标注可以先对一批任务运行模型，再把候选结果送入人工工作台。视频侧可以调用 tracker 延续目标轨迹，OCR 侧可以完成文本检测与识别。平台已经接入 Grounded-SAM-2、SAM 3、YOLO、ONNXTools 和 RapidOCR，并通过开放的 ML Backend 协议管理模型能力、连接状态与任务路由。
 
-![项目级 AI 预标注模型选择](../../docs-site/public/media/projects/ai-pre-variant-selector-poster.webp)
+![项目级 AI 预标注模型选择](https://yoao-labs.github.io/YOAO-Docs/media/projects/ai-pre-variant-selector-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/projects/ai-pre-variant-selector.mp4)：项目管理员可以选择模型能力与变体，再把预标注任务交给后台队列。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/projects/ai-pre-variant-selector.mp4)：项目管理员可以选择模型能力与变体，再把预标注任务交给后台队列。_
 
 这里仍然坚持 human in the loop。模型输出默认是候选，不应该在缺少检查的情况下直接变成最终训练数据。
 
@@ -248,7 +248,7 @@ pnpm dev:web
 如果你想先了解某一部分，可以直接查看在线文档；如果你正在做类似系统，也欢迎在 GitHub 查看实现、提交 Issue 或参与讨论。
 
 - GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
-- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
+- 在线文档：<https://yoao-labs.github.io/YOAO-Docs/>
 - License：MIT
 
 ---

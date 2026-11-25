@@ -7,7 +7,7 @@
 输出：
     apps/api/openapi.snapshot.json    # 仓库内的唯一版本化契约
 
-文档站在构建前由 docs-site/scripts/sync-openapi.mjs 将该 snapshot
+文档站（YOAO-Labs/YOAO-Docs）在构建前由 sync-openapi.mjs 将该 snapshot
 复制到 public/openapi.json，不再维护第二份跟踪副本。
 """
 

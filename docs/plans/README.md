@@ -1,6 +1,6 @@
 # Plan archival conventions
 
-Each file in `docs/plans/` records an implementation plan for one development session. **Plans are session logs and historical indexes, not the source of lasting knowledge.** Content intended for developers or users must be incorporated into `docs-site/` and `CHANGELOG.md`.
+Each file in `docs/plans/` records an implementation plan for one development session. **Plans are session logs and historical indexes, not the source of lasting knowledge.** Content intended for developers or users must be incorporated into `YOAO-Labs/YOAO-Docs` and `CHANGELOG.md`.
 
 ## Naming conventions
 
@@ -32,14 +32,14 @@ Store unscheduled research drafts that require a fresh repository review before 
 
 An active plan holds scope, contracts, acceptance criteria, a current status section, open items and closed slices. Rewrite the status section in place as work progresses; do not append another dated bullet for each run.
 
-Run-by-run execution evidence (attempt results, failure receipts, environment observations) goes to an append-only ledger at `docs/plans/evidence/<plan-file-stem>/<topic>-run-ledger.md`, linked from the plan's status section. Private receipts that contain credentials stay in untracked run directories and are referenced by name only. Reusable troubleshooting facts discovered during execution move to `docs-site/dev/troubleshooting/` as soon as they are confirmed against the current code.
+Run-by-run execution evidence (attempt results, failure receipts, environment observations) goes to an append-only ledger at `docs/plans/evidence/<plan-file-stem>/<topic>-run-ledger.md`, linked from the plan's status section. Private receipts that contain credentials stay in untracked run directories and are referenced by name only. Reusable troubleshooting facts discovered during execution move to `YOAO-Labs/YOAO-Docs` (`dev/troubleshooting/`) as soon as they are confirmed against the current code.
 
 ## Required completion steps
 
 After implementing each plan, complete all three steps:
 
 1. **Append a `## Outcome` section** listing the landed changes and corresponding official documentation paths (user-guide / dev / adr / changelog).
-2. **Update official documentation**: annotator, administrator, or super-admin impact belongs in `docs-site/user-guide/`; developer impact in `docs-site/dev/`; architectural decisions in `docs/adr/`; releases in `CHANGELOG.md`.
+2. **Update official documentation**: annotator, administrator, or super-admin impact belongs in `YOAO-Labs/YOAO-Docs` (`user-guide/`); developer impact in `YOAO-Labs/YOAO-Docs` (`dev/`); architectural decisions in `docs/adr/`; releases in `CHANGELOG.md`.
 3. **Do not leave knowledge only in the plan.** If a plan results in no official documentation updates, its knowledge has not been incorporated into lasting documentation.
 
 ## `## Outcome` template
@@ -49,8 +49,8 @@ After implementing each plan, complete all three steps:
 
 - Landed commits: `xxxxxxx`
 - Release milestone: record only maintainer-confirmed arrangements; otherwise write "Not yet determined"
-- User documentation: `docs-site/user-guide/admin/xxx.md`
-- Developer documentation: `docs-site/dev/troubleshooting/xxx.md`
+- User documentation: `YOAO-Labs/YOAO-Docs:user-guide/admin/xxx.md`
+- Developer documentation: `YOAO-Labs/YOAO-Docs:dev/troubleshooting/xxx.md`
 - ADR: `docs/adr/00NN-xxx.md`
 - CHANGELOG: Unreleased entry added (record the actual version once released)
 - Remaining work: ... (hand off to the next plan / issue / TODO)
@@ -60,4 +60,4 @@ After implementing each plan, complete all three steps:
 
 The `validate` job in `docs-validate.yml` warns about plans older than 30 days without a `## Outcome` section; it does not block merging. For a plan that will never have an outcome (an abandoned exploration), add `> Status: abandoned` at the top of the file.
 
-`docs-site/scripts/check-plans-freshness.mjs` scans only active plans in the root directory. Archived files are excluded from stale-plan reminders.
+`scripts/check-plans-freshness.mjs` scans only active plans in the root directory. Archived files are excluded from stale-plan reminders.

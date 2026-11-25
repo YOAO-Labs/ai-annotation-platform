@@ -4,7 +4,7 @@
 > 发布平台：知乎、微信公众号、掘金等<br>
 > 推荐话题：数据标注、计算机视觉、团队协作、权限管理、开源项目<br>
 > 项目地址：[GitHub](https://github.com/YOAO-Labs/ai-annotation-platform)<br>
-> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/ai-annotation-platform/)
+> 在线文档：[AI Annotation Platform Docs](https://yoao-labs.github.io/YOAO-Docs/)
 
 <!-- 发布时可删除上面的编辑信息。文中的仓库相对路径图片需要逐张上传到目标平台。 -->
 
@@ -12,7 +12,7 @@
 
 AI Annotation Platform 内置了五种角色，同时决定页面入口、项目可见范围、批次分配和状态迁移。成员登录后只会看到与自己工作有关的入口。一批任务交给下一个角色时，状态、负责人和审核反馈都会保留下来。
 
-![用户与权限管理](../../docs-site/user-guide/images/superadmin/users/list.png)
+![用户与权限管理](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/users/list.png)
 
 _用户与权限页集中展示成员、角色、数据组、活跃状态和邀请入口。_
 
@@ -30,7 +30,7 @@ _用户与权限页集中展示成员、角色、数据组、活跃状态和邀�
 
 权限矩阵按项目、任务、用户与数据组、数据集与存储、AI 与系统设置分组。项目管理员可以创建项目和分配任务，但不能修改系统设置；标注员可以提交标注，不能自行通过结果；质检员负责审核，也不能改项目配置。
 
-![角色权限矩阵](../../docs-site/user-guide/images/superadmin/users/permission-matrix.png)
+![角色权限矩阵](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/users/permission-matrix.png)
 
 _权限矩阵按业务动作展示五类角色的能力范围，绿色条目表示该角色拥有对应权限。_
 
@@ -44,7 +44,7 @@ _权限矩阵按业务动作展示五类角色的能力范围，绿色条目表�
 
 管理员发起邀请时填写邮箱、角色和可选的数据组。项目管理员只能邀请质检员、标注员或观察者，超级管理员可以选择全部角色，这个范围由服务端校验。
 
-![邀请新成员](../../docs-site/user-guide/images/superadmin/users/invite-modal.png)
+![邀请新成员](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/superadmin/users/invite-modal.png)
 
 _邀请时预设邮箱、角色和数据组，成员接受后直接进入对应工作位置。_
 
@@ -58,7 +58,7 @@ _邀请时预设邮箱、角色和数据组，成员接受后直接进入对应�
 
 批次（Batch）是分配、推进、审核和归档的基本单位。每个批次记录一名主标注员和一名主审核员。项目管理员可以按数据来源、采集时间、难度或工作节奏拆分批次，也可以把多个批次循环分给选中的标注员和审核员。分配结果会同步到批次内的任务。
 
-![批次列表与状态](../../docs-site/user-guide/images/projects/batch-status-list.png)
+![批次列表与状态](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/projects/batch-status-list.png)
 
 _一个项目里的批次可以分别处于草稿、标注中、AI 预标完成、审核中、已通过或已归档等阶段。_
 
@@ -73,15 +73,15 @@ _一个项目里的批次可以分别处于草稿、标注中、AI 预标完成�
 
 AI 预标也在这条路径里。模型批量生成候选后，批次会显示为“AI 已预标，等待人工接管”。标注员接手后检查、修改候选，再进入正常审核流程，模型结果不会直接变成已通过数据。
 
-![批次状态机](../../docs-site/public/diagrams/shared/state-machines/batch-lifecycle.svg)
+![批次状态机](https://yoao-labs.github.io/YOAO-Docs/diagrams/shared/state-machines/batch-lifecycle.svg)
 
 _批次状态机把项目负责人、标注员、质检员和 AI 后台任务的交接位置放在同一张图里。_
 
 批次较多时，可以多选后执行激活、归档、重新分配、删除、批量通过或批量驳回，批量操作不会绕过角色和状态限制。
 
-![批次批量操作](../../docs-site/public/media/projects/batch-bulk-actions-poster.webp)
+![批次批量操作](https://yoao-labs.github.io/YOAO-Docs/media/projects/batch-bulk-actions-poster.webp)
 
-_[观看完整演示](../../docs-site/public/media/projects/batch-bulk-actions.mp4)：勾选多个批次后，页面显示当前状态下可用的批量操作工具栏。_
+_[观看完整演示](https://yoao-labs.github.io/YOAO-Docs/media/projects/batch-bulk-actions.mp4)：勾选多个批次后，页面显示当前状态下可用的批量操作工具栏。_
 
 ## 标注员的页面只保留眼前的工作
 
@@ -93,13 +93,13 @@ _[观看完整演示](../../docs-site/public/media/projects/batch-bulk-actions.m
 
 质检员从待审批次和任务队列进入审核工作台，在与标注员一致的图片画布或视频时间轴中检查结果。审核模式会换成通过、退回、任务锁和差异视图，不会只给一张缩略图让人判断。
 
-![质检审核工作台](../../docs-site/user-guide/images/review/workbench.png)
+![质检审核工作台](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/review/workbench.png)
 
 _质检员在完整画布中查看标注对象，再决定通过或退回。_
 
 退回时必须选择原因：漏标、多标、类别错误，或位置与尺寸不准。质检员还可以补充具体对象、轨迹编号和帧号。任务会回到原来的标注流程，已有标注历史不会被清空，标注员按反馈修改后重新提交。
 
-![结构化退回反馈](../../docs-site/user-guide/images/review/reject-form.png)
+![结构化退回反馈](https://raw.githubusercontent.com/YOAO-Labs/YOAO-Docs/main/user-guide/images/review/reject-form.png)
 
 _结构化原因用于统计常见质量问题，自由备注则帮助标注员定位具体目标。_
 
@@ -116,9 +116,9 @@ _结构化原因用于统计常见质量问题，自由备注则帮助标注员�
 AI Annotation Platform 采用 MIT License 开源，支持图像、视频和点云标注，也包含 AI 预标注、模型工作流、审核、数据管理和多格式导出。
 
 - GitHub：<https://github.com/YOAO-Labs/ai-annotation-platform>
-- 在线文档：<https://yoao-labs.github.io/ai-annotation-platform/>
-- 用户与权限文档：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/superadmin/user-management>
-- 批次与分配文档：<https://yoao-labs.github.io/ai-annotation-platform/user-guide/projects/batch>
+- 在线文档：<https://yoao-labs.github.io/YOAO-Docs/>
+- 用户与权限文档：<https://yoao-labs.github.io/YOAO-Docs/user-guide/superadmin/user-management>
+- 批次与分配文档：<https://yoao-labs.github.io/YOAO-Docs/user-guide/projects/batch>
 - License：MIT
 
 系列下一篇会继续拆解图片工作台里的交互式 AI：智能点、智能框、智能笔迹、Magic Box 和 Exemplar。

@@ -36,7 +36,7 @@
 
 ## 索引
 
-> Accepted 状态的 ADR 归档到 [`archive/`](archive/) 子目录（不进 docs-site sidebar，但编号连续性仍受 `check-adr.mjs` 校验）。当前主目录只保留 Proposed / 待决 ADR。
+> Accepted 状态的 ADR 归档到 [`archive/`](archive/) 子目录，编号连续性受 `scripts/check-adr.mjs` 校验。当前主目录只保留 Proposed / 待决 ADR。
 
 ### 待决（Proposed / Draft）
 

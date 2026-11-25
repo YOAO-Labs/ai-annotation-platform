@@ -5,7 +5,7 @@ description: Change or diagnose dataset sources, resumable scans and sync, immut
 
 # Dataset and storage ownership
 
-Start from the affected operation's current owner, not a file path or bucket name. Read [dataset sources and sync](../../../docs-site/dev/concepts/dataset-sources-and-sync.md) for observation/acceptance, [original access and retention](../../../docs-site/dev/concepts/original-access-and-retention.md) for physical I/O, or [storage migration](../../../docs-site/dev/concepts/storage-migration-and-ops.md) for relocation. Historical branch contracts are not evidence that a feature exists in this checkout.
+Start from the affected operation's current owner, not a file path or bucket name. Read [dataset sources and sync](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/dataset-sources-and-sync) for observation/acceptance, [original access and retention](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/original-access-and-retention) for physical I/O, or [storage migration](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/storage-migration-and-ops) for relocation. Historical branch contracts are not evidence that a feature exists in this checkout.
 
 Keep the requested storage acceptance slice explicit. Correct broken reads, permission/content guarantees, and regressions caused by this change; adjacent Tracker, review, session, training-scale, or migration work is not automatically authorized. Reuse completed acceptance evidence unless changed inputs or a concrete failure invalidate it.
 

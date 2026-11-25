@@ -1,4 +1,4 @@
-exclude: ^(\.agents/|\.claude/(settings\.local\.json$|skills/|worktrees/)|\.hermes/|(?:.*/)?(?:vendor|third-party|third_party)/|apps/web/src/api/generated/|apps/api/(openapi|capability-registry)\.snapshot\.json$|docs-site/(dev/adr/|changelog/|roadmap/|api/guides/_routes\.generated\.md$|dev/reference/env-vars\.md$|user-guide/workbench/(hotkeys|settings)\.generated\.md$|public/(openapi\.json|llms(-full)?\.txt)$)|docs/(adr/archive/|changelogs/|plans/(archive/|_spike-results/)|benchmarks/|research/data/)|infra/grafana/dashboards/|ROADMAP/archive/|pnpm-lock\.yaml$|skills-lock\.json$|(?:.*/)?(?:uv|yarn)\.lock$|.*\.generated\..*$|.*golden.*\.json$)
+exclude: ^(\.agents/|\.claude/(settings\.local\.json$|skills/|worktrees/)|\.hermes/|(?:.*/)?(?:vendor|third-party|third_party)/|apps/web/src/api/generated/|apps/api/(openapi|capability-registry)\.snapshot\.json$|docs/(adr/archive/|changelogs/|plans/(archive/|_spike-results/)|benchmarks/|research/data/)|infra/grafana/dashboards/|ROADMAP/archive/|pnpm-lock\.yaml$|skills-lock\.json$|(?:.*/)?(?:uv|yarn)\.lock$|.*\.generated\..*$|.*golden.*\.json$)
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -25,7 +25,7 @@ repos:
         entry: pnpm exec prettier --write --ignore-unknown --ignore-path .prettierignore
         language: system
         files: \.(cjs|css|gql|graphql|html|js|json|json5|jsonc|jsx|md|mdx|mjs|scss|ts|tsx|vue|webmanifest|ya?ml)$
-        exclude: ^(\.agents/|\.claude/(settings\.local\.json$|skills/)|apps/web/src/api/generated/|apps/api/(openapi|capability-registry)\.snapshot\.json$|docs-site/(dev/adr/|changelog/|roadmap/|api/guides/_routes\.generated\.md$|dev/reference/env-vars\.md$|user-guide/workbench/(hotkeys|settings)\.generated\.md$)|docs/(adr/archive/|changelogs/|plans/(archive/|_spike-results/)|benchmarks/|research/data/)|infra/grafana/dashboards/|ROADMAP/archive/|pnpm-lock\.yaml$|skills-lock\.json$|.*\.generated\..*$|.*golden.*\.json$)
+        exclude: ^(\.agents/|\.claude/(settings\.local\.json$|skills/)|apps/web/src/api/generated/|apps/api/(openapi|capability-registry)\.snapshot\.json$|docs/(adr/archive/|changelogs/|plans/(archive/|_spike-results/)|benchmarks/|research/data/)|infra/grafana/dashboards/|ROADMAP/archive/|pnpm-lock\.yaml$|skills-lock\.json$|.*\.generated\..*$|.*golden.*\.json$)
 
       - id: eslint
         name: eslint (apps/web)
@@ -33,6 +33,7 @@ repos:
         language: system
         files: ^apps/web/.+\.(ts|tsx|js|jsx)$
         pass_filenames: false
+        stages: [pre-commit]
 
       - id: tsc-web
         name: tsc --noEmit (apps/web)
@@ -57,20 +58,12 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      - id: regen-doc-codegen
-        name: Regenerate tracked docs (hotkeys + settings + API routes)
-        entry: bash -c 'node docs-site/scripts/generate-hotkeys.mjs && node docs-site/scripts/generate-settings.mjs && node docs-site/scripts/generate-api-index.mjs && git add docs-site/user-guide/workbench/hotkeys.generated.md docs-site/user-guide/workbench/settings.generated.md docs-site/api/guides/_routes.generated.md 2>/dev/null || true'
-        language: system
-        files: ^(apps/web/src/(pages/Workbench/state/(hotkeys|workbenchSettingsFields|workbenchLocalDefaults)|api/auth)\.ts|apps/api/app/api/v1/.*\.py)$
-        pass_filenames: false
-        stages: [pre-commit]
-
       - id: doc-version-prefix
         name: Check docs for version-prefixed style (advisory)
         entry: node scripts/check-doc-version-prefix.mjs --staged
         language: system
-        files: ^(docs-site/.*\.md|README\.md|DEV\.md)$
-        exclude: ^(CHANGELOG\.md|docs/adr/|docs-site/dev/adr/|.*\.generated\.md)$
+        files: ^(README\.md|DEV\.md)$
+        exclude: ^(CHANGELOG\.md|docs/adr/|.*\.generated\.md)$
         pass_filenames: false
         verbose: true
 

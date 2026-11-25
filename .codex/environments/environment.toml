@@ -21,7 +21,7 @@ bash scripts/orca-worktree-setup.sh
 script = '''
 set -euo pipefail
 cd "${CODEX_WORKTREE_PATH:?Missing worktree path}"
-rm -rf -- .pytest_cache .ruff_cache apps/api/.pytest_cache apps/api/.ruff_cache apps/web/coverage apps/web/test-results apps/web/playwright-report docs-site/.vitepress/cache
+rm -rf -- .pytest_cache .ruff_cache apps/api/.pytest_cache apps/api/.ruff_cache apps/web/coverage apps/web/test-results apps/web/playwright-report
 '''
 
 [[actions]]
