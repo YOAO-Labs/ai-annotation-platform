@@ -62,7 +62,7 @@ pytest 先收集全部 API 测试模块，再按模块分片。如果四份 `pyt
 
 复验四个 API 分片时，保留 CI 的 `--shard-plan tests/ci-shard-plan.json`。计划只移动耗时长的整模块；未列出和新增的模块仍按路径哈希分配。单独运行文件不需要计划，也不会拆开同一模块的用例。
 
-更新计划时，在被测提交上用 `pytest -o addopts= --collect-only -q` 保存逐用例清单，下载同一次完整运行的四份 `pytest-results.xml`。从 `apps/api` 运行 `.venv/bin/python -m tests.plan_shards --help` 查看生成参数；将标准输出交给 `pnpm exec prettier --parser json > tests/ci-shard-plan.json`。比较最慢分片的预计时间，优先选只需移动少数模块的方案。JUnit 耗时不含排队、依赖安装或覆盖率报告生成；缩短整轮 CI 需用下一次实际运行验证。
+更新计划时，在被测提交上用 `pytest -o addopts= --collect-only -q` 保存逐用例清单，下载同一次完整运行的四份 `pytest-results.xml`。从 `apps/api` 运行 `.venv/bin/python -m tests.plan_shards --help` 查看生成参数；将标准输出交给 `pnpm exec prettier --parser json > tests/ci-shard-plan.json`。比较最慢分片的预计时间，优先选只需移动少数模块的方案。JUnit 耗时不含排队和依赖安装；缩短整轮 CI 需用下一次实际运行验证。
 
 ### 前端：Vitest + MSW (`apps/web`)
 
@@ -120,6 +120,7 @@ API 的 SAVEPOINT、ASGI 客户端和角色夹具由 `apps/api/tests/conftest.py
 <span id="覆盖率门禁" aria-hidden="true"></span>
 
 - 对照实际 collection、逐用例报告和退出码。未收集、跳过、失败、空报告和资源未清理要分别记录；测试计划不能当成绩单。同一用例被多套件选中也不应重复计入。
+- CI 运行 pytest 和 Vitest，不采集或上传代码覆盖率。需要定位未执行的代码时，可在本地给 pytest 加 `--cov=app --cov-report=term-missing`，或运行 `pnpm --filter web test:coverage`。
 - PR 的浏览器选集读 `e2e-selection-report`。用 `gates.effective` 对照必需报告，从 `gates.planned`、`gates.rollback` 和逐套件原因解释差异。`scripts/audit-e2e-requirements.mjs` 核对必需报告；核心用例重试转绿不能证明核心通过。区分浏览器 Job 的累计运行时间、首次开始到最后结束的窗口，以及整轮 CI 的墙钟耗时。
 - 区分真 PostgreSQL、受控对象替身、真实 S3、独立进程和实际浏览器／GPU。狭窄验收不能证明整模块、真实权重、生产容量或日常切换。
 

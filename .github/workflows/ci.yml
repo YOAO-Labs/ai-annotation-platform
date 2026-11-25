@@ -48,8 +48,6 @@ jobs:
     with:
       shard-index: 0
       shard-count: 4
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   backend-tests-shard-one:
     name: Backend tests shard one
@@ -58,8 +56,6 @@ jobs:
     with:
       shard-index: 1
       shard-count: 4
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   backend-tests-shard-two:
     name: Backend tests shard two
@@ -68,8 +64,6 @@ jobs:
     with:
       shard-index: 2
       shard-count: 4
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   backend-tests-shard-three:
     name: Backend tests shard three
@@ -78,8 +72,6 @@ jobs:
     with:
       shard-index: 3
       shard-count: 4
-    secrets:
-      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   worktree-tests:
     name: Backend worktree and maintenance tests
@@ -447,16 +439,9 @@ jobs:
       - name: Bundle size check
         working-directory: apps/web
         run: pnpm size
-      - name: vitest with coverage
+      - name: Run Vitest
         working-directory: apps/web
-        run: pnpm test:coverage
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: apps/web/coverage/lcov.info
-          flags: frontend
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+        run: pnpm test
 
   lint:
     name: Repository quality

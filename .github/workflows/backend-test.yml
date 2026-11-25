@@ -11,10 +11,6 @@ on:
         description: "Total number of shards (CI uses four)"
         required: true
         type: number
-    secrets:
-      CODECOV_TOKEN:
-        description: "Optional Codecov token; uploads merge under the `backend` flag"
-        required: false
 
 permissions:
   contents: read
@@ -105,11 +101,10 @@ jobs:
             echo "::error::OpenAPI snapshot drift. 请在 apps/api 下运行 'uv run python ../../scripts/export_openapi.py' 重生 snapshot 并提交（建议本地装 pre-commit 让它自动跑）。"
             exit 1
           fi
-      - name: pytest with coverage
+      - name: Run API test shard
         working-directory: apps/api
         run: >-
-          uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
-          --durations=30 --junitxml=pytest-results.xml
+          uv run pytest -q --durations=30 --junitxml=pytest-results.xml
           --shard-index ${{ inputs.shard-index }} --shard-count ${{ inputs.shard-count }}
           ${{ inputs.shard-count == 4 && '--shard-plan tests/ci-shard-plan.json' || '' }}
       - uses: pnpm/action-setup@v4
@@ -168,13 +163,6 @@ jobs:
             m2b-results/acceptance.junit.xml
             m2b-results/acceptance.json
           retention-days: 7
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: apps/api/coverage.xml
-          flags: backend
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Retire backend object store
         if: always()
         run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
