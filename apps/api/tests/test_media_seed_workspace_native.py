@@ -50,8 +50,9 @@ async def media_world(test_engine):
         if not LEGACY:
             result = await _grants(
                 test_engine,
-                ROOT / "infra/docker/workspace-seed-operator-grants.sql",
+                ROOT / "infra/docker/workspace-grants.sql",
                 role,
+                capability="seed_operator",
             )
             assert result.returncode == 0, result.stderr
             async with test_engine.begin() as db:
@@ -119,7 +120,7 @@ async def test_media_seed_creates_linked_assets_and_preserves_repeat(
             (labels / (name + ".txt")).write_text("0 0.5 0.5 0.5 0.5\n")
         options = {"fixture": tmp_path}
     else:
-        video = ROOT / "docs-site/public/home/sam-tools/smart-point.webm"
+        video = ROOT / "apps/api/fixture-media/smart-point.webm"
         media_hash = hashlib.sha256(video.read_bytes()).hexdigest()
         options = {"video": video}
 

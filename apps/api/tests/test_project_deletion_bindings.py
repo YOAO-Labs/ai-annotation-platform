@@ -1,7 +1,6 @@
 """Reject ambiguous or mismatched deletion receipts before caller commit."""
 
-import json
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -79,11 +78,9 @@ async def test_scope_mismatch_does_not_let_the_client_report_success():
 
 
 def test_receipt_binding_matches_frozen_public_fields():
-    frozen = json.loads(
-        (
-            Path(__file__).parents[1] / "alembic/sql/0199_project_deletion.schema.json"
-        ).read_text()
-    )["$defs"]["receipt"]
+    frozen = load_contract_schema("0199_project_deletion.schema.json")["$defs"][
+        "receipt"
+    ]
     actual = ProjectDeletionReceipt.model_json_schema()
     assert set(frozen["properties"]) == set(actual["properties"])
     assert set(frozen["required"]) == set(actual["required"])

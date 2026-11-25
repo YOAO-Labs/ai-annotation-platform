@@ -4,6 +4,8 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 import sqlalchemy as sa
@@ -21,12 +23,12 @@ from tests.test_identity_auth_native import _cleanup, _seed
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0240_identity_groups.sql"
-_SCHEMA = _SQL_DIR / "0240_identity_groups.schema.json"
+_SCHEMA = "0240_identity_groups.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0240_identity_groups.py"
 
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_GROUP_GRANTS = _ROOT / "infra/docker/identity-groups-grants.sql"
-_LEGACY_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_GROUP_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LEGACY_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 
 
 def _context() -> dict[str, str]:
@@ -251,11 +253,11 @@ async def test_group_policy_rejections_are_atomic_and_keep_public_details(test_e
 def test_frozen_group_artifacts_and_owner_capabilities():
     from app.db.native_schema import NATIVE_MANAGED_TABLES
 
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    group_grants = _GROUP_GRANTS.read_text(encoding="utf-8")
+    group_grants = read_psql_grant_script(_GROUP_GRANTS, capability="groups")
     legacy_grants = _LEGACY_GRANTS.read_text(encoding="utf-8")
     statements = [
         statement.strip()
@@ -292,7 +294,7 @@ def test_frozen_group_artifacts_and_owner_capabilities():
     assert "lock_group_assignment_scope" in module_grants
     assert "record_identity_group_event" in module_grants
     assert 'user_invitations TO :"identity_owner"' in module_grants
-    assert "identity_group_role=yoao_identity_group_client" in group_grants
+    assert ":'identity_group_role'" in group_grants
     assert group_grants.count("yoao_identity_groups_v1.group_policy()") == 2
     assert (
         group_grants.count("yoao_identity_groups_v1.execute_group_command(jsonb)") == 2

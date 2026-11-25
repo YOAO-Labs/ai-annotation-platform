@@ -13,7 +13,7 @@ First check the requested version, current branch, dirty work, and already compl
    When this starts a new minor line, move every section from the previous minor line verbatim into `docs/changelogs/<major>.<minor>.x.md`, add that file to the root history table, and keep only Unreleased plus the current minor line in the root file. Preserve release order and do not move the root maintenance comment into the archive.
 2. In the same release change, update `app_version` in `apps/api/app/config.py`, `[project].version` in `apps/api/pyproject.toml`, and `version` in `apps/web/package.json`.
 3. From `apps/api`, run `uv lock` or `uv sync` to regenerate the `anno-api` lock entry. Do not hand-edit `uv.lock`.
-4. Let the commit hook regenerate `apps/api/openapi.snapshot.json`, including `info.version`; use root `pnpm openapi:export` when the hook is unavailable, then `pnpm openapi:check`. Do not hand-edit the snapshot or use `dump-openapi.py` for it. The docs build copies it to `docs-site/public/openapi.json`.
+4. Let the commit hook regenerate `apps/api/openapi.snapshot.json`, including `info.version`; use root `pnpm openapi:export` when the hook is unavailable, then `pnpm openapi:check`. Do not hand-edit the snapshot or use `dump-openapi.py` for it. The docs build copies it to `https://yoao-labs.github.io/YOAO-Docs/openapi.json`.
 5. Regenerate frontend clients with `pnpm codegen` when the API contract changes. Compare current source and snapshot before interpreting missing generated types as an API defect.
 6. Verify the intended running API's `/health` reports the new version (default host URL: `http://localhost:8000/health`). Check that it serves this checkout; report explicitly if no API is available.
 

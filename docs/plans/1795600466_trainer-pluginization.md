@@ -4,7 +4,7 @@
 >
 > 创建日期：2026-11-25。
 >
-> 关联上下文：承接已收口的 [平台插件化计划（M0-M4）](1795366269_platform-pluginization.md) 与 [ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)、[ADR-0090（版本化 YOLO 身份与资产）](../adr/archive/0090-versioned-yolo-identities-and-content-assets.md) 与在线学习设计约束（[训练数据集与执行器架构](../../docs-site/dev/concepts/training-datasets.md)）。统一插件 SDK 落点为独立仓库 `YOAO-Labs/Plugin-SDK`（`yoao-plugin-sdk[trainer]` 与 `@yoao/plugin-sdk`）。
+> 关联上下文：承接已收口的 [平台插件化计划（M0-M4）](1795366269_platform-pluginization.md) 与 [ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)、[ADR-0090（版本化 YOLO 身份与资产）](../adr/archive/0090-versioned-yolo-identities-and-content-assets.md) 与在线学习设计约束（[训练数据集与执行器架构](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets)）。统一插件 SDK 落点为独立仓库 `YOAO-Labs/Plugin-SDK`（`yoao-plugin-sdk[trainer]` 与 `@yoao/plugin-sdk`）。
 
 ## 1. 目标与非目标
 
@@ -184,7 +184,7 @@
 1. 使用提取后的 `ultralytics` 训练器插件完成真实检测与实例分割（RLE）训练、容器边界 CPU-only 增强预览、运行中取消与容器退出确认、`ProcessBudget` 超时中止、心跳失联置 `lost` 保租约与 fenced 恢复、以及 supervisor 崩溃重启回收孤儿容器验证。
 2. 使用提取后的 `libreyolo` 训练器插件完成真实检测训练、`weights_only=True` 断点续训与产物回读验证。
 3. 将两款训练器产出的 `TrainedModelVersion` 分别部署至 `YOAO-Plugins` 中对应的推理插件，验证 `POST /managed-models` 回执核对、固定验证图 `/predict` 试跑、人类显式 CAS 发布、推理预标注调用与安全退役。
-4. 在 `docs/plans/evidence/1795600466_trainer-pluginization/` 记录脱敏实测台账，并同步更新 `docs-site/user-guide/`、`docs-site/dev/concepts/training-datasets.md`、`CHANGELOG.md` 与本计划 `## Outcome` 章节。
+4. 在 `docs/plans/evidence/1795600466_trainer-pluginization/` 记录脱敏实测台账，并同步更新 `YOAO-Docs` 用户指南与训练架构文档、`CHANGELOG.md` 与本计划 `## Outcome` 章节。
 
 ## 5. 与双包生态的衔接
 

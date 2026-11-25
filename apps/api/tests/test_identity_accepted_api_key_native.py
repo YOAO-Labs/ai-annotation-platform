@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 import json
 import os
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import pytest
@@ -29,12 +29,9 @@ _FUNCTION = "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])"
 
 
 def test_accepted_key_sql_descriptor_matches_the_portable_contract():
-    path = (
-        Path(__file__).parents[1]
-        / "alembic/sql/0285_identity_accepted_api_key.schema.json"
-    )
+    path = "0285_identity_accepted_api_key.schema.json"
     expected = accepted_api_key_schema()
-    assert json.loads(path.read_text()) == historical(expected)
+    assert load_contract_schema(path) == historical(expected)
     from importlib.resources import files
 
     assert (

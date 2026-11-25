@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -728,11 +728,7 @@ def test_unknown_or_invalid_append_receipt_is_rejected(invalid):
 
 
 def test_python_receipt_binding_tracks_frozen_data_contract():
-    contract = json.loads(
-        (
-            Path(__file__).parents[1] / "alembic/sql/0191_task_append.schema.json"
-        ).read_text()
-    )["$defs"]
+    contract = load_contract_schema("0191_task_append.schema.json")["$defs"]
     for name, binding in (
         ("result", TaskAppendResult),
         ("association", AppendAssociation),

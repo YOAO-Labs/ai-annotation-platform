@@ -341,7 +341,7 @@ docker build -f apps/assets-source/Dockerfile .
 
 `Dockerfile.import` builds a separate worker process, started with
 `python -m yoao_assets_source_import`. It uses its own PostgreSQL LOGIN role
-with the exact functions in `infra/docker/assets-import-grants.sql`; it exposes
+with the exact functions in `infra/docker/assets-grants.sql` (`-v grant_import=1`); it exposes
 no HTTP port. Install the lease-bound import capabilities and grants with the
 Source Saved I/O capabilities before starting the worker.
 

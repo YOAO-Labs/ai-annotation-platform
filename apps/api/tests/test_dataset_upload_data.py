@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
 import uuid
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from pydantic import ValidationError
@@ -76,11 +75,8 @@ class _FakeDb:
 
 
 def test_frozen_schema_matches_the_typed_value_bindings():
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "alembic/sql/0207_dataset_upload_intents.schema.json"
-    )
-    schema = json.loads(path.read_text())
+    path = "0207_dataset_upload_intents.schema.json"
+    schema = load_contract_schema(path)
     definitions = schema["$defs"]
 
     def check_refs(value: object) -> None:

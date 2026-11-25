@@ -187,15 +187,20 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                     .scalars()
                     .all()
                 )
-            for installer, variables in (
-                ("identity-role-audit-grants.sql", {}),
-                ("workspace-role-audit-grants.sql", {}),
-                ("labeling-role-audit-grants.sql", {"labeling_owner": "labeling_code"}),
+            for installer, capability, variables in (
+                ("identity-grants.sql", "role_audit", {}),
+                ("workspace-grants.sql", "role_audit", {}),
+                (
+                    "labeling-grants.sql",
+                    "role_audit",
+                    {"labeling_owner": "labeling_code"},
+                ),
             ):
                 result = await _grants(
                     test_engine,
                     ROOT / "infra/docker" / installer,
                     role,
+                    capability=capability,
                     **variables,
                 )
                 assert result.returncode == 0, result.stderr
@@ -209,8 +214,9 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                 ).scalars().all() == view_ids
             rejected = await _grants(
                 test_engine,
-                ROOT / "infra/docker/identity-role-audit-grants.sql",
+                ROOT / "infra/docker/identity-grants.sql",
                 role,
+                capability="role_audit",
                 consumer_role="identity_api_consumer",
             )
             assert rejected.returncode != 0
@@ -345,7 +351,7 @@ async def _node_audit_reader(reader, *, prepared, project_role):
 async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, invalid):
     from tests.test_workspace_consumer_profile_native import _grants
 
-    installer = ROOT / "infra/docker/workspace-role-audit-grants.sql"
+    installer = ROOT / "infra/docker/workspace-grants.sql"
     relation = "yoao_workspace_audit_v1.project_facts"
     async with audit_reader(test_engine) as (reader, role):
         async with test_engine.begin() as db:
@@ -371,7 +377,9 @@ async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, i
             )
             if invalid == "owner":
                 options["workspace_owner"] = "identity_code"
-            result = await _grants(test_engine, installer, role, **options)
+            result = await _grants(
+                test_engine, installer, role, capability="role_audit", **options
+            )
             assert result.returncode != 0
             async with test_engine.connect() as db:
                 assert not await db.scalar(
@@ -397,7 +405,9 @@ async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, i
                     await db.execute(
                         text("DROP TABLE yoao_workspace_audit_v1.unexpected")
                     )
-            recovered = await _grants(test_engine, installer, role)
+            recovered = await _grants(
+                test_engine, installer, role, capability="role_audit"
+            )
             assert recovered.returncode == 0, recovered.stderr
         async with read_only_audit_session(reader) as db:
             await collect_report(db)
@@ -409,7 +419,7 @@ async def test_workspace_audit_installer_rejects_drift_atomically(test_engine, i
 async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, invalid):
     from tests.test_workspace_consumer_profile_native import _grants
 
-    installer = ROOT / "infra/docker/labeling-role-audit-grants.sql"
+    installer = ROOT / "infra/docker/labeling-grants.sql"
     relation = "yoao_labeling_audit_v1.task_facts"
     async with audit_reader(test_engine) as (reader, role):
         async with test_engine.begin() as db:
@@ -440,7 +450,9 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
                 options["expected_database"] = "wrong_test"
             if invalid == "owner":
                 options["labeling_owner"] = "identity_code"
-            result = await _grants(test_engine, installer, role, **options)
+            result = await _grants(
+                test_engine, installer, role, capability="role_audit", **options
+            )
             assert result.returncode != 0
             async with test_engine.connect() as db:
                 assert not await db.scalar(
@@ -468,7 +480,11 @@ async def test_labeling_audit_installer_rejects_drift_atomically(test_engine, in
                         text("DROP TABLE yoao_labeling_audit_v1.unexpected")
                     )
             recovered = await _grants(
-                test_engine, installer, role, labeling_owner="labeling_code"
+                test_engine,
+                installer,
+                role,
+                capability="role_audit",
+                labeling_owner="labeling_code",
             )
             assert recovered.returncode == 0, recovered.stderr
         async with read_only_audit_session(reader) as db:
@@ -486,7 +502,10 @@ async def test_normal_workspace_profile_revokes_explicit_audit_grants(test_engin
                 )
             )
         applied = await _grants(
-            test_engine, ROOT / "infra/docker/workspace-consumer-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/workspace-grants.sql",
+            role,
+            capability="consumer",
         )
         assert applied.returncode == 0, applied.stderr
         async with test_engine.connect() as db:
@@ -597,8 +616,9 @@ async def test_historical_profile_tracks_preparation_and_node(
             await _node_audit_reader(reader, prepared=True, project_role="reviewer")
             installed = await _grants(
                 historical,
-                ROOT / "infra/docker/labeling-role-audit-grants.sql",
+                ROOT / "infra/docker/labeling-grants.sql",
                 _role,
+                capability="role_audit",
                 labeling_owner="labeling_code",
             )
             assert installed.returncode == 0, installed.stderr

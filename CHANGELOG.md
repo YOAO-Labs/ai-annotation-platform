@@ -43,16 +43,16 @@
 - `yoao plugins` 支持从固定摘要的 OCI 镜像标签 `io.yoao.plugin.manifest` 读取插件清单，提供 `yoao plugins inspect-image` 离线核验，并允许 `yoao plugins prepare` 通过 `--image` 参数或精简配置跳过手写完整 `manifest`（从标签读取清单时强制确认；仍完整兼容原有含内联 `manifest` 的 `--config`）。
 - `yoao plugins` 新增 `qualify` 子命令，并在 `install` 与 `upgrade` 中支持 `--qualify`（搭配可选 `--fixture`、`--asset-dir`、`--model-approval-ref`、`--fixture-approval-ref`），可在 `--network none` 隔离容器中执行镜像声明的 `io.yoao.plugin.qualification-command` 生成并校验 GPU 生命周期资格报告，不挂载 `data/token` 或签名密钥环，且不放宽任何现有 GPU 资格门禁、安装身份或排空语义。
 - 新增外部通知通道扩展点平台侧支持（`yoao-notification-channel/v1`、`yoao-notification-preferences/v2` 与通用 `yoao-extension-manifest/v1` 展示元数据及平台权威 `source_tier`）：提供超管通道注册／探测／CAS 状态流转（`prepared`／`active`／`disabled`／`retired`）与用户地址绑定／解绑／限流测试发送 REST 与 Python SDK 接口；通道凭据须通过独立 `NOTIFICATION_CHANNEL_ENCRYPTION_KEY` 加密且未配置时失败关闭，出站请求实施连接期 IP 绑定 SSRF 护栏，业务事务内写入 `yoao_notifications_v1.notification_channel_deliveries` 发件箱并由后台投递 worker 按目标可见性、账号状态、偏好与绑定四重复核后以脱敏 5 字段信封投递。
-- 新增外部通知渠道插件开发者接入教程（`docs-site/dev/tutorials/notification-channel-plugin.md`），并与独立插件仓库 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 中的零依赖 Node.js 飞书私信参考插件（`plugins/notification-channel/feishu-dm`）完成直连档与非 root 只读容器安装档双档协议联通验证。
+- 新增外部通知渠道插件开发者接入教程，并与独立插件仓库 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 中的零依赖 Node.js 飞书私信参考插件（`plugins/notification-channel/feishu-dm`）完成直连档与非 root 只读容器安装档双档协议联通验证。
 - 新增外部格式适配器扩展点平台侧支持（`yoao-format-adapter/v1`，复用 `yoao-extension-manifest/v1` 与平台权威 `source_tier`）：从公开 `MaskFormatAdapter` 契约彻底剥离 `AsyncSession` 与 ORM 对象并闭合图片尺寸直读 `DatasetItem` 边界；新增 `yoao_labeling_v1.format_adapter_plugins` 私有表与固定 `SECURITY DEFINER` owner 能力、独立 `FORMAT_ADAPTER_ENCRYPTION_KEY` 失败关闭加密、连接期 IP 绑定 SSRF 护栏、7 条超管注册／探测／启停／退役接口及动态格式目录接入，并与独立插件仓库 `YOAO-Plugins` 中的零依赖 Node.js LabelMe JSON 参考插件（`plugins/format-adapter/labelme-json`）完成直连档与非 root 只读容器安装档双档实测。
 
 ### Changed
 
 - 推理插件安装器与 `yoao-protocol-v2` 路由控制运行时全面切到 YOAO 命名：Docker 所有权标签改为 `yoao.installation`／`yoao.owner`／`yoao.image`／`yoao.config`／`yoao.candidate`，容器名前缀改为 `yoao-plugin-`，挂载目录统一为 `/var/lib/yoao-plugin` 与 `/var/lib/yoao-qualification/*`，容器环境变量改为 `YOAO_PLUGIN_*`、`YOAO_QUALIFICATION_*` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_REGISTRY_ID` 非空时启动阶段失败关闭）。不保留旧别名；既有插件容器须用原匹配 CLI 停用或退役后再部署，外部 `Plugin-SDK` 与 `YOAO-Plugins` 制品须同步升级以匹配新运行契约。
-- 超级管理员模型服务文档的“可安装推理插件”章节拆分为“操作步骤”和“安全原理”两层，移除面向运维的内部实现术语；插件安装状态机、OCI 标签规范、资格容器隔离约束与历史本地收据迁移说明移至开发者概念文档 [插件安装生命周期](docs-site/dev/concepts/plugin-installation-lifecycle.md)。
-
+- 超级管理员模型服务文档的“可安装推理插件”章节拆分为“操作步骤”和“安全原理”两层，移除面向运维的内部实现术语；插件安装状态机、OCI 标签规范、资格容器隔离约束与历史本地收据迁移说明移至开发者概念文档（插件安装生命周期）。
+- 文档站已从主仓库 `docs-site/` 迁移至独立仓库 `YOAO-Labs/YOAO-Docs`，在线访问地址更新为 <https://yoao-labs.github.io/YOAO-Docs/>；主仓库 GitHub Pages 保留路径无损重定向，架构决策（ADR）、计划文档与路线图留在主仓库维护，不再在文档站镜像发布。可执行示例后端迁至 `examples/ml-backend/`。
 - 原件身份与完整下载在返回 HTTP 409 时记录脱敏结构化警告日志，并在任务解析阶段复用既有 1 秒有界 `DatasetItem FOR SHARE` 等待（保留所有冲突与绑定漂移保护，不引入原件身份自动重试）；前端透出 `x-request-id` 与并发占用业务码，在「重读原图」横幅次级文案展示错误码与请求回执，并将脱敏读取诊断与手动重读后的原件摘要纳入反馈采集。
-- 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。新拓扑已在隔离部署验证；旧安装不会自动切换，升级前须核对[进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)与[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)。
+- 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。新拓扑已在隔离部署验证；旧安装不会自动切换，升级前须核对[进程清单](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#deployment-convergence)与[升级门禁](https://yoao-labs.github.io/YOAO-Docs/ops/upgrade-guide#split-topology-upgrade)。
 - 普通 API／worker 改用固定 owner 能力和公开读视图；重放安装授权会撤销旧私表和序列权限。已登记自定义 S3／SFTP 的物理 I/O 由既有私有 Assets Source 处理，独立导入器不再持有连接器解密密钥或 SSH 文件。内建 MinIO、受控目录、站点 Agent 和既有保存目标不迁移。
 - 推理服务直连接入指南现在区分本机自检、私网监听、全局服务池启用和项目预测；强制路由部署另列实例绑定步骤。手动注册不等于安装插件。
 - `pnpm lint:comments` 禁止在自维护源码、测试和配置中新增解释性注释。原有约束归入 ADR，权宜实现有可追踪的 issue；冻结迁移和工具真正消费的输入保留，不能用删除旧注释换取新额度。贡献者可用 `/delete-comment` 复查。
@@ -62,7 +62,7 @@
 - 可销毁工作树使用 `YOAO_WORKTREE_MODE`、`yoao_wt_` 数据库和 `yoao-wt-` 资源。旧环境须用匹配的旧工具精确退役；需要保留的状态先备份并验证恢复。不改日常或生产部署。
 - 模型服务注册页只允许为部署指定的可信地址选择系统托管认证；无可信地址时，设置页说明如何配置并禁用批量初始化。服务出现在认证列表不代表已安装。维护提示明确两个 SAM 服务也先拉取并核验固定镜像，失败不停止原容器。
 - 新生成的图片、视频 YOLO `data.yaml` 和点云导出包说明不再显示旧品牌；原生 JSON 指南区分当前导出目标与历史文件身份。已有 ZIP、格式字段、目录名和标注数据不改写。
-- Native 数据库模块的现行 schema、专用连接账号和事务设置统一到 `yoao` 命名。已有部署需在维护窗口同步迁移数据库、凭据配置和服务；历史回执仍可重放，私表权限不变。见 [Native 数据库协调切换](docs-site/ops/upgrade-guide.md#native-owner-namespace-cutover)。
+- Native 数据库模块的现行 schema、专用连接账号和事务设置统一到 `yoao` 命名。已有部署需在维护窗口同步迁移数据库、凭据配置和服务；历史回执仍可重放，私表权限不变。见 [Native 数据库协调切换](https://yoao-labs.github.io/YOAO-Docs/ops/upgrade-guide#native-owner-namespace-cutover)。
 - 来源故障与原图／预览观测率改用 Assets 固定数据库能力。API 与 Worker 普通账号不再直接访问观测表和序列；保留历史故障、独立观测事务及现有接口。
 - PostgreSQL 中模块连接的显示名统一使用 `yoao-` 前缀。按旧 `aap-` 名称过滤的看板和告警需要更新；不需要迁移数据库或更换凭据。
 - API 密钥管理和 GPU 回收分别改用 `yoao_identity_key_client`、`yoao_inference_gpu_collector_client`。升级需停旧准入、排空连接并更新部署凭据。用户无需重新签发 API key；已有密钥操作回执、GPU 围栏和回收凭证仍然有效。

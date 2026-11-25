@@ -6,14 +6,13 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(here, "../../src/yoao_notifications");
 const contractPath = path.join(packageRoot, "inbox_query.schema.json");
-const packageSqlPath = path.join(packageRoot, "sql/0324_notifications_inbox_query.sql");
 const apiSqlPath = path.resolve(
   here,
   "../../../api/alembic/sql/0324_notifications_inbox_query.sql",
 );
-const apiSchemaPath = path.resolve(
+const apiContractsPath = path.resolve(
   here,
-  "../../../api/alembic/sql/0324_notifications_inbox_query.schema.json",
+  "../../../api/alembic/sql/notifications.contracts.json",
 );
 const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
 const columns = [
@@ -28,14 +27,21 @@ const columns = [
 ];
 
 async function selfCheck() {
-  const [contractBytes, packageSql, apiSql, apiSchemaBytes] = await Promise.all([
+  const [contractBytes, apiSql, apiContractsBytes] = await Promise.all([
     readFile(contractPath),
-    readFile(packageSqlPath, "utf8"),
     readFile(apiSqlPath, "utf8"),
-    readFile(apiSchemaPath),
+    readFile(apiContractsPath),
   ]);
   const contract = JSON.parse(contractBytes.toString("utf8"));
-  const apiSchema = JSON.parse(currentNames(apiSchemaBytes.toString("utf8")));
+  const apiSchema = JSON.parse(
+    currentNames(
+      JSON.stringify(
+        JSON.parse(apiContractsBytes.toString("utf8")).artifacts[
+          "0324_notifications_inbox_query.schema.json"
+        ],
+      ),
+    ),
+  );
   assert.equal(contract.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(contract.$id, "aap-notifications-inbox-query/v1");
   assert.deepEqual(contract["x-row-columns"], columns);
@@ -57,25 +63,21 @@ async function selfCheck() {
   assert.equal(contract["x-security"].private_helper_execute, false);
   assert.equal(contract["x-bigint-wire"].startsWith("Keep PostgreSQL bigint"), true);
   assert.deepEqual(apiSchema, contract);
-  assert.equal(packageSql, apiSql);
   for (const functionName of [
     "_visible_inbox_rows",
     "inbox_page",
     "inbox_total_count",
     "inbox_unread_count",
   ]) {
-    assert.match(
-      packageSql,
-      new RegExp(`CREATE FUNCTION aap_notifications_v1\\.${functionName}\\(`),
-    );
+    assert.match(apiSql, new RegExp(`CREATE FUNCTION aap_notifications_v1\\.${functionName}\\(`));
   }
-  assert.equal((packageSql.match(/SECURITY DEFINER/g) ?? []).length, 4);
-  assert.equal((packageSql.match(/SET search_path = pg_catalog, pg_temp/g) ?? []).length, 4);
-  assert.equal(packageSql.includes("public.notifications"), false);
-  assert.equal(packageSql.includes("public.async_jobs"), false);
-  assert.equal(packageSql.includes("public.project_members"), false);
-  assert.equal(packageSql.includes("public.projects"), false);
-  assert.equal(packageSql.includes("GRANT EXECUTE"), false);
+  assert.equal((apiSql.match(/SECURITY DEFINER/g) ?? []).length, 4);
+  assert.equal((apiSql.match(/SET search_path = pg_catalog, pg_temp/g) ?? []).length, 4);
+  assert.equal(apiSql.includes("public.notifications"), false);
+  assert.equal(apiSql.includes("public.async_jobs"), false);
+  assert.equal(apiSql.includes("public.project_members"), false);
+  assert.equal(apiSql.includes("public.projects"), false);
+  assert.equal(apiSql.includes("GRANT EXECUTE"), false);
   process.stdout.write("Notifications inbox-query contract self-check passed\n");
 }
 

@@ -1,7 +1,6 @@
 """Fixed Jobs queries for current cross-frame and preannotation consumers."""
 
 from datetime import datetime
-from importlib.resources import files
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, TypeAdapter
@@ -138,12 +137,12 @@ def jobs_domain_query_schema():
 
 
 def jobs_domain_query_sql():
-    return files("yoao_jobs").joinpath("sql/0329_jobs_domain_queries.sql").read_text()
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0329_jobs_domain_queries.sql")
 
 
 def jobs_frozen_deployment_usage_sql():
-    return (
-        files("yoao_jobs")
-        .joinpath("sql/0389_learning_deployment_retirement.sql")
-        .read_text()
-    )
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0389_learning_deployment_retirement.sql")

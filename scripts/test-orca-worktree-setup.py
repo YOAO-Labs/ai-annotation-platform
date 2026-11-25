@@ -33,14 +33,12 @@ def test_setup(launcher):
         dependencies = (
             "node_modules",
             "apps/web/node_modules",
-            "docs-site/node_modules",
         )
         manifests = (
             "pnpm-lock.yaml",
             "pnpm-workspace.yaml",
             "package.json",
             "apps/web/package.json",
-            "docs-site/package.json",
         )
         for directory in (root, worktree):
             for name in manifests:

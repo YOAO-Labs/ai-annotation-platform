@@ -30,7 +30,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from grant_sql import read_runtime_grant_statements
+from grant_sql import read_psql_grant_script, read_runtime_grant_statements
 from worktree_env import (
     WorktreeError,
     _validate_environment_sources,
@@ -807,9 +807,10 @@ class LocalResources:
                     if role is None:
                         raise WorktreeError(f"缺少 Assets {lane} worker 专用账号")
                     self._validate_runtime_role(role, credentials)
-                    grants = (
-                        self.code_root / f"infra/docker/assets-{script}-grants.sql"
-                    ).read_text()
+                    grants = read_psql_grant_script(
+                        self.code_root / "infra/docker/assets-grants.sql",
+                        capability=script,
+                    )
                     prefix = f'\n    TO :"{variable}";'
                     if grants.count(prefix) != 1:
                         raise WorktreeError(f"Assets {lane} worker 授权片段缺失或重复")

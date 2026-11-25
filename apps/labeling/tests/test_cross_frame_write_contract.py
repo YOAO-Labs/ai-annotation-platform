@@ -100,21 +100,15 @@ def test_contract_round_trips_closed_command_and_schema():
     )
     repository = Path(__file__).resolve().parents[3]
     assert (
-        files("yoao_labeling")
-        .joinpath("sql/0344_labeling_cross_frame_writes.sql")
-        .read_text()
-        == (
-            repository / "apps/api/alembic/sql/0344_labeling_cross_frame_writes.sql"
-        ).read_text()
-    )
+        repository / "apps/api/alembic/sql/0344_labeling_cross_frame_writes.sql"
+    ).is_file()
     assert (
         _current_names(
             json.loads(
                 (
-                    repository
-                    / "apps/api/alembic/sql/0344_labeling_cross_frame_writes.schema.json"
+                    repository / "apps/api/alembic/sql/labeling.contracts.json"
                 ).read_text()
-            )
+            )["artifacts"]["0344_labeling_cross_frame_writes.schema.json"]
         )
         == cross_frame_write_schema()
     )

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import subprocess
 import uuid
 
@@ -114,10 +115,8 @@ async def test_descriptor_and_function_only_login_match_exact_capabilities(test_
         )
         == expected
     )
-    assert json.loads(
-        (
-            ROOT / "apps/api/alembic/sql/0288_workspace_project_maintenance.schema.json"
-        ).read_text()
+    assert load_contract_schema(
+        "0288_workspace_project_maintenance.schema.json"
     ) == historical(expected)
     async with _world(test_engine) as (_, owner, client, _, _, _):
         assert (

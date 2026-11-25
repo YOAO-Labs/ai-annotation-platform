@@ -8,6 +8,8 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 import uuid
 
 import pytest
@@ -27,7 +29,7 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SCHEMA = _SQL_DIR / "0252_identity_provisioning.schema.json"
+_SCHEMA = "0252_identity_provisioning.schema.json"
 _SUPPORT = _SQL_DIR / "0252_identity_provisioning_support.sql"
 _ARTIFACT = _SQL_DIR / "0252_identity_provisioning.sql"
 _MIGRATION = (
@@ -37,8 +39,8 @@ _CANONICAL_SCHEMA = (
     _ROOT / "apps/identity/src/yoao_identity/provisioning_protocol.schema.json"
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-provisioning-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 _VERIFIER = _ROOT / "scripts/verify_module_data_boundary.py"
 
 
@@ -147,12 +149,12 @@ class _AbortProvisioning(Exception):
 
 def test_provisioning_schema_sql_and_function_allowlist_are_frozen():
     canonical = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
-    snapshot = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    snapshot = load_contract_schema(_SCHEMA)
     support = _SUPPORT.read_text(encoding="utf-8")
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="provisioning")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
     verifier = _VERIFIER.read_text(encoding="utf-8")
 
@@ -164,7 +166,6 @@ def test_provisioning_schema_sql_and_function_allowlist_are_frozen():
             "aap_identity_v1.read_provisioning_account(text)",
         ],
     }
-    assert _SCHEMA.read_bytes() != _CANONICAL_SCHEMA.read_bytes()
     assert canonical.get("x-postgresql-functions") is None
     assert snapshot["$id"] == "aap-identity-provisioning/v1"
 
@@ -179,7 +180,7 @@ def test_provisioning_schema_sql_and_function_allowlist_are_frozen():
     assert "INSERT INTO public.audit_logs" in support
     assert "INSERT INTO public.audit_logs" not in artifact
     assert "preferences" in module_grants
-    assert "yoao_identity_provisioning_client" in role_grants
+    assert ":'identity_provisioning_role'" in role_grants
     assert "yoao_identity_v1.create_provisioning_account(jsonb)" in role_grants
     assert "yoao_identity_v1.read_provisioning_account(text)" in role_grants
     assert "yoao_identity_v1.create_provisioning_account(jsonb)" in lan_grants

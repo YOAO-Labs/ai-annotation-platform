@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from importlib.resources import files
 import json
 import os
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 from cryptography.fernet import Fernet
@@ -88,11 +88,8 @@ def test_registration_read_descriptors_match_the_portable_owner_contract():
         )
         == expected
     )
-    assert json.loads(
-        (
-            Path(__file__).parents[1]
-            / "alembic/sql/0287_identity_registration_status.schema.json"
-        ).read_text()
+    assert load_contract_schema(
+        "0287_identity_registration_status.schema.json"
     ) == historical(expected)
 
 

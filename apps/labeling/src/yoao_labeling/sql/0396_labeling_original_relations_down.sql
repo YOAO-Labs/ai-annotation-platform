@@ -1,1 +1,0 @@
-DROP FUNCTION aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer) RESTRICT;

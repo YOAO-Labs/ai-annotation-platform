@@ -1,8 +1,8 @@
 """Frozen video owner artifacts and receipt-preserving rollback guards."""
 
 import importlib.util
-import json
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import re
 
 import pytest
@@ -55,13 +55,13 @@ def _migration():
 
 def test_video_execution_and_evidence_artifacts_match_portable_contracts():
     document = historical(execution.contract_document())
-    frozen = json.loads((SQL / "0225_video_inputs.schema.json").read_text())
+    frozen = load_contract_schema("0225_video_inputs.schema.json")
     assert frozen == _contract_subset(document, frozen)
     for name, definition in frozen["x-native"].items():
         assert document["x-native"][name] == definition
-    assert json.loads(
-        (SQL / "0225_video_input_evidence.schema.json").read_text()
-    ) == historical(evidence.contract_document())
+    assert load_contract_schema("0225_video_input_evidence.schema.json") == historical(
+        evidence.contract_document()
+    )
     migration = _migration()
     signatures = {signature.replace(" ", "") for signature in migration._signatures()}
     for definition in frozen["x-native"].values():

@@ -1,6 +1,5 @@
 """Native action idempotency in the caller's existing Jobs transaction."""
 
-from importlib.resources import files
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, StrictStr, TypeAdapter
@@ -100,6 +99,6 @@ def jobs_action_idempotency_schema():
 
 
 def jobs_action_idempotency_sql():
-    return (
-        files("yoao_jobs").joinpath("sql/0332_jobs_action_idempotency.sql").read_text()
-    )
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0332_jobs_action_idempotency.sql")

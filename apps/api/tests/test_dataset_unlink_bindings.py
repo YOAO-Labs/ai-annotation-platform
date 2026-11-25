@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from pydantic import ValidationError
@@ -91,11 +91,8 @@ class _FakeDb:
 
 
 def test_frozen_native_schema_matches_the_typed_bindings():
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "alembic/sql/0205_dataset_unlink.schema.json"
-    )
-    definitions = json.loads(path.read_text())["$defs"]
+    path = "0205_dataset_unlink.schema.json"
+    definitions = load_contract_schema(path)["$defs"]
     command = DatasetUnlinkCommand.model_json_schema()
     assert (
         definitions["ProjectDeletionAuditContext"]

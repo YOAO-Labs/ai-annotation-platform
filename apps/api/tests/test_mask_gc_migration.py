@@ -1,9 +1,9 @@
 """Migration contract for durable native Raster Mask GC authority."""
 
 import importlib.util
-import json
 import re
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 
@@ -63,7 +63,7 @@ def test_revision_uses_one_new_native_artifact():
 def test_current_native_schema_matches_the_portable_gc_contract():
     from yoao_labeling_mask_gc.contract import contract_document
 
-    assert json.loads((SQL / "0234_mask_gc.schema.json").read_text()) == historical(
+    assert load_contract_schema("0234_mask_gc.schema.json") == historical(
         contract_document()
     )
 

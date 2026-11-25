@@ -37,14 +37,20 @@ pytestmark = [
 ]
 
 
-def _apply_grant_script(test_engine, database, filename, variables):
+def _apply_grant_script(
+    test_engine, database, filename, variables, *, capability: str | None = None
+):
+    from tests.grant_script import read_psql_grant_script
+
     command = ["psql", "--no-psqlrc", "-U", "owner", "--dbname", database]
     for name, value in variables.items():
         command.extend(("-v", f"{name}={value}"))
     _postgres_tool(
         test_engine,
         command,
-        body=(_ROOT / "infra/docker" / filename).read_bytes(),
+        body=read_psql_grant_script(
+            _ROOT / "infra/docker" / filename, capability=capability
+        ).encode(),
     )
 
 
@@ -188,7 +194,7 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine):
         _apply_grant_script(
             test_engine,
             clone,
-            "identity-recovery-grants.sql",
+            "identity-grants.sql",
             {
                 "expected_database": clone,
                 "migration_role": "owner",
@@ -199,6 +205,7 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine):
                 "identity_mail_role": "yoao_identity_mail_client",
                 "identity_mail_settings_role": "yoao_identity_mail_settings_client",
             },
+            capability="recovery",
         )
         expected_live_hash = hashlib.sha256(live_token.encode("utf-8")).hexdigest()
         expected_used_hash = hashlib.sha256(used_token.encode("utf-8")).hexdigest()

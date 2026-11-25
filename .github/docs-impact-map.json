@@ -6,14 +6,14 @@
       "codeMatchers": ["apps/api/app/api/v1/", "apps/api/app/schemas/"],
       "recommendDocs": [
         "apps/api/openapi.snapshot.json",
-        "docs-site/api/guides/_routes.generated.md",
-        "docs-site/dev/concepts/api-schema-boundary.md"
+        "YOAO-Labs/YOAO-Docs:api/guides/_routes.generated.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/api-schema-boundary.md"
       ],
       "acceptDocs": [
         "apps/api/openapi.snapshot.json",
-        "docs-site/api/",
-        "docs-site/dev/concepts/api-schema-boundary.md",
-        "docs-site/user-guide/",
+        "YOAO-Labs/YOAO-Docs:api/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/api-schema-boundary.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/",
         "README.md",
         "DEV.md"
       ]
@@ -29,17 +29,17 @@
         "apps/web/src/api/projects.ts"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/project-module.md",
-        "docs-site/dev/concepts/visibility-and-permissions.md",
-        "docs-site/dev/concepts/counters-and-derived-fields.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/project-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/visibility-and-permissions.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/counters-and-derived-fields.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/",
-        "docs-site/dev/concepts/project-module.md",
-        "docs-site/dev/concepts/visibility-and-permissions.md",
-        "docs-site/dev/concepts/counters-and-derived-fields.md",
-        "docs-site/user-guide/",
-        "docs-site/user-guide/projects/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/project-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/visibility-and-permissions.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/counters-and-derived-fields.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/",
         "docs/adr/"
       ]
     },
@@ -56,19 +56,19 @@
         "apps/web/src/api/batches.ts"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/batch-module.md",
-        "docs-site/dev/concepts/state-machines.md",
-        "docs-site/dev/concepts/batch-lifecycle-end-to-end.md",
-        "docs-site/dev/concepts/review-module.md",
-        "docs-site/user-guide/projects/batch.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/state-machines.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-lifecycle-end-to-end.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/review-module.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/batch.md",
         "docs/adr/"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/batch-module.md",
-        "docs-site/dev/concepts/state-machines.md",
-        "docs-site/dev/concepts/batch-lifecycle-end-to-end.md",
-        "docs-site/dev/concepts/review-module.md",
-        "docs-site/user-guide/projects/batch.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/state-machines.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-lifecycle-end-to-end.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/review-module.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/batch.md",
         "docs/adr/"
       ]
     },
@@ -88,23 +88,23 @@
         "apps/web/src/pages/Workbench/"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/task-module.md",
-        "docs-site/dev/concepts/annotation-module.md",
-        "docs-site/dev/concepts/review-module.md",
-        "docs-site/dev/concepts/task-locking.md",
-        "docs-site/dev/concepts/counters-and-derived-fields.md",
-        "docs-site/dev/concepts/audit-and-notifications.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/annotation-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/review-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-locking.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/counters-and-derived-fields.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/audit-and-notifications.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/task-module.md",
-        "docs-site/dev/concepts/annotation-module.md",
-        "docs-site/dev/concepts/review-module.md",
-        "docs-site/dev/concepts/task-locking.md",
-        "docs-site/dev/concepts/counters-and-derived-fields.md",
-        "docs-site/dev/concepts/audit-and-notifications.md",
-        "docs-site/user-guide/workbench/",
-        "docs-site/user-guide/ai/",
-        "docs-site/user-guide/review/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/annotation-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/review-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-locking.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/counters-and-derived-fields.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/audit-and-notifications.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/workbench/",
+        "YOAO-Labs/YOAO-Docs:user-guide/ai/",
+        "YOAO-Labs/YOAO-Docs:user-guide/review/",
         "docs/adr/"
       ]
     },
@@ -119,19 +119,19 @@
         "apps/api/tests/test_video_workbench.py"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/video-annotation-workbench.md",
-        "docs-site/user-guide/workbench/video-track.md",
-        "docs-site/api/guides/tasks-and-annotations.md",
-        "docs-site/ops/upgrade-guide.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/video-annotation-workbench.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/workbench/video-track.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/tasks-and-annotations.md",
+        "YOAO-Labs/YOAO-Docs:ops/upgrade-guide.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/video-annotation-workbench.md",
-        "docs-site/user-guide/workbench/video-track.md",
-        "docs-site/api/guides/tasks-and-annotations.md",
-        "docs-site/user-guide/review/",
-        "docs-site/user-guide/reference/export-formats.md",
-        "docs-site/api/guides/export.md",
-        "docs-site/ops/upgrade-guide.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/video-annotation-workbench.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/workbench/video-track.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/tasks-and-annotations.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/review/",
+        "YOAO-Labs/YOAO-Docs:user-guide/reference/export-formats.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/export.md",
+        "YOAO-Labs/YOAO-Docs:ops/upgrade-guide.md",
         "apps/api/openapi.snapshot.json",
         "CHANGELOG.md",
         "ROADMAP/"
@@ -147,18 +147,18 @@
         "apps/web/src/hooks/useTaskLock.ts"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/scheduler-and-task-dispatch.md",
-        "docs-site/dev/concepts/task-locking.md",
-        "docs-site/dev/concepts/visibility-and-permissions.md",
-        "docs-site/dev/concepts/task-module.md",
-        "docs-site/dev/concepts/batch-module.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/scheduler-and-task-dispatch.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-locking.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/visibility-and-permissions.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-module.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/scheduler-and-task-dispatch.md",
-        "docs-site/dev/concepts/task-locking.md",
-        "docs-site/dev/concepts/visibility-and-permissions.md",
-        "docs-site/dev/concepts/task-module.md",
-        "docs-site/dev/concepts/batch-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/scheduler-and-task-dispatch.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-locking.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/visibility-and-permissions.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/task-module.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-module.md",
         "docs/adr/"
       ]
     },
@@ -177,24 +177,24 @@
         "apps/web/src/api/predictions.ts"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/ai-preannotate-handoff.md",
-        "docs-site/dev/concepts/prediction-pipeline.md",
-        "docs-site/dev/concepts/ai-models.md",
-        "docs-site/dev/concepts/batch-module.md",
-        "docs-site/user-guide/projects/ai-preannotate.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/ai-preannotate-handoff.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/prediction-pipeline.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/ai-models.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-module.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/ai-preannotate.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/",
-        "docs-site/dev/concepts/ai-preannotate-handoff.md",
-        "docs-site/dev/concepts/prediction-pipeline.md",
-        "docs-site/dev/concepts/ai-models.md",
-        "docs-site/dev/concepts/batch-module.md",
-        "docs-site/user-guide/",
-        "docs-site/user-guide/projects/ai-preannotate.md",
-        "docs-site/user-guide/ai/",
-        "docs-site/user-guide/workflows/failed-prediction-recovery.md",
-        "docs-site/api/guides/async-jobs.md",
-        "docs-site/user-guide/superadmin/failed-predictions.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/ai-preannotate-handoff.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/prediction-pipeline.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/ai-models.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/batch-module.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/ai-preannotate.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/ai/",
+        "YOAO-Labs/YOAO-Docs:user-guide/workflows/failed-prediction-recovery.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/async-jobs.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/superadmin/failed-predictions.md",
         "docs/adr/"
       ]
     },
@@ -210,19 +210,19 @@
         "apps/web/src/pages/ModelMarket/VideoTrackerJobsPage.tsx"
       ],
       "recommendDocs": [
-        "docs-site/user-guide/workbench/video-propagate.md",
-        "docs-site/user-guide/ai/candidate-review.md",
-        "docs-site/dev/concepts/video-ai-tracking.md",
-        "docs-site/api/guides/video-tracker-jobs.md",
-        "docs-site/ops/runbooks/video-frame-service.md"
+        "YOAO-Labs/YOAO-Docs:user-guide/workbench/video-propagate.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/ai/candidate-review.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/video-ai-tracking.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/video-tracker-jobs.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/video-frame-service.md"
       ],
       "acceptDocs": [
-        "docs-site/user-guide/workbench/video-propagate.md",
-        "docs-site/user-guide/ai/",
-        "docs-site/dev/concepts/video-ai-tracking.md",
-        "docs-site/api/guides/video-tracker-jobs.md",
-        "docs-site/ops/runbooks/video-frame-service.md",
-        "docs-site/dev/reference/video-frame-service.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/workbench/video-propagate.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/ai/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/video-ai-tracking.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/video-tracker-jobs.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/video-frame-service.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/video-frame-service.md",
         "docs/adr/"
       ]
     },
@@ -238,17 +238,17 @@
         "apps/web/src/components/shell/JobsBell.tsx"
       ],
       "recommendDocs": [
-        "docs-site/api/guides/async-jobs.md",
-        "docs-site/dev/concepts/prediction-pipeline.md",
-        "docs-site/user-guide/workflows/failed-prediction-recovery.md",
-        "docs-site/ops/runbooks/celery-worker-stuck.md"
+        "YOAO-Labs/YOAO-Docs:api/guides/async-jobs.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/prediction-pipeline.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/workflows/failed-prediction-recovery.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/celery-worker-stuck.md"
       ],
       "acceptDocs": [
-        "docs-site/api/guides/async-jobs.md",
-        "docs-site/dev/concepts/prediction-pipeline.md",
-        "docs-site/user-guide/ai/",
-        "docs-site/user-guide/workflows/failed-prediction-recovery.md",
-        "docs-site/ops/runbooks/celery-worker-stuck.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/async-jobs.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/prediction-pipeline.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/ai/",
+        "YOAO-Labs/YOAO-Docs:user-guide/workflows/failed-prediction-recovery.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/celery-worker-stuck.md",
         "docs/adr/"
       ]
     },
@@ -264,21 +264,21 @@
         "apps/web/src/api/capabilityInputs.ts"
       ],
       "recommendDocs": [
-        "docs-site/user-guide/projects/ml-backends.md",
-        "docs-site/user-guide/superadmin/model-market.md",
-        "docs-site/dev/concepts/ai-models.md",
-        "docs-site/dev/reference/ml-backend-protocol.md",
-        "docs-site/api/guides/ml-backend.md",
-        "docs-site/ops/runbooks/ml-backend-down.md"
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/ml-backends.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/superadmin/model-market.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/ai-models.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/ml-backend-protocol.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/ml-backend.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/ml-backend-down.md"
       ],
       "acceptDocs": [
-        "docs-site/user-guide/projects/ml-backends.md",
-        "docs-site/user-guide/superadmin/model-market.md",
-        "docs-site/user-guide/ai/",
-        "docs-site/dev/concepts/ai-models.md",
-        "docs-site/dev/reference/ml-backend-protocol.md",
-        "docs-site/api/guides/ml-backend.md",
-        "docs-site/ops/runbooks/ml-backend-down.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/ml-backends.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/superadmin/model-market.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/ai/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/ai-models.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/ml-backend-protocol.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/ml-backend.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/ml-backend-down.md",
         "docs/adr/"
       ]
     },
@@ -290,12 +290,12 @@
         "apps/api/tests/test_domain_package_architecture.py"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/backend-layers.md",
-        "docs-site/dev/concepts/overview.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/backend-layers.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/overview.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/backend-layers.md",
-        "docs-site/dev/concepts/overview.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/backend-layers.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/overview.md",
         "docs/adr/"
       ]
     },
@@ -304,15 +304,15 @@
       "name": "GPU arbitration contracts, policy, ledger, and orchestration",
       "codeMatchers": ["apps/api/app/services/gpu_arbitration/"],
       "recommendDocs": [
-        "docs-site/dev/concepts/backend-layers.md",
-        "docs-site/dev/reference/ml-backend-protocol.md",
-        "docs-site/ops/runbooks/gpu-arbitration-acceptance.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/backend-layers.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/ml-backend-protocol.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/gpu-arbitration-acceptance.md",
         "docs/adr/archive/0049-cross-backend-gpu-memory-arbitration.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/backend-layers.md",
-        "docs-site/dev/reference/ml-backend-protocol.md",
-        "docs-site/ops/runbooks/gpu-arbitration-acceptance.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/backend-layers.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/ml-backend-protocol.md",
+        "YOAO-Labs/YOAO-Docs:ops/runbooks/gpu-arbitration-acceptance.md",
         "docs/adr/"
       ]
     },
@@ -321,15 +321,15 @@
       "name": "Export services, packaging, cache, and format adapters",
       "codeMatchers": ["apps/api/app/services/exporting/", "apps/api/app/workers/export.py"],
       "recommendDocs": [
-        "docs-site/dev/concepts/data-flow.md",
-        "docs-site/api/guides/export.md",
-        "docs-site/user-guide/reference/export-formats.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/data-flow.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/export.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/reference/export-formats.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/data-flow.md",
-        "docs-site/api/guides/export.md",
-        "docs-site/user-guide/reference/export-formats.md",
-        "docs-site/dev/reference/lidar-export-formats.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/data-flow.md",
+        "YOAO-Labs/YOAO-Docs:api/guides/export.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/reference/export-formats.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/lidar-export-formats.md"
       ]
     },
     {
@@ -337,13 +337,13 @@
       "name": "Data Manager schema, entity queries, views, and pagination",
       "codeMatchers": ["apps/api/app/services/data_management/"],
       "recommendDocs": [
-        "docs-site/dev/reference/data-manager-query.md",
-        "docs-site/user-guide/projects/data-manager.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/data-manager-query.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/data-manager.md",
         "docs/adr/archive/0047-data-manager-entity-read-model.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/reference/data-manager-query.md",
-        "docs-site/user-guide/projects/data-manager.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/data-manager-query.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/projects/data-manager.md",
         "docs/adr/"
       ]
     },
@@ -360,14 +360,14 @@
         "apps/api/app/db/models/notification.py"
       ],
       "recommendDocs": [
-        "docs-site/dev/concepts/audit-and-notifications.md",
-        "docs-site/dev/reference/ws-protocol.md",
-        "docs-site/user-guide/superadmin/audit-logs.md"
+        "YOAO-Labs/YOAO-Docs:dev/concepts/audit-and-notifications.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/ws-protocol.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/superadmin/audit-logs.md"
       ],
       "acceptDocs": [
-        "docs-site/dev/concepts/audit-and-notifications.md",
-        "docs-site/dev/reference/ws-protocol.md",
-        "docs-site/user-guide/superadmin/audit-logs.md",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/audit-and-notifications.md",
+        "YOAO-Labs/YOAO-Docs:dev/reference/ws-protocol.md",
+        "YOAO-Labs/YOAO-Docs:user-guide/superadmin/audit-logs.md",
         "docs/adr/"
       ]
     },
@@ -375,8 +375,8 @@
       "id": "env-and-runtime-config",
       "name": "Environment variables and runtime configuration",
       "codeMatchers": [".env.example", "apps/api/app/config.py", "docker-compose*.yml"],
-      "recommendDocs": [".env.example", "DEV.md", "docs-site/dev/reference/env-vars.md"],
-      "acceptDocs": [".env.example", "DEV.md", "docs-site/dev/reference/env-vars.md"]
+      "recommendDocs": [".env.example", "DEV.md", "YOAO-Labs/YOAO-Docs:dev/reference/env-vars.md"],
+      "acceptDocs": [".env.example", "DEV.md", "YOAO-Labs/YOAO-Docs:dev/reference/env-vars.md"]
     },
     {
       "id": "dataset-storage",
@@ -395,16 +395,16 @@
         "apps/_shared/site_agent_contract/**"
       ],
       "recommendDocs": [
-        "docs-site/user-guide/datasets/",
-        "docs-site/dev/concepts/",
-        "docs-site/ops/deploy/",
-        "docs-site/api/guides/"
+        "YOAO-Labs/YOAO-Docs:user-guide/datasets/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/",
+        "YOAO-Labs/YOAO-Docs:ops/deploy/",
+        "YOAO-Labs/YOAO-Docs:api/guides/"
       ],
       "acceptDocs": [
-        "docs-site/user-guide/datasets/",
-        "docs-site/dev/concepts/",
-        "docs-site/ops/deploy/",
-        "docs-site/api/guides/"
+        "YOAO-Labs/YOAO-Docs:user-guide/datasets/",
+        "YOAO-Labs/YOAO-Docs:dev/concepts/",
+        "YOAO-Labs/YOAO-Docs:ops/deploy/",
+        "YOAO-Labs/YOAO-Docs:api/guides/"
       ]
     }
   ]

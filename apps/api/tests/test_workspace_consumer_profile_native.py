@@ -27,7 +27,7 @@ from tests.test_labeling_counter_deltas_workflows_native import _configure_actua
 from tests.test_workspace_configuration_live import _public_configuration_commands
 
 ROOT = Path(__file__).resolve().parents[3]
-_PROFILE = ROOT / "infra/docker/workspace-consumer-grants.sql"
+_PROFILE = ROOT / "infra/docker/workspace-grants.sql"
 _PRIVATE = (
     "projects",
     "project_members",
@@ -50,7 +50,9 @@ pytestmark = [
 ]
 
 
-async def _grants(test_engine, filename, role, **overrides):
+async def _grants(
+    test_engine, filename, role, *, capability: str | None = None, **overrides
+):
     _verify_postgres(test_engine.url)
     variables = {
         "expected_database": test_engine.url.database,
@@ -80,7 +82,7 @@ async def _grants(test_engine, filename, role, **overrides):
     return await asyncio.to_thread(
         subprocess.run,
         command,
-        input=read_psql_grant_script(filename),
+        input=read_psql_grant_script(filename, capability=capability),
         text=True,
         capture_output=True,
         timeout=30,
@@ -148,7 +150,7 @@ async def _world(test_engine, *, apply=True):
                 text(f"GRANT CREATE ON SCHEMA yoao_workspace_v1 TO {role}")
             )
         if apply:
-            result = await _grants(test_engine, _PROFILE, role)
+            result = await _grants(test_engine, _PROFILE, role, capability="consumer")
             assert result.returncode == 0, result.stderr
         url = test_engine.url.set(username=role, password=password)
         engine = create_async_engine(url, hide_parameters=True)
@@ -303,7 +305,7 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                     "SELECT has_function_privilege(current_user,'yoao_identity_v1.read_actor_facts(uuid)','EXECUTE')"
                 )
             )
-        result = await _grants(test_engine, _PROFILE, _role)
+        result = await _grants(test_engine, _PROFILE, _role, capability="consumer")
         assert result.returncode == 0, result.stderr
         async with api() as db:
             await _assert_closed(db)
@@ -323,8 +325,9 @@ async def test_insights_refresh_is_concurrent_and_uses_the_callers_transaction(
     ):
         installed = await _grants(
             test_engine,
-            ROOT / "infra/docker/insights-refresh-grants.sql",
+            ROOT / "infra/docker/platform-grants.sql",
             refresh_role,
+            capability="insights_refresh",
             refresh_role=refresh_role,
         )
         assert installed.returncode == 0, installed.stderr
@@ -597,7 +600,9 @@ async def test_profile_rejects_unsafe_identity_before_acl_changes(test_engine, i
         else:
             async with test_engine.begin() as db:
                 await db.execute(text(f"GRANT workspace_code TO {role}"))
-        result = await _grants(test_engine, _PROFILE, role, **options)
+        result = await _grants(
+            test_engine, _PROFILE, role, capability="consumer", **options
+        )
         assert result.returncode != 0
         async with api() as db:
             assert await db.scalar(
@@ -617,7 +622,7 @@ async def test_public_column_grant_causes_atomic_profile_rejection(test_engine):
         async with test_engine.begin() as db:
             await db.execute(text("GRANT SELECT(id) ON public.projects TO PUBLIC"))
         try:
-            result = await _grants(test_engine, _PROFILE, role)
+            result = await _grants(test_engine, _PROFILE, role, capability="consumer")
             assert result.returncode != 0
             assert "retains private data" in result.stderr
             async with api() as db:
@@ -854,7 +859,7 @@ async def test_migration_owner_inheritance_keeps_the_existing_maintenance_direct
         async with test_engine.begin() as db:
             await db.execute(text(f'GRANT {role} TO "{migrator}"'))
         try:
-            result = await _grants(test_engine, _PROFILE, role)
+            result = await _grants(test_engine, _PROFILE, role, capability="consumer")
             assert result.returncode == 0, result.stderr
             async with api() as db:
                 await _assert_closed(db)

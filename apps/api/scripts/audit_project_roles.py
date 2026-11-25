@@ -9,7 +9,7 @@ The audit also runs *before* revision 0173 exists. It reads a fixed Labeling
 audit projection whose preparation fields are NULL when the additive columns are
 absent, and fixed schema-capability projections report those columns. Operators
 must explicitly install the Identity, Workspace and Labeling audit relations
-with their role-audit-grants.sql installers; this read-only CLI never installs
+with their per-module grants installers (-v grant_role_audit=1); this read-only CLI never installs
 them or falls back to private owner tables.
 
 Report shape (versioned JSON)::

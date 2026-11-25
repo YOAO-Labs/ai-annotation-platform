@@ -23,29 +23,29 @@ _PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 def test_append_wire_schema_and_migration_artifact_match():
     package_schema = _PACKAGE / "append.schema.json"
-    migration_schema = (
-        Path(__file__).resolve().parents[2]
-        / "api"
-        / "alembic"
-        / "sql"
-        / "0314_notifications_append.schema.json"
-    )
-    assert package_schema.read_bytes() == migration_schema.read_bytes()
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api"
+            / "alembic"
+            / "sql"
+            / "notifications.contracts.json"
+        ).read_text()
+    )["artifacts"]["0314_notifications_append.schema.json"]
     schema = json.loads(package_schema.read_text())
+    assert schema == migration_schema
     assert schema == append_json_schema()
     assert schema["$id"] == "aap-notification-append/v1"
     assert schema["$defs"]["AppendNotificationRequest"]["additionalProperties"] is False
     assert "payload" in schema["$defs"]["AppendNotificationRequest"]["required"]
 
-    sql = (_PACKAGE / "sql" / "0314_notifications_append.sql").read_text()
-    migration_sql = (
+    sql = (
         Path(__file__).resolve().parents[2]
         / "api"
         / "alembic"
         / "sql"
         / "0314_notifications_append.sql"
-    )
-    assert sql == migration_sql.read_text()
+    ).read_text()
     assert "SECURITY DEFINER" in sql
     assert "clock_timestamp" not in sql
     assert "AT TIME ZONE 'UTC'" in sql

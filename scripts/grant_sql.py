@@ -80,9 +80,65 @@ def _expand(path: Path, *, psql: bool) -> str:
     return read(path.name)
 
 
-def read_psql_grant_script(path: Path) -> str:
+_CAPABILITY_NAME = re.compile(r"[a-z][a-z0-9_]*")
+_IF_DIRECTIVE = re.compile(rf"\\if[ \t]+{_CONDITION}")
+_GRANT_CAPABILITY_IF = re.compile(r"\\if[ \t]+:\{\?grant_([a-z][a-z0-9_]*)\}")
+_GRANT_SENTINEL = "SELECT set_config('yoao.grant_section_applied', '1', true);"
+
+
+def _extract_capability_section(sql: str, *, capability: str, path: Path) -> str:
+    if not _CAPABILITY_NAME.fullmatch(capability):
+        raise ValueError(f"Invalid grant capability name: {capability}")
+    lines = sql.splitlines(keepends=True)
+    depth = 0
+    capturing = False
+    capture_depth = 0
+    captured: list[str] = []
+    matches = 0
+    for line in lines:
+        stripped = line.strip()
+        if _IF_DIRECTIVE.fullmatch(stripped):
+            if depth == 0:
+                cap_match = _GRANT_CAPABILITY_IF.fullmatch(stripped)
+                if cap_match and cap_match[1] == capability:
+                    matches += 1
+                    capturing = True
+                    capture_depth = 1
+                    depth = 1
+                    continue
+            depth += 1
+            if capturing:
+                captured.append(line)
+        elif stripped == r"\endif":
+            if depth <= 0:
+                raise ValueError(f"Unbalanced \\endif in grant SQL: {path}")
+            if capturing and depth == capture_depth:
+                capturing = False
+                depth -= 1
+                continue
+            depth -= 1
+            if capturing:
+                captured.append(line)
+        elif capturing:
+            if stripped == _GRANT_SENTINEL:
+                continue
+            captured.append(line)
+    if depth != 0:
+        raise ValueError(f"Unclosed \\if block in grant SQL: {path}")
+    if matches != 1:
+        raise ValueError(
+            f"Grant capability {capability!r} expected once in {path}, found {matches}"
+        )
+    body = "".join(captured).strip("\n")
+    return f"\\set ON_ERROR_STOP on\nBEGIN;\n{body}\nCOMMIT;\n"
+
+
+def read_psql_grant_script(path: Path, *, capability: str | None = None) -> str:
     """Expand literal same-directory includes without requiring files on the psql host."""
-    return _expand(path, psql=True)
+    expanded = _expand(path, psql=True)
+    if capability is None:
+        return expanded
+    return _extract_capability_section(expanded, capability=capability, path=path)
 
 
 _NAME = r"[a-z_][a-z0-9_]*"

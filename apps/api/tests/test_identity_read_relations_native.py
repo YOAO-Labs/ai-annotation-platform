@@ -7,6 +7,7 @@ from importlib.resources import files
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
@@ -75,10 +76,8 @@ def test_read_relation_descriptors_match_the_installed_portable_contract():
         )
         == expected
     )
-    assert json.loads(
-        (
-            _ROOT / "apps/api/alembic/sql/0286_identity_read_relations.schema.json"
-        ).read_text()
+    assert load_contract_schema(
+        "0286_identity_read_relations.schema.json"
     ) == historical(expected)
     for name, columns in _RELATIONS.items():
         relation = expected["x-postgresql-relations"][f"yoao_identity_v1.{name}"]
@@ -187,7 +186,7 @@ async def test_profile_adapter_accepts_a_real_sqlalchemy_row_mapping(many):
         engine.dispose()
 
 
-def _grants(test_engine, filename, **variables):
+def _grants(test_engine, filename, *, capability: str | None = None, **variables):
     _postgres_tool(
         test_engine,
         [
@@ -206,7 +205,9 @@ def _grants(test_engine, filename, **variables):
                 for part in ("-v", f"{key}={value}")
             ],
         ],
-        body=read_psql_grant_script(_ROOT / "infra/docker" / filename).encode(),
+        body=read_psql_grant_script(
+            _ROOT / "infra/docker" / filename, capability=capability
+        ).encode(),
     )
 
 

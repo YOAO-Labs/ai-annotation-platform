@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-import json
 import os
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import pytest
@@ -32,10 +31,7 @@ pytestmark = [
     ),
 ]
 
-_SCHEMA_PATH = (
-    Path(__file__).parents[1]
-    / "alembic/sql/0260_workspace_project_query_support.schema.json"
-)
+_SCHEMA_PATH = "0260_workspace_project_query_support.schema.json"
 _FUNCTIONS = (
     ("yoao_labeling_v1.workspace_project_query_counters(uuid[])", "labeling_code"),
     ("yoao_labeling_v1.workspace_project_query_ai_counts(uuid[])", "labeling_code"),
@@ -135,7 +131,7 @@ async def _new_annotation(
 async def test_project_query_functions_have_fixed_domain_owners_and_grants(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     signatures = [signature for signature, _ in _FUNCTIONS]
-    schema = json.loads(_SCHEMA_PATH.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA_PATH)
 
     async with maker() as session:
         rows = await _rows(

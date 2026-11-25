@@ -187,7 +187,10 @@ async def test_fixture_capability_still_borrows_and_rolls_back_the_caller_transa
     engine, _apply = embedded
     async with _login(test_engine, "identity_fixture") as (role, password):
         profile = await _grants(
-            test_engine, ROOT / "infra/docker/identity-e2e-fixture-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/identity-grants.sql",
+            role,
+            capability="e2e_fixture",
         )
         assert profile.returncode == 0, profile.stderr
         database = test_engine.dialect.identifier_preparer.quote_identifier(

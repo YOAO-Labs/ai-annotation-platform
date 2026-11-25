@@ -374,13 +374,9 @@ def jobs_lifecycle_schema() -> dict[str, Any]:
 def jobs_lifecycle_sql() -> str:
     """Read the versioned native SQL resource without requiring a package install."""
 
-    from importlib.resources import files
+    from ._sql_loader import read_jobs_sql
 
-    return (
-        files("yoao_jobs")
-        .joinpath("sql/0327_jobs_lifecycle.sql")
-        .read_text(encoding="utf-8")
-    )
+    return read_jobs_sql("0327_jobs_lifecycle.sql")
 
 
 def decode_lifecycle_apply_request(value: Any) -> LifecycleApplyRequest:

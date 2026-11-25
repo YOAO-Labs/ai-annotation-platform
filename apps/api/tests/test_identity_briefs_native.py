@@ -7,6 +7,8 @@ import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 from sqlalchemy import text
@@ -23,13 +25,13 @@ from tests.factory import create_project
 
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SCHEMA = _SQL_DIR / "0249_identity_briefs.schema.json"
+_SCHEMA = "0249_identity_briefs.schema.json"
 _SUPPORT = _SQL_DIR / "0249_identity_briefs_support.sql"
 _ARTIFACT = _SQL_DIR / "0249_identity_briefs.sql"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0249_identity_briefs.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-briefs-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 _VERIFIER = _ROOT / "scripts/verify_module_data_boundary.py"
 _FIXTURE = Path(__file__).parent / "fixtures/identity_briefs_legacy.json"
 _CANONICAL_SCHEMA = (
@@ -179,13 +181,13 @@ async def test_empty_brief_ids_skip_the_owner_call():
 
 
 def test_frozen_briefs_schema_and_function_only_boundary():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     canonical = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
     support = _SUPPORT.read_text(encoding="utf-8")
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="briefs")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
     verifier = _VERIFIER.read_text(encoding="utf-8")
     normalized_support = " ".join(support.split())
@@ -195,7 +197,6 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     compact_lan_grants = "".join(lan_grants.split())
 
     assert schema == canonical
-    assert _SCHEMA.read_bytes() == _CANONICAL_SCHEMA.read_bytes()
     assert schema["$id"] == "aap-identity-briefs-native/v1"
 
     assert migration.index('"0249_identity_briefs_support.sql"') < migration.index(
@@ -223,7 +224,7 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     )
     assert "GRANTSELECT(id,project_id,user_id,role)" in compact_module_grants
     assert 'ONpublic.project_membersTO:"identity_owner"' not in compact_module_grants
-    assert "yoao_identity_briefs_client" in role_grants
+    assert ":'identity_briefs_role'" in role_grants
     assert "yoao_identity_briefs_v1.briefs_policy()" in compact_role_grants
     assert (
         "yoao_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_role_grants

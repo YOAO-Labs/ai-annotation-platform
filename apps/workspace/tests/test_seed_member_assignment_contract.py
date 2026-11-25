@@ -168,17 +168,19 @@ def test_public_and_frozen_migration_schemas_match_contract_descriptor():
         / "yoao_workspace"
         / "seed_member_assignment_protocol.schema.json"
     )
-    migration_schema_path = (
-        Path(__file__).resolve().parents[2]
-        / "api"
-        / "alembic"
-        / "sql"
-        / "0308_workspace_seed_member_assignment.schema.json"
-    )
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api"
+            / "alembic"
+            / "sql"
+            / "workspace.contracts.json"
+        ).read_text(encoding="utf-8")
+    )["artifacts"]["0308_workspace_seed_member_assignment.schema.json"]
 
     expected = seed_member_assignment_schema()
     assert json.loads(public_schema_path.read_text(encoding="utf-8")) == expected
-    historical = json.loads(migration_schema_path.read_text(encoding="utf-8"))
+    historical = migration_schema
     native = historical["x-native-capabilities"]
     (function,) = native["functions"]
     assert native["postgres_schema"] == "aap_workspace_v1"

@@ -1,6 +1,5 @@
 """Portable contract for test-database-only Jobs fixture cleanup."""
 
-from importlib.resources import files
 from typing import Annotated
 from uuid import UUID
 
@@ -59,17 +58,22 @@ def jobs_fixture_cleanup_schema():
 
 
 def jobs_fixture_cleanup_sql():
-    return files("yoao_jobs").joinpath("sql/0330_jobs_fixture_cleanup.sql").read_text()
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0330_jobs_fixture_cleanup.sql")
 
 
 def jobs_fixture_guard_sql():
-    return files("yoao_jobs").joinpath("sql/0432_jobs_fixture_guard.sql").read_text()
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0432_jobs_fixture_guard.sql")
 
 
 def jobs_fixture_dataset_guard_sql():
-    sql = files("yoao_jobs").joinpath("sql")
+    from ._sql_loader import read_jobs_sql
+
     return "\n-- aap-statement-break\n".join(
-        sql.joinpath(name).read_text()
+        read_jobs_sql(name)
         for name in (
             "0437_fixture_reclaim_job_scope.sql",
             "0443_fixture_dataset_retired_jobs.sql",
@@ -84,11 +88,9 @@ def jobs_fixture_dataset_guard_sql():
 
 
 def jobs_fixture_presentation_sql():
-    return (
-        files("yoao_jobs")
-        .joinpath("sql/0432_jobs_fixture_presentation.sql")
-        .read_text()
-    )
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0432_jobs_fixture_presentation.sql")
 
 
 def jobs_fixture_guard_schema():

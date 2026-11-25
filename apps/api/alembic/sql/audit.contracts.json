@@ -1,0 +1,2357 @@
+{
+  "module": "audit",
+  "artifacts": {
+    "0315_audit_append.schema.json": {
+      "$defs": {
+        "AppendData": {
+          "additionalProperties": false,
+          "properties": {
+            "events": {
+              "items": {
+                "$ref": "#/$defs/AppendReceipt"
+              },
+              "title": "Events",
+              "type": "array"
+            }
+          },
+          "required": [
+            "events"
+          ],
+          "title": "AppendData",
+          "type": "object"
+        },
+        "AppendEvent": {
+          "additionalProperties": false,
+          "properties": {
+            "actor_id": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Id"
+            },
+            "actor_email": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Email"
+            },
+            "actor_role": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Role"
+            },
+            "action": {
+              "maxLength": 64,
+              "title": "Action",
+              "type": "string"
+            },
+            "target_type": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Type"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Id"
+            },
+            "method": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Path"
+            },
+            "status_code": {
+              "anyOf": [
+                {
+                  "maximum": 32767,
+                  "minimum": -32768,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Code"
+            },
+            "ip": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ip"
+            },
+            "detail_json": {
+              "$ref": "#/$defs/JSONValue"
+            },
+            "request_id": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Id"
+            }
+          },
+          "required": [
+            "actor_id",
+            "actor_email",
+            "actor_role",
+            "action",
+            "target_type",
+            "target_id",
+            "method",
+            "path",
+            "status_code",
+            "ip",
+            "detail_json",
+            "request_id"
+          ],
+          "title": "AppendEvent",
+          "type": "object"
+        },
+        "AppendReceipt": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 19,
+              "pattern": "^(?:[1-9][0-9]{0,17}|[1-8][0-9]{18}|9[01][0-9]{17}|92[01][0-9]{16}|922[0-2][0-9]{15}|9223[0-2][0-9]{14}|92233[0-6][0-9]{13}|922337[01][0-9]{12}|92233720[0-2][0-9]{10}|922337203[0-5][0-9]{9}|9223372036[0-7][0-9]{8}|92233720368[0-4][0-9]{7}|922337203685[0-3][0-9]{6}|9223372036854[0-6][0-9]{5}|92233720368547[0-6][0-9]{4}|922337203685477[0-4][0-9]{3}|9223372036854775[0-7][0-9]{2}|922337203685477580[0-7])$",
+              "title": "Id",
+              "type": "string"
+            },
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "created_at"
+          ],
+          "title": "AppendReceipt",
+          "type": "object"
+        },
+        "AppendReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-append/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/AppendData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "AppendReply",
+          "type": "object"
+        },
+        "AppendRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-append/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "events": {
+              "items": {
+                "$ref": "#/$defs/AppendEvent"
+              },
+              "minItems": 1,
+              "title": "Events",
+              "type": "array"
+            }
+          },
+          "required": [
+            "schema",
+            "events"
+          ],
+          "title": "AppendRequest",
+          "type": "object"
+        },
+        "JSONValue": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "object"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AppendRequest"
+        },
+        {
+          "$ref": "#/$defs/AppendReply"
+        }
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-audit-append/v1",
+      "title": "AAP audit append protocol"
+    },
+    "0317_audit_query.schema.json": {
+      "$defs": {
+        "AuditQueryAfter": {
+          "additionalProperties": false,
+          "properties": {
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            },
+            "id": {
+              "maxLength": 20,
+              "pattern": "^-?[0-9]+$",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "created_at",
+            "id"
+          ],
+          "title": "AuditQueryAfter",
+          "type": "object"
+        },
+        "AuditQueryData": {
+          "additionalProperties": false,
+          "properties": {
+            "operation": {
+              "enum": [
+                "list",
+                "export"
+              ],
+              "title": "Operation",
+              "type": "string"
+            },
+            "total": {
+              "maxLength": 19,
+              "pattern": "^(?:0|[1-9][0-9]{0,18})$",
+              "title": "Total",
+              "type": "string"
+            },
+            "events": {
+              "items": {
+                "$ref": "#/$defs/AuditQueryEvent"
+              },
+              "title": "Events",
+              "type": "array"
+            }
+          },
+          "required": [
+            "operation",
+            "total",
+            "events"
+          ],
+          "title": "AuditQueryData",
+          "type": "object"
+        },
+        "AuditQueryEvent": {
+          "additionalProperties": false,
+          "properties": {
+            "id": {
+              "maxLength": 20,
+              "pattern": "^(?:0|-?[1-9][0-9]*)$",
+              "title": "Id",
+              "type": "string"
+            },
+            "actor_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "format": "uuid",
+              "title": "Actor Id"
+            },
+            "actor_email": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Email"
+            },
+            "actor_role": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Role"
+            },
+            "action": {
+              "maxLength": 64,
+              "title": "Action",
+              "type": "string"
+            },
+            "target_type": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Type"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Id"
+            },
+            "method": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Path"
+            },
+            "status_code": {
+              "anyOf": [
+                {
+                  "maximum": 32767,
+                  "minimum": -32768,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Code"
+            },
+            "ip": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ip"
+            },
+            "detail_json": {
+              "$ref": "#/$defs/JSONValue"
+            },
+            "request_id": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Id"
+            },
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "actor_id",
+            "actor_email",
+            "actor_role",
+            "action",
+            "target_type",
+            "target_id",
+            "method",
+            "path",
+            "status_code",
+            "ip",
+            "detail_json",
+            "request_id",
+            "created_at"
+          ],
+          "title": "AuditQueryEvent",
+          "type": "object"
+        },
+        "AuditQueryFilters": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            },
+            "target_type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Type"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Id"
+            },
+            "actor_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Id"
+            },
+            "from": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            },
+            "to": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            },
+            "business_only": {
+              "title": "Business Only",
+              "type": "boolean"
+            },
+            "detail_key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Detail Key"
+            },
+            "detail_value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Detail Value"
+            }
+          },
+          "required": [
+            "action",
+            "target_type",
+            "target_id",
+            "actor_id",
+            "from",
+            "to",
+            "business_only",
+            "detail_key",
+            "detail_value"
+          ],
+          "title": "AuditQueryFilters",
+          "type": "object"
+        },
+        "AuditQueryReply": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-query/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "ok": {
+              "const": true,
+              "title": "Ok",
+              "type": "boolean"
+            },
+            "data": {
+              "$ref": "#/$defs/AuditQueryData"
+            }
+          },
+          "required": [
+            "schema",
+            "ok",
+            "data"
+          ],
+          "title": "AuditQueryReply",
+          "type": "object"
+        },
+        "AuditQueryRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-query/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "enum": [
+                "list",
+                "export"
+              ],
+              "title": "Operation",
+              "type": "string"
+            },
+            "filters": {
+              "$ref": "#/$defs/AuditQueryFilters"
+            },
+            "page": {
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            },
+            "page_size": {
+              "maximum": 50000,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AuditQueryAfter"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "filters",
+            "page",
+            "page_size",
+            "after"
+          ],
+          "title": "AuditQueryRequest",
+          "type": "object"
+        },
+        "JSONValue": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "object"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditQueryRequest"
+        },
+        {
+          "$ref": "#/$defs/AuditQueryReply"
+        }
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-audit-query/v1",
+      "title": "AAP audit query protocol"
+    },
+    "0320_audit_read_relations.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-audit-read-relations/v1",
+      "title": "Audit read-only event relations",
+      "$comment": "Read-only owner relation, not an authorization decision. Trusted consumers retain their existing filters, project scope, ordering, pagination and caller-owned transaction. PostgreSQL bigint IDs use canonical signed decimal strings in JSON; INET remains native in PostgreSQL and is rendered by each client boundary.",
+      "$defs": {
+        "JSONValue": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "object"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "AuditReadEvent": {
+          "additionalProperties": false,
+          "description": "Lossless JSON row representation of one `audit_events` relation row.",
+          "properties": {
+            "id": {
+              "format": "int64-decimal",
+              "maxLength": 20,
+              "pattern": "^(?:0|-?[1-9][0-9]*)$",
+              "title": "Id",
+              "type": "string"
+            },
+            "actor_id": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "format": "uuid",
+              "title": "Actor Id"
+            },
+            "actor_email": {
+              "anyOf": [
+                {
+                  "maxLength": 255,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Email"
+            },
+            "actor_role": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Role"
+            },
+            "action": {
+              "maxLength": 64,
+              "title": "Action",
+              "type": "string"
+            },
+            "target_type": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Type"
+            },
+            "target_id": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Id"
+            },
+            "method": {
+              "anyOf": [
+                {
+                  "maxLength": 8,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Method"
+            },
+            "path": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Path"
+            },
+            "status_code": {
+              "anyOf": [
+                {
+                  "maximum": 32767,
+                  "minimum": -32768,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Code"
+            },
+            "ip": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "format": "postgres-inet-text",
+              "title": "Ip"
+            },
+            "detail_json": {
+              "$ref": "#/$defs/JSONValue"
+            },
+            "request_id": {
+              "anyOf": [
+                {
+                  "maxLength": 36,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Request Id"
+            },
+            "created_at": {
+              "format": "date-time",
+              "title": "Created At",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "actor_id",
+            "actor_email",
+            "actor_role",
+            "action",
+            "target_type",
+            "target_id",
+            "method",
+            "path",
+            "status_code",
+            "ip",
+            "detail_json",
+            "request_id",
+            "created_at"
+          ],
+          "title": "AuditReadEvent",
+          "type": "object"
+        }
+      },
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditReadEvent"
+        }
+      ],
+      "x-postgresql-relations": {
+        "aap_audit_v1.audit_events": {
+          "columns": [
+            "id",
+            "actor_id",
+            "actor_email",
+            "actor_role",
+            "action",
+            "target_type",
+            "target_id",
+            "method",
+            "path",
+            "status_code",
+            "ip",
+            "detail_json",
+            "request_id",
+            "created_at"
+          ],
+          "column_types": {
+            "id": "bigint",
+            "actor_id": "uuid",
+            "actor_email": "character varying(255)",
+            "actor_role": "character varying(32)",
+            "action": "character varying(64)",
+            "target_type": "character varying(32)",
+            "target_id": "character varying(64)",
+            "method": "character varying(8)",
+            "path": "character varying(256)",
+            "status_code": "smallint",
+            "ip": "inet",
+            "detail_json": "jsonb",
+            "request_id": "character varying(36)",
+            "created_at": "timestamp with time zone"
+          },
+          "nullable_columns": [
+            "actor_id",
+            "actor_email",
+            "actor_role",
+            "target_type",
+            "target_id",
+            "method",
+            "path",
+            "status_code",
+            "ip",
+            "detail_json",
+            "request_id"
+          ],
+          "row": {
+            "$ref": "#/$defs/AuditReadEvent"
+          },
+          "row_key": [
+            "id",
+            "created_at"
+          ],
+          "owner": "audit",
+          "read_only": true,
+          "security_barrier": true
+        }
+      }
+    },
+    "0322_audit_daily_projection.schema.json": {
+      "$comment": "Read-only daily aggregate of completed UTC days. The caller retains its existing authorization, month boundaries, raw-tail mixing and transaction. Event counts use canonical decimal strings in JSON.",
+      "$defs": {
+        "AuditDailyFact": {
+          "additionalProperties": false,
+          "description": "Lossless JSON representation of a row in ``audit_daily_facts``.",
+          "properties": {
+            "action": {
+              "maxLength": 64,
+              "title": "Action",
+              "type": "string"
+            },
+            "actor_role": {
+              "maxLength": 32,
+              "title": "Actor Role",
+              "type": "string"
+            },
+            "day": {
+              "format": "date",
+              "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+              "title": "Day",
+              "type": "string"
+            },
+            "event_count": {
+              "format": "int64-decimal",
+              "maxLength": 19,
+              "pattern": "^(?:0|[1-9][0-9]*)$",
+              "title": "Event Count",
+              "type": "string"
+            },
+            "status_family": {
+              "maximum": 32767,
+              "minimum": -32768,
+              "title": "Status Family",
+              "type": "integer"
+            },
+            "target_type": {
+              "maxLength": 32,
+              "title": "Target Type",
+              "type": "string"
+            }
+          },
+          "required": [
+            "day",
+            "action",
+            "target_type",
+            "actor_role",
+            "status_family",
+            "event_count"
+          ],
+          "title": "AuditDailyFact",
+          "type": "object"
+        }
+      },
+      "$id": "aap-audit-daily-projection/v1",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuditDailyFact"
+        }
+      ],
+      "title": "Audit daily aggregate projection",
+      "x-postgresql-functions": {
+        "aap_audit_v1.refresh_audit_bi_mv()": {
+          "argument_types": [],
+          "caller_commit_required": true,
+          "concurrent": true,
+          "fixed_target": "public.mv_audit_bi_daily",
+          "owner": "audit",
+          "required_owner_database_privileges": [
+            "TEMPORARY"
+          ],
+          "returns": "void",
+          "security_definer": true
+        }
+      },
+      "x-postgresql-relations": {
+        "aap_audit_v1.audit_daily_facts": {
+          "column_types": {
+            "action": "character varying(64)",
+            "actor_role": "character varying",
+            "day": "date",
+            "event_count": "bigint",
+            "status_family": "smallint",
+            "target_type": "character varying"
+          },
+          "columns": [
+            "day",
+            "action",
+            "target_type",
+            "actor_role",
+            "status_family",
+            "event_count"
+          ],
+          "nullable_columns": [],
+          "owner": "audit",
+          "read_only": true,
+          "row": {
+            "$ref": "#/$defs/AuditDailyFact"
+          },
+          "row_key": [
+            "day",
+            "action",
+            "target_type",
+            "actor_role",
+            "status_family"
+          ],
+          "security_barrier": true
+        }
+      }
+    },
+    "0333_audit_maintenance.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-audit-maintenance/v1",
+      "title": "Audit partition maintenance commands",
+      "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop.",
+      "$defs": {
+        "AuditPartition": {
+          "additionalProperties": false,
+          "description": "Frozen identity and UTC date range for one monthly audit partition.",
+          "properties": {
+            "name": {
+              "pattern": "^audit_logs_y([0-9]{4})m(0[1-9]|1[0-2])$",
+              "title": "Name",
+              "type": "string"
+            },
+            "from": {
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            },
+            "to": {
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            },
+            "oid": {
+              "exclusiveMinimum": 0,
+              "maximum": 4294967295,
+              "title": "Oid",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "from",
+            "to",
+            "oid"
+          ],
+          "title": "AuditPartition",
+          "type": "object"
+        },
+        "_ArchiveEventRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "archive_event",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            },
+            "row_count": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Row Count",
+              "type": "integer"
+            },
+            "object_key": {
+              "pattern": "^[0-9]{4}/(0[1-9]|1[0-2])\\.jsonl\\.gz$",
+              "title": "Object Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition",
+            "row_count",
+            "object_key"
+          ],
+          "title": "_ArchiveEventRequest",
+          "type": "object"
+        },
+        "_DropPartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "drop",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition"
+          ],
+          "title": "_DropPartitionRequest",
+          "type": "object"
+        },
+        "_EnsurePartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "ensure",
+              "title": "Operation",
+              "type": "string"
+            },
+            "month": {
+              "format": "date",
+              "title": "Month",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "month"
+          ],
+          "title": "_EnsurePartitionRequest",
+          "type": "object"
+        },
+        "_ListPartitionsRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "partitions",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation"
+          ],
+          "title": "_ListPartitionsRequest",
+          "type": "object"
+        },
+        "_RefreshDailyRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "refresh_daily",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation"
+          ],
+          "title": "_RefreshDailyRequest",
+          "type": "object"
+        },
+        "_SnapshotPartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "snapshot",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition"
+          ],
+          "title": "_SnapshotPartitionRequest",
+          "type": "object"
+        },
+        "JSONValue": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "object"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "_EmptyData": {
+          "additionalProperties": false,
+          "properties": {},
+          "title": "_EmptyData",
+          "type": "object"
+        },
+        "_EnsureData": {
+          "additionalProperties": false,
+          "properties": {
+            "created": {
+              "title": "Created",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "created"
+          ],
+          "title": "_EnsureData",
+          "type": "object"
+        },
+        "_PartitionsData": {
+          "additionalProperties": false,
+          "properties": {
+            "partitions": {
+              "items": {
+                "$ref": "#/$defs/AuditPartition"
+              },
+              "title": "Partitions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "partitions"
+          ],
+          "title": "_PartitionsData",
+          "type": "object"
+        },
+        "_SnapshotData": {
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JSONValue"
+                },
+                "type": "object"
+              },
+              "title": "Rows",
+              "type": "array"
+            }
+          },
+          "required": [
+            "rows"
+          ],
+          "title": "_SnapshotData",
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/_ListPartitionsRequest"
+        },
+        {
+          "$ref": "#/$defs/_EnsurePartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_SnapshotPartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_DropPartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_ArchiveEventRequest"
+        },
+        {
+          "$ref": "#/$defs/_RefreshDailyRequest"
+        }
+      ],
+      "x-aap-replies": {
+        "additionalProperties": false,
+        "properties": {
+          "schema": {
+            "const": "aap-audit-maintenance/v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "ok": {
+            "const": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/_PartitionsData"
+              },
+              {
+                "$ref": "#/$defs/_EnsureData"
+              },
+              {
+                "$ref": "#/$defs/_SnapshotData"
+              },
+              {
+                "$ref": "#/$defs/_EmptyData"
+              }
+            ],
+            "title": "Data"
+          }
+        },
+        "required": [
+          "schema",
+          "ok",
+          "data"
+        ],
+        "title": "_MaintenanceReply",
+        "type": "object"
+      },
+      "x-postgresql-functions": {
+        "aap_audit_v1.maintenance_command(jsonb)": {
+          "argument_types": [
+            "jsonb"
+          ],
+          "returns": "jsonb",
+          "owner": "audit",
+          "security_definer": true,
+          "fixed_targets": [
+            "public.audit_logs monthly partitions",
+            "public.mv_audit_bi_daily"
+          ],
+          "caller_transaction_required": true,
+          "snapshot_lock": "ACCESS EXCLUSIVE",
+          "drop_requires_same_transaction_lock": true
+        }
+      }
+    },
+    "0366_audit_fixture_cleanup.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-audit-maintenance/v1",
+      "title": "Audit maintenance commands",
+      "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop. Filtering-fixture cleanup is limited to its fixed audit markers and isolated _test/_e2e databases.",
+      "$defs": {
+        "AuditPartition": {
+          "additionalProperties": false,
+          "description": "Frozen identity and UTC date range for one monthly audit partition.",
+          "properties": {
+            "name": {
+              "pattern": "^audit_logs_y([0-9]{4})m(0[1-9]|1[0-2])$",
+              "title": "Name",
+              "type": "string"
+            },
+            "from": {
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            },
+            "to": {
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            },
+            "oid": {
+              "exclusiveMinimum": 0,
+              "maximum": 4294967295,
+              "title": "Oid",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "from",
+            "to",
+            "oid"
+          ],
+          "title": "AuditPartition",
+          "type": "object"
+        },
+        "_ArchiveEventRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "archive_event",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            },
+            "row_count": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Row Count",
+              "type": "integer"
+            },
+            "object_key": {
+              "pattern": "^[0-9]{4}/(0[1-9]|1[0-2])\\.jsonl\\.gz$",
+              "title": "Object Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition",
+            "row_count",
+            "object_key"
+          ],
+          "title": "_ArchiveEventRequest",
+          "type": "object"
+        },
+        "_CleanupFilteringFixtureEventsRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "cleanup_filtering_fixture_events",
+              "title": "Operation",
+              "type": "string"
+            },
+            "namespace": {
+              "anyOf": [
+                {
+                  "pattern": "^[a-z0-9]{4,12}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Namespace"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "namespace"
+          ],
+          "title": "_CleanupFilteringFixtureEventsRequest",
+          "type": "object"
+        },
+        "_DropPartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "drop",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition"
+          ],
+          "title": "_DropPartitionRequest",
+          "type": "object"
+        },
+        "_EnsurePartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "ensure",
+              "title": "Operation",
+              "type": "string"
+            },
+            "month": {
+              "format": "date",
+              "title": "Month",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "month"
+          ],
+          "title": "_EnsurePartitionRequest",
+          "type": "object"
+        },
+        "_ListPartitionsRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "partitions",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation"
+          ],
+          "title": "_ListPartitionsRequest",
+          "type": "object"
+        },
+        "_RefreshDailyRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "refresh_daily",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation"
+          ],
+          "title": "_RefreshDailyRequest",
+          "type": "object"
+        },
+        "_SnapshotPartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "snapshot",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition"
+          ],
+          "title": "_SnapshotPartitionRequest",
+          "type": "object"
+        },
+        "JSONValue": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "object"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "_EmptyData": {
+          "additionalProperties": false,
+          "properties": {},
+          "title": "_EmptyData",
+          "type": "object"
+        },
+        "_EnsureData": {
+          "additionalProperties": false,
+          "properties": {
+            "created": {
+              "title": "Created",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "created"
+          ],
+          "title": "_EnsureData",
+          "type": "object"
+        },
+        "_FilteringFixtureCleanupData": {
+          "additionalProperties": false,
+          "properties": {
+            "deleted_rows": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Deleted Rows",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "deleted_rows"
+          ],
+          "title": "_FilteringFixtureCleanupData",
+          "type": "object"
+        },
+        "_PartitionsData": {
+          "additionalProperties": false,
+          "properties": {
+            "partitions": {
+              "items": {
+                "$ref": "#/$defs/AuditPartition"
+              },
+              "title": "Partitions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "partitions"
+          ],
+          "title": "_PartitionsData",
+          "type": "object"
+        },
+        "_SnapshotData": {
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JSONValue"
+                },
+                "type": "object"
+              },
+              "title": "Rows",
+              "type": "array"
+            }
+          },
+          "required": [
+            "rows"
+          ],
+          "title": "_SnapshotData",
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/_ListPartitionsRequest"
+        },
+        {
+          "$ref": "#/$defs/_EnsurePartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_SnapshotPartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_DropPartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_ArchiveEventRequest"
+        },
+        {
+          "$ref": "#/$defs/_RefreshDailyRequest"
+        },
+        {
+          "$ref": "#/$defs/_CleanupFilteringFixtureEventsRequest"
+        }
+      ],
+      "x-aap-replies": {
+        "additionalProperties": false,
+        "properties": {
+          "schema": {
+            "const": "aap-audit-maintenance/v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "ok": {
+            "const": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/_PartitionsData"
+              },
+              {
+                "$ref": "#/$defs/_EnsureData"
+              },
+              {
+                "$ref": "#/$defs/_SnapshotData"
+              },
+              {
+                "$ref": "#/$defs/_FilteringFixtureCleanupData"
+              },
+              {
+                "$ref": "#/$defs/_EmptyData"
+              }
+            ],
+            "title": "Data"
+          }
+        },
+        "required": [
+          "schema",
+          "ok",
+          "data"
+        ],
+        "title": "_MaintenanceReply",
+        "type": "object"
+      },
+      "x-postgresql-functions": {
+        "aap_audit_v1.maintenance_command(jsonb)": {
+          "argument_types": [
+            "jsonb"
+          ],
+          "returns": "jsonb",
+          "owner": "audit",
+          "security_definer": true,
+          "fixed_targets": [
+            "public.audit_logs monthly partitions",
+            "public.mv_audit_bi_daily"
+          ],
+          "caller_transaction_required": true,
+          "snapshot_lock": "ACCESS EXCLUSIVE",
+          "drop_requires_same_transaction_lock": true,
+          "operation_constraints": {
+            "cleanup_filtering_fixture_events": {
+              "fixed_targets": [
+                "public.audit_logs filtering E2E fixture rows"
+              ],
+              "fixed_predicates": [
+                "path=/api/v1/__test/seed/filtering",
+                "namespace=null: detail_json.fixture=filtering",
+                "namespace=set: detail_json.namespace=namespace"
+              ],
+              "test_database_suffixes": [
+                "_e2e",
+                "_test"
+              ],
+              "required_transaction_setting": "app.allow_audit_update=true"
+            }
+          }
+        }
+      }
+    },
+    "0437_fixture_audit_cleanup.schema.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "aap-audit-maintenance/v1",
+      "title": "Audit maintenance commands",
+      "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop. Fixture cleanup uses exact run-owned audit receipts in isolated _test/_e2e databases.",
+      "$defs": {
+        "AuditPartition": {
+          "additionalProperties": false,
+          "description": "Frozen identity and UTC date range for one monthly audit partition.",
+          "properties": {
+            "name": {
+              "pattern": "^audit_logs_y([0-9]{4})m(0[1-9]|1[0-2])$",
+              "title": "Name",
+              "type": "string"
+            },
+            "from": {
+              "format": "date",
+              "title": "From",
+              "type": "string"
+            },
+            "to": {
+              "format": "date",
+              "title": "To",
+              "type": "string"
+            },
+            "oid": {
+              "exclusiveMinimum": 0,
+              "maximum": 4294967295,
+              "title": "Oid",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "from",
+            "to",
+            "oid"
+          ],
+          "title": "AuditPartition",
+          "type": "object"
+        },
+        "_ArchiveEventRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "archive_event",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            },
+            "row_count": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Row Count",
+              "type": "integer"
+            },
+            "object_key": {
+              "pattern": "^[0-9]{4}/(0[1-9]|1[0-2])\\.jsonl\\.gz$",
+              "title": "Object Key",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition",
+            "row_count",
+            "object_key"
+          ],
+          "title": "_ArchiveEventRequest",
+          "type": "object"
+        },
+        "_CleanupFixtureEventsRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "cleanup_fixture_events",
+              "title": "Operation",
+              "type": "string"
+            },
+            "run_id": {
+              "format": "uuid",
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "run_id"
+          ],
+          "title": "_CleanupFixtureEventsRequest",
+          "type": "object"
+        },
+        "_DropPartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "drop",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition"
+          ],
+          "title": "_DropPartitionRequest",
+          "type": "object"
+        },
+        "_EnsurePartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "ensure",
+              "title": "Operation",
+              "type": "string"
+            },
+            "month": {
+              "format": "date",
+              "title": "Month",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "month"
+          ],
+          "title": "_EnsurePartitionRequest",
+          "type": "object"
+        },
+        "_ListPartitionsRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "partitions",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation"
+          ],
+          "title": "_ListPartitionsRequest",
+          "type": "object"
+        },
+        "_RefreshDailyRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "refresh_daily",
+              "title": "Operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schema",
+            "operation"
+          ],
+          "title": "_RefreshDailyRequest",
+          "type": "object"
+        },
+        "_SnapshotPartitionRequest": {
+          "additionalProperties": false,
+          "properties": {
+            "schema": {
+              "const": "aap-audit-maintenance/v1",
+              "title": "Schema",
+              "type": "string"
+            },
+            "operation": {
+              "const": "snapshot",
+              "title": "Operation",
+              "type": "string"
+            },
+            "partition": {
+              "$ref": "#/$defs/AuditPartition"
+            }
+          },
+          "required": [
+            "schema",
+            "operation",
+            "partition"
+          ],
+          "title": "_SnapshotPartitionRequest",
+          "type": "object"
+        },
+        "JSONValue": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "object"
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/JSONValue"
+              },
+              "type": "array"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "_EmptyData": {
+          "additionalProperties": false,
+          "properties": {},
+          "title": "_EmptyData",
+          "type": "object"
+        },
+        "_EnsureData": {
+          "additionalProperties": false,
+          "properties": {
+            "created": {
+              "title": "Created",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "created"
+          ],
+          "title": "_EnsureData",
+          "type": "object"
+        },
+        "_FixtureCleanupData": {
+          "additionalProperties": false,
+          "properties": {
+            "deleted_rows": {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Deleted Rows",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "deleted_rows"
+          ],
+          "title": "_FixtureCleanupData",
+          "type": "object"
+        },
+        "_PartitionsData": {
+          "additionalProperties": false,
+          "properties": {
+            "partitions": {
+              "items": {
+                "$ref": "#/$defs/AuditPartition"
+              },
+              "title": "Partitions",
+              "type": "array"
+            }
+          },
+          "required": [
+            "partitions"
+          ],
+          "title": "_PartitionsData",
+          "type": "object"
+        },
+        "_SnapshotData": {
+          "additionalProperties": false,
+          "properties": {
+            "rows": {
+              "items": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/JSONValue"
+                },
+                "type": "object"
+              },
+              "title": "Rows",
+              "type": "array"
+            }
+          },
+          "required": [
+            "rows"
+          ],
+          "title": "_SnapshotData",
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/_ListPartitionsRequest"
+        },
+        {
+          "$ref": "#/$defs/_EnsurePartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_SnapshotPartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_DropPartitionRequest"
+        },
+        {
+          "$ref": "#/$defs/_ArchiveEventRequest"
+        },
+        {
+          "$ref": "#/$defs/_RefreshDailyRequest"
+        },
+        {
+          "$ref": "#/$defs/_CleanupFixtureEventsRequest"
+        }
+      ],
+      "x-aap-replies": {
+        "additionalProperties": false,
+        "properties": {
+          "schema": {
+            "const": "aap-audit-maintenance/v1",
+            "title": "Schema",
+            "type": "string"
+          },
+          "ok": {
+            "const": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/_PartitionsData"
+              },
+              {
+                "$ref": "#/$defs/_EnsureData"
+              },
+              {
+                "$ref": "#/$defs/_SnapshotData"
+              },
+              {
+                "$ref": "#/$defs/_FixtureCleanupData"
+              },
+              {
+                "$ref": "#/$defs/_EmptyData"
+              }
+            ],
+            "title": "Data"
+          }
+        },
+        "required": [
+          "schema",
+          "ok",
+          "data"
+        ],
+        "title": "_MaintenanceReply",
+        "type": "object"
+      },
+      "x-postgresql-functions": {
+        "aap_audit_v1.maintenance_command(jsonb)": {
+          "argument_types": [
+            "jsonb"
+          ],
+          "returns": "jsonb",
+          "owner": "audit",
+          "security_definer": true,
+          "fixed_targets": [
+            "public.audit_logs monthly partitions",
+            "public.mv_audit_bi_daily"
+          ],
+          "caller_transaction_required": true,
+          "snapshot_lock": "ACCESS EXCLUSIVE",
+          "drop_requires_same_transaction_lock": true,
+          "operation_constraints": {
+            "cleanup_fixture_events": {
+              "fixed_targets": [
+                "public.audit_logs run-owned fixture rows"
+              ],
+              "fixed_predicates": [
+                "receipt.run_id=request.run_id",
+                "audit identity=(receipt.audit_id,receipt.audit_created_at)",
+                "path=/api/v1/__test/seed/filtering",
+                "detail_json.namespace=run.scope_key"
+              ],
+              "run_requirement": "owned leaf in sealing or retired state, with no unsettled admissions",
+              "caller_requirement": "SESSION_USER has USAGE membership in fixture_runs table owner",
+              "test_database_suffixes": [
+                "_e2e",
+                "_test"
+              ],
+              "required_transaction_setting": "app.allow_audit_update=true"
+            }
+          }
+        }
+      }
+    }
+  }
+}

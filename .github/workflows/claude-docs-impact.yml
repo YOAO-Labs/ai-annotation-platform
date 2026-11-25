@@ -53,7 +53,7 @@ jobs:
 
             Inputs (in order of authority):
             1. The actual PR diff — **source of truth**. Always read it.
-            2. `CLAUDE.md` and `docs-site/` — the project's documentation taxonomy (Diátaxis: user-guide / dev / ops / api; plus `docs/adr/` for architecture decisions and `CHANGELOG.md` for version notes). Use to decide where docs should live.
+            2. `CLAUDE.md` and `YOAO-Labs/YOAO-Docs` — the project's documentation taxonomy (Diátaxis: user-guide / dev / ops / api; plus `docs/adr/` for architecture decisions and `CHANGELOG.md` for version notes in this repository). Use to decide where docs should live.
             3. `.github/docs-impact-map.json` and `.tmp/docs-impact.json` / `.tmp/docs-impact.md` — **weak hints only**, generated from path patterns. Treat them as starting points, not as a whitelist. Missing matches do NOT imply "no docs needed"; matched rules do NOT imply the listed docs are the only relevant ones. Override freely when the diff tells a different story.
             4. `.tmp/doc-version-prefix.md` — a deterministic pre-scan for the documentation style check below. **Hint only**; it may miss cases (prose phrasing) or over-flag (code samples). Confirm each against the diff.
 
@@ -62,9 +62,9 @@ jobs:
             - Each entry in `suggested_files` must include `action`: `update` for existing docs to revise, or `create` for new docs that should be added.
             - For `update` entries, propose any existing doc in the repo that the diff actually invalidates or extends — not limited to the hint set.
             - For `create` entries, propose a path that fits the existing docs taxonomy. Examples:
-              * New user-facing feature with no home → `docs-site/user-guide/<role>/<feature>.md`
-              * New developer concept/protocol → `docs-site/dev/concepts/<topic>.md` or `docs-site/dev/reference/<topic>.md`
-              * New operational runbook → `docs-site/ops/runbooks/<topic>.md`
+              * New user-facing feature with no home → `YOAO-Labs/YOAO-Docs:user-guide/<role>/<feature>.md`
+              * New developer concept/protocol → `YOAO-Labs/YOAO-Docs:dev/concepts/<topic>.md` or `YOAO-Labs/YOAO-Docs:dev/reference/<topic>.md`
+              * New operational runbook → `YOAO-Labs/YOAO-Docs:ops/runbooks/<topic>.md`
               * Architecturally significant change → `docs/adr/NNNN-<slug>.md` (use the next available number)
             - Only suggest `create` when (a) the PR introduces a non-trivial new capability, concept, protocol, env var, or architectural shift, AND (b) no existing doc would naturally house it.
             - Keep at most 5 suggested files total (update + create combined), deduplicated, sorted by priority.

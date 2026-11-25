@@ -21,7 +21,7 @@ the pinned SQLAlchemy fetch synchronization and rollback behavior; they do not
 commit. Domain execution leases and business authorization stay with their
 existing owners.
 
-The strict `jobs-lifecycle-grants.sql` profile permits only this creation
+The strict `jobs-grants.sql` (`-v grant_lifecycle=1`) profile permits only this creation
 relation and eight public functions. Ordinary LAN and worktree runtime profiles
 revoke table and column access to `public.async_jobs` from the runtime and
 PUBLIC, including inherited SELECT and INSERT checks. They keep SELECT/INSERT
@@ -59,7 +59,7 @@ constraints and DELETE triggers.
 `fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)` uses the Job ID, kind, payload, project and actor. A new retry can prove scope only from its own admission and frozen input. A new cross-frame Job includes the source Scene and every ready target's Dataset; the worker rechecks that scope before writing. Neither current Task mappings nor terminal status can certify a historical Job. Unproved scope blocks cleanup, and deleting a bound Job does not certify physical settlement.
 
 The current migration-bound contract is
-`apps/api/alembic/sql/0465_fixture_jobs.schema.json`, matching the installed
+`apps/api/alembic/sql/jobs.contracts.json` (`0465_fixture_jobs.schema.json`), matching the installed
 `yoao_jobs/fixture_guard.schema.json`. Native acceptance checks every declared
 function's arguments, result, volatility and parallel safety against PostgreSQL.
 Historical SQL stays unchanged; reclaim classification advances through
@@ -298,13 +298,13 @@ administrative privileges. Use `psql`'s `\password` command to set their
 passwords. After Alembic and ordinary runtime grants, install the same two
 profiles into the intended database:
 
-- Default migration-owned database: `infra/docker/jobs-recovery-grants.sql`
+- Default migration-owned database: `infra/docker/jobs-grants.sql` (`-v grant_recovery=1`)
   (`expected_database`, `migration_role`, `application_role`, `dispatch_role`,
   `publication_role`). An inherited `PUBLIC TEMP` grant must first be removed
   from the intended database, preserving explicit TEMP for its maintenance
   role when needed.
 - If owner objects were transferred to separate NOLOGIN identities, keep the
-  existing `jobs-dispatch-grants.sql` and `module-execution-grants.sql` order
+  existing `jobs-grants.sql` (`-v grant_dispatch=1`) and `platform-grants.sql` (`-v grant_module_execution=1`) order
   after the modular owner and ordinary runtime profiles.
 
 Use private `postgresql://` DSN files; expose the claim file only to recovery.

@@ -101,17 +101,22 @@ def test_account_profile_matches_all_userout_fields_in_source_order():
 def test_schema_snapshots_match_the_owner_descriptor():
     schema = e2e_fixture_schema()
     repository_root = Path(__file__).resolve().parents[3]
-    snapshots = (
+    package_snapshot = (
         repository_root
-        / "apps/identity/src/yoao_identity/e2e_fixture_protocol.schema.json",
-        repository_root / "apps/api/alembic/sql/0305_identity_e2e_fixtures.schema.json",
+        / "apps/identity/src/yoao_identity/e2e_fixture_protocol.schema.json"
     )
+    bundled_snapshot = json.loads(
+        (repository_root / "apps/api/alembic/sql/identity.contracts.json").read_text(
+            encoding="utf-8"
+        )
+    )["artifacts"]["0305_identity_e2e_fixtures.schema.json"]
 
     assert schema["$id"] == E2E_FIXTURE_PROTOCOL
-    for snapshot in snapshots:
-        assert (
-            _current_names(json.loads(snapshot.read_text(encoding="utf-8"))) == schema
-        )
+    for raw in (
+        json.loads(package_snapshot.read_text(encoding="utf-8")),
+        bundled_snapshot,
+    ):
+        assert _current_names(raw) == schema
 
 
 def test_descriptor_names_only_the_seven_fixed_fixture_capabilities():

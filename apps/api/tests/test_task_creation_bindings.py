@@ -1,9 +1,8 @@
 """Consumer validation and retry behavior at the native creation boundary."""
 
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from unittest.mock import Mock
 from uuid import uuid4
-import json
 
 from celery.exceptions import Retry
 from fastapi import HTTPException
@@ -142,16 +141,9 @@ def test_disabled_actor_failure_keeps_bearer_authentication_header():
 
 
 def test_python_bindings_match_frozen_public_response_fields():
-    root = Path(__file__).parents[1] / "alembic/sql"
-    authority = json.loads((root / "0192_creation_authority.schema.json").read_text())[
-        "$defs"
-    ]
-    jobs = json.loads((root / "0193_task_creation_jobs.schema.json").read_text())[
-        "$defs"
-    ]
-    labeling = json.loads((root / "0194_task_creation.schema.json").read_text())[
-        "$defs"
-    ]
+    authority = load_contract_schema("0192_creation_authority.schema.json")["$defs"]
+    jobs = load_contract_schema("0193_task_creation_jobs.schema.json")["$defs"]
+    labeling = load_contract_schema("0194_task_creation.schema.json")["$defs"]
     pairs = [
         (ProjectManagerFacts, authority["projectManagerSuccess"]["properties"]["data"]),
         (

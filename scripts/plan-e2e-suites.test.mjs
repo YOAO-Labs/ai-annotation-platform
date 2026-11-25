@@ -235,6 +235,8 @@ test("shadow selection classifies docs-only changes and proposes no app suites",
 
 test("executable docs examples and docs build config are app code, not docs-only", () => {
   for (const path of [
+    "examples/ml-backend/echo-ml-backend/main.py",
+    "examples/ml-backend/echo-ml-backend/README.md",
     "docs-site/dev/examples/protocol-demo.py",
     "docs-site/.vitepress/config.ts",
     "docs-site/dev/examples/data/fixture.json",
@@ -459,10 +461,6 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
 test("large PR reports use files while suite dispatch and final audit outputs stay bounded", () => {
   const cwd = mkdtempSync(join(tmpdir(), "e2e-large-plan-"));
   const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
-  const ciYml = readFileSync(
-    fileURLToPath(new URL("../.github/workflows/ci.yml", import.meta.url)),
-    "utf8",
-  );
   const git = (...args) =>
     execFileSync("git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   try {
@@ -487,7 +485,8 @@ test("large PR reports use files while suite dispatch and final audit outputs st
     const reportDir = join(cwd, "report files");
     mkdirSync(reportDir);
     const shadowPath = join(reportDir, "shadow.json");
-    const result = spawnSync(process.execPath, [script, base], {
+    const summaryPath = join(reportDir, "summary.md");
+    const result = spawnSync(process.execPath, [script, base, summaryPath], {
       cwd,
       encoding: "utf8",
       env: {
@@ -505,6 +504,7 @@ test("large PR reports use files while suite dispatch and final audit outputs st
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
     assert.deepEqual(Object.keys(outputs).sort(), [
+      "docs_only",
       "legacy",
       "matrix",
       "ml_cpu",
@@ -537,25 +537,9 @@ test("large PR reports use files while suite dispatch and final audit outputs st
       "forbid",
     );
 
-    const reportCommand = ciYml.match(
-      /      - name: Record shadow E2E selection\n[\s\S]*?        run: \|\n([\s\S]*?          NODE)\n/,
-    );
-    assert.ok(reportCommand, "workflow must retain the selection summary command");
-    const summaryPath = join(reportDir, "summary.md");
-    const report = spawnSync("bash", ["-e"], {
-      cwd,
-      encoding: "utf8",
-      input: reportCommand[1]
-        .split("\n")
-        .map((line) => line.slice(10))
-        .join("\n"),
-      env: { ...process.env, SHADOW_PATH: shadowPath, GITHUB_STEP_SUMMARY: summaryPath },
-    });
-    assert.equal(report.status, 0, report.stderr);
     const summary = readFileSync(summaryPath, "utf8");
-    assert.ok(summary.includes(`planned: ${broadened.join(", ")}`));
-    assert.ok(summary.includes("ML CPU contract caller triggered: true"));
-    assert.ok(summary.includes(paths[1729]));
+    assert.ok(summary.includes(broadened.join(", ")));
+    assert.ok(Buffer.byteLength(summary) < 16 * 1024);
 
     const transfer = spawnSync(
       "bash",
@@ -601,6 +585,7 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
     const result = run(base);
     assert.equal(result.status, 0, result.stderr);
     const lines = result.stdout.trim().split("\n");
+    assert.ok(lines.includes("docs_only=false"));
     const matrixLine = lines.find((line) => line.startsWith("matrix="));
     const legacyLine = lines.find((line) => line.startsWith("legacy="));
     const shadowPathLine = lines.find((line) => line.startsWith("shadow_path="));
@@ -703,6 +688,7 @@ test("the required manifest audits every effective job and the bundled Worker in
       if (mode !== undefined) env.E2E_SELECTION_MODE = mode;
       const out = run(env);
       const expected = mode === "legacy" ? [...functional, "layout-stress"] : broadened;
+      assert.equal(out.docs_only, "false");
       assert.equal(out.run_suites, "true");
       assert.deepEqual(ids(out.matrix), expected, `push mode=${JSON.stringify(mode)}`);
       assert.deepEqual(requiredIds(out.required), withWorkerReceipt(expected));
@@ -719,6 +705,7 @@ test("the required manifest audits every effective job and the bundled Worker in
       const env = { GITHUB_EVENT_NAME: "pull_request" };
       if (mode !== undefined) env.E2E_SELECTION_MODE = mode;
       const out = run(env, [appBase]);
+      assert.equal(out.docs_only, "false");
       assert.deepEqual(
         requiredIds(out.required),
         withWorkerReceipt(ids(out.matrix)),
@@ -732,19 +719,26 @@ test("the required manifest audits every effective job and the bundled Worker in
         E2E_DISPATCH_SCOPE: "full",
         E2E_SCHEDULE_SCOPE: "full",
       });
+      assert.equal(out.docs_only, "false", event);
       assert.deepEqual(requiredIds(out.required), withWorkerReceipt(ids(out.matrix)), event);
       assert.deepEqual(ids(out.matrix), broadened, event);
     }
 
     const docsBase = git("rev-parse", "HEAD");
+    assert.equal(run({ GITHUB_EVENT_NAME: "pull_request" }, [docsBase]).docs_only, "false");
     mkdirSync(join(cwd, "docs-site/user-guide"), { recursive: true });
     writeFileSync(join(cwd, "docs-site/user-guide/index.md"), "# docs\n");
+    mkdirSync(join(cwd, "ROADMAP/research"), { recursive: true });
+    for (const path of ["DEV.md", "ROADMAP.md", "ROADMAP/next.md", "ROADMAP/research/notes.md"])
+      writeFileSync(join(cwd, path), "# plan\n");
     git("add", ".");
     git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "docs");
     const docsPlanned = run({ GITHUB_EVENT_NAME: "pull_request", E2E_SELECTION_MODE: "" }, [
       docsBase,
     ]);
     assert.deepEqual(ids(docsPlanned.matrix), []);
+    assert.equal(docsPlanned.docs_only, "true");
+    assert.equal(docsPlanned.ml_cpu, "false");
     assert.equal(docsPlanned.run_suites, "false");
     const docsManifest = JSON.parse(docsPlanned.required);
     assert.equal(docsManifest.classification, "docs-only");
@@ -755,8 +749,15 @@ test("the required manifest audits every effective job and the bundled Worker in
       docsBase,
     ]);
     assert.equal(docsLegacy.run_suites, "true");
+    assert.equal(docsLegacy.docs_only, "true");
     assert.deepEqual(ids(docsLegacy.matrix), [...functional]);
     assert.deepEqual(requiredIds(docsLegacy.required), withWorkerReceipt(ids(docsLegacy.matrix)));
+
+    const unknownBase = git("rev-parse", "HEAD");
+    writeFileSync(join(cwd, "ROADMAP/check.mjs"), "export {};\n");
+    git("add", "ROADMAP/check.mjs");
+    git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "script");
+    assert.equal(run({ GITHUB_EVENT_NAME: "pull_request" }, [unknownBase]).docs_only, "false");
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

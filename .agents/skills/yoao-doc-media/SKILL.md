@@ -10,4 +10,4 @@ description: Verify requested UI flows and capture screenshots or recordings on 
 - Capture a temporary screenshot or recording only if needed; independently check the file, playback, and privacy. Report blockers and what was actually observed. Publish only the requested media and associated references after review, keeping existing paths and accessibility support.
 - Do not maintain repository capture scenarios, scripts, image baselines, or scheduled/CI captures. Ordinary functional and rendering tests and their failure diagnostics remain separate.
 
-See [capture and playback checks](references/capture.md) and the [maintainer guide](../../../docs-site/dev/how-to/update-screenshots.md).
+See [capture and playback checks](references/capture.md) and the [maintainer guide](https://yoao-labs.github.io/YOAO-Docs/dev/how-to/update-screenshots).

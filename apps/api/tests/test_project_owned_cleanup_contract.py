@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import delete, or_, text
@@ -323,11 +323,7 @@ async def _cleanup_result(
 
 async def test_frozen_schema_matches_module_owned_function_signatures():
     root = Path(__file__).parents[1] / "alembic/sql"
-    schema = json.loads(
-        (root / "0198_project_owned_cleanup_contract.schema.json").read_text(
-            encoding="utf-8"
-        )
-    )
+    schema = load_contract_schema("0198_project_owned_cleanup_contract.schema.json")
     artifact = (root / "0198_project_owned_cleanup_contract.sql").read_text(
         encoding="utf-8"
     )

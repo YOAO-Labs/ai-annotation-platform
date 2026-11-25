@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 import warnings
 
@@ -127,12 +128,7 @@ async def test_null_project_get_matches_installed_orm_with_pending_work(
 
 async def test_actorless_scalar_contract_and_exact_acl(test_engine):
     async with _world(test_engine) as (owner, api, _world_data, _url):
-        artifact = json.loads(
-            (
-                Path(__file__).resolve().parents[1]
-                / "alembic/sql/0293_workspace_project_read.schema.json"
-            ).read_text()
-        )
+        artifact = load_contract_schema("0293_workspace_project_read.schema.json")
         signatures = artifact["x-postgresql-functions"]
         assert signatures == ["aap_workspace_v1.read_project_row(uuid)"]
         assert {

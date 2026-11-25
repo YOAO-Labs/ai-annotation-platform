@@ -246,21 +246,21 @@ def test_review_scope_reply_has_a_closed_typed_projection():
 def test_video_control_schema_snapshots_match_the_closed_contract():
     root = Path(__file__).resolve().parents[3]
     expected = video_control_schema()
-    for snapshot in (
-        root / "apps/labeling/src/yoao_labeling/video-control.schema.json",
-        root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.schema.json",
-    ):
-        assert _current_names(json.loads(snapshot.read_text())) == expected
+    package_snapshot = json.loads(
+        (root / "apps/labeling/src/yoao_labeling/video-control.schema.json").read_text()
+    )
+    bundled_snapshot = json.loads(
+        (root / "apps/api/alembic/sql/labeling.contracts.json").read_text()
+    )["artifacts"]["0360_labeling_video_segment_lifecycle.schema.json"]
+    for snapshot in (package_snapshot, bundled_snapshot):
+        assert _current_names(snapshot) == expected
     assert expected["x-postgresql-functions"] == [
         VIDEO_CONTROL_FUNCTION,
         VIDEO_SEGMENT_LIFECYCLE_FUNCTION,
     ]
     assert (
         root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.sql"
-    ).read_bytes() == (
-        root
-        / "apps/labeling/src/yoao_labeling/sql/0360_labeling_video_segment_lifecycle.sql"
-    ).read_bytes()
+    ).is_file()
 
 
 @pytest.mark.asyncio

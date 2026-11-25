@@ -46,7 +46,10 @@ def _replay(name, value, record_property):
 async def media_world(test_engine):
     async with _world(test_engine, apply=False) as (owner, producer, role, _url):
         result = await _grants(
-            test_engine, ROOT / "infra/docker/identity-seed-operator-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/identity-grants.sql",
+            role,
+            capability="seed_operator",
         )
         assert result.returncode == 0, result.stderr
         async with producer() as db:

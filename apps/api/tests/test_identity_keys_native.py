@@ -4,6 +4,7 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 import sqlalchemy as sa
@@ -17,7 +18,7 @@ from tests.test_identity_auth_native import _cleanup, _seed
 
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0236_identity_api_keys.sql"
-_SCHEMA = _SQL_DIR / "0236_identity_api_keys.schema.json"
+_SCHEMA = "0236_identity_api_keys.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0236_identity_api_keys.py"
 
 
@@ -95,7 +96,7 @@ async def _execute(session: AsyncSession, request: dict) -> dict:
 def test_frozen_native_key_artifacts_and_two_function_owner_surface():
     from app.db.native_schema import NATIVE_MANAGED_TABLES
 
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     statements = [

@@ -34,13 +34,17 @@ pytestmark = [
 async def selection_world(test_engine):
     async with _world(test_engine) as (owner, consumer, role, _url):
         result = await _grants(
-            test_engine, ROOT / "infra/docker/identity-scale-seed-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/identity-grants.sql",
+            role,
+            capability="scale_seed",
         )
         assert result.returncode == 0, result.stderr
         result = await _grants(
             test_engine,
-            ROOT / "infra/docker/workspace-scale-seed-grants.sql",
+            ROOT / "infra/docker/workspace-grants.sql",
             role,
+            capability="scale_seed",
             assets_owner="assets_code",
             labeling_owner="labeling_code",
         )

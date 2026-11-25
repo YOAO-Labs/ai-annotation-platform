@@ -6,6 +6,8 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import bcrypt
 import pytest
@@ -44,13 +46,13 @@ if not _CANONICAL_SCHEMA.is_file():
     )
 _SUPPORT = _SQL_DIR / "0244_identity_admin_passwords_support.sql"
 _ARTIFACT = _SQL_DIR / "0244_identity_admin_passwords.sql"
-_SCHEMA = _SQL_DIR / "0244_identity_admin_passwords.schema.json"
+_SCHEMA = "0244_identity_admin_passwords.schema.json"
 _MIGRATION = (
     Path(__file__).parents[1] / "alembic/versions/0244_identity_admin_passwords.py"
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-admin-passwords-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 _SECRET = "admin-password-native-test-secret"
 
 
@@ -182,13 +184,13 @@ async def _cleanup_targets(test_engine, actor_id: uuid.UUID, target_ids, operati
 
 
 def test_frozen_identity_admin_password_artifacts_and_scope_lock_order():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     canonical_schema = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
     support = _SUPPORT.read_text(encoding="utf-8")
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="admin_passwords")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
 
     assert "identity_admin_password_reset_receipts" in NATIVE_MANAGED_TABLES
@@ -217,7 +219,7 @@ def test_frozen_identity_admin_password_artifacts_and_scope_lock_order():
     assert "ON public.identity_admin_password_reset_receipts" in module_grants
     assert "admin_password_target_in_owned_project" in role_grants
     assert "record_identity_admin_password_reset" in role_grants
-    assert "yoao_identity_admin_password_client" in role_grants
+    assert ":'identity_admin_password_role'" in role_grants
     assert "yoao_identity_admin_passwords_v1.execute_admin_password_command(jsonb)" in (
         lan_grants
     )

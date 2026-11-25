@@ -55,11 +55,16 @@ def _capture(name, value, record_property):
 @pytest.fixture
 async def parent_world(test_engine):
     async with _world(test_engine) as (owner, operator, role, _url):
-        for filename in (
-            "identity-seed-operator-grants.sql",
-            "workspace-seed-operator-grants.sql",
+        for filename, capability in (
+            ("identity-grants.sql", "seed_operator"),
+            ("workspace-grants.sql", "seed_operator"),
         ):
-            result = await _grants(test_engine, ROOT / "infra/docker" / filename, role)
+            result = await _grants(
+                test_engine,
+                ROOT / "infra/docker" / filename,
+                role,
+                capability=capability,
+            )
             assert result.returncode == 0, result.stderr
         async with operator() as db:
             for table in ("users", "projects", "project_members"):

@@ -31,9 +31,9 @@ jobs:
         env:
           PLUGIN_SDK_MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
           PLUGIN_SDK_SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
-        run: python scripts/fetch-python-artifacts.py --manifest "$PLUGIN_SDK_MANIFEST" --sha256 "$PLUGIN_SDK_SHA256" --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+        run: python scripts/fetch-python-artifacts.py --manifest "$PLUGIN_SDK_MANIFEST" --sha256 "$PLUGIN_SDK_SHA256" --output .artifacts/python/plugin-sdk --package yoao-backend-runtime
       - name: API experiment transport tests
         working-directory: apps/api
         run: |
-          uv sync --extra test
+          uv sync --locked --extra test
           uv run pytest -q experiments/tests

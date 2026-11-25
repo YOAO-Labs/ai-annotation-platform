@@ -128,7 +128,14 @@ def _grant_variables(database: str) -> dict[str, str]:
     }
 
 
-def _run_psql_file(test_engine, database: str, path: Path, variables: dict[str, str]):
+def _run_psql_file(
+    test_engine,
+    database: str,
+    path: Path,
+    variables: dict[str, str],
+    *,
+    capability: str | None = None,
+):
     command = [
         "psql",
         "-X",
@@ -145,7 +152,11 @@ def _run_psql_file(test_engine, database: str, path: Path, variables: dict[str, 
     for name, value in variables.items():
         command.extend(("-v", f"{name}={value}"))
     command.extend(("-f", "-"))
-    _postgres_tool(test_engine, command, body=read_psql_grant_script(path).encode())
+    _postgres_tool(
+        test_engine,
+        command,
+        body=read_psql_grant_script(path, capability=capability).encode(),
+    )
 
 
 def _apply_current_owner_grants(test_engine, database: str) -> None:
@@ -158,13 +169,14 @@ def _apply_current_owner_grants(test_engine, database: str) -> None:
     _run_psql_file(
         test_engine,
         database,
-        ROOT / "infra/docker/labeling-video-writer-grants.sql",
+        ROOT / "infra/docker/labeling-grants.sql",
         {
             "expected_database": database,
             "migration_role": "owner",
             "labeling_owner": "labeling_code",
             "labeling_video_writer_role": _WRITER_ROLE,
         },
+        capability="video_writer",
     )
 
 

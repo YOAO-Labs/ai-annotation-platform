@@ -24,7 +24,7 @@ if [ -f "$root/.env.local" ]; then
 fi
 
 share_dependencies=true
-for path in pnpm-lock.yaml pnpm-workspace.yaml package.json apps/web/package.json docs-site/package.json; do
+for path in pnpm-lock.yaml pnpm-workspace.yaml package.json apps/web/package.json; do
   if ! cmp -s "$root/$path" "$path"; then
     share_dependencies=false
   fi
@@ -32,17 +32,17 @@ done
 if ! cmp -s "$root/pnpm-lock.yaml" "$root/node_modules/.pnpm/lock.yaml"; then
   share_dependencies=false
 fi
-for path in node_modules apps/web/node_modules docs-site/node_modules; do
+for path in node_modules apps/web/node_modules; do
   if [ ! -d "$root/$path" ]; then
     share_dependencies=false
   fi
 done
 if [ "$share_dependencies" = true ]; then
-  for path in node_modules apps/web/node_modules docs-site/node_modules; do
+  for path in node_modules apps/web/node_modules; do
     link_from_root "$path"
   done
 else
-  for path in node_modules apps/web/node_modules docs-site/node_modules; do
+  for path in node_modules apps/web/node_modules; do
     if [ -L "$path" ]; then
       echo "Dependencies differ: detach $path before installing worktree dependencies." >&2
       exit 1

@@ -5,6 +5,8 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 import sqlalchemy as sa
@@ -20,11 +22,11 @@ from tests.test_identity_auth_native import _seed
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0239_identity_recovery.sql"
-_SCHEMA = _SQL_DIR / "0239_identity_recovery.schema.json"
+_SCHEMA = "0239_identity_recovery.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0239_identity_recovery.py"
 
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_RECOVERY_GRANTS = _ROOT / "infra/docker/identity-recovery-grants.sql"
+_RECOVERY_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
 
 _CONFIG = {
     "allow_open_registration": True,
@@ -154,10 +156,10 @@ async def _cleanup_recovery(
 def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
     from app.db.native_schema import NATIVE_MANAGED_TABLES
 
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
-    grants = _RECOVERY_GRANTS.read_text(encoding="utf-8")
+    grants = read_psql_grant_script(_RECOVERY_GRANTS, capability="recovery")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
     statements = [
         statement.strip()
@@ -211,7 +213,7 @@ def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
     assert "identity_recovery_policy(jsonb)" in module_grants
     assert "record_identity_recovery_event" in module_grants
     assert "token_hash, issued_email" in module_grants
-    assert "yoao_identity_mail_settings_client" in grants
+    assert ":'identity_mail_settings_role'" in grants
     assert "yoao_settings_v1.mail_delivery_policy(jsonb)" in grants
     assert "pg_advisory_xact_lock" in artifact
     assert "FOR UPDATE" in artifact

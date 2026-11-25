@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from uuid import UUID, uuid4
 
 import pytest
@@ -180,10 +181,7 @@ async def _seed_existing_dataset(
 
 
 async def test_operator_schema_copies_and_native_signature_manifest_match():
-    root = Path(__file__).parents[1] / "alembic" / "sql"
-    migration_schema = json.loads(
-        (root / "0218_assets_operator.schema.json").read_text(encoding="utf-8")
-    )
+    migration_schema = load_contract_schema("0218_assets_operator.schema.json")
     package_schema_path = (
         Path(__file__).parents[3]
         / "apps/assets-source/src/yoao_assets_source/operator_contract.schema.json"

@@ -1,6 +1,5 @@
 """Fixed test-only filtering-fixture Jobs projections."""
 
-from importlib.resources import files
 from typing import Annotated
 from uuid import UUID
 
@@ -82,4 +81,6 @@ def jobs_filter_fixture_schema():
 
 
 def jobs_filter_fixture_sql():
-    return files("yoao_jobs").joinpath("sql/0331_jobs_filter_fixtures.sql").read_text()
+    from ._sql_loader import read_jobs_sql
+
+    return read_jobs_sql("0331_jobs_filter_fixtures.sql")
