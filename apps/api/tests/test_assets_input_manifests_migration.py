@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
-import json
 from pathlib import Path
-from tests.contract_schemas import load_contract_schema
-from tests.grant_script import read_psql_grant_script
 import re
 from uuid import uuid4
 
@@ -21,6 +18,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 from tests.managed_image_inference_fixtures import _owned_database
 from tests.migration_helpers import load
 
