@@ -34,6 +34,7 @@ from tests.factory import create_membership, create_project
 TOKEN = "test-executor-credential-" + "a" * 40
 GPU = "GPU-11111111-2222-3333-4444-555555555555"
 IMAGE = "sha256:" + "1" * 64
+TRAINER_VERSION = "8.4.177"
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def training_config(monkeypatch):
         "training_catalog_json",
         {
             "ultralytics": {
-                "version": "8.4.177",
+                "version": TRAINER_VERSION,
                 "image_digest": IMAGE,
                 "base_models": {
                     "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"}
@@ -128,7 +129,7 @@ def executor_claim():
         runtime={
             "image_digest": IMAGE,
             "gpu_uuid": GPU,
-            "frameworks": {"ultralytics": "8.4.177"},
+            "frameworks": {"ultralytics": TRAINER_VERSION},
         },
     )
 

@@ -10,11 +10,15 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.services import training_storage_io
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import storage_service
 
 
 def mock_legacy_transport(monkeypatch):
-    async def run(db, owner, purpose, callback, *args, accounting=None, **kwargs):
+    async def run(
+        db, owner, purpose, callback, *args, accounting=None, source_boot=None, **kwargs
+    ):
+        assert owner.location_id == LEGACY_LOCATION_ID
         return await asyncio.to_thread(callback, storage_service, *args, **kwargs)
 
     async def prepare(db, owner, **kwargs):

@@ -29,6 +29,7 @@ from tests.test_training_runs import (
     GPU,
     IMAGE,
     TOKEN,
+    TRAINER_VERSION,
     ready_dataset,
     training_config as training_config,
 )
@@ -48,7 +49,7 @@ def claim_body(**changes):
             "preview_policy_digest": POLICY_DIGEST,
             "image_digest": IMAGE,
             "gpu_uuid": GPU,
-            "frameworks": {"ultralytics": "8.4.177"},
+            "frameworks": {"ultralytics": TRAINER_VERSION},
         },
     )
     return body.model_copy(update=changes)
@@ -83,7 +84,7 @@ async def preview(db, client, owner, *, boxes=1, create=True):
         )
         is None
     )
-    schema = definition("ultralytics", "yolo11n")
+    schema = definition("ultralytics", "yolo11n", version=TRAINER_VERSION)
     body = dict(
         dataset_id=str(dataset.id),
         framework="ultralytics",
@@ -157,7 +158,7 @@ def evidence(row, objects, *, change=None):
         source_pool=frozen["sources"],
         pool_summary=frozen["pool_summary"],
         runtime=dict(
-            framework_version="8.4.177",
+            framework_version=TRAINER_VERSION,
             image_digest=IMAGE,
             adapter_revision=2,
             pipeline_sha256="f" * 64,
@@ -923,7 +924,7 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
         await service.claim(
             seed, claim_body(), training_authority=bind_training_authority(seed)
         )
-        schema = definition("ultralytics", "yolo11n")
+        schema = definition("ultralytics", "yolo11n", version=TRAINER_VERSION)
         body = TrainingPreviewCreate(
             dataset_id=dataset.id,
             framework="ultralytics",
