@@ -8,10 +8,6 @@ from yoao_jobs.publication_postgres import PUBLICATION_FUNCTIONS
 
 from app.config import settings
 from app.workers.jobs_dispatch import _verify_login
-from tests.managed_image_inference_fixtures import (
-    ManagedDatabaseIdentity,
-    managed_database,
-)
 from tests.test_prediction_inputs import input_storage_world
 
 
@@ -31,12 +27,10 @@ async def _publication_login(test_engine):
 
 
 @asynccontextmanager
-async def published_repair_database(
-    test_engine, monkeypatch, *, prefix: ManagedDatabaseIdentity | None = None
-):
+async def published_repair_database(test_engine, monkeypatch, managed_database):
     async with (
         _publication_login(test_engine) as (role, password),
-        managed_database(test_engine.url, prefix=prefix) as engine,
+        managed_database() as engine,
     ):
         database = engine.dialect.identifier_preparer.quote_identifier(
             engine.url.database
@@ -65,9 +59,9 @@ async def published_repair_database(
 
 
 @pytest.fixture
-async def input_world(test_engine, monkeypatch):
+async def input_world(test_engine, monkeypatch, managed_database):
     async with (
-        published_repair_database(test_engine, monkeypatch) as engine,
+        published_repair_database(test_engine, monkeypatch, managed_database) as engine,
         input_storage_world(engine, monkeypatch) as inputs,
     ):
         yield inputs

@@ -46,7 +46,6 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindin
 from app.services.reference_keys import reference_key
 from app.services.storage import storage_service
 from tests.factory import create_project
-from tests.managed_image_inference_fixtures import managed_database
 from tests.test_managed_original_reader import Provider
 from tests.test_original_sources import add_link
 from tests.test_task_originals import (
@@ -710,8 +709,8 @@ async def _wait_for_blocker(engine, holder_pid, pending):
 
 
 @pytest.fixture
-async def native_world(test_engine, original_client, monkeypatch):
-    async with managed_database(test_engine.url) as engine:
+async def native_world(managed_database, original_client, monkeypatch):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             users = [
                 User(

@@ -60,6 +60,37 @@ class _ExitWorld(Exception):
     pass
 
 
+async def test_failed_managed_database_does_not_seed_the_next_case(managed_database):
+    database_oid = text(
+        "SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()"
+    )
+    user_id = uuid.uuid4()
+    with pytest.raises(_ExitWorld):
+        async with managed_database() as first:
+            sessions = async_sessionmaker(first)
+            async with sessions.begin() as db:
+                first_oid = await db.scalar(database_oid)
+                db.add(
+                    User(
+                        id=user_id,
+                        email=f"{user_id}@example.test",
+                        name="Failed case",
+                        password_hash="test",
+                    )
+                )
+            async with sessions() as observer:
+                assert await observer.get(User, user_id) is not None
+            raise _ExitWorld()
+
+    async with managed_database() as second, async_sessionmaker(second)() as db:
+        assert await db.scalar(database_oid) != first_oid
+        assert await db.get(User, user_id) is None
+        assert not await db.scalar(
+            text("SELECT EXISTS (SELECT FROM pg_catalog.pg_database WHERE oid=:old)"),
+            {"old": first_oid},
+        )
+
+
 @pytest.mark.parametrize(
     "boundary", ("root", "savepoint", "released_savepoint", "close", "failed_commit")
 )

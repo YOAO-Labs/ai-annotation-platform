@@ -27,17 +27,16 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from tests.factory import create_project
-from tests.managed_image_inference_fixtures import managed_database
 from tests.managed_original_client_support import Client, stage_client
 
 
 @pytest.fixture
-async def current_original_db(test_engine):
+async def current_original_db(managed_database):
     """Use public Native owners in a freshly migrated, fixture-owned database."""
     from app.db.models.dataset import Dataset, DatasetItem
     from app.db.models.user import User
 
-    async with managed_database(test_engine.url) as engine:
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             actor = User(
                 id=uuid.uuid4(),

@@ -21,7 +21,6 @@ import uuid
 
 from PIL import Image, ImageDraw
 import pytest
-import pytest_asyncio
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
@@ -176,8 +175,8 @@ async def _migrated_database(test_db_url, revision, *, template=None, before_dro
 
 
 @asynccontextmanager
-async def managed_database(
-    test_db_url, *, before_drop=None, prefix: ManagedDatabaseIdentity | None = None
+async def migrated_case_database(
+    test_db_url, prefix: ManagedDatabaseIdentity, *, before_drop=None
 ):
     """Initialize database-bound authorities in the case database."""
     async with _migrated_database(
@@ -189,7 +188,7 @@ async def managed_database(
 _REVISION_BEFORE_FIRST_OWNER_SCHEMA = "0267"
 
 
-@pytest_asyncio.fixture(scope="module", loop_scope="module")
+@asynccontextmanager
 async def managed_schema_prefix(test_db_url):
     async with _migrated_database(
         test_db_url, _REVISION_BEFORE_FIRST_OWNER_SCHEMA, template="template0"
@@ -203,8 +202,8 @@ async def managed_schema_prefix(test_db_url):
 
 
 @pytest.fixture
-async def input_world(test_engine, monkeypatch):
-    async with managed_database(test_engine.url) as engine:
+async def input_world(managed_database, monkeypatch):
+    async with managed_database() as engine:
         async with input_storage_world(engine, monkeypatch) as world:
             yield world
 

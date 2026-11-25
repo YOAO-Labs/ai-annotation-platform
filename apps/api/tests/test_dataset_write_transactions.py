@@ -284,12 +284,11 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
 
 
 @pytest.fixture
-async def copy_db(test_engine):
+async def copy_db(managed_database):
     """Keep committed Native facts and independent sessions in one owned database."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from tests.managed_image_inference_fixtures import managed_database
 
-    async with managed_database(test_engine.url) as engine:
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             try:
                 yield db

@@ -27,7 +27,8 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
+from functools import partial
 import os
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -35,6 +36,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 
 from tests import pytest_sharding
@@ -152,6 +154,30 @@ def reset_rate_limiter():
 @pytest.fixture(scope="session")
 def test_db_url() -> str:
     return _resolve_test_db_url()
+
+
+@pytest_asyncio.fixture(scope="session", loop_scope="session")
+async def _managed_prefixes():
+    async with AsyncExitStack() as owned:
+        yield owned, {}
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def managed_database(test_db_url, _managed_prefixes):
+    """Open independent case databases from this target's sealed migration prefix."""
+    from sqlalchemy.engine import make_url
+    from tests.managed_image_inference_fixtures import (
+        managed_schema_prefix,
+        migrated_case_database,
+    )
+
+    owned, prefixes = _managed_prefixes
+    target = make_url(test_db_url)
+    if target not in prefixes:
+        prefixes[target] = await owned.enter_async_context(
+            managed_schema_prefix(target)
+        )
+    return partial(migrated_case_database, target, prefixes[target])
 
 
 @pytest.fixture(scope="session")

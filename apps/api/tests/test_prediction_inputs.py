@@ -275,10 +275,8 @@ async def input_storage_world(engine, monkeypatch):
 
 
 @pytest.fixture
-async def input_world(test_db_url, monkeypatch):
-    from tests.managed_image_inference_fixtures import managed_database
-
-    async with managed_database(test_db_url) as engine:
+async def input_world(managed_database, monkeypatch):
+    async with managed_database() as engine:
         async with input_storage_world(engine, monkeypatch) as world:
             yield world
 

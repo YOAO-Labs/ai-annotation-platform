@@ -24,18 +24,20 @@ from app.services.jobs_dispatch import prepare_job_dispatch
 from app.workers.export import _ExportExecution
 from app.workers import lidar_export as worker
 from tests.export_worker_native_fixtures import setup, worker_db as worker_db
-from tests.managed_image_inference_fixtures import managed_database
 from tests.test_lidar_export_worker import Harness, state
 from tests.test_workspace_project_authority_locking import _api_url
 
 
 @pytest.fixture
-async def publication_sessions(test_engine, test_db_url):
-    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
-        async with managed_database(test_db_url) as engine:
-            async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-                yield db, db
-        return
+def publication_sessions(request):
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1":
+        return request.getfixturevalue("native_publication_sessions")
+    db = request.getfixturevalue("worker_db")
+    return db, db
+
+
+@pytest.fixture
+async def native_publication_sessions(test_engine):
     url = _api_url(test_engine)
     business_engine = create_async_engine(url, poolclass=NullPool, hide_parameters=True)
     try:

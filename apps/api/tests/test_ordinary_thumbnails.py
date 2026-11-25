@@ -50,7 +50,6 @@ from app.services.managed_s3_target import Target
 from app.services.source_readers.s3 import S3Access
 from app.services.storage import storage_service
 from app.workers import media
-from tests.managed_image_inference_fixtures import managed_database
 from tests.managed_original_client_support import Client as OriginalClient, stage_client
 from tests.test_managed_original_reader import error
 
@@ -110,7 +109,7 @@ class Client:
 
 @asynccontextmanager
 async def native_world(
-    test_engine, monkeypatch, *, standalone=False, oversized=False, unsettled=False
+    managed_database, monkeypatch, *, standalone=False, oversized=False, unsettled=False
 ):
     """Use native public owners in one guarded, test-owned PostgreSQL database."""
     value = SimpleNamespace(
@@ -192,7 +191,7 @@ async def native_world(
                 text("SELECT job_id FROM asset_media_jobs LIMIT 1")
             )
 
-    async with managed_database(test_engine.url, before_drop=before_drop) as engine:
+    async with managed_database(before_drop=before_drop) as engine:
         value.engine = engine
         value.factory = async_sessionmaker(engine, expire_on_commit=False)
         loop = asyncio.get_running_loop()
@@ -465,10 +464,10 @@ async def native_world(
 
 
 @pytest.fixture
-async def world(test_engine, monkeypatch, request):
+async def world(managed_database, monkeypatch, request):
     mode = getattr(request, "param", "native")
     async with native_world(
-        test_engine,
+        managed_database,
         monkeypatch,
         standalone=mode == "standalone",
         oversized=mode == "oversized",

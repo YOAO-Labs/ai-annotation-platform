@@ -21,13 +21,12 @@ from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage_migration_inventory import InventoryStopped
 from app.workers import storage_migration_inventory as worker
 from tests.factory import create_user
-from tests.managed_image_inference_fixtures import managed_database
 from tests.test_storage_migration_inventories import EmptySource
 
 
 @pytest.fixture
-async def world(test_db_url):
-    async with managed_database(test_db_url) as engine:
+async def world(managed_database):
+    async with managed_database() as engine:
         maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with maker() as db:
             await ensure_legacy_bindings(db)

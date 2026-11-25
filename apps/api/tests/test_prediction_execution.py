@@ -110,7 +110,7 @@ async def trained_retry_world(managed_worker_world, app_module):
 
 
 @pytest.fixture
-async def audited_prediction_world(test_engine, app_module):
+async def audited_prediction_world(managed_database, app_module):
     """Keep immutable audit records until the owned database is removed."""
     import httpx
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -118,11 +118,10 @@ async def audited_prediction_world(test_engine, app_module):
     from app.deps import get_db
     from app.services.dataset_assets import ensure_legacy_bindings
     from tests.conftest import _create_user
-    from tests.managed_image_inference_fixtures import managed_database
 
     missing = object()
     previous = app_module.dependency_overrides.get(get_db, missing)
-    async with managed_database(test_engine.url) as engine:
+    async with managed_database() as engine:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as db:
             await ensure_legacy_bindings(db)

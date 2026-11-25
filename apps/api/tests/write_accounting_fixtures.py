@@ -9,7 +9,6 @@ from sqlalchemy.pool import NullPool
 
 from app.db.models.storage_usage import StorageUsageMutation
 from app.services import storage_usage_accounting
-from tests.managed_image_inference_fixtures import managed_database
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -42,13 +41,13 @@ def _expired(*_):
 
 @pytest_asyncio.fixture(loop_scope="module")
 async def accounting_factory(
-    write_accounting_databases, test_db_url, monkeypatch, request
+    write_accounting_databases, managed_database, monkeypatch, request
 ):
     owned, clean = write_accounting_databases
     if clean:
         control = clean.pop()
     else:
-        private = await owned.enter_async_context(managed_database(test_db_url))
+        private = await owned.enter_async_context(managed_database())
         control = await owned.enter_async_context(private.connect())
 
     created = set()

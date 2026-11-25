@@ -59,8 +59,8 @@ def _video_world(engine, monkeypatch):
 
 
 @pytest.fixture
-async def isolated_world(test_db_url, monkeypatch):
-    async with owner_database(test_db_url) as engine:
+async def isolated_world(managed_database, monkeypatch):
+    async with owner_database(managed_database) as engine:
         yield _video_world(engine, monkeypatch)
 
 
@@ -71,13 +71,13 @@ async def video_databases():
 
 
 @pytest_asyncio.fixture(loop_scope="module")
-async def world(video_databases, test_db_url, monkeypatch):
+async def world(video_databases, managed_database, monkeypatch):
     """Reuse a private database only after the previous case's writes settled."""
     owned, clean = video_databases
     engine = (
         clean.pop()
         if clean
-        else await owned.enter_async_context(owner_database(test_db_url))
+        else await owned.enter_async_context(owner_database(managed_database))
     )
     state = _video_world(engine, monkeypatch)
     legacy_gate = StorageMaintenanceGate.location_id == owner.LEGACY_LOCATION_ID

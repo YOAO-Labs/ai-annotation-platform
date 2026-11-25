@@ -20,13 +20,12 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.source_readers.s3 import S3Access
 from tests.managed_original_provider_support import MemoryS3, error, response
-from tests.managed_image_inference_fixtures import managed_database
 from tests.test_media_cache_targets import switch as switch
 
 
 @pytest.fixture
-async def media_db(test_engine):
-    async with managed_database(test_engine.url) as engine:
+async def media_db(managed_database):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()

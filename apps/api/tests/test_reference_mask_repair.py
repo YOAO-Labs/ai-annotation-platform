@@ -379,10 +379,14 @@ def _repair_annotations_bucket(monkeypatch):
 
 
 @pytest.fixture
-async def published_repair(test_engine, tmp_path, monkeypatch, app_module):
+async def published_repair(
+    test_engine, tmp_path, monkeypatch, app_module, managed_database
+):
     with _repair_annotations_bucket(monkeypatch):
         async with (
-            published_repair_database(test_engine, monkeypatch) as engine,
+            published_repair_database(
+                test_engine, monkeypatch, managed_database
+            ) as engine,
             input_storage_world(engine, monkeypatch) as inputs,
         ):
             monkeypatch.setattr("app.workers._db.task_session", inputs.factory)

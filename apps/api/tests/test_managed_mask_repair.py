@@ -60,17 +60,15 @@ from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
     attach_managed,
     db_session as db_session,
-    managed_schema_prefix as managed_schema_prefix,
     sync_world as sync_world,
 )
-from tests.mask_repair_publication import published_repair_database
+from tests.mask_repair_publication import input_world as input_world
 from tests.raster_mask_support import Objects
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_jobs_quality_queue_binding import _messages, media_queue as media_queue
 from tests.test_managed_image_inference import httpx_client as httpx_client
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
-from tests.test_prediction_inputs import input_storage_world
 from tests.test_prediction_reference_actions import api_key
 
 
@@ -105,17 +103,6 @@ def assert_reference(actual, rle):
     assert {key: actual[key] for key in expected} == expected
     assert set(actual) - set(expected) <= {"storage_encoding"}
     assert actual.get("storage_encoding") in {None, "identity"}
-
-
-@pytest.fixture
-async def input_world(test_engine, monkeypatch, managed_schema_prefix):
-    async with (
-        published_repair_database(
-            test_engine, monkeypatch, prefix=managed_schema_prefix
-        ) as engine,
-        input_storage_world(engine, monkeypatch) as inputs,
-    ):
-        yield inputs
 
 
 @pytest.fixture

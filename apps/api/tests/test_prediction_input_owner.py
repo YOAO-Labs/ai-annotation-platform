@@ -217,10 +217,8 @@ class Storage:
 
 
 @asynccontextmanager
-async def owner_database(test_db_url):
-    from tests.managed_image_inference_fixtures import managed_database
-
-    async with managed_database(test_db_url) as engine:
+async def owner_database(managed_database):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine).begin() as db:
             await ensure_legacy_bindings(db)
         yield engine
@@ -255,8 +253,8 @@ def make_owner_world(engine):
 
 
 @pytest.fixture
-async def world(test_db_url, monkeypatch):
-    async with owner_database(test_db_url) as engine:
+async def world(managed_database, monkeypatch):
+    async with owner_database(managed_database) as engine:
         world = make_owner_world(engine)
         monkeypatch.setattr(owner, "make_storage", lambda: Storage(world))
         yield world
