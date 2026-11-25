@@ -335,7 +335,7 @@ git diff --check
 - 发布安排：尚未确定；本次没有升级版本或部署生产环境。
 - 用户文档：`docs-site/user-guide/online-learning/index.md`、`docs-site/user-guide/online-learning/models.md`。
 - 开发与接口文档：`docs-site/dev/concepts/instance-segmentation-learning.md`、`docs-site/dev/concepts/training-datasets.md`、`docs-site/dev/reference/ml-backend-protocol.md`、`docs-site/dev/reference/yolo-import.md`、`docs-site/api/guides/training-datasets.md`、`docs-site/api/guides/projects.md`；README、DEV、OpenAPI、Web 类型与 SDK 契约同步。
-- ADR：`docs/adr/archive/0089-task-scoped-native-instance-learning.md`；CHANGELOG 已增加 Unreleased 条目。
+- ADR：`docs/adr/archive/0188-task-scoped-native-instance-learning.md`；CHANGELOG 已增加 Unreleased 条目。
 
 ### 本地真实链路证据
 
