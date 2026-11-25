@@ -1,4 +1,4 @@
-"""Bounded mocked transport tests; no database or provider is opened."""
+"""Bounded media transport tests and database-backed read/collection interlocks."""
 
 import asyncio
 from contextlib import contextmanager
@@ -13,7 +13,6 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from sqlalchemy import delete, exists, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
@@ -21,7 +20,11 @@ from app.api.v1.media_cache import read_media_cache
 from app.db.models.image_pyramid import ImagePyramidOutput
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.video_derivative import VideoDerivativeOutput
-from app.services import media_cache_response as service, media_cache_urls
+from app.services import (
+    media_cache_response as service,
+    media_cache_urls,
+    storage_access,
+)
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
@@ -679,7 +682,7 @@ async def admitted_output(test_engine, monkeypatch, request):
     removed when this test mode is destroyed after the bounded regression run.
     """
     kind = request.param
-    _, family = service._FAMILIES[kind]
+    output_owner, family = service._FAMILIES[kind]
     model = {
         "thumbnail": ThumbnailOutput,
         "image-pyramid": ImagePyramidOutput,
@@ -775,7 +778,7 @@ async def admitted_output(test_engine, monkeypatch, request):
     context = SimpleNamespace(
         capability=capability,
         factory=factory,
-        model=model,
+        get_output=output_owner.get_output,
         identifier=identifier,
         purpose=service._purpose(capability),
     )
@@ -783,11 +786,7 @@ async def admitted_output(test_engine, monkeypatch, request):
         yield context
     finally:
         async with factory() as db:
-            await db.execute(
-                delete(service.StorageOperation).where(
-                    service.StorageOperation.purpose == context.purpose
-                )
-            )
+            assert not await storage_access.operation_is_open(db, context.purpose)
             row = await db.get(model, identifier)
             if row is not None:
                 row.state = "retiring"
@@ -811,22 +810,13 @@ async def test_db_read_permit_is_seen_by_collectors_locked_second_check(
     transfer = await service._metadata(owned.capability)
     try:
         async with owned.factory() as gc:
-            async with await service.storage_access.acquire(
+            async with await storage_access.acquire(
                 gc, LEGACY_LOCATION_ID, owned.purpose
             ) as collecting:
-                row = await gc.scalar(
-                    select(owned.model)
-                    .where(owned.model.id == owned.identifier)
-                    .with_for_update()
-                )
+                row = await owned.get_output(gc, owned.identifier, lock=True)
                 assert row.state == "retiring"
-                assert await gc.scalar(
-                    select(
-                        exists().where(
-                            service.StorageOperation.purpose == owned.purpose,
-                            service.StorageOperation.id != collecting.id,
-                        )
-                    )
+                assert await storage_access.operation_is_open(
+                    gc, owned.purpose, excluding=collecting.id
                 )
                 await gc.commit()
     finally:
@@ -838,36 +828,25 @@ async def test_db_read_permit_is_seen_by_collectors_locked_second_check(
 async def test_db_retiring_read_after_gc_final_check_is_refused(admitted_output):
     owned = admitted_output
     async with owned.factory() as gc:
-        async with await service.storage_access.acquire(
+        async with await storage_access.acquire(
             gc, LEGACY_LOCATION_ID, owned.purpose
         ) as collecting:
-            row = await gc.scalar(
-                select(owned.model)
-                .where(owned.model.id == owned.identifier)
-                .with_for_update()
-            )
+            row = await owned.get_output(gc, owned.identifier, lock=True)
             assert row.state == "retiring"
-            assert not await gc.scalar(
-                select(
-                    exists().where(
-                        service.StorageOperation.purpose == owned.purpose,
-                        service.StorageOperation.id != collecting.id,
-                    )
-                )
+            assert not await storage_access.operation_is_open(
+                gc, owned.purpose, excluding=collecting.id
             )
             await gc.commit()
             with pytest.raises(HTTPException) as caught:
-                await service._metadata(owned.capability)
+                await service.response(owned.capability)
+            assert caught.value.status_code == 503
             assert caught.value.detail == {"code": "media_cache_busy"}
             async with owned.factory() as check:
-                operations = list(
-                    await check.scalars(
-                        select(service.StorageOperation.id).where(
-                            service.StorageOperation.purpose == owned.purpose
-                        )
-                    )
+                receipt = await storage_access.operation_receipt(check, collecting.id)
+                assert receipt is not None and receipt["purpose"] == owned.purpose
+                assert not await storage_access.operation_is_open(
+                    check, owned.purpose, excluding=collecting.id
                 )
-                assert operations == [collecting.id]
 
 
 @pytest.mark.asyncio
