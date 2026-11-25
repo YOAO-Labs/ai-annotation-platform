@@ -413,9 +413,9 @@ async def run_durable_batch(
         after_ordinal=execution.progress.next_ordinal - 1
     ):
         execution.ensure_owned()
-        if cancelled_before_authorization:
-            break
-        if await _cancel_requested(db, execution.scope["job_id"]):
+        if cancelled_before_authorization or await _cancel_requested(
+            db, execution.scope["job_id"]
+        ):
             saved = await execution.read_result(member.ordinal)
             cancelled = True
             if saved.result is None:
@@ -425,7 +425,7 @@ async def run_durable_batch(
                     reason="cancelled_before_capture",
                 )
                 continue
-            if not saved.result.raw_complete:
+            if cancelled_before_authorization or not saved.result.raw_complete:
                 break
         if not await _actor_available(db, execution, request.execution_scope):
             forced_error = "preannotation_actor_revoked"

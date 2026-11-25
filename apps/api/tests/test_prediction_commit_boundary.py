@@ -40,7 +40,10 @@ from app.services.accepted_input_manifests import get_input_manifest_capture
 from yoao_inference.backend_transport import PredictionResult
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.labeling_write_scope import capture_labeling_write_scope
-from app.application.preannotation_results import BatchResultExecution
+from app.application.preannotation_results import (
+    BatchResultExecution,
+    PreannotationResultDeferred,
+)
 from app.services.prediction import PredictionService
 from app.workers import tasks as worker
 from tests.factory import create_batch, create_project, create_task, create_user
@@ -342,6 +345,17 @@ async def run(world, **kwargs):
         )
 
 
+async def settle_cancelled_delivery(world, delivery, **request):
+    try:
+        await delivery
+    except PreannotationResultDeferred as error:
+        if str(error) not in {"execution_busy", "lease_lost"}:
+            raise
+        async with world.factory() as db:
+            assert (await db.get(AsyncJob, world.job)).payload["cancel_requested"]
+        await run(world, freeze=False, **request)
+
+
 def prediction_results(task_id):
     return [
         PredictionResult(
@@ -519,8 +533,6 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
     )
     monkeypatch.setattr(PredictionService, "_persist_prediction_result", write)
     if failure == "sql_write":
-        from app.application.preannotation_results import PreannotationResultDeferred
-
         with pytest.raises(PreannotationResultDeferred, match="storage_unavailable"):
             await run(world, predict_mode=mode)
         async with world.factory() as db:
@@ -544,6 +556,10 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
             )
             assert (await db.get(AsyncJob, world.job)).status == "running"
         await run(world, predict_mode=mode, freeze=False)
+    elif failure == "cancel":
+        await settle_cancelled_delivery(
+            world, run(world, predict_mode=mode), predict_mode=mode
+        )
     else:
         await run(world, predict_mode=mode)
     assert inferences == 1
@@ -1107,7 +1123,12 @@ async def test_cancel_waiting_for_candidate_commit_retains_that_task_and_stops_n
         release_result.set()
         response = await asyncio.wait_for(cancellation, timeout=10)
         assert response["status"] == "cancel_requested"
-        await asyncio.wait_for(pending, timeout=10)
+        await asyncio.wait_for(
+            settle_cancelled_delivery(
+                world, pending, task_ids=[str(world.task), str(second_id)]
+            ),
+            timeout=10,
+        )
         async with world.factory() as db:
             job = await db.get(AsyncJob, world.job)
             assert len(inferred) == 1

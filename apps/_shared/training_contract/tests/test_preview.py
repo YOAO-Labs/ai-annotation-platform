@@ -6,8 +6,7 @@ from training_contract import definition, resolve
 from training_contract.preview import closed_mosaic, native_values, validate_request
 
 
-def configuration(framework="ultralytics", values=None):
-    model = "yolo11n" if framework == "ultralytics" else "LibreYOLO9t"
+def configuration(framework="ultralytics", values=None, *, model="yolo11n"):
     schema = definition(framework, model)
     frozen = resolve(
         framework,
@@ -51,7 +50,15 @@ def test_preview_request_bounds(seed, epoch, count):
         validate_request(configuration(), seed, epoch, count)
 
 
-def test_unqualified_native_framework_is_explicit():
-    config = configuration("libreyolo", {"epochs": 10})
-    with pytest.raises(ValueError, match="Ultralytics"):
+@pytest.mark.parametrize(
+    "framework,model",
+    [
+        ("libreyolo", "LibreYOLO9t"),
+        ("ultralytics", "yolov8n"),
+        ("ultralytics", "yolo26n"),
+    ],
+)
+def test_preview_rejects_unqualified_models(framework, model):
+    config = configuration(framework, {"epochs": 10}, model=model)
+    with pytest.raises(ValueError, match="YOLO11"):
         validate_request(config, 1, 1, 1)

@@ -61,7 +61,11 @@ def input_digest(spec):
 
 def validate_request(config, seed, epoch, count):
     frozen = verify_frozen(config)
-    if config["framework"] != "ultralytics" or config_task(config) != DETECTION:
+    if (
+        config["framework"] not in POLICY["frameworks"]
+        or config_task(config) != DETECTION
+        or frozen["identity"]["model_family"] != POLICY["model_family"]
+    ):
         raise ValueError("当前仅 Ultralytics YOLO11 图片检测通过原生增强预览验证")
     if type(seed) is not int or not 0 <= seed <= 2147483647:
         raise ValueError("预览随机种子超出范围")
