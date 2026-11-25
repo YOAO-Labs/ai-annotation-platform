@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
 from app.api.v1.media_cache import read_media_cache
-from app.db.models.image_pyramid import ImagePyramidOutput
+from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidOutput
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.video_derivative import VideoDerivativeOutput
 from app.services import (
@@ -28,6 +28,7 @@ from app.services import (
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
+from tests.factory import create_project, create_task, create_user
 
 RAW = bytes(range(256)) * 4
 SHA = hashlib.sha256(RAW).hexdigest()
@@ -726,7 +727,6 @@ async def admitted_output(test_engine, monkeypatch, request):
                 "size_bytes": 1,
             }
             values |= {
-                "asset_id": uuid.uuid4(),
                 "generation": 1,
                 "lease_token": uuid.uuid4(),
             }
@@ -739,8 +739,20 @@ async def admitted_output(test_engine, monkeypatch, request):
                 "auth_ref": {},
             }
             publication["result"] = {}
+    pyramid_parents = ()
     async with factory() as db:
         await ensure_legacy_bindings(db)
+        if kind == "image-pyramid":
+            actor = await create_user(
+                db, "employee", f"{identifier}@test.local", "Cache"
+            )
+            project = await create_project(db, owner_id=actor.id)
+            task = await create_task(db, project_id=project.id)
+            asset = ImagePyramidAsset(task_id=task.id, profile_version="pyramid-v1")
+            db.add(asset)
+            await db.flush()
+            values["asset_id"] = asset.id
+            pyramid_parents = (asset, task, project, actor)
         row = model(**values)
         db.add(row)
         await db.flush()
@@ -795,6 +807,9 @@ async def admitted_output(test_engine, monkeypatch, request):
                 await db.flush()
                 if kind != "thumbnail":
                     await db.delete(row)
+            for parent in pyramid_parents:
+                await db.flush()
+                await db.delete(parent)
             await db.commit()
 
 
