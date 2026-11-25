@@ -51,7 +51,7 @@ PUBLIC、append、删除、maintenance、configuration 专用账号均不因本�
 另一个语言的调用方可以直接使用同一 Native 合同及原事务。
 
 完整模块状态仍只在
-[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)维护。
+[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)维护。
 本次没有新增完整 Workspace 冷安装、镜像或备份恢复资格，也未切换日常主环境。
 
 ## Notes

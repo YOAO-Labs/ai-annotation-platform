@@ -50,7 +50,7 @@ LOGIN、DSN、runtime 或部署模式，不改内嵌 Identity 与隔离 seed 的
 
 只读限制由 consumer ACL 强制，Identity owner 仍持有自己的写入能力。部署必须
 按最终权限清单排序，避免宽授权重新打开边界。完整模块的资格只在唯一
-[模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录。
+[模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)记录。
 
 ## Notes
 

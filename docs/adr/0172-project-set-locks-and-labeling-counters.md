@@ -50,5 +50,5 @@ API 的两处旧 getter 改用现有 Workspace 快照。定向 Project mapper �
 
 汇总 `.worktree/project-owner-persistence-qualification.json` 绑定源与证据。限定 Native
 迁移往返通过；完整 Workspace 冷工件与恢复仍集中验收。Project／成员集合、目录、
-运维分页和视频删除安全缺口继续由[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)跟踪。
+运维分页和视频删除安全缺口继续由[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)跟踪。
 没有日常环境切换、生产部署、推送、发布或 Go 扩展。

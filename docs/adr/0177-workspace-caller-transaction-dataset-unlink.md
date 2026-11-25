@@ -59,5 +59,5 @@ HTTP 复验、15 项受限 Native／Node／实际 HTTP。无有效失败、错�
 完整分类见 `.worktree/workspace-dataset-unlink-qualification.json`。
 
 默认宽应用凭据继续兼容装配；日常主环境未切换。冷工件、恢复及完整模块验收继续
-按[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+按[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)推进。
 本轮不推送、发布、部署生产或扩展 Go。

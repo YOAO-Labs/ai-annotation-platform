@@ -234,9 +234,9 @@ checks. None of those historical counts are attributed to Directory reads.
 - Current API behavior is implemented in `apps/api/app/api/v1/users.py` and
   `apps/api/app/services/management.py`; this slice replaces only their four
   read paths.
-- The [Identity private runtime protocol](../../docs-site/api/guides/identity-runtime.md#用户目录读取)
+- The [Identity private runtime protocol](https://yoao-labs.github.io/YOAO-Docs/api/guides/identity-runtime#用户目录读取)
   records wire, filters and deployment configuration.
 - Current module gaps remain in
-  [module deployment status](../../docs-site/dev/concepts/module-deployment.md).
+  [module deployment status](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment).
 - Full backend progress is tracked in
   `docs/plans/archive/1792160873_backend-module-decoupling.md`.

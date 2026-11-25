@@ -55,4 +55,4 @@
   仍需为其容量和保留策略作后续决定；不能在未经定义的重试期限内删除幂等证据。
 - 本片只覆盖已有数据集上的追加建题及其冲突路径。初次关联的分块建题、队列在途作业
   的关联代次、完整授权协议、项目级删除和其余模块提取仍须单独迁移与验收。
-  模块整体状态继续见[部署台账](../../docs-site/dev/concepts/module-deployment.md)。
+  模块整体状态继续见[部署台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment)。

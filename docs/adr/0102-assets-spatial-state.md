@@ -47,7 +47,7 @@ Retaining the mixed ORM implementation would leave multiple private persistence 
 
 ## References
 
-- [Spatial protocol](../../docs-site/api/guides/assets-spatial.md)
+- [Spatial protocol](https://yoao-labs.github.io/YOAO-Docs/api/guides/assets-spatial)
 - [Transactional native capabilities](0092-transactional-module-data-capabilities.md)
 - [Accepted task-creation authority](0093-durable-task-creation-authority.md)
 - [Independent Assets Catalog](0097-independent-assets-catalog.md)

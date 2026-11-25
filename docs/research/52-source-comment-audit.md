@@ -45,4 +45,4 @@ TSV 每行一个原文件，`classifications` 列按词法顺序给出 `类别�
 - 已建单：[固定 batch 依赖私有 OOM 计数器](https://github.com/YOAO-Labs/ai-annotation-platform/issues/156)、[验证字体在训练时复制改名](https://github.com/YOAO-Labs/ai-annotation-platform/issues/157)、[成员综合分使用固定活跃值](https://github.com/YOAO-Labs/ai-annotation-platform/issues/158)、[图片性能基准的尺寸和密度标签不控制实际 fixture](https://github.com/YOAO-Labs/ai-annotation-platform/issues/159)。移除解释并不等于修复了实现。
 - 数据集关联弹窗已经使用 `useLinkProject`；受跟踪 OpenAPI 快照已经包含 `keypoint_schema`、`rendering_config`、`default_variants` 等字段。相反的旧说明已删除，没有为已不存在的绕路建单。性能 smoke 的说明也不再计入它没有执行的交互。
 
-后续运行 `/delete-comment <目录>` 重新核对当前源码；[门禁用法](../../docs-site/dev/testing.md#源码注释门禁)。不要按历史行号盲删。
+后续运行 `/delete-comment <目录>` 重新核对当前源码；[门禁用法](https://yoao-labs.github.io/YOAO-Docs/dev/testing#源码注释门禁)。不要按历史行号盲删。

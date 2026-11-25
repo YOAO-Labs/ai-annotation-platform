@@ -19,7 +19,7 @@
 - 对独立部署、跨语言实现、生产采用等目标分别决定是否继续、调整次序或取消。原计划的明确范围在维护者批准变更前仍有效。
 - 新执行计划承接每项未完成工作、正式架构说明同步之后，才可把旧计划标记为被替代并归档；不能标为全部完成。
 
-本报告记录上述建议，未执行计划退役。当前状态与剩余工作的权威入口仍是[模块部署与解耦台账](../../docs-site/dev/concepts/module-deployment.md)，不在研究报告中维护另一份实时待办。
+本报告记录上述建议，未执行计划退役。当前状态与剩余工作的权威入口仍是[模块部署与解耦台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment)，不在研究报告中维护另一份实时待办。
 
 ## 2. 证据与适用范围
 
@@ -27,10 +27,10 @@
 
 核对了以下入口：
 
-- [模块部署与解耦台账](../../docs-site/dev/concepts/module-deployment.md)：区分源码实现、消费者迁移、独立运行、历史环境采用及插件资格。
+- [模块部署与解耦台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment)：区分源码实现、消费者迁移、独立运行、历史环境采用及插件资格。
 - [原后端业务模块解耦计划](../plans/archive/1792160873_backend-module-decoupling.md)：目标、事务约束、全模块独立运行要求及 A–E 阶段。
 - [Inference 运行边界](../../apps/inference/README.md)、[Assets Source 运行边界](../../apps/assets-source/README.md)、[Jobs 所有权](../../apps/jobs/README.md)。
-- [在线学习架构](../../docs-site/dev/concepts/training-datasets.md)、[存储位置与连接器](../../docs-site/dev/concepts/storage-connections.md)。
+- [在线学习架构](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets)、[存储位置与连接器](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/storage-connections)。
 - [API 静态装配](../../apps/api/app/api/v1/router.py)、[Celery 静态装配](../../apps/api/app/workers/celery_app.py)。
 - [格式适配器契约](../../apps/api/app/services/mask_formats/contracts.py)、[格式目录装配](../../apps/api/app/services/mask_formats/catalog.py)、[训练器分派](../../apps/training-executor/training_executor/adapters.py)。
 

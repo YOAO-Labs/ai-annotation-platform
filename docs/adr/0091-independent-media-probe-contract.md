@@ -46,6 +46,6 @@
   默认文件上限 1 GiB；HTTP I/O 与 ffprobe 子进程各有明确超时。协议不会消除原算法
   对完整 ffprobe 输出和帧/packet 列表的内存需求；容器预算不代表长视频容量已通过。
 - 本片提供一个真实业务子能力的独立部署与替换证据，不把 assets 或全后端标为完成。
-  全模块范围、剩余事务与运行门槛见[模块部署状态](../../docs-site/dev/concepts/module-deployment.md)。
+  全模块范围、剩余事务与运行门槛见[模块部署状态](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment)。
 - 本地/远程两种装配方式使用同一公开能力；切换只读探测实现不迁移业务数据。默认配置
   可保持本地执行，停用独立服务前须刷新已选择它的调用方，不能通过故障回退掩盖停服。

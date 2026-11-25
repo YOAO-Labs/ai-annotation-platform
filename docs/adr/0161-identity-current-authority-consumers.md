@@ -35,7 +35,7 @@ Identity 已有独立运行工件，但执行期消费者仍通过 User ORM 读�
 
 原始证据包括 `identity-closure-key-native-second.*`、`identity-closure-learning-regression-first.*`、`identity-closure-authority-consumers-first.*`、`identity-closure-current-read-tail-first.*`、`identity-closure-discussion-current-first.*` 及定向 reproducer 报告。
 
-独立冷安装、容器、完整迁移与备份恢复会在完整 Identity 的一致里程碑集中验证；当前结果不替代这些门槛。集合成员／通知、搜索／统计、作者展示与邀请审计范围仍存在原表消费者，完整 Identity 尚未完成。实际剩余项只维护在[模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)。未切日常主环境、推送或部署生产。
+独立冷安装、容器、完整迁移与备份恢复会在完整 Identity 的一致里程碑集中验证；当前结果不替代这些门槛。集合成员／通知、搜索／统计、作者展示与邀请审计范围仍存在原表消费者，完整 Identity 尚未完成。实际剩余项只维护在[模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)。未切日常主环境、推送或部署生产。
 
 ## Identity signer boundary
 

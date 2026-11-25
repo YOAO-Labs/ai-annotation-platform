@@ -122,5 +122,5 @@
 - 任务与审阅证据：`apps/api/app/api/v1/tasks/_shared.py`；`db/models/task.py`。
 - 迁移：`apps/api/alembic/versions/0173_project_role_preparation.py`、`0174_project_role_conversion.py`。
 - 前端（同功能增量，另行落地）：`apps/web/src/hooks/useProjectAccess.ts` 等；Python SDK：`packages/python-sdk/src/ai_annotation/models.py`、`client.py`、`cli/members.py`。
-- 相关文档：[可见性与权限](../../docs-site/dev/concepts/visibility-and-permissions.md)、[迁移与回滚 runbook](../../docs-site/ops/runbooks/project-role-migration.md)、[ADR-0005 任务锁与审核矩阵](archive/0005-task-lock-and-review-matrix.md)。完整计划位于仓库 `docs/plans/1789807315_project-scoped-employee-roles.md`，不属于文档站页面。
+- 相关文档：[可见性与权限](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/visibility-and-permissions)、[迁移与回滚 runbook](https://yoao-labs.github.io/YOAO-Docs/ops/runbooks/project-role-migration)、[ADR-0005 任务锁与审核矩阵](archive/0005-task-lock-and-review-matrix.md)。完整计划位于仓库 `docs/plans/1789807315_project-scoped-employee-roles.md`，不属于文档站页面。
 - 已知边界 / 后续：撤销后已签发 URL 的立即失效、兼容性清理阶段的最终 CHECK 约束、遗留审阅证据的单独批准修复方式（无自动回填工具）。

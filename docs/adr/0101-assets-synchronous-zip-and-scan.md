@@ -39,6 +39,6 @@ Keeping the API ORM workflow would preserve a second implementation and retain m
 
 - Migration: `apps/api/alembic/versions/0215_dataset_source_ingest.py`
 - SQL artifacts install core before delivery: `0215_dataset_source_ingest.sql`, then `0215_dataset_source_ingest_delivery.sql`.
-- Public and runtime contract: [Assets Source guide](../../docs-site/api/guides/assets-source.md)
-- Native capability details: [same-database data interface](../../docs-site/api/guides/module-data.md)
+- Public and runtime contract: [Assets Source guide](https://yoao-labs.github.io/YOAO-Docs/api/guides/assets-source)
+- Native capability details: [same-database data interface](https://yoao-labs.github.io/YOAO-Docs/api/guides/module-data)
 - Implementation decision for connector execution: [ADR-0100](0100-durable-connector-import.md)

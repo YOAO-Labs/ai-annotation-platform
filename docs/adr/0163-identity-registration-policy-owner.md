@@ -57,7 +57,7 @@ owner 默认值变化进入原 HMAC 版本，旧版本按现有 409 规则拒绝
 
 管理端和导入接受流程需要读取 owner 的部署默认值；无法获得该值时失败关闭，避免
 记录错误版本。既有内嵌、专用数据库和远程选择路径保留。完整 Identity 的资格与
-剩余阻塞只维护在[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+剩余阻塞只维护在[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)。
 
 ## Notes
 
