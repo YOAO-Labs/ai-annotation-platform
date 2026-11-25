@@ -834,6 +834,23 @@ test("半成品Esc不保存，工具绑定失效和任务锁会退出连续创�
 
 test("切到视频退出连续模式，审核入口无法开启", async ({ page, request, seed }) => {
   const data = await prepare(request, seed);
+  const reviewTaskId = data.task_ids[1];
+  const submitToken = await seed.accessToken(data.annotator_email);
+  const submitted = await request.post(`${API_BASE}/api/v1/tasks/${reviewTaskId}/submit`, {
+    headers: { Authorization: `Bearer ${submitToken}` },
+  });
+  expect(submitted.ok(), await submitted.text()).toBe(true);
+  await seed.injectToken(page, data.reviewer_email);
+  await page.goto(`/projects/${data.project_id}/review?task=${reviewTaskId}`);
+  await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
+  await expect(page.getByTestId("review-approve")).toBeEnabled();
+  await expect(
+    page
+      .getByTestId("continuous-creation-controls")
+      .getByRole("switch", { name: "连续创建", exact: true }),
+  ).toBeDisabled();
+  expect(await saved(request, data, reviewTaskId)).toHaveLength(0);
+
   const { task_id: videoTaskId } = await seed.videoTask(data.project_id);
   await seed.advanceTask({
     taskId: videoTaskId,
@@ -853,19 +870,5 @@ test("切到视频退出连续模式，审核入口无法开启", async ({ page,
   await expect(page.getByTestId("video-konva-stage")).toBeVisible();
   await expect(page.getByTestId("continuous-creation-status")).toBeHidden();
   await expect(page.getByTestId("continuous-creation-controls")).toBeHidden();
-
-  const submitToken = await seed.accessToken(data.annotator_email);
-  const submitted = await request.post(`${API_BASE}/api/v1/tasks/${data.task_ids[0]}/submit`, {
-    headers: { Authorization: `Bearer ${submitToken}` },
-  });
-  expect(submitted.ok(), await submitted.text()).toBe(true);
-  await seed.injectToken(page, data.reviewer_email);
-  await page.goto(`/projects/${data.project_id}/review?task=${data.task_ids[0]}`);
-  await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
-  await expect(
-    page
-      .getByTestId("continuous-creation-controls")
-      .getByRole("switch", { name: "连续创建", exact: true }),
-  ).toBeDisabled();
   expect(await saved(request, data)).toHaveLength(0);
 });
