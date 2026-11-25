@@ -139,15 +139,18 @@ class FakeDB:
             raise self.failure
         row = self.rows.get(identifier)
         if capability == "allocate_media":
-            row = self.rows[identifier] = SimpleNamespace(**params, fixture_run_id=None)
-            result = row
-        elif capability == "media_delivery":
-            result = row
-        elif capability == "media_fence":
+            row = self.rows[identifier] = Bundle(**params, fixture_zip_created=False)
+            result = SimpleNamespace(
+                fixture_run_id=row.fixture_run_id,
+                created_at=row.created_at,
+                expires_at=row.expires_at,
+            )
+        elif capability in {"media_delivery", "media_fence"}:
+            fields = bundles._SCALARS
+            if capability == "media_delivery":
+                fields += bundles._DOCUMENTS
             result = (
-                SimpleNamespace(
-                    **{name: getattr(row, name) for name in bundles._SCALARS}
-                )
+                SimpleNamespace(**{name: getattr(row, name) for name in fields})
                 if row is not None
                 else None
             )
