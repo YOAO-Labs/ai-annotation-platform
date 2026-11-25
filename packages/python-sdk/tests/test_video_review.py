@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import video_review as video_review_cli
@@ -366,7 +367,7 @@ def test_cli_json_destructive_actions_require_confirmation_before_client(
     )
 
     assert result.exit_code != 0
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
 
 
 def test_cli_reads_complex_request_from_stdin(monkeypatch):

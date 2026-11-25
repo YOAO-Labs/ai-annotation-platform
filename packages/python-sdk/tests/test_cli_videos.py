@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from uuid import uuid4
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 from typer.main import get_command
 
@@ -60,7 +61,7 @@ def test_video_cli_commands_have_valid_help():
         for name in command.commands:
             result = runner.invoke(app, [name, "--help"])
             assert result.exit_code == 0, (name, result.output, result.exception)
-            assert "--json" in result.output
+            assert "--json" in Text.from_ansi(result.output).plain
 
 
 def test_chapter_create_reads_validated_json_from_stdin(fake_client):
@@ -102,7 +103,7 @@ def test_destructive_commands_require_yes_before_client_creation(
     result = runner.invoke(app, args, input=request_body if "--body" in args else None)
 
     assert result.exit_code != 0
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
     assert fake_client.calls == []
 
 

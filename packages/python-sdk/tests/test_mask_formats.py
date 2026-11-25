@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import ValidationError
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import mask_formats as mask_formats_cli
@@ -545,4 +546,4 @@ def test_cli_confirmation_refusal_sends_no_mutation(
     result = runner.invoke(mask_formats_cli.app, command_args)
 
     assert result.exit_code == 2
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain

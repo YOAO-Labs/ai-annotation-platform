@@ -6,6 +6,7 @@ from uuid import UUID
 import httpx
 import pytest
 from pydantic import ValidationError as PydanticValidationError
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import pipelines as cli_pipelines
@@ -281,7 +282,7 @@ def test_pipeline_cli_refuses_json_mutation_without_yes_before_client(
 
     assert result.exit_code == 2
     assert not client_opened
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
 
 
 def test_preannotate_cli_reads_stdin_and_prints_ack_without_wait(monkeypatch):

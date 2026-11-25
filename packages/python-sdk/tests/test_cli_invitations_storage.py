@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import invitations as invitations_cli
@@ -81,7 +82,7 @@ def test_mutating_or_external_commands_require_yes_before_client(
     result = runner.invoke(app, args, input=input_text)
 
     assert result.exit_code == 2, result.output
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
     assert opened == []
 
 
@@ -279,7 +280,9 @@ def test_invitation_resend_requires_secret_output_opt_in_before_client(monkeypat
     )
 
     assert result.exit_code == 2
-    assert "--show-secret" in result.output and "--json" in result.output
+    output = Text.from_ansi(result.output).plain
+    assert "--show-secret" in output
+    assert "--json" in output
     assert opened == []
 
 

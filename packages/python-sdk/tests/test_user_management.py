@@ -7,6 +7,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import ValidationError
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import groups as groups_cli
@@ -357,7 +358,7 @@ def test_offboarding_cli_confirms_and_does_not_retry_a_stale_preview(
     args = ["offboard", user_id, str(request_file), "--json"]
     refused = runner.invoke(users_cli.app, args)
     assert refused.exit_code == 2 and not route.called
-    assert "--yes" in refused.output
+    assert "--yes" in Text.from_ansi(refused.output).plain
     stale = runner.invoke(users_cli.app, [*args, "--yes"])
     assert stale.exit_code != 0 and route.call_count == 1
     assert (
@@ -577,7 +578,7 @@ def test_group_delete_requires_confirmation_before_api_call(monkeypatch):
     )
     denied = runner.invoke(groups_cli.app, ["delete", "group-1", "--json"])
     assert denied.exit_code == 2
-    assert "--yes" in denied.output
+    assert "--yes" in Text.from_ansi(denied.output).plain
     assert ops.calls == 0
 
     accepted = runner.invoke(groups_cli.app, ["delete", "group-1", "--json", "--yes"])
