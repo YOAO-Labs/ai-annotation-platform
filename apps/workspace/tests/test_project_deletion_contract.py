@@ -60,9 +60,9 @@ def test_receipt_schema_remains_identical_to_the_frozen_v1_shape():
             / "api"
             / "alembic"
             / "sql"
-            / "0199_project_deletion.schema.json"
+            / "workspace.contracts.json"
         ).read_text(encoding="utf-8")
-    )["$defs"]["receipt"]
+    )["artifacts"]["0199_project_deletion.schema.json"]["$defs"]["receipt"]
     actual = ProjectDeletionReceipt.model_json_schema()
     assert set(actual["properties"]) == set(frozen["properties"])
     assert set(actual["required"]) == set(frozen["required"])

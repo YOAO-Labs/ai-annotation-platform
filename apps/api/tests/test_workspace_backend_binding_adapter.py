@@ -2,18 +2,12 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 
 def test_binding_native_schema_publishes_only_the_fixed_clear_operation() -> None:
-    schema_path = (
-        Path(__file__).resolve().parents[1]
-        / "alembic"
-        / "sql"
-        / "0272_workspace_backend_bindings.schema.json"
-    )
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema_path = "0272_workspace_backend_bindings.schema.json"
+    schema = load_contract_schema(schema_path)
 
     assert schema["$id"] == "aap-workspace-backend-bindings-clear/v1"
     assert schema["x-postgresql-functions"] == [

@@ -651,7 +651,8 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
 
                 _grants(
                     historical,
-                    "identity-role-audit-grants.sql",
+                    "identity-grants.sql",
+                    capability="role_audit",
                     identity_owner="identity_code",
                     consumer_role="legacy_runtime",
                 )
@@ -665,7 +666,8 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                 assert await _source_snapshot(historical) == before
                 _grants(
                     historical,
-                    "workspace-role-audit-grants.sql",
+                    "workspace-grants.sql",
+                    capability="role_audit",
                     workspace_owner="workspace_code",
                     consumer_role="legacy_runtime",
                 )
@@ -679,7 +681,8 @@ async def test_installed_role_audit_uses_owned_identity_views_on_real_0171(
                 assert await _source_snapshot(historical) == before
                 _grants(
                     historical,
-                    "labeling-role-audit-grants.sql",
+                    "labeling-grants.sql",
+                    capability="role_audit",
                     labeling_owner="labeling_code",
                     consumer_role="legacy_runtime",
                 )

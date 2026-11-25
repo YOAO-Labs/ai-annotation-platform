@@ -26,16 +26,15 @@ _API = Path(__file__).resolve().parents[2] / "api"
 
 def test_terminal_append_schema_and_migration_artifacts_match():
     schema = _PACKAGE / "terminal_append.schema.json"
-    migration_schema = (
-        _API / "alembic" / "sql" / "0321_notifications_terminal_append.schema.json"
-    )
-    package_sql = _PACKAGE / "sql" / "0321_notifications_terminal_append.sql"
+    migration_schema = json.loads(
+        (_API / "alembic" / "sql" / "notifications.contracts.json").read_text()
+    )["artifacts"]["0321_notifications_terminal_append.schema.json"]
     migration_sql = _API / "alembic" / "sql" / "0321_notifications_terminal_append.sql"
 
-    assert schema.read_bytes() == migration_schema.read_bytes()
-    assert json.loads(schema.read_text()) == terminal_append_json_schema()
-    assert package_sql.read_bytes() == migration_sql.read_bytes()
-    sql = package_sql.read_text()
+    loaded = json.loads(schema.read_text())
+    assert loaded == migration_schema
+    assert loaded == terminal_append_json_schema()
+    sql = migration_sql.read_text()
     assert (
         "CREATE FUNCTION aap_notifications_v1.append_job_terminal_notification" in sql
     )

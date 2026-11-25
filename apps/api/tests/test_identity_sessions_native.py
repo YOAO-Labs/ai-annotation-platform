@@ -4,6 +4,8 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 import sqlalchemy as sa
@@ -16,11 +18,11 @@ from tests.test_identity_auth_native import _cleanup, _seed
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0237_identity_sessions.sql"
-_SCHEMA = _SQL_DIR / "0237_identity_sessions.schema.json"
+_SCHEMA = "0237_identity_sessions.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0237_identity_sessions.py"
 _NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_SESSION_GRANTS = _ROOT / "infra/docker/identity-sessions-grants.sql"
+_SESSION_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
 
 _POLICY = {
     "expire_minutes": 60,
@@ -118,11 +120,11 @@ async def _execute(session: AsyncSession, request: dict | list | str | None) -> 
 
 
 def test_frozen_native_session_artifacts_and_receipt_owner_grants():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    session_grants = _SESSION_GRANTS.read_text(encoding="utf-8")
+    session_grants = read_psql_grant_script(_SESSION_GRANTS, capability="sessions")
     native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
     statements = [
         statement.strip()
@@ -172,7 +174,7 @@ def test_frozen_native_session_artifacts_and_receipt_owner_grants():
     assert "identity_session_operation_receipts" in native_schema
     assert "request_scope, result, audit_id" in module_grants
     assert "record_identity_session_event" in module_grants
-    assert "identity_session_role=yoao_identity_session_client" in session_grants
+    assert ":'identity_session_role'" in session_grants
     assert session_grants.count("yoao_identity_sessions_v1.session_policy()") == 2
     assert (
         session_grants.count("yoao_identity_sessions_v1.read_login_candidate(text)")

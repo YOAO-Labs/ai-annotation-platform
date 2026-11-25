@@ -112,7 +112,7 @@ deletion `0319`; `0322` adds the daily projection after `0321`; `0333` adds the
 fixed maintenance command after the preceding owner migrations.
 `infra/docker/module-data-grants.sql` keeps direct append writes with
 the non-login Audit owner and transfers the read view to that owner. The
-focused `audit-append-grants.sql` profile grants the append function and revokes
+focused `audit-grants.sql` (`-v grant_append=1`) profile grants the append function and revokes
 table and column privileges on the Audit parent, existing partitions, private
 daily materialization and archive output ledger, plus all sequence privileges.
 The matching LAN/worktree profile grants fixed capabilities and two read-only
@@ -120,8 +120,8 @@ Audit projections, not direct private access. It rejects Audit owner defaults
 that could expose a new monthly partition or sequence instead of editing
 schema-wide defaults. Drain old API and worker binaries before revoking access.
 
-The `audit-query-grants.sql` profile gives one LOGIN only `query_events(jsonb)`;
-the separate `audit-read-grants.sql` profile gives another LOGIN `SELECT` on
+The `audit-grants.sql` (`-v grant_query=1`) profile gives one LOGIN only `query_events(jsonb)`;
+the separate `audit-grants.sql` (`-v grant_read=1`) profile gives another LOGIN `SELECT` on
 `audit_events` and `audit_daily_facts`. Neither read profile grants direct
 base-table or materialized-view reads, sequences, or write functions. The API
 LOGIN gains SELECT on both views without parent-table SELECT. The standalone

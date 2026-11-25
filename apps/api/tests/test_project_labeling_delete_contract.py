@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import delete, func, select, text
@@ -26,12 +26,7 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 _SQL_ARTIFACT = (
     Path(__file__).parents[1] / "alembic" / "sql" / "0197_project_labeling_delete.sql"
 )
-_SCHEMA_ARTIFACT = (
-    Path(__file__).parents[1]
-    / "alembic"
-    / "sql"
-    / "0197_project_labeling_delete.schema.json"
-)
+_SCHEMA_ARTIFACT = "0197_project_labeling_delete.schema.json"
 
 
 def _new_project(owner_id: uuid.UUID, name: str) -> Project:
@@ -292,7 +287,7 @@ async def test_project_labeling_delete_cleans_owned_children_and_uses_outer_tran
 
 
 def test_project_labeling_delete_schema_and_sql_freeze_the_public_contract():
-    schema = json.loads(_SCHEMA_ARTIFACT.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA_ARTIFACT)
     request = schema["$defs"]["projectRequest"]
     response = schema["$defs"]["deleteResponse"]
     data = schema["$defs"]["deleteData"]

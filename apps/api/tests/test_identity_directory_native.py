@@ -6,6 +6,8 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 from sqlalchemy import text
@@ -38,11 +40,11 @@ _CANONICAL_SCHEMA = (
 )
 _SUPPORT = _SQL_DIR / "0243_identity_directory_support.sql"
 _ARTIFACT = _SQL_DIR / "0243_identity_directory.sql"
-_SCHEMA = _SQL_DIR / "0243_identity_directory.schema.json"
+_SCHEMA = "0243_identity_directory.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0243_identity_directory.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-directory-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 
 
 def _directory_dsn() -> str:
@@ -133,13 +135,13 @@ def _request(operation: str, *, operation_id: uuid.UUID | None = None) -> dict:
 
 
 def test_frozen_identity_directory_native_artifacts():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     canonical_schema = json.loads(_CANONICAL_SCHEMA.read_text(encoding="utf-8"))
     support = _SUPPORT.read_text(encoding="utf-8")
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="directory")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
 
     assert "identity_directory_export_receipts" in NATIVE_MANAGED_TABLES
@@ -186,7 +188,7 @@ def test_frozen_identity_directory_native_artifacts():
 
 @pytest.mark.asyncio
 async def test_directory_reads_validate_filters_and_projection(test_engine):
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     fixture = await _seed(test_engine, role="super_admin", create_key=False)
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     commands = [

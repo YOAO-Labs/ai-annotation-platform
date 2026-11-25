@@ -15,7 +15,7 @@ Celery, Redis, or S3 client. The byte owner receives cleanup credentials; this
 process receives only its native database URL and service tokens.
 
 After current migrations and `infra/docker/module-data-grants.sql`, apply
-`infra/docker/labeling-mask-gc-data-grants.sql` to
+`infra/docker/labeling-grants.sql` (`-v grant_mask_gc_data=1`) to
 `yoao_labeling_mask_gc_client`. Keep that LOGIN separate from the tracking
 worker and the ordinary API; cleanup bytes use a different Assets bearer and
 S3 identity. This operator does not replace Beat's saved-object cleanup.

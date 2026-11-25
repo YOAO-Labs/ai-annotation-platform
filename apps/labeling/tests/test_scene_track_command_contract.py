@@ -190,19 +190,13 @@ def test_command_reply_preserves_native_failure_and_schema_is_frozen():
     assert (
         _current_names(
             json.loads(
-                (
-                    root
-                    / "apps/api/alembic/sql/0343_labeling_scene_track_commands.schema.json"
-                ).read_text(encoding="utf-8")
-            )
+                (root / "apps/api/alembic/sql/labeling.contracts.json").read_text(
+                    encoding="utf-8"
+                )
+            )["artifacts"]["0343_labeling_scene_track_commands.schema.json"]
         )
         == schema
     )
-    packaged_sql = (
-        root
-        / "apps/labeling/src/yoao_labeling/sql/0343_labeling_scene_track_commands.sql"
-    ).read_text(encoding="utf-8")
-    migration_sql = (
+    assert (
         root / "apps/api/alembic/sql/0343_labeling_scene_track_commands.sql"
-    ).read_text(encoding="utf-8")
-    assert packaged_sql == migration_sql
+    ).is_file()

@@ -1,7 +1,5 @@
 """Fixed native Jobs row locks in the caller's transaction."""
 
-from importlib.resources import files
-
 from pydantic import TypeAdapter
 
 from .lifecycle_contract import (
@@ -87,7 +85,9 @@ def jobs_row_lock_schema():
 
 
 def jobs_row_lock_sql():
+    from ._sql_loader import read_jobs_sql
+
     return "\n".join(
-        files("yoao_jobs").joinpath(f"sql/{name}").read_text()
+        read_jobs_sql(name)
         for name in ("0328_jobs_row_locks.sql", "0415_export_job_nowait.sql")
     )

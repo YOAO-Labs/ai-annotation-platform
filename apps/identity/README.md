@@ -557,9 +557,9 @@ both role bindings and the encryption key. Polling also checks those bindings
 before the first claim. Compose gives it only:
 
 - `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`: DSN for
-  `yoao_identity_mail_v2_client` (`infra/docker/identity-invitations-grants.sql`).
+  `yoao_identity_mail_v2_client` (`infra/docker/identity-grants.sql` (`-v grant_invitations=1`)).
 - `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`: DSN for
-  `yoao_identity_mail_settings_client` (`infra/docker/identity-recovery-grants.sql`).
+  `yoao_identity_mail_settings_client` (`infra/docker/identity-grants.sql` (`-v grant_recovery=1`)).
 - `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`: the existing shared Fernet key file.
 - Optional `IDENTITY_MAIL_SMTP_{HOST,PORT,USER,PASSWORD,FROM}` fallbacks, or
   `IDENTITY_MAIL_SMTP_PASSWORD_FILE` instead of a direct password.

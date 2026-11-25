@@ -275,16 +275,15 @@ def test_checked_in_schemas_match_the_closed_contract():
         Path(__file__).resolve().parents[1]
         / "src/yoao_workspace/media_seed_project_protocol.schema.json"
     )
-    migration_schema = (
-        Path(__file__).resolve().parents[2]
-        / "api/alembic/sql/0307_workspace_media_seed_project.schema.json"
-    )
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api/alembic/sql/workspace.contracts.json"
+        ).read_text(encoding="utf-8")
+    )["artifacts"]["0307_workspace_media_seed_project.schema.json"]
 
     assert (
         _current_names(json.loads(workspace_schema.read_text(encoding="utf-8")))
         == expected
     )
-    assert (
-        _current_names(json.loads(migration_schema.read_text(encoding="utf-8")))
-        == expected
-    )
+    assert _current_names(migration_schema) == expected

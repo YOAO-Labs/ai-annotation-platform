@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import delete, func, select, text
@@ -28,12 +28,7 @@ from app.db.models.user import User
 _SQL_ARTIFACT = (
     Path(__file__).parents[1] / "alembic" / "sql" / "0202_dataset_unlink_labeling.sql"
 )
-_SCHEMA_ARTIFACT = (
-    Path(__file__).parents[1]
-    / "alembic"
-    / "sql"
-    / "0202_dataset_unlink_labeling.schema.json"
-)
+_SCHEMA_ARTIFACT = "0202_dataset_unlink_labeling.schema.json"
 
 
 def _new_project(owner_id: uuid.UUID) -> Project:
@@ -602,7 +597,7 @@ async def test_unlink_scope_fails_fast_when_batch_or_target_task_is_locked(
 
 
 def test_dataset_unlink_contract_schema_and_sql_are_frozen():
-    schema = json.loads(_SCHEMA_ARTIFACT.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA_ARTIFACT)
     arguments = schema["$defs"]["arguments"]
     assert arguments["additionalProperties"] is False
     assert arguments["required"] == ["p_dataset_id", "p_project_id"]

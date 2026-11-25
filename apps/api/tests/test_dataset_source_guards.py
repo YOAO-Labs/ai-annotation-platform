@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import json
 import uuid
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import text
@@ -39,12 +39,7 @@ pytestmark = pytest.mark.asyncio
 _SQL_ARTIFACT = (
     Path(__file__).parents[1] / "alembic" / "sql" / "0206_dataset_source_guards.sql"
 )
-_SCHEMA_ARTIFACT = (
-    Path(__file__).parents[1]
-    / "alembic"
-    / "sql"
-    / "0206_dataset_source_guards.schema.json"
-)
+_SCHEMA_ARTIFACT = "0206_dataset_source_guards.schema.json"
 _GUARD_LEARNING = text(
     "SELECT yoao_learning_v1.guard_dataset_source_deletion("
     "CAST(:dataset_id AS uuid), CAST(:item_id AS uuid))"
@@ -527,7 +522,7 @@ async def test_detach_deleted_dataset_attribution_preserves_batch_identity_and_c
 
 
 async def test_frozen_source_guard_schema_lists_only_versioned_capabilities():
-    schema = json.loads(_SCHEMA_ARTIFACT.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA_ARTIFACT)
     sql = _SQL_ARTIFACT.read_text(encoding="utf-8")
     expected_functions = {
         "aap_learning_v1.guard_dataset_source_deletion(uuid, uuid)",

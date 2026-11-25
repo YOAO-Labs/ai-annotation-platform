@@ -6,11 +6,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "fixture_filter.schema.json");
-const sqlPath = path.join(jobsRoot, "sql/0331_jobs_filter_fixtures.sql");
-const apiSchemaPath = path.resolve(
-  here,
-  "../../../api/alembic/sql/0331_jobs_filter_fixtures.schema.json",
-);
+const apiContractsPath = path.resolve(here, "../../../api/alembic/sql/jobs.contracts.json");
 const apiSqlPath = path.resolve(here, "../../../api/alembic/sql/0331_jobs_filter_fixtures.sql");
 const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
 const functionName = "yoao_jobs_v1.set_filter_fixture_job_outcomes";
@@ -47,15 +43,20 @@ function uuidText(value, name) {
 
 async function selfCheck() {
   phase = "read language-neutral contract";
-  const [schemaText, apiSchemaText, sql, apiSql] = await Promise.all([
+  const [schemaText, apiContractsText, sql] = await Promise.all([
     readFile(schemaPath, "utf8"),
-    readFile(apiSchemaPath, "utf8"),
-    readFile(sqlPath, "utf8"),
+    readFile(apiContractsPath, "utf8"),
     readFile(apiSqlPath, "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  assert.deepEqual(JSON.parse(currentNames(apiSchemaText)), schema);
-  assert.equal(sql, apiSql);
+  const apiSchema = JSON.parse(
+    currentNames(
+      JSON.stringify(
+        JSON.parse(apiContractsText).artifacts["0331_jobs_filter_fixtures.schema.json"],
+      ),
+    ),
+  );
+  assert.deepEqual(apiSchema, schema);
   assert.equal(schema.$id, "aap-jobs-filter-fixtures/v1");
   assert.deepEqual(schema.$defs.FilterFixtureJobsRequest.required.sort(), [
     "completed_job_id",

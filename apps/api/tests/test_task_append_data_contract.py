@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import uuid
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 
 import pytest
 from sqlalchemy import bindparam, delete, func, select, text
@@ -549,10 +549,8 @@ async def test_failed_commit_leaves_no_receipt_tasks_or_counter(test_engine):
 
 
 def test_append_json_schema_freezes_request_and_result_shape():
-    schema_path = (
-        Path(__file__).parents[1] / "alembic" / "sql" / "0191_task_append.schema.json"
-    )
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema_path = "0191_task_append.schema.json"
+    schema = load_contract_schema(schema_path)
     request = schema["$defs"]["request"]
     result = schema["$defs"]["result"]
 

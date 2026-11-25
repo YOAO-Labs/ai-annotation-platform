@@ -44,33 +44,16 @@ def test_task_locks_use_the_current_advisory_domain():
     assert (
         _current_names(
             json.loads(
-                files("yoao_labeling")
-                .joinpath("sql/0466_task_edit_lock_domain.schema.json")
-                .read_text(encoding="utf-8")
-            )
+                (repository / "apps/api/alembic/sql/labeling.contracts.json").read_text(
+                    encoding="utf-8"
+                )
+            )["artifacts"]["0466_task_edit_lock_domain.schema.json"]
         )
         == schema
     )
     assert (
-        _current_names(
-            json.loads(
-                (
-                    repository
-                    / "apps/api/alembic/sql/0466_task_edit_lock_domain.schema.json"
-                ).read_text(encoding="utf-8")
-            )
-        )
-        == schema
-    )
-    packaged_sql = (
-        files("yoao_labeling")
-        .joinpath("sql/0466_task_edit_lock_domain.sql")
-        .read_text(encoding="utf-8")
-    )
-    migration_sql = (
         repository / "apps/api/alembic/sql/0466_task_edit_lock_domain.sql"
-    ).read_text(encoding="utf-8")
-    assert packaged_sql == migration_sql
+    ).is_file()
 
 
 @pytest.mark.asyncio

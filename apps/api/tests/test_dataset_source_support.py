@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import pytest
@@ -425,10 +426,10 @@ async def test_dataset_source_audit_rejects_invalid_counts_actor_and_context(
 def test_dataset_source_support_artifact_and_migration_are_closed():
     api_root = Path(__file__).resolve().parents[1]
     sql_path = api_root / "alembic/sql/0208_dataset_source_support.sql"
-    schema_path = api_root / "alembic/sql/0208_dataset_source_support.schema.json"
+    schema_path = "0208_dataset_source_support.schema.json"
     migration_path = api_root / "alembic/versions/0208_dataset_source_support.py"
     sql = sql_path.read_text(encoding="utf-8")
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = load_contract_schema(schema_path)
     migration = migration_path.read_text(encoding="utf-8")
 
     assert schema["$id"] == "urn:aap:dataset-source-support:v1"

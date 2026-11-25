@@ -6,6 +6,8 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 from sqlalchemy import delete, text
@@ -41,9 +43,9 @@ from tests.test_identity_auth_native import _cleanup, _seed
 
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_NATIVE_SCHEMA = _SQL_DIR / "0245_identity_platform_roles.schema.json"
-_WORKSPACE_SCHEMA = _SQL_DIR / "0245_platform_role_workspace_facts.schema.json"
-_LABELING_SCHEMA = _SQL_DIR / "0245_platform_role_labeling_facts.schema.json"
+_NATIVE_SCHEMA = "0245_identity_platform_roles.schema.json"
+_WORKSPACE_SCHEMA = "0245_platform_role_workspace_facts.schema.json"
+_LABELING_SCHEMA = "0245_platform_role_labeling_facts.schema.json"
 _CANONICAL_ROOT = _ROOT / "apps/identity/src/yoao_identity"
 if not (_CANONICAL_ROOT / "native_platform_role_protocol.schema.json").is_file():
     _CANONICAL_ROOT = Path(yoao_identity.__file__).resolve().parent
@@ -53,8 +55,8 @@ _MIGRATION = (
     Path(__file__).parents[1] / "alembic/versions/0245_identity_platform_roles.py"
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-platform-roles-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
 _SECRET = "platform-role-native-test-signing-secret"
 
 
@@ -209,9 +211,9 @@ async def _cleanup_world(
 
 
 def test_frozen_identity_platform_role_artifacts_and_snapshot_order():
-    native_schema = json.loads(_NATIVE_SCHEMA.read_text(encoding="utf-8"))
-    workspace_schema = json.loads(_WORKSPACE_SCHEMA.read_text(encoding="utf-8"))
-    labeling_schema = json.loads(_LABELING_SCHEMA.read_text(encoding="utf-8"))
+    native_schema = load_contract_schema(_NATIVE_SCHEMA)
+    workspace_schema = load_contract_schema(_WORKSPACE_SCHEMA)
+    labeling_schema = load_contract_schema(_LABELING_SCHEMA)
     canonical_native = json.loads(
         (_CANONICAL_ROOT / "native_platform_role_protocol.schema.json").read_text(
             encoding="utf-8"
@@ -231,7 +233,7 @@ def test_frozen_identity_platform_role_artifacts_and_snapshot_order():
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="platform_roles")
     lan_grants = _LAN_GRANTS.read_text(encoding="utf-8")
 
     assert "identity_platform_role_operation_receipts" in NATIVE_MANAGED_TABLES
@@ -271,7 +273,7 @@ def test_frozen_identity_platform_role_artifacts_and_snapshot_order():
     assert expected_functions.index(
         "execute_platform_role_command"
     ) < expected_functions.index("platform_role_policy")
-    assert "yoao_identity_platform_role_client" in role_grants
+    assert ":'identity_platform_role_role'" in role_grants
     assert "yoao_identity_platform_roles_v1.execute_platform_role_command(jsonb)" in (
         lan_grants
     )

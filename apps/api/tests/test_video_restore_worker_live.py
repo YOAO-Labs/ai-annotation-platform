@@ -136,7 +136,7 @@ async def _grant_worker_consumers(engine, monkeypatch):
     _run_psql_file(
         engine,
         engine.url.database,
-        ROOT / "infra/docker/assets-media-grants.sql",
+        ROOT / "infra/docker/assets-grants.sql",
         {
             "expected_database": engine.url.database,
             "migration_role": "owner",
@@ -144,6 +144,7 @@ async def _grant_worker_consumers(engine, monkeypatch):
             "asset_media_control_role": "yoao_asset_media_control_client",
             "asset_media_worker_role": "yoao_asset_media_worker_client",
         },
+        capability="media",
     )
     await _apply_lan_grants(engine, monkeypatch)
     for _, role, profile in _EXECUTION_ROLES:
@@ -152,23 +153,27 @@ async def _grant_worker_consumers(engine, monkeypatch):
             "migration_role": "owner",
             "inference_owner": "inference_code",
         }
+        grants = ROOT / "infra/docker/inference-grants.sql"
         if profile is None:
             variables["inference_health_data_role"] = role
-            grants = ROOT / "infra/docker/inference-health-data-grants.sql"
+            capability = "health_data"
         else:
             variables.update(client_role=role, profile=profile)
-            grants = ROOT / "infra/docker/inference-owner-grants.sql"
-        _run_psql_file(engine, engine.url.database, grants, variables)
+            capability = "owner"
+        _run_psql_file(
+            engine, engine.url.database, grants, variables, capability=capability
+        )
     _run_psql_file(
         engine,
         engine.url.database,
-        ROOT / "infra/docker/inference-health-observation-grants.sql",
+        ROOT / "infra/docker/inference-grants.sql",
         {
             "expected_database": engine.url.database,
             "migration_role": "owner",
             "inference_owner": "inference_code",
             "inference_health_observation_role": "yoao_inference_health_observation_client",
         },
+        capability="health_observation",
     )
 
 

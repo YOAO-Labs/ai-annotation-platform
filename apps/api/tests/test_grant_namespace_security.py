@@ -140,7 +140,13 @@ async def _psql(
     )
 
 
-async def _apply(migration_url: URL, script: str, variables: dict[str, str]):
+async def _apply(
+    migration_url: URL,
+    script: str,
+    variables: dict[str, str],
+    *,
+    capability: str | None = None,
+):
     variables = {
         "expected_database": migration_url.database,
         "migration_role": migration_url.username,
@@ -148,7 +154,7 @@ async def _apply(migration_url: URL, script: str, variables: dict[str, str]):
     }
     return await _psql(
         migration_url,
-        sql=read_psql_grant_script(GRANTS / script),
+        sql=read_psql_grant_script(GRANTS / script, capability=capability),
         variables=variables,
         username=migration_url.username,
         password=migration_url.password,
@@ -409,7 +415,12 @@ async def test_insights_refresh_login_is_scoped_and_replays(
             [f"GRANT SELECT(name) ON public.project_task_views TO {refresh}"],
         )
         variables = {"refresh_role": refresh}
-        denied = await _apply(migration_url, "insights-refresh-grants.sql", variables)
+        denied = await _apply(
+            migration_url,
+            "platform-grants.sql",
+            variables,
+            capability="insights_refresh",
+        )
         _assert_guard_rejected(denied)
         assert "has direct data privileges" in denied.stderr
         installed_early = await _scalar(
@@ -426,7 +437,10 @@ async def test_insights_refresh_login_is_scoped_and_replays(
 
         for _ in range(2):
             installed = await _apply(
-                migration_url, "insights-refresh-grants.sql", variables
+                migration_url,
+                "platform-grants.sql",
+                variables,
+                capability="insights_refresh",
             )
             assert installed.returncode == 0, installed.stderr
         allowed = await _psql(
@@ -516,7 +530,7 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     "approved_function": False,
                 }
                 baseline = await _apply(
-                    migration_url, "assets-catalog-grants.sql", variables
+                    migration_url, "assets-grants.sql", variables, capability="catalog"
                 )
                 assert baseline.returncode == 0, baseline.stderr
                 revoked = await _catalog_state(owner_engine, role, probe, neighbor)
@@ -541,7 +555,7 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                 assert injected["neighbor_column_access"] is True
                 assert injected["neighbor_table_access"] is False
                 rejected = await _apply(
-                    migration_url, "assets-catalog-grants.sql", variables
+                    migration_url, "assets-grants.sql", variables, capability="catalog"
                 )
                 _assert_guard_rejected(rejected)
                 rolled_back = await _catalog_state(owner_engine, role, probe, neighbor)
@@ -554,7 +568,7 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     [f"REVOKE UPDATE (name) ON {neighbor}.probe_rows FROM {role}"],
                 )
                 recovered = await _apply(
-                    migration_url, "assets-catalog-grants.sql", variables
+                    migration_url, "assets-grants.sql", variables, capability="catalog"
                 )
                 assert recovered.returncode == 0, recovered.stderr
                 final = await _catalog_state(owner_engine, role, probe, neighbor)
@@ -636,7 +650,9 @@ async def test_audit_read_rejects_new_namespace_schema_usage(
             "api_role": "legacy_runtime",
             "read_client": role,
         }
-        baseline = await _apply(migration_url, "audit-read-grants.sql", variables)
+        baseline = await _apply(
+            migration_url, "audit-grants.sql", variables, capability="read"
+        )
         assert baseline.returncode == 0, baseline.stderr
         async with _schema(owner_engine, probe):
             await _execute(
@@ -652,11 +668,15 @@ async def test_audit_read_rejects_new_namespace_schema_usage(
                 "audit_usage": True,
                 "audit_read": False,
             }
-            rejected = await _apply(migration_url, "audit-read-grants.sql", variables)
+            rejected = await _apply(
+                migration_url, "audit-grants.sql", variables, capability="read"
+            )
             _assert_guard_rejected(rejected)
             after = await _audit_state(owner_engine, role, probe)
             assert dict(after) == dict(before)
-        recovered = await _apply(migration_url, "audit-read-grants.sql", variables)
+        recovered = await _apply(
+            migration_url, "audit-grants.sql", variables, capability="read"
+        )
         assert recovered.returncode == 0, recovered.stderr
         final = await _row(
             owner_engine,
@@ -706,7 +726,9 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
         "workspace_owner": "workspace_code",
         "identity_briefs_role": role,
     }
-    baseline = await _apply(migration_url, "identity-briefs-grants.sql", variables)
+    baseline = await _apply(
+        migration_url, "identity-grants.sql", variables, capability="briefs"
+    )
     assert baseline.returncode == 0, baseline.stderr
     async with _schema(owner_engine, probe):
         await _execute(
@@ -724,7 +746,9 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
             "executable": True,
             "public_execute": True,
         }
-        rejected = await _apply(migration_url, "identity-briefs-grants.sql", variables)
+        rejected = await _apply(
+            migration_url, "identity-grants.sql", variables, capability="briefs"
+        )
         _assert_guard_rejected(rejected)
         assert await _explicit_execute_grants(owner_engine, role, function) == 1
         approved = await _row(
@@ -743,7 +767,9 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
             role=role,
         )
         assert dict(approved) == {"policy": True, "command": True}
-    recovered = await _apply(migration_url, "identity-briefs-grants.sql", variables)
+    recovered = await _apply(
+        migration_url, "identity-grants.sql", variables, capability="briefs"
+    )
     assert recovered.returncode == 0, recovered.stderr
 
 
@@ -918,7 +944,7 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
         "notification_publish_role": "yoao_notification_publish_client",
     }
     baseline = await _apply(
-        migration_url, "identity-deactivation-grants.sql", variables
+        migration_url, "identity-grants.sql", variables, capability="deactivation"
     )
     assert baseline.returncode == 0, baseline.stderr
     async with _schema(owner_engine, probe):
@@ -938,7 +964,7 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
             "public_execute": True,
         }
         rejected = await _apply(
-            migration_url, "identity-deactivation-grants.sql", variables
+            migration_url, "identity-grants.sql", variables, capability="deactivation"
         )
         _assert_guard_rejected(rejected)
         assert await _explicit_execute_grants(owner_engine, role, function) == 1
@@ -960,7 +986,7 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
         )
         assert dict(approved) == {"policy": True, "command": True}
     recovered = await _apply(
-        migration_url, "identity-deactivation-grants.sql", variables
+        migration_url, "identity-grants.sql", variables, capability="deactivation"
     )
     assert recovered.returncode == 0, recovered.stderr
 
@@ -1060,11 +1086,12 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                         }
                         result = await _apply(
                             migration_url,
-                            "workspace-consumer-grants.sql",
+                            "workspace-grants.sql",
                             {
                                 "workspace_owner": "workspace_code",
                                 "consumer_role": role,
                             },
+                            capability="consumer",
                         )
                         assert result.returncode == 0, result.stderr
                         after = await _workspace_state(

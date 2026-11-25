@@ -32,8 +32,10 @@ from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 
 if __package__:
+    from .contract_schemas import contract_schema_sha256, load_contract_schema
     from .grant_sql import read_psql_grant_script
 else:
+    from contract_schemas import contract_schema_sha256, load_contract_schema
     from grant_sql import read_psql_grant_script
 
 
@@ -6264,7 +6266,7 @@ def _assert_psql_permission_denied(
 
 
 def _sql_artifact_path(name: str) -> Path:
-    if name in JOBS_SQL_ARTIFACTS or name in WORKER_JOB_SCOPE_SQL:
+    if name in JOBS_SQL_ARTIFACTS:
         directory = ROOT / "apps/jobs/src/yoao_jobs/sql"
     elif name in ASSETS_SOURCE_SQL_ARTIFACTS:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"
@@ -8502,192 +8504,277 @@ def main(
         evidence["audit_read_relations"]["node_prerequisites"] = "passed"
         evidence["jobs_notification_scope"]["node_prerequisites"] = "passed"
         grants_path = ROOT / "infra/docker/module-data-grants.sql"
-        catalog_grants_path = ROOT / "infra/docker/assets-catalog-grants.sql"
-        source_grants_path = ROOT / "infra/docker/assets-source-grants.sql"
-        import_grants_path = ROOT / "infra/docker/assets-import-grants.sql"
-        operator_grants_path = ROOT / "infra/docker/assets-operator-grants.sql"
-        media_grants_path = ROOT / "infra/docker/assets-media-grants.sql"
-        image_grants_path = ROOT / "infra/docker/assets-image-grants.sql"
-        mask_gc_grants_path = ROOT / "infra/docker/labeling-mask-gc-data-grants.sql"
-        result_grants_path = ROOT / "infra/docker/preannotation-result-data-grants.sql"
-        identity_grants_path = ROOT / "infra/docker/identity-auth-grants.sql"
-        identity_actor_status_grants_path = (
-            ROOT / "infra/docker/identity-actor-status-grants.sql"
+        catalog_grants_path = (ROOT / "infra/docker/assets-grants.sql", "catalog")
+        source_grants_path = (ROOT / "infra/docker/assets-grants.sql", "source")
+        import_grants_path = (ROOT / "infra/docker/assets-grants.sql", "import")
+        operator_grants_path = (ROOT / "infra/docker/assets-grants.sql", "operator")
+        media_grants_path = (ROOT / "infra/docker/assets-grants.sql", "media")
+        image_grants_path = (ROOT / "infra/docker/assets-grants.sql", "image")
+        mask_gc_grants_path = (
+            ROOT / "infra/docker/labeling-grants.sql",
+            "mask_gc_data",
         )
-        identity_key_grants_path = ROOT / "infra/docker/identity-keys-grants.sql"
+        result_grants_path = (
+            ROOT / "infra/docker/labeling-grants.sql",
+            "preannotation_result_data",
+        )
+        identity_grants_path = (ROOT / "infra/docker/identity-grants.sql", "auth")
+        identity_actor_status_grants_path = (
+            ROOT / "infra/docker/identity-grants.sql",
+            "actor_status",
+        )
+        identity_key_grants_path = (ROOT / "infra/docker/identity-grants.sql", "keys")
         identity_session_grants_path = (
-            ROOT / "infra/docker/identity-sessions-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "sessions",
         )
         identity_account_grants_path = (
-            ROOT / "infra/docker/identity-accounts-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "accounts",
         )
-        identity_group_grants_path = ROOT / "infra/docker/identity-groups-grants.sql"
+        identity_group_grants_path = (
+            ROOT / "infra/docker/identity-grants.sql",
+            "groups",
+        )
         identity_invitation_grants_path = (
-            ROOT / "infra/docker/identity-invitations-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "invitations",
         )
         identity_directory_grants_path = (
-            ROOT / "infra/docker/identity-directory-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "directory",
         )
         identity_admin_password_grants_path = (
-            ROOT / "infra/docker/identity-admin-passwords-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "admin_passwords",
         )
         identity_platform_role_grants_path = (
-            ROOT / "infra/docker/identity-platform-roles-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "platform_roles",
         )
         identity_suspension_grants_path = (
-            ROOT / "infra/docker/identity-suspensions-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "suspensions",
         )
         identity_deletion_grants_path = (
-            ROOT / "infra/docker/identity-deletions-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "deletions",
         )
         identity_offboarding_grants_path = (
-            ROOT / "infra/docker/identity-offboarding-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "offboarding",
         )
-        identity_briefs_grants_path = ROOT / "infra/docker/identity-briefs-grants.sql"
+        identity_briefs_grants_path = (
+            ROOT / "infra/docker/identity-grants.sql",
+            "briefs",
+        )
         identity_provisioning_grants_path = (
-            ROOT / "infra/docker/identity-provisioning-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "provisioning",
         )
         workspace_membership_grants_path = (
-            ROOT / "infra/docker/workspace-membership-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "membership",
         )
         workspace_owner_transfer_grants_path = (
-            ROOT / "infra/docker/workspace-owner-transfer-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "owner_transfer",
         )
         workspace_project_maintenance_grants_path = (
-            ROOT / "infra/docker/workspace-project-maintenance-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "project_maintenance",
         )
         workspace_project_deletion_grants_path = (
-            ROOT / "infra/docker/workspace-project-deletion-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "project_deletion",
         )
         workspace_dataset_unlink_grants_path = (
-            ROOT / "infra/docker/workspace-dataset-unlink-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "dataset_unlink",
         )
         workspace_configuration_grants_path = (
-            ROOT / "infra/docker/workspace-configuration-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "configuration",
         )
         workspace_template_query_grants_path = (
-            ROOT / "infra/docker/workspace-template-query-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "template_query",
         )
         workspace_project_query_grants_path = (
-            ROOT / "infra/docker/workspace-project-query-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "project_query",
         )
         workspace_directory_query_grants_path = (
-            ROOT / "infra/docker/workspace-directory-query-grants.sql"
+            ROOT / "infra/docker/workspace-grants.sql",
+            "directory_query",
         )
         labeling_class_query_grants_path = (
-            ROOT / "infra/docker/labeling-class-query-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "class_query",
         )
         labeling_video_writer_grants_path = (
-            ROOT / "infra/docker/labeling-video-writer-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "video_writer",
         )
         labeling_task_control_grants_path = (
-            ROOT / "infra/docker/labeling-task-control-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "task_control",
         )
         labeling_annotation_writes_grants_path = (
-            ROOT / "infra/docker/labeling-annotation-writes-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "annotation_writes",
         )
-        labeling_editing_grants_path = ROOT / "infra/docker/labeling-editing-grants.sql"
+        labeling_editing_grants_path = (
+            ROOT / "infra/docker/labeling-grants.sql",
+            "editing",
+        )
         labeling_batch_control_grants_path = (
-            ROOT / "infra/docker/labeling-batch-control-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "batch_control",
         )
         labeling_prediction_grants_path = (
-            ROOT / "infra/docker/labeling-prediction-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "prediction",
         )
         labeling_scene_track_commands_grants_path = (
-            ROOT / "infra/docker/labeling-scene-track-commands-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "scene_track_commands",
         )
         labeling_cross_frame_grants_path = (
-            ROOT / "infra/docker/labeling-cross-frame-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "cross_frame",
         )
         labeling_annotation_maintenance_grants_path = (
-            ROOT / "infra/docker/labeling-annotation-maintenance-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "annotation_maintenance",
         )
         labeling_discussion_grants_path = (
-            ROOT / "infra/docker/labeling-discussion-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "discussion",
         )
         labeling_mask_edit_grants_path = (
-            ROOT / "infra/docker/labeling-mask-edit-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "mask_edit",
         )
         labeling_scene_read_grants_path = (
-            ROOT / "infra/docker/labeling-scene-read-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "scene_read",
         )
         labeling_video_control_grants_path = (
-            ROOT / "infra/docker/labeling-video-control-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "video_control",
         )
         labeling_annotation_transfer_grants_path = (
-            ROOT / "infra/docker/labeling-annotation-transfer-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "annotation_transfer",
         )
         labeling_core_read_grants_path = (
-            ROOT / "infra/docker/labeling-core-read-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "core_read",
         )
         labeling_mask_quality_grants_path = (
-            ROOT / "infra/docker/labeling-mask-quality-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "mask_quality",
         )
         labeling_spatial_quality_grants_path = (
-            ROOT / "infra/docker/labeling-spatial-quality-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "spatial_quality",
         )
         labeling_task_maintenance_grants_path = (
-            ROOT / "infra/docker/labeling-task-maintenance-grants.sql"
+            ROOT / "infra/docker/labeling-grants.sql",
+            "task_maintenance",
         )
         inference_pool_reference_grants_path = (
-            ROOT / "infra/docker/inference-pool-reference-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "pool_reference",
         )
-        video_restore_grants_path = ROOT / "infra/docker/video-restore-grants.sql"
+        video_restore_grants_path = (
+            ROOT / "infra/docker/inference-grants.sql",
+            "video_restore",
+        )
         inference_pipelines_grants_path = (
-            ROOT / "infra/docker/inference-pipelines-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "pipelines",
         )
         inference_backend_probe_grants_path = (
-            ROOT / "infra/docker/inference-backend-probe-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "backend_probe",
         )
         inference_health_observation_grants_path = (
-            ROOT / "infra/docker/inference-health-observation-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "health_observation",
         )
         inference_health_origin_grants_path = (
-            ROOT / "infra/docker/inference-health-origin-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "health_origin",
         )
         inference_health_data_grants_path = (
-            ROOT / "infra/docker/inference-health-data-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "health_data",
         )
         inference_registry_ingress_grants_path = (
-            ROOT / "infra/docker/inference-registry-ingress-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "registry_ingress",
         )
         inference_routing_grants_path = (
-            ROOT / "infra/docker/inference-routing-grants.sql"
+            ROOT / "infra/docker/inference-grants.sql",
+            "routing",
         )
-        video_execution_grants_path = ROOT / "infra/docker/video-execution-grants.sql"
+        video_execution_grants_path = (
+            ROOT / "infra/docker/jobs-grants.sql",
+            "video_execution",
+        )
         identity_deactivation_grants_path = (
-            ROOT / "infra/docker/identity-deactivation-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "deactivation",
         )
         notification_preferences_grants_path = (
-            ROOT / "infra/docker/notification-preferences-grants.sql"
+            ROOT / "infra/docker/notifications-grants.sql",
+            "preferences",
         )
         notification_append_grants_path = (
-            ROOT / "infra/docker/notification-append-grants.sql"
+            ROOT / "infra/docker/notifications-grants.sql",
+            "append",
         )
         notification_inbox_grants_path = (
-            ROOT / "infra/docker/notification-inbox-grants.sql"
+            ROOT / "infra/docker/notifications-grants.sql",
+            "inbox",
         )
         notification_delivery_read_grants_path = (
-            ROOT / "infra/docker/notification-delivery-read-grants.sql"
+            ROOT / "infra/docker/notifications-grants.sql",
+            "delivery_read",
         )
         notification_read_grants_path = (
-            ROOT / "infra/docker/notifications-read-grants.sql"
+            ROOT / "infra/docker/notifications-grants.sql",
+            "read",
         )
-        audit_append_grants_path = ROOT / "infra/docker/audit-append-grants.sql"
-        audit_query_grants_path = ROOT / "infra/docker/audit-query-grants.sql"
-        audit_read_grants_path = ROOT / "infra/docker/audit-read-grants.sql"
+        audit_append_grants_path = (ROOT / "infra/docker/audit-grants.sql", "append")
+        audit_query_grants_path = (ROOT / "infra/docker/audit-grants.sql", "query")
+        audit_read_grants_path = (ROOT / "infra/docker/audit-grants.sql", "read")
         audit_maintenance_grants_path = (
-            ROOT / "infra/docker/audit-maintenance-grants.sql"
+            ROOT / "infra/docker/audit-grants.sql",
+            "maintenance",
         )
         jobs_scope_grants_path = (
-            ROOT / "infra/docker/jobs-notification-scope-grants.sql"
+            ROOT / "infra/docker/jobs-grants.sql",
+            "notification_scope",
         )
-        jobs_list_query_grants_path = ROOT / "infra/docker/jobs-list-query-grants.sql"
-        jobs_lifecycle_grants_path = ROOT / "infra/docker/jobs-lifecycle-grants.sql"
-        jobs_dispatch_grants_path = ROOT / "infra/docker/jobs-dispatch-grants.sql"
-        execution_grants_path = ROOT / "infra/docker/module-execution-grants.sql"
+        jobs_list_query_grants_path = (
+            ROOT / "infra/docker/jobs-grants.sql",
+            "list_query",
+        )
+        jobs_lifecycle_grants_path = (
+            ROOT / "infra/docker/jobs-grants.sql",
+            "lifecycle",
+        )
+        jobs_dispatch_grants_path = (ROOT / "infra/docker/jobs-grants.sql", "dispatch")
+        execution_grants_path = (
+            ROOT / "infra/docker/platform-grants.sql",
+            "module_execution",
+        )
         identity_recovery_grants_path = (
-            ROOT / "infra/docker/identity-recovery-grants.sql"
+            ROOT / "infra/docker/identity-grants.sql",
+            "recovery",
         )
         lan_production_grants_path = ROOT / "infra/docker/lan-production-grants.sql"
         identity_consumer_grants_path = (
@@ -8698,100 +8785,105 @@ def main(
         contract_sql_paths = tuple(
             _sql_artifact_path(name) for name in evidence["contract_artifacts"]["sql"]
         )
-        schema_paths = tuple(
-            (ROOT / "apps/assets-source/src/yoao_assets_source" / name)
-            if name in ASSETS_SOURCE_SCHEMA_ARTIFACTS
-            else (ROOT / "apps/api/alembic/sql" / name)
+        assets_source_schema_paths = tuple(
+            ROOT / "apps/assets-source/src/yoao_assets_source" / name
             for name in SCHEMA_ARTIFACTS
+            if name in ASSETS_SOURCE_SCHEMA_ARTIFACTS
+        )
+        bundled_schema_names = tuple(
+            name
+            for name in SCHEMA_ARTIFACTS
+            if name not in ASSETS_SOURCE_SCHEMA_ARTIFACTS
         )
         if (
             not grants_path.is_file()
-            or not catalog_grants_path.is_file()
-            or not source_grants_path.is_file()
-            or not import_grants_path.is_file()
-            or not operator_grants_path.is_file()
-            or not media_grants_path.is_file()
-            or not image_grants_path.is_file()
-            or not mask_gc_grants_path.is_file()
-            or not result_grants_path.is_file()
-            or not identity_grants_path.is_file()
-            or not identity_actor_status_grants_path.is_file()
-            or not identity_key_grants_path.is_file()
-            or not identity_session_grants_path.is_file()
-            or not identity_deactivation_grants_path.is_file()
-            or not notification_preferences_grants_path.is_file()
-            or not notification_append_grants_path.is_file()
-            or not notification_inbox_grants_path.is_file()
-            or not notification_delivery_read_grants_path.is_file()
-            or not notification_read_grants_path.is_file()
-            or not audit_append_grants_path.is_file()
-            or not audit_query_grants_path.is_file()
-            or not audit_read_grants_path.is_file()
-            or not audit_maintenance_grants_path.is_file()
-            or not jobs_scope_grants_path.is_file()
-            or not jobs_list_query_grants_path.is_file()
-            or not jobs_lifecycle_grants_path.is_file()
-            or not jobs_dispatch_grants_path.is_file()
-            or not execution_grants_path.is_file()
-            or not identity_group_grants_path.is_file()
-            or not identity_invitation_grants_path.is_file()
-            or not identity_directory_grants_path.is_file()
-            or not identity_admin_password_grants_path.is_file()
-            or not identity_platform_role_grants_path.is_file()
-            or not identity_suspension_grants_path.is_file()
-            or not identity_deletion_grants_path.is_file()
-            or not identity_offboarding_grants_path.is_file()
-            or not identity_briefs_grants_path.is_file()
-            or not identity_provisioning_grants_path.is_file()
-            or not workspace_membership_grants_path.is_file()
-            or not workspace_owner_transfer_grants_path.is_file()
-            or not workspace_project_maintenance_grants_path.is_file()
-            or not workspace_project_deletion_grants_path.is_file()
-            or not workspace_dataset_unlink_grants_path.is_file()
-            or not workspace_configuration_grants_path.is_file()
-            or not workspace_template_query_grants_path.is_file()
-            or not workspace_project_query_grants_path.is_file()
-            or not workspace_directory_query_grants_path.is_file()
-            or not labeling_class_query_grants_path.is_file()
-            or not labeling_video_writer_grants_path.is_file()
-            or not labeling_task_control_grants_path.is_file()
-            or not labeling_annotation_writes_grants_path.is_file()
-            or not labeling_editing_grants_path.is_file()
-            or not labeling_batch_control_grants_path.is_file()
-            or not labeling_prediction_grants_path.is_file()
-            or not labeling_scene_track_commands_grants_path.is_file()
-            or not labeling_cross_frame_grants_path.is_file()
-            or not labeling_annotation_maintenance_grants_path.is_file()
-            or not labeling_discussion_grants_path.is_file()
-            or not labeling_mask_edit_grants_path.is_file()
-            or not labeling_scene_read_grants_path.is_file()
-            or not labeling_video_control_grants_path.is_file()
-            or not labeling_annotation_transfer_grants_path.is_file()
-            or not labeling_core_read_grants_path.is_file()
-            or not labeling_mask_quality_grants_path.is_file()
-            or not labeling_spatial_quality_grants_path.is_file()
-            or not labeling_task_maintenance_grants_path.is_file()
-            or not video_restore_grants_path.is_file()
-            or not inference_pipelines_grants_path.is_file()
-            or not inference_backend_probe_grants_path.is_file()
-            or not inference_health_observation_grants_path.is_file()
-            or not inference_health_origin_grants_path.is_file()
-            or not inference_health_data_grants_path.is_file()
-            or not inference_pool_reference_grants_path.is_file()
-            or not inference_registry_ingress_grants_path.is_file()
-            or not inference_routing_grants_path.is_file()
-            or not video_execution_grants_path.is_file()
-            or not identity_account_grants_path.is_file()
-            or not identity_recovery_grants_path.is_file()
+            or not catalog_grants_path[0].is_file()
+            or not source_grants_path[0].is_file()
+            or not import_grants_path[0].is_file()
+            or not operator_grants_path[0].is_file()
+            or not media_grants_path[0].is_file()
+            or not image_grants_path[0].is_file()
+            or not mask_gc_grants_path[0].is_file()
+            or not result_grants_path[0].is_file()
+            or not identity_grants_path[0].is_file()
+            or not identity_actor_status_grants_path[0].is_file()
+            or not identity_key_grants_path[0].is_file()
+            or not identity_session_grants_path[0].is_file()
+            or not identity_deactivation_grants_path[0].is_file()
+            or not notification_preferences_grants_path[0].is_file()
+            or not notification_append_grants_path[0].is_file()
+            or not notification_inbox_grants_path[0].is_file()
+            or not notification_delivery_read_grants_path[0].is_file()
+            or not notification_read_grants_path[0].is_file()
+            or not audit_append_grants_path[0].is_file()
+            or not audit_query_grants_path[0].is_file()
+            or not audit_read_grants_path[0].is_file()
+            or not audit_maintenance_grants_path[0].is_file()
+            or not jobs_scope_grants_path[0].is_file()
+            or not jobs_list_query_grants_path[0].is_file()
+            or not jobs_lifecycle_grants_path[0].is_file()
+            or not jobs_dispatch_grants_path[0].is_file()
+            or not execution_grants_path[0].is_file()
+            or not identity_group_grants_path[0].is_file()
+            or not identity_invitation_grants_path[0].is_file()
+            or not identity_directory_grants_path[0].is_file()
+            or not identity_admin_password_grants_path[0].is_file()
+            or not identity_platform_role_grants_path[0].is_file()
+            or not identity_suspension_grants_path[0].is_file()
+            or not identity_deletion_grants_path[0].is_file()
+            or not identity_offboarding_grants_path[0].is_file()
+            or not identity_briefs_grants_path[0].is_file()
+            or not identity_provisioning_grants_path[0].is_file()
+            or not workspace_membership_grants_path[0].is_file()
+            or not workspace_owner_transfer_grants_path[0].is_file()
+            or not workspace_project_maintenance_grants_path[0].is_file()
+            or not workspace_project_deletion_grants_path[0].is_file()
+            or not workspace_dataset_unlink_grants_path[0].is_file()
+            or not workspace_configuration_grants_path[0].is_file()
+            or not workspace_template_query_grants_path[0].is_file()
+            or not workspace_project_query_grants_path[0].is_file()
+            or not workspace_directory_query_grants_path[0].is_file()
+            or not labeling_class_query_grants_path[0].is_file()
+            or not labeling_video_writer_grants_path[0].is_file()
+            or not labeling_task_control_grants_path[0].is_file()
+            or not labeling_annotation_writes_grants_path[0].is_file()
+            or not labeling_editing_grants_path[0].is_file()
+            or not labeling_batch_control_grants_path[0].is_file()
+            or not labeling_prediction_grants_path[0].is_file()
+            or not labeling_scene_track_commands_grants_path[0].is_file()
+            or not labeling_cross_frame_grants_path[0].is_file()
+            or not labeling_annotation_maintenance_grants_path[0].is_file()
+            or not labeling_discussion_grants_path[0].is_file()
+            or not labeling_mask_edit_grants_path[0].is_file()
+            or not labeling_scene_read_grants_path[0].is_file()
+            or not labeling_video_control_grants_path[0].is_file()
+            or not labeling_annotation_transfer_grants_path[0].is_file()
+            or not labeling_core_read_grants_path[0].is_file()
+            or not labeling_mask_quality_grants_path[0].is_file()
+            or not labeling_spatial_quality_grants_path[0].is_file()
+            or not labeling_task_maintenance_grants_path[0].is_file()
+            or not video_restore_grants_path[0].is_file()
+            or not inference_pipelines_grants_path[0].is_file()
+            or not inference_backend_probe_grants_path[0].is_file()
+            or not inference_health_observation_grants_path[0].is_file()
+            or not inference_health_origin_grants_path[0].is_file()
+            or not inference_health_data_grants_path[0].is_file()
+            or not inference_pool_reference_grants_path[0].is_file()
+            or not inference_registry_ingress_grants_path[0].is_file()
+            or not inference_routing_grants_path[0].is_file()
+            or not video_execution_grants_path[0].is_file()
+            or not identity_account_grants_path[0].is_file()
+            or not identity_recovery_grants_path[0].is_file()
             or not lan_production_grants_path.is_file()
             or not identity_consumer_grants_path.is_file()
             or any(not path.is_file() for path in contract_sql_paths)
-            or any(not path.is_file() for path in schema_paths)
+            or any(not path.is_file() for path in assets_source_schema_paths)
         ):
             raise RuntimeError(
                 "module-data SQL/schema artifacts are missing from this checkout"
             )
-        for path in schema_paths:
+        schema_hashes: dict[str, str] = {}
+        for path in assets_source_schema_paths:
             contract = json.loads(path.read_text(encoding="utf-8"))
             if (
                 contract.get("$schema")
@@ -8800,201 +8892,304 @@ def main(
                 or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
-        evidence["contract_artifacts"]["input_sha256"] = {
-            path.relative_to(ROOT).as_posix(): hashlib.sha256(
+            schema_hashes[path.relative_to(ROOT).as_posix()] = hashlib.sha256(
                 path.read_bytes()
             ).hexdigest()
-            for path in (*contract_sql_paths, *schema_paths)
+        for name in bundled_schema_names:
+            try:
+                contract = load_contract_schema(name)
+            except FileNotFoundError as error:
+                raise RuntimeError(
+                    f"module-data SQL/schema artifacts are missing from this checkout: {name}"
+                ) from error
+            if (
+                contract.get("$schema")
+                != "https://json-schema.org/draft/2020-12/schema"
+                or not isinstance(contract.get("$id"), str)
+                or not isinstance(contract.get("$defs", {}), dict)
+            ):
+                raise RuntimeError(f"invalid frozen module-data schema: {name}")
+            schema_hashes[f"apps/api/alembic/sql/{name}"] = contract_schema_sha256(name)
+        evidence["contract_artifacts"]["input_sha256"] = {
+            **{
+                path.relative_to(ROOT).as_posix(): hashlib.sha256(
+                    path.read_bytes()
+                ).hexdigest()
+                for path in contract_sql_paths
+            },
+            **schema_hashes,
         }
         grant_sql = read_psql_grant_script(grants_path)
-        catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
-        source_grant_sql = source_grants_path.read_text(encoding="utf-8")
-        import_grant_sql = import_grants_path.read_text(encoding="utf-8")
-        operator_grant_sql = operator_grants_path.read_text(encoding="utf-8")
-        media_grant_sql = media_grants_path.read_text(encoding="utf-8")
-        image_grant_sql = image_grants_path.read_text(encoding="utf-8")
-        mask_gc_grant_sql = mask_gc_grants_path.read_text(encoding="utf-8")
-        result_grant_sql = result_grants_path.read_text(encoding="utf-8")
-        identity_grant_sql = identity_grants_path.read_text(encoding="utf-8")
-        identity_actor_status_grant_sql = identity_actor_status_grants_path.read_text(
-            encoding="utf-8"
+        catalog_grant_sql = read_psql_grant_script(
+            catalog_grants_path[0], capability=catalog_grants_path[1]
         )
-        identity_key_grant_sql = identity_key_grants_path.read_text(encoding="utf-8")
-        identity_session_grant_sql = identity_session_grants_path.read_text(
-            encoding="utf-8"
+        source_grant_sql = read_psql_grant_script(
+            source_grants_path[0], capability=source_grants_path[1]
         )
-        identity_invitation_grant_sql = identity_invitation_grants_path.read_text(
-            encoding="utf-8"
+        import_grant_sql = read_psql_grant_script(
+            import_grants_path[0], capability=import_grants_path[1]
         )
-        identity_directory_grant_sql = identity_directory_grants_path.read_text(
-            encoding="utf-8"
+        operator_grant_sql = read_psql_grant_script(
+            operator_grants_path[0], capability=operator_grants_path[1]
         )
-        identity_admin_password_grant_sql = (
-            identity_admin_password_grants_path.read_text(encoding="utf-8")
+        media_grant_sql = read_psql_grant_script(
+            media_grants_path[0], capability=media_grants_path[1]
         )
-        identity_platform_role_grant_sql = identity_platform_role_grants_path.read_text(
-            encoding="utf-8"
+        image_grant_sql = read_psql_grant_script(
+            image_grants_path[0], capability=image_grants_path[1]
         )
-        identity_suspension_grant_sql = identity_suspension_grants_path.read_text(
-            encoding="utf-8"
+        mask_gc_grant_sql = read_psql_grant_script(
+            mask_gc_grants_path[0], capability=mask_gc_grants_path[1]
         )
-        identity_deletion_grant_sql = identity_deletion_grants_path.read_text(
-            encoding="utf-8"
+        result_grant_sql = read_psql_grant_script(
+            result_grants_path[0], capability=result_grants_path[1]
         )
-        identity_offboarding_grant_sql = identity_offboarding_grants_path.read_text(
-            encoding="utf-8"
+        identity_grant_sql = read_psql_grant_script(
+            identity_grants_path[0], capability=identity_grants_path[1]
         )
-        identity_briefs_grant_sql = identity_briefs_grants_path.read_text(
-            encoding="utf-8"
+        identity_actor_status_grant_sql = read_psql_grant_script(
+            identity_actor_status_grants_path[0],
+            capability=identity_actor_status_grants_path[1],
         )
-        identity_provisioning_grant_sql = identity_provisioning_grants_path.read_text(
-            encoding="utf-8"
+        identity_key_grant_sql = read_psql_grant_script(
+            identity_key_grants_path[0], capability=identity_key_grants_path[1]
         )
-        workspace_membership_grant_sql = workspace_membership_grants_path.read_text(
-            encoding="utf-8"
+        identity_session_grant_sql = read_psql_grant_script(
+            identity_session_grants_path[0], capability=identity_session_grants_path[1]
         )
-        workspace_owner_transfer_grant_sql = (
-            workspace_owner_transfer_grants_path.read_text(encoding="utf-8")
+        identity_invitation_grant_sql = read_psql_grant_script(
+            identity_invitation_grants_path[0],
+            capability=identity_invitation_grants_path[1],
         )
-        workspace_project_maintenance_grant_sql = (
-            workspace_project_maintenance_grants_path.read_text(encoding="utf-8")
+        identity_directory_grant_sql = read_psql_grant_script(
+            identity_directory_grants_path[0],
+            capability=identity_directory_grants_path[1],
         )
-        workspace_project_deletion_grant_sql = (
-            workspace_project_deletion_grants_path.read_text(encoding="utf-8")
+        identity_admin_password_grant_sql = read_psql_grant_script(
+            identity_admin_password_grants_path[0],
+            capability=identity_admin_password_grants_path[1],
         )
-        workspace_dataset_unlink_grant_sql = (
-            workspace_dataset_unlink_grants_path.read_text(encoding="utf-8")
+        identity_platform_role_grant_sql = read_psql_grant_script(
+            identity_platform_role_grants_path[0],
+            capability=identity_platform_role_grants_path[1],
         )
-        workspace_configuration_grant_sql = (
-            workspace_configuration_grants_path.read_text(encoding="utf-8")
+        identity_suspension_grant_sql = read_psql_grant_script(
+            identity_suspension_grants_path[0],
+            capability=identity_suspension_grants_path[1],
         )
-        workspace_template_query_grant_sql = (
-            workspace_template_query_grants_path.read_text(encoding="utf-8")
+        identity_deletion_grant_sql = read_psql_grant_script(
+            identity_deletion_grants_path[0],
+            capability=identity_deletion_grants_path[1],
         )
-        workspace_directory_query_grant_sql = (
-            workspace_directory_query_grants_path.read_text(encoding="utf-8")
+        identity_offboarding_grant_sql = read_psql_grant_script(
+            identity_offboarding_grants_path[0],
+            capability=identity_offboarding_grants_path[1],
         )
-        labeling_class_query_grant_sql = labeling_class_query_grants_path.read_text(
-            encoding="utf-8"
+        identity_briefs_grant_sql = read_psql_grant_script(
+            identity_briefs_grants_path[0], capability=identity_briefs_grants_path[1]
         )
-        labeling_video_writer_grant_sql = labeling_video_writer_grants_path.read_text(
-            encoding="utf-8"
+        identity_provisioning_grant_sql = read_psql_grant_script(
+            identity_provisioning_grants_path[0],
+            capability=identity_provisioning_grants_path[1],
         )
-        labeling_task_control_grant_sql = labeling_task_control_grants_path.read_text(
-            encoding="utf-8"
+        workspace_membership_grant_sql = read_psql_grant_script(
+            workspace_membership_grants_path[0],
+            capability=workspace_membership_grants_path[1],
         )
-        labeling_annotation_writes_grant_sql = (
-            labeling_annotation_writes_grants_path.read_text(encoding="utf-8")
+        workspace_owner_transfer_grant_sql = read_psql_grant_script(
+            workspace_owner_transfer_grants_path[0],
+            capability=workspace_owner_transfer_grants_path[1],
         )
-        labeling_editing_grant_sql = labeling_editing_grants_path.read_text(
-            encoding="utf-8"
+        workspace_project_maintenance_grant_sql = read_psql_grant_script(
+            workspace_project_maintenance_grants_path[0],
+            capability=workspace_project_maintenance_grants_path[1],
         )
-        labeling_batch_control_grant_sql = labeling_batch_control_grants_path.read_text(
-            encoding="utf-8"
+        workspace_project_deletion_grant_sql = read_psql_grant_script(
+            workspace_project_deletion_grants_path[0],
+            capability=workspace_project_deletion_grants_path[1],
         )
-        labeling_prediction_grant_sql = labeling_prediction_grants_path.read_text(
-            encoding="utf-8"
+        workspace_dataset_unlink_grant_sql = read_psql_grant_script(
+            workspace_dataset_unlink_grants_path[0],
+            capability=workspace_dataset_unlink_grants_path[1],
         )
-        labeling_scene_track_commands_grant_sql = (
-            labeling_scene_track_commands_grants_path.read_text(encoding="utf-8")
+        workspace_configuration_grant_sql = read_psql_grant_script(
+            workspace_configuration_grants_path[0],
+            capability=workspace_configuration_grants_path[1],
         )
-        labeling_cross_frame_grant_sql = labeling_cross_frame_grants_path.read_text(
-            encoding="utf-8"
+        workspace_template_query_grant_sql = read_psql_grant_script(
+            workspace_template_query_grants_path[0],
+            capability=workspace_template_query_grants_path[1],
         )
-        labeling_annotation_maintenance_grant_sql = (
-            labeling_annotation_maintenance_grants_path.read_text(encoding="utf-8")
+        workspace_directory_query_grant_sql = read_psql_grant_script(
+            workspace_directory_query_grants_path[0],
+            capability=workspace_directory_query_grants_path[1],
         )
-        labeling_discussion_grant_sql = labeling_discussion_grants_path.read_text(
-            encoding="utf-8"
+        labeling_class_query_grant_sql = read_psql_grant_script(
+            labeling_class_query_grants_path[0],
+            capability=labeling_class_query_grants_path[1],
         )
-        labeling_mask_edit_grant_sql = labeling_mask_edit_grants_path.read_text(
-            encoding="utf-8"
+        labeling_video_writer_grant_sql = read_psql_grant_script(
+            labeling_video_writer_grants_path[0],
+            capability=labeling_video_writer_grants_path[1],
         )
-        labeling_scene_read_grant_sql = labeling_scene_read_grants_path.read_text(
-            encoding="utf-8"
+        labeling_task_control_grant_sql = read_psql_grant_script(
+            labeling_task_control_grants_path[0],
+            capability=labeling_task_control_grants_path[1],
         )
-        labeling_video_control_grant_sql = labeling_video_control_grants_path.read_text(
-            encoding="utf-8"
+        labeling_annotation_writes_grant_sql = read_psql_grant_script(
+            labeling_annotation_writes_grants_path[0],
+            capability=labeling_annotation_writes_grants_path[1],
         )
-        labeling_annotation_transfer_grant_sql = (
-            labeling_annotation_transfer_grants_path.read_text(encoding="utf-8")
+        labeling_editing_grant_sql = read_psql_grant_script(
+            labeling_editing_grants_path[0], capability=labeling_editing_grants_path[1]
         )
-        labeling_core_read_grant_sql = labeling_core_read_grants_path.read_text(
-            encoding="utf-8"
+        labeling_batch_control_grant_sql = read_psql_grant_script(
+            labeling_batch_control_grants_path[0],
+            capability=labeling_batch_control_grants_path[1],
         )
-        labeling_mask_quality_grant_sql = labeling_mask_quality_grants_path.read_text(
-            encoding="utf-8"
+        labeling_prediction_grant_sql = read_psql_grant_script(
+            labeling_prediction_grants_path[0],
+            capability=labeling_prediction_grants_path[1],
         )
-        labeling_spatial_quality_grant_sql = (
-            labeling_spatial_quality_grants_path.read_text(encoding="utf-8")
+        labeling_scene_track_commands_grant_sql = read_psql_grant_script(
+            labeling_scene_track_commands_grants_path[0],
+            capability=labeling_scene_track_commands_grants_path[1],
         )
-        labeling_task_maintenance_grant_sql = (
-            labeling_task_maintenance_grants_path.read_text(encoding="utf-8")
+        labeling_cross_frame_grant_sql = read_psql_grant_script(
+            labeling_cross_frame_grants_path[0],
+            capability=labeling_cross_frame_grants_path[1],
         )
-        inference_pool_reference_grant_sql = (
-            inference_pool_reference_grants_path.read_text(encoding="utf-8")
+        labeling_annotation_maintenance_grant_sql = read_psql_grant_script(
+            labeling_annotation_maintenance_grants_path[0],
+            capability=labeling_annotation_maintenance_grants_path[1],
         )
-        video_restore_grant_sql = video_restore_grants_path.read_text(encoding="utf-8")
-        inference_pipelines_grant_sql = inference_pipelines_grants_path.read_text(
-            encoding="utf-8"
+        labeling_discussion_grant_sql = read_psql_grant_script(
+            labeling_discussion_grants_path[0],
+            capability=labeling_discussion_grants_path[1],
         )
-        inference_backend_probe_grant_sql = (
-            inference_backend_probe_grants_path.read_text(encoding="utf-8")
+        labeling_mask_edit_grant_sql = read_psql_grant_script(
+            labeling_mask_edit_grants_path[0],
+            capability=labeling_mask_edit_grants_path[1],
         )
-        inference_health_observation_grant_sql = (
-            inference_health_observation_grants_path.read_text(encoding="utf-8")
+        labeling_scene_read_grant_sql = read_psql_grant_script(
+            labeling_scene_read_grants_path[0],
+            capability=labeling_scene_read_grants_path[1],
         )
-        inference_health_origin_grant_sql = (
-            inference_health_origin_grants_path.read_text(encoding="utf-8")
+        labeling_video_control_grant_sql = read_psql_grant_script(
+            labeling_video_control_grants_path[0],
+            capability=labeling_video_control_grants_path[1],
         )
-        inference_health_data_grant_sql = inference_health_data_grants_path.read_text(
-            encoding="utf-8"
+        labeling_annotation_transfer_grant_sql = read_psql_grant_script(
+            labeling_annotation_transfer_grants_path[0],
+            capability=labeling_annotation_transfer_grants_path[1],
         )
-        inference_registry_ingress_grant_sql = (
-            inference_registry_ingress_grants_path.read_text(encoding="utf-8")
+        labeling_core_read_grant_sql = read_psql_grant_script(
+            labeling_core_read_grants_path[0],
+            capability=labeling_core_read_grants_path[1],
         )
-        inference_routing_grant_sql = inference_routing_grants_path.read_text(
-            encoding="utf-8"
+        labeling_mask_quality_grant_sql = read_psql_grant_script(
+            labeling_mask_quality_grants_path[0],
+            capability=labeling_mask_quality_grants_path[1],
         )
-        video_execution_grant_sql = video_execution_grants_path.read_text(
-            encoding="utf-8"
+        labeling_spatial_quality_grant_sql = read_psql_grant_script(
+            labeling_spatial_quality_grants_path[0],
+            capability=labeling_spatial_quality_grants_path[1],
         )
-        workspace_project_query_grant_sql = (
-            workspace_project_query_grants_path.read_text(encoding="utf-8")
+        labeling_task_maintenance_grant_sql = read_psql_grant_script(
+            labeling_task_maintenance_grants_path[0],
+            capability=labeling_task_maintenance_grants_path[1],
         )
-        identity_group_grant_sql = identity_group_grants_path.read_text(
-            encoding="utf-8"
+        inference_pool_reference_grant_sql = read_psql_grant_script(
+            inference_pool_reference_grants_path[0],
+            capability=inference_pool_reference_grants_path[1],
         )
-        identity_deactivation_grant_sql = identity_deactivation_grants_path.read_text(
-            encoding="utf-8"
+        video_restore_grant_sql = read_psql_grant_script(
+            video_restore_grants_path[0], capability=video_restore_grants_path[1]
         )
-        notification_preferences_grant_sql = (
-            notification_preferences_grants_path.read_text(encoding="utf-8")
+        inference_pipelines_grant_sql = read_psql_grant_script(
+            inference_pipelines_grants_path[0],
+            capability=inference_pipelines_grants_path[1],
         )
-        notification_append_grant_sql = notification_append_grants_path.read_text(
-            encoding="utf-8"
+        inference_backend_probe_grant_sql = read_psql_grant_script(
+            inference_backend_probe_grants_path[0],
+            capability=inference_backend_probe_grants_path[1],
         )
-        notification_inbox_grant_sql = notification_inbox_grants_path.read_text(
-            encoding="utf-8"
+        inference_health_observation_grant_sql = read_psql_grant_script(
+            inference_health_observation_grants_path[0],
+            capability=inference_health_observation_grants_path[1],
         )
-        notification_delivery_read_grant_sql = (
-            notification_delivery_read_grants_path.read_text(encoding="utf-8")
+        inference_health_origin_grant_sql = read_psql_grant_script(
+            inference_health_origin_grants_path[0],
+            capability=inference_health_origin_grants_path[1],
         )
-        notification_read_grant_sql = notification_read_grants_path.read_text(
-            encoding="utf-8"
+        inference_health_data_grant_sql = read_psql_grant_script(
+            inference_health_data_grants_path[0],
+            capability=inference_health_data_grants_path[1],
         )
-        audit_append_grant_sql = audit_append_grants_path.read_text(encoding="utf-8")
-        audit_query_grant_sql = audit_query_grants_path.read_text(encoding="utf-8")
-        audit_read_grant_sql = audit_read_grants_path.read_text(encoding="utf-8")
-        audit_maintenance_grant_sql = audit_maintenance_grants_path.read_text(
-            encoding="utf-8"
+        inference_registry_ingress_grant_sql = read_psql_grant_script(
+            inference_registry_ingress_grants_path[0],
+            capability=inference_registry_ingress_grants_path[1],
         )
-        jobs_scope_grant_sql = jobs_scope_grants_path.read_text(encoding="utf-8")
-        identity_account_grant_sql = identity_account_grants_path.read_text(
-            encoding="utf-8"
+        inference_routing_grant_sql = read_psql_grant_script(
+            inference_routing_grants_path[0],
+            capability=inference_routing_grants_path[1],
         )
-        identity_recovery_grant_sql = identity_recovery_grants_path.read_text(
-            encoding="utf-8"
+        video_execution_grant_sql = read_psql_grant_script(
+            video_execution_grants_path[0], capability=video_execution_grants_path[1]
+        )
+        workspace_project_query_grant_sql = read_psql_grant_script(
+            workspace_project_query_grants_path[0],
+            capability=workspace_project_query_grants_path[1],
+        )
+        identity_group_grant_sql = read_psql_grant_script(
+            identity_group_grants_path[0], capability=identity_group_grants_path[1]
+        )
+        identity_deactivation_grant_sql = read_psql_grant_script(
+            identity_deactivation_grants_path[0],
+            capability=identity_deactivation_grants_path[1],
+        )
+        notification_preferences_grant_sql = read_psql_grant_script(
+            notification_preferences_grants_path[0],
+            capability=notification_preferences_grants_path[1],
+        )
+        notification_append_grant_sql = read_psql_grant_script(
+            notification_append_grants_path[0],
+            capability=notification_append_grants_path[1],
+        )
+        notification_inbox_grant_sql = read_psql_grant_script(
+            notification_inbox_grants_path[0],
+            capability=notification_inbox_grants_path[1],
+        )
+        notification_delivery_read_grant_sql = read_psql_grant_script(
+            notification_delivery_read_grants_path[0],
+            capability=notification_delivery_read_grants_path[1],
+        )
+        notification_read_grant_sql = read_psql_grant_script(
+            notification_read_grants_path[0],
+            capability=notification_read_grants_path[1],
+        )
+        audit_append_grant_sql = read_psql_grant_script(
+            audit_append_grants_path[0], capability=audit_append_grants_path[1]
+        )
+        audit_query_grant_sql = read_psql_grant_script(
+            audit_query_grants_path[0], capability=audit_query_grants_path[1]
+        )
+        audit_read_grant_sql = read_psql_grant_script(
+            audit_read_grants_path[0], capability=audit_read_grants_path[1]
+        )
+        audit_maintenance_grant_sql = read_psql_grant_script(
+            audit_maintenance_grants_path[0],
+            capability=audit_maintenance_grants_path[1],
+        )
+        jobs_scope_grant_sql = read_psql_grant_script(
+            jobs_scope_grants_path[0], capability=jobs_scope_grants_path[1]
+        )
+        identity_account_grant_sql = read_psql_grant_script(
+            identity_account_grants_path[0], capability=identity_account_grants_path[1]
+        )
+        identity_recovery_grant_sql = read_psql_grant_script(
+            identity_recovery_grants_path[0],
+            capability=identity_recovery_grants_path[1],
         )
         lan_production_grant_sql = read_psql_grant_script(lan_production_grants_path)
         identity_consumer_grant_sql = read_psql_grant_script(
@@ -9976,7 +10171,10 @@ def main(
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=jobs_list_query_grants_path.read_text(encoding="utf-8"),
+                sql=read_psql_grant_script(
+                    jobs_list_query_grants_path[0],
+                    capability=jobs_list_query_grants_path[1],
+                ),
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",
@@ -9994,7 +10192,10 @@ def main(
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=jobs_lifecycle_grants_path.read_text(encoding="utf-8"),
+                sql=read_psql_grant_script(
+                    jobs_lifecycle_grants_path[0],
+                    capability=jobs_lifecycle_grants_path[1],
+                ),
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",
@@ -10012,7 +10213,10 @@ def main(
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=jobs_dispatch_grants_path.read_text(encoding="utf-8"),
+                sql=read_psql_grant_script(
+                    jobs_dispatch_grants_path[0],
+                    capability=jobs_dispatch_grants_path[1],
+                ),
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",
@@ -10030,7 +10234,9 @@ def main(
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=execution_grants_path.read_text(encoding="utf-8"),
+                sql=read_psql_grant_script(
+                    execution_grants_path[0], capability=execution_grants_path[1]
+                ),
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",
@@ -12648,11 +12854,10 @@ SELECT id FROM removed;
         if migration_control_profile:
             phase = "install-storage-migration-control-grants"
             migration_control_password = secrets.token_hex(24)
-            migration_control_grant_path = (
-                ROOT / "infra/docker/storage-migration-control-grants.sql"
-            )
+            migration_control_grant_path = ROOT / "infra/docker/platform-grants.sql"
             migration_control_grant_sql = read_psql_grant_script(
-                migration_control_grant_path
+                migration_control_grant_path,
+                capability="storage_migration_control",
             )
             _psql(
                 container_id,
@@ -12963,8 +13168,9 @@ SELECT current_user = session_user AND session_user = :'role'
             )
         ):
             phase = "install-workspace-api-consumer-fence-last"
-            workspace_consumer_path = (
-                ROOT / "infra/docker/workspace-consumer-grants.sql"
+            workspace_consumer_path = ROOT / "infra/docker/workspace-grants.sql"
+            workspace_consumer_sql = read_psql_grant_script(
+                workspace_consumer_path, capability="consumer"
             )
             _psql(
                 container_id,
@@ -12973,7 +13179,7 @@ SELECT current_user = session_user AND session_user = :'role'
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=workspace_consumer_path.read_text(),
+                sql=workspace_consumer_sql,
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",
@@ -12986,7 +13192,7 @@ SELECT current_user = session_user AND session_user = :'role'
                 "role": IDENTITY_API_CONSUMER_ROLE,
                 "grant_path": str(workspace_consumer_path.relative_to(ROOT)),
                 "sha256": hashlib.sha256(
-                    workspace_consumer_path.read_bytes()
+                    workspace_consumer_sql.encode("utf-8")
                 ).hexdigest(),
             }
         elif args.workspace_consumer_profile == "default":
@@ -13069,9 +13275,9 @@ SELECT current_user = session_user AND session_user = :'role'
             def workspace_import_cli_fence():
                 nonlocal phase
                 phase = "install-owner-fixture-api-consumers"
-                for profile in (
-                    "identity-consumer-grants.sql",
-                    "workspace-consumer-grants.sql",
+                for profile, capability in (
+                    ("identity-consumer-grants.sql", None),
+                    ("workspace-grants.sql", "consumer"),
                 ):
                     _psql(
                         container_id,
@@ -13080,7 +13286,10 @@ SELECT current_user = session_user AND session_user = :'role'
                         username="owner",
                         password=owner_password,
                         database=database,
-                        sql=read_psql_grant_script(ROOT / "infra/docker" / profile),
+                        sql=read_psql_grant_script(
+                            ROOT / "infra/docker" / profile,
+                            capability=capability,
+                        ),
                         variables={
                             "expected_database": database,
                             "migration_role": "owner",
@@ -13101,16 +13310,14 @@ SELECT current_user = session_user AND session_user = :'role'
             def workspace_import_cli_fence():
                 nonlocal phase
                 phase = "install-seed-identity-operator"
-                persona_grants = (
-                    ROOT
-                    / "infra/docker"
-                    / (
-                        "identity-scale-seed-grants.sql"
-                        if identity_seed_selection_live
-                        else "identity-seed-operator-grants.sql"
-                    )
+                persona_grants = ROOT / "infra/docker/identity-grants.sql"
+                persona_capability = (
+                    "scale_seed" if identity_seed_selection_live else "seed_operator"
                 )
-                for sql in (identity_consumer_grant_sql, persona_grants.read_text()):
+                persona_grants_sql = read_psql_grant_script(
+                    persona_grants, capability=persona_capability
+                )
+                for sql in (identity_consumer_grant_sql, persona_grants_sql):
                     _psql(
                         container_id,
                         container_name,
@@ -13127,8 +13334,8 @@ SELECT current_user = session_user AND session_user = :'role'
                         },
                     )
                 if identity_seed_selection_live:
-                    profiles = ["workspace-consumer-grants.sql"]
-                    for profile in profiles:
+                    profiles = ["workspace-grants.sql#consumer"]
+                    for profile, capability in (("workspace-grants.sql", "consumer"),):
                         _psql(
                             container_id,
                             container_name,
@@ -13136,7 +13343,10 @@ SELECT current_user = session_user AND session_user = :'role'
                             username="owner",
                             password=owner_password,
                             database=database,
-                            sql=(ROOT / "infra/docker" / profile).read_text(),
+                            sql=read_psql_grant_script(
+                                ROOT / "infra/docker" / profile,
+                                capability=capability,
+                            ),
                             variables={
                                 "expected_database": database,
                                 "migration_role": "owner",
@@ -13179,7 +13389,9 @@ GRANT EXECUTE ON FUNCTION
                 ] = {
                     "role": "legacy_runtime",
                     "grant_path": str(persona_grants.relative_to(ROOT)),
-                    "sha256": hashlib.sha256(persona_grants.read_bytes()).hexdigest(),
+                    "sha256": hashlib.sha256(
+                        persona_grants_sql.encode("utf-8")
+                    ).hexdigest(),
                     "identity_private_tables_denied": True,
                     "ordinary_api_unchanged": True,
                     "other_domains": "existing trusted operator runtime grants retained",
@@ -13209,8 +13421,9 @@ GRANT EXECUTE ON FUNCTION
                     },
                 )
                 phase = "install-workspace-import-cli-workspace-fence"
-                workspace_import_grants = (
-                    ROOT / "infra/docker/workspace-consumer-grants.sql"
+                workspace_import_grants = ROOT / "infra/docker/workspace-grants.sql"
+                workspace_import_grants_sql = read_psql_grant_script(
+                    workspace_import_grants, capability="consumer"
                 )
                 _psql(
                     container_id,
@@ -13219,7 +13432,7 @@ GRANT EXECUTE ON FUNCTION
                     username="owner",
                     password=owner_password,
                     database=database,
-                    sql=workspace_import_grants.read_text(),
+                    sql=workspace_import_grants_sql,
                     variables={
                         "expected_database": database,
                         "migration_role": "owner",
@@ -13254,7 +13467,7 @@ GRANT EXECUTE ON FUNCTION
                     "workspace_fence": {
                         "path": str(workspace_import_grants.relative_to(ROOT)),
                         "sha256": hashlib.sha256(
-                            workspace_import_grants.read_bytes()
+                            workspace_import_grants_sql.encode("utf-8")
                         ).hexdigest(),
                     },
                     "provisioning_capabilities": [
@@ -13269,8 +13482,9 @@ GRANT EXECUTE ON FUNCTION
                 }
                 if seed_operator_live:
                     phase = "install-workspace-seed-operator-capabilities"
-                    seed_grants = (
-                        ROOT / "infra/docker/workspace-seed-operator-grants.sql"
+                    seed_grants = ROOT / "infra/docker/workspace-grants.sql"
+                    seed_grants_sql = read_psql_grant_script(
+                        seed_grants, capability="seed_operator"
                     )
                     _psql(
                         container_id,
@@ -13279,7 +13493,7 @@ GRANT EXECUTE ON FUNCTION
                         username="owner",
                         password=owner_password,
                         database=database,
-                        sql=seed_grants.read_text(),
+                        sql=seed_grants_sql,
                         variables={
                             "expected_database": database,
                             "migration_role": "owner",
@@ -13290,15 +13504,18 @@ GRANT EXECUTE ON FUNCTION
                     evidence["workspace_seed_operator_consumer"] = {
                         "role": "legacy_runtime",
                         "grant_path": str(seed_grants.relative_to(ROOT)),
-                        "sha256": hashlib.sha256(seed_grants.read_bytes()).hexdigest(),
+                        "sha256": hashlib.sha256(
+                            seed_grants_sql.encode("utf-8")
+                        ).hexdigest(),
                         "ordinary_api_unchanged": True,
                         "project_private_tables_denied": True,
                         "other_domains": "existing trusted operator runtime grants retained",
                     }
                 if seed_parent_live or workspace_media_seed_live:
                     phase = "install-identity-seed-operator-capabilities"
-                    persona_grants = (
-                        ROOT / "infra/docker/identity-seed-operator-grants.sql"
+                    persona_grants = ROOT / "infra/docker/identity-grants.sql"
+                    persona_grants_sql = read_psql_grant_script(
+                        persona_grants, capability="seed_operator"
                     )
                     _psql(
                         container_id,
@@ -13307,7 +13524,7 @@ GRANT EXECUTE ON FUNCTION
                         username="owner",
                         password=owner_password,
                         database=database,
-                        sql=persona_grants.read_text(),
+                        sql=persona_grants_sql,
                         variables={
                             "expected_database": database,
                             "migration_role": "owner",
@@ -13319,7 +13536,7 @@ GRANT EXECUTE ON FUNCTION
                         "role": "legacy_runtime",
                         "grant_path": str(persona_grants.relative_to(ROOT)),
                         "sha256": hashlib.sha256(
-                            persona_grants.read_bytes()
+                            persona_grants_sql.encode("utf-8")
                         ).hexdigest(),
                         "ordinary_api_unchanged": True,
                     }
@@ -13727,9 +13944,9 @@ SELECT pg_catalog.jsonb_build_object(
         media_worker_access_key = media_worker_storage["access_key"]
         media_worker_secret_key = media_worker_storage["secret_key"]
         phase = "install-inference-owner-profiles"
-        inference_owner_grant_sql = (
-            ROOT / "infra/docker/inference-owner-grants.sql"
-        ).read_text(encoding="utf-8")
+        inference_owner_grant_sql = read_psql_grant_script(
+            ROOT / "infra/docker/inference-grants.sql", capability="owner"
+        )
         for label, (profile, role) in INFERENCE_OWNER_PROFILES.items():
             _psql(
                 container_id,

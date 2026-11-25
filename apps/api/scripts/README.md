@@ -189,15 +189,15 @@ AUDIT_ROLE=role_auditor
 psql -U "$MIGRATION_ROLE" -d "$DB" \
   -v expected_database="$DB" -v migration_role="$MIGRATION_ROLE" \
   -v identity_owner=identity_code -v consumer_role="$AUDIT_ROLE" \
-  -f infra/docker/identity-role-audit-grants.sql
+  -v grant_role_audit=1 -f infra/docker/identity-grants.sql
 psql -U "$MIGRATION_ROLE" -d "$DB" \
   -v expected_database="$DB" -v migration_role="$MIGRATION_ROLE" \
   -v workspace_owner=workspace_code -v consumer_role="$AUDIT_ROLE" \
-  -f infra/docker/workspace-role-audit-grants.sql
+  -v grant_role_audit=1 -f infra/docker/workspace-grants.sql
 psql -U "$MIGRATION_ROLE" -d "$DB" \
   -v expected_database="$DB" -v migration_role="$MIGRATION_ROLE" \
   -v labeling_owner=labeling_code -v consumer_role="$AUDIT_ROLE" \
-  -f infra/docker/labeling-role-audit-grants.sql
+  -v grant_role_audit=1 -f infra/docker/labeling-grants.sql
 ```
 
 上述安装器要求目标库已有迁移角色、各领域非 LOGIN owner 和受限审计 LOGIN；
@@ -206,7 +206,7 @@ psql -U "$MIGRATION_ROLE" -d "$DB" \
 `public.alembic_version` 的 `SELECT`、`public` schema 的 `USAGE`，以及目标数据库的
 `CONNECT`；安装器不会恢复已从 `PUBLIC` 撤销的连接权限。
 
-若目标库之后应用 0173，维护者须显式重新运行 `labeling-role-audit-grants.sql`，
+若目标库之后应用 0173，维护者须显式重新运行 `labeling-grants.sql` (`-v grant_role_audit=1`)，
 使 task 投影读取新增准备列；审计 CLI 不自动安装或刷新任何关系。
 
 ```bash

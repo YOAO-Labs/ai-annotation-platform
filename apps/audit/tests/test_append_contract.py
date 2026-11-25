@@ -60,9 +60,15 @@ def test_schema_is_frozen_package_resource_with_closed_local_references():
     path = _PACKAGE / "append.schema.json"
     schema = json.loads(path.read_text())
     installed_schema = files("yoao_audit").joinpath("append.schema.json")
-    installed_sql = files("yoao_audit.sql").joinpath("0315_audit_append.sql")
+    migration_sql = (
+        Path(__file__).resolve().parents[2]
+        / "api"
+        / "alembic"
+        / "sql"
+        / "0315_audit_append.sql"
+    )
     assert installed_schema.is_file()
-    assert installed_sql.is_file()
+    assert migration_sql.is_file()
     assert schema == append_json_schema()
     assert schema["$id"] == APPEND_PROTOCOL
     receipt_id = schema["$defs"]["AppendReceipt"]["properties"]["id"]

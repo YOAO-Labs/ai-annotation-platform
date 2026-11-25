@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 from datetime import UTC, datetime
 
@@ -187,8 +187,7 @@ async def _update_request(
 
 
 async def test_catalog_schema_matches_the_five_native_entrypoints():
-    root = Path(__file__).parents[1] / "alembic" / "sql"
-    schema = json.loads((root / "0211_dataset_catalog.schema.json").read_text())
+    schema = load_contract_schema("0211_dataset_catalog.schema.json")
     assert schema["$id"] == "urn:aap:assets-catalog:v1"
     assert set(schema["x-postgresql-functions"]) == set(
         (

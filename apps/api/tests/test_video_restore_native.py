@@ -54,8 +54,8 @@ pytestmark = [
 _RESTORE_ROLE = "yoao_video_restore_operator_client"
 _RESTORE_FUNCTIONS = {("video_restore_step", "text, text")}
 _RESTORE_SCHEMA = "yoao_inference_routing_v1"
-_RESTORE_GRANTS = ROOT / "infra/docker/video-restore-grants.sql"
-_EXECUTION_GRANTS = ROOT / "infra/docker/video-execution-grants.sql"
+_RESTORE_GRANTS = ROOT / "infra/docker/inference-grants.sql"
+_EXECUTION_GRANTS = ROOT / "infra/docker/jobs-grants.sql"
 
 
 def _role_dsn(environment: str, role: str, database: str) -> str:
@@ -76,6 +76,7 @@ def _apply_video_execution_grants(test_engine, database: str) -> None:
             "jobs_owner": "jobs_code",
             "video_execution_role": "yoao_video_execution_client",
         },
+        capability="video_execution",
     )
 
 
@@ -90,6 +91,7 @@ def _apply_restore_grants(test_engine, database: str) -> None:
             "inference_owner": "inference_code",
             "video_restore_operator_role": _RESTORE_ROLE,
         },
+        capability="video_restore",
     )
 
 
@@ -98,13 +100,14 @@ def _apply_owned_grants(test_engine, database: str) -> None:
     _run_psql_file(
         test_engine,
         database,
-        ROOT / "infra/docker/inference-routing-grants.sql",
+        ROOT / "infra/docker/inference-grants.sql",
         {
             "expected_database": database,
             "migration_role": "owner",
             "inference_owner": "inference_code",
             "inference_routing_role": "yoao_inference_routing_client",
         },
+        capability="routing",
     )
     _apply_video_execution_grants(test_engine, database)
     _apply_restore_grants(test_engine, database)

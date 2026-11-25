@@ -86,7 +86,7 @@ boundary for these operations.
 
 Apply current migrations and `infra/docker/module-data-grants.sql`, then the
 existing LAN/worktree runtime grants. A dedicated trusted caller can use
-`infra/docker/labeling-task-control-grants.sql`; it grants exactly these two
+`infra/docker/labeling-grants.sql` (`-v grant_task_control=1`); it grants exactly these two
 functions and rejects direct data access, role membership, CREATE and TEMP.
 It does not grant public end users access to the commands. Full module qualification and
 local adoption are tracked in the module deployment ledger; this profile alone
@@ -117,7 +117,7 @@ The API retains current authorization, source and Mask preflight, audit,
 heartbeat, and commit ordering. A command payload is not a permission token.
 Its data adapter synchronizes ORM values from the owner result and does not open
 another connection or commit. Apply the matching migrations and owner/runtime
-grants together; `infra/docker/labeling-annotation-writes-grants.sql` supplies a
+grants together; `infra/docker/labeling-grants.sql` (`-v grant_annotation_writes=1`) supplies a
 dedicated trusted caller with exactly these three functions. The existing task
 control credential keeps its two-function profile.
 
@@ -147,8 +147,8 @@ detachment remain separate updates because Mask history records both; cleanup
 counts retain camera members. Prediction deletion itself is a separate boundary.
 
 After matching migrations and owner/runtime grants, dedicated trusted callers
-use `infra/docker/labeling-editing-grants.sql` for exactly the two editing
-functions, or `infra/docker/labeling-batch-control-grants.sql` for exactly the
+use `infra/docker/labeling-grants.sql` (`-v grant_editing=1`) for exactly the two editing
+functions, or `infra/docker/labeling-grants.sql` (`-v grant_batch_control=1`) for exactly the
 batch command. Previous task-control and manual-write credentials are unchanged.
 The new roles have no direct table access, role membership, CREATE or TEMP.
 Saved Native checks are registered with the owned-database verifier; source and
@@ -209,10 +209,10 @@ policy uses the standard library and keeps the previous API import paths.
 
 These four functions use closed JSON contracts and borrow the original
 transaction. Apply matching migrations and owner/runtime grants together. Trusted
-prediction callers use `infra/docker/labeling-prediction-grants.sql` for exactly
+prediction callers use `infra/docker/labeling-grants.sql` (`-v grant_prediction=1`) for exactly
 the two prediction-write functions and the partition-maintenance function. SceneTrack and cross-frame callers use
-`infra/docker/labeling-scene-track-commands-grants.sql` and
-`infra/docker/labeling-cross-frame-grants.sql`, each with one function. The LOGIN
+`infra/docker/labeling-grants.sql` (`-v grant_scene_track_commands=1`) and
+`infra/docker/labeling-grants.sql` (`-v grant_cross_frame=1`), each with one function. The LOGIN
 roles receive no private tables, role membership, CREATE or TEMP. Test-only
 fixture cleanup now uses `yoao_labeling_v1.delete_fixture_project_rows(uuid[])`;
 the fixed owner command is available only in `_test` and `_e2e` databases, keeps
@@ -255,8 +255,8 @@ cache projections, with exact request validation and reply scope binding. Three
 scalar JSON helpers stay private to its owner. Scene facts continue to use the
 existing Assets public spatial projection.
 
-Apply `labeling-discussion-grants.sql`, `labeling-mask-edit-grants.sql` or
-`labeling-scene-read-grants.sql` from `infra/docker` to the corresponding trusted
+Apply `labeling-grants.sql` (`-v grant_discussion=1`, `-v grant_mask_edit=1`, or
+`-v grant_scene_read=1`) from `infra/docker` to the corresponding trusted
 LOGIN, after matching migrations and common owner/runtime grants. Mask and scene
 LOGINs get exactly three and one functions; no private base table access is granted.
 Native, cold and restore qualification remains a complete-module acceptance gate.
@@ -316,7 +316,7 @@ current management/configuration locks, contributor evidence, statistics, audit
 and the outer commit. Existing draft service methods remain internal; no draft
 product flow is added.
 
-`infra/docker/labeling-annotation-maintenance-grants.sql` gives a trusted caller
+`infra/docker/labeling-grants.sql` (`-v grant_annotation_maintenance=1`) gives a trusted caller
 exactly this one function, without private-table, CREATE or TEMP access. Module
 qualification and local adoption are recorded separately in the deployment ledger.
 
@@ -361,7 +361,7 @@ tracked with its exact source and scope in the module deployment ledger. See
 
 ## Operational consumers
 
-`infra/docker/labeling-role-audit-grants.sql` explicitly installs the five fixed
+`infra/docker/labeling-grants.sql` (`-v grant_role_audit=1`) explicitly installs the five fixed
 `yoao_labeling_audit_v1` read projections for the historical project-role audit.
 Its sibling `labeling-role-audit.schema.json` publishes column types and raw
 nullable semantics. It supports the pre-preparation schema without advancing

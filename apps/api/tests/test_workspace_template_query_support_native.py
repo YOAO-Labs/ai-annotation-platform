@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 from datetime import datetime, timezone
 
@@ -18,7 +19,7 @@ from app.db.models.user import User
 from tests.factory import create_user
 
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
-_SCHEMA = _SQL_DIR / "0258_workspace_template_query_support.schema.json"
+_SCHEMA = "0258_workspace_template_query_support.schema.json"
 _PROTOCOL = "aap-identity-workspace-template-query/v1"
 _FUNCTION = "yoao_identity_v1.workspace_template_query_org_ids(uuid)"
 
@@ -34,7 +35,7 @@ def _sqlstate(error: BaseException) -> str | None:
 
 
 def test_template_query_identity_fact_artifacts_are_narrow_and_aligned():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
 
     assert schema["$id"] == _PROTOCOL
     assert schema["$ref"] == "#/$defs/WorkspaceTemplateQueryOrganizationIds"

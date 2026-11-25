@@ -4,6 +4,8 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 import sqlalchemy as sa
@@ -23,13 +25,13 @@ from tests.test_identity_auth_native import _cleanup, _seed
 _ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0241_identity_deactivation.sql"
-_SCHEMA = _SQL_DIR / "0241_identity_deactivation.schema.json"
+_SCHEMA = "0241_identity_deactivation.schema.json"
 _MIGRATION = (
     Path(__file__).parents[1] / "alembic/versions/0241_identity_deactivation.py"
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_LEGACY_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
-_ROLE_GRANTS = _ROOT / "infra/docker/identity-deactivation-grants.sql"
+_LEGACY_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
+_ROLE_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
 
 
 def _context() -> dict[str, str]:
@@ -78,12 +80,12 @@ def _command(
 
 
 def test_frozen_native_deactivation_artifacts_and_lock_contract():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
     legacy_grants = _LEGACY_GRANTS.read_text(encoding="utf-8")
-    role_grants = _ROLE_GRANTS.read_text(encoding="utf-8")
+    role_grants = read_psql_grant_script(_ROLE_GRANTS, capability="deactivation")
 
     assert "identity_deactivation_operation_receipts" in NATIVE_MANAGED_TABLES
     assert "identity_deactivation_due_receipts" in NATIVE_MANAGED_TABLES
@@ -129,7 +131,7 @@ def test_frozen_native_deactivation_artifacts_and_lock_contract():
     assert "record_identity_deactivation_event" in module_grants
     assert "lock_super_admin_invariant" in legacy_grants
     assert "process_due_deactivations" in legacy_grants
-    assert "yoao_notification_publish_client" in role_grants
+    assert ":'notification_publish_role'" in role_grants
 
 
 @pytest.mark.asyncio

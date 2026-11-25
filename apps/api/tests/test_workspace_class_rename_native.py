@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import asyncpg
@@ -339,9 +340,9 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
 ):
     await assert_owned_test_database(test_engine)
     sql_dir = _ROOT / "apps/api/alembic/sql"
-    frozen_columns = json.loads(
-        (sql_dir / "0261_workspace_project_queries.schema.json").read_text()
-    )["x-project-row-columns"]
+    frozen_columns = load_contract_schema("0261_workspace_project_queries.schema.json")[
+        "x-project-row-columns"
+    ]
     new_statements = (
         (sql_dir / "0268_workspace_class_rename.sql")
         .read_text()

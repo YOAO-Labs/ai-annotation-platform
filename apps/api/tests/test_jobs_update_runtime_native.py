@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import shutil
 import subprocess
 import uuid
@@ -28,8 +29,7 @@ _CALL = (
     "CAST(:completed AS pg_catalog.uuid), CAST(:failed AS pg_catalog.uuid))"
 )
 _SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_filter.schema.json"
-_SQL = ROOT / "apps/jobs/src/yoao_jobs/sql/0331_jobs_filter_fixtures.sql"
-_API_SCHEMA = ROOT / "apps/api/alembic/sql/0331_jobs_filter_fixtures.schema.json"
+_API_SCHEMA = "0331_jobs_filter_fixtures.schema.json"
 _API_SQL = ROOT / "apps/api/alembic/sql/0331_jobs_filter_fixtures.sql"
 _NODE = ROOT / "apps/jobs/conformance/node/filter_fixture_acceptance.mjs"
 _OLD_TIMESTAMP = datetime(2001, 1, 1, tzinfo=timezone.utc)
@@ -120,9 +120,8 @@ def _assert_outcomes(completed: AsyncJob, failed: AsyncJob) -> None:
 
 async def _assert_contract(test_engine, runtime) -> None:
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    assert json.loads(_API_SCHEMA.read_text(encoding="utf-8")) == schema
-    sql = _SQL.read_text(encoding="utf-8")
-    assert _API_SQL.read_text(encoding="utf-8") == sql
+    assert load_contract_schema(_API_SCHEMA) == schema
+    sql = _API_SQL.read_text(encoding="utf-8")
     assert schema["$id"] == "aap-jobs-filter-fixtures/v1"
     function = schema["x-postgresql-functions"][_FUNCTION]
     assert function == {

@@ -23,24 +23,17 @@ _PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 def test_wire_schema_is_one_closed_document_with_local_refs():
     package_schema = _PACKAGE / "read_state.schema.json"
-    package_sql = _PACKAGE / "sql" / "0316_notifications_read_state.sql"
-    migration_sql = (
-        Path(__file__).resolve().parents[2]
-        / "api"
-        / "alembic"
-        / "sql"
-        / "0316_notifications_read_state.sql"
-    )
-    migration_schema = (
-        Path(__file__).resolve().parents[2]
-        / "api"
-        / "alembic"
-        / "sql"
-        / "0316_notifications_read_state.schema.json"
-    )
-    assert package_schema.read_bytes() == migration_schema.read_bytes()
-    assert package_sql.read_bytes() == migration_sql.read_bytes()
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api"
+            / "alembic"
+            / "sql"
+            / "notifications.contracts.json"
+        ).read_text()
+    )["artifacts"]["0316_notifications_read_state.schema.json"]
     schema = json.loads(package_schema.read_text())
+    assert schema == migration_schema
     assert schema == read_state_json_schema()
     assert schema["$id"] == "aap-notification-read-state/v1"
 

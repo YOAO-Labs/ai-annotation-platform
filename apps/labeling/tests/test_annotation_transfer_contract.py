@@ -97,10 +97,8 @@ def test_transfer_command_is_closed_and_frozen_schema_matches_both_artifacts():
         ).read_text()
     )
     api_schema = _current_names(
-        json.loads(
-            (
-                root / "apps/api/alembic/sql/0431_labeling_mask_staging.schema.json"
-            ).read_text()
-        )
+        json.loads((root / "apps/api/alembic/sql/labeling.contracts.json").read_text())[
+            "artifacts"
+        ]["0431_labeling_mask_staging.schema.json"]
     )
     assert package_schema == api_schema == expected

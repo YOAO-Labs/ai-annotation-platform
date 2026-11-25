@@ -7,11 +7,7 @@ import { randomUUID } from "node:crypto";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "lifecycle.schema.json");
-const sqlPath = path.join(jobsRoot, "sql/0327_jobs_lifecycle.sql");
-const frozenSchemaPath = path.resolve(
-  here,
-  "../../../api/alembic/sql/0327_jobs_lifecycle.schema.json",
-);
+const frozenContractsPath = path.resolve(here, "../../../api/alembic/sql/jobs.contracts.json");
 const frozenSqlPath = path.resolve(here, "../../../api/alembic/sql/0327_jobs_lifecycle.sql");
 const currentNames = (text) => text.replace(/\baap_(?=[a-z0-9_]*_v[0-9]+\b)/g, "yoao_");
 const creationRelation = "yoao_jobs_v1.async_job_creation";
@@ -122,11 +118,12 @@ function rowFields(schema) {
 }
 
 async function loadContract({ requireFrozen = false } = {}) {
-  const [schemaText, sql, frozenSchemaResult, frozenSqlResult] = await Promise.all([
+  const [schemaText, frozenSchemaResult, frozenSqlResult] = await Promise.all([
     readFile(schemaPath, "utf8"),
-    readFile(sqlPath, "utf8"),
-    readFile(frozenSchemaPath, "utf8").then(
-      (value) => ({ value }),
+    readFile(frozenContractsPath, "utf8").then(
+      (value) => ({
+        value: JSON.stringify(JSON.parse(value).artifacts["0327_jobs_lifecycle.schema.json"]),
+      }),
       (error) => ({ error }),
     ),
     readFile(frozenSqlPath, "utf8").then(
@@ -137,9 +134,10 @@ async function loadContract({ requireFrozen = false } = {}) {
   const schema = JSON.parse(schemaText);
   const hasFrozenSchema = typeof frozenSchemaResult.value === "string";
   const hasFrozenSql = typeof frozenSqlResult.value === "string";
+  let sql = "";
   if (hasFrozenSchema && hasFrozenSql) {
     assert.deepEqual(JSON.parse(currentNames(frozenSchemaResult.value)), schema);
-    assert.equal(frozenSqlResult.value, sql);
+    sql = frozenSqlResult.value;
   } else {
     assert.equal(
       requireFrozen,

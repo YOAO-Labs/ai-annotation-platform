@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 import uuid
@@ -61,7 +62,10 @@ async def _seed_world(test_engine):
                     {"signature": signature},
                 )
         result = await _grants(
-            test_engine, ROOT / "infra/docker/workspace-seed-operator-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/workspace-grants.sql",
+            role,
+            capability="seed_operator",
         )
         assert result.returncode == 0, result.stderr
         async with test_engine.begin() as db:
@@ -121,8 +125,9 @@ async def test_seed_profile_rejects_a_child_that_could_inherit_operator_writes(
                 await db.execute(text(f'GRANT "{role}" TO "{child}"'))
             result = await _grants(
                 test_engine,
-                ROOT / "infra/docker/workspace-seed-operator-grants.sql",
+                ROOT / "infra/docker/workspace-grants.sql",
                 role,
+                capability="seed_operator",
             )
             assert result.returncode != 0
             async with api() as db:
@@ -537,10 +542,8 @@ async def test_seed_native_descriptor_restrictions_errors_and_rollback(test_engi
         )
         == expected
     )
-    assert json.loads(
-        (
-            ROOT / "apps/api/alembic/sql/0301_workspace_seed_project.schema.json"
-        ).read_text()
+    assert load_contract_schema(
+        "0301_workspace_seed_project.schema.json"
     ) == historical(expected)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as db:

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import pytest
@@ -78,12 +79,7 @@ async def _row(db, project_id):
 
 
 async def test_native_counter_function_contract_and_exact_privileges(test_engine):
-    manifest = json.loads(
-        (
-            Path(__file__).parents[1]
-            / "alembic/sql/0299_labeling_project_counter_deltas.schema.json"
-        ).read_text()
-    )
+    manifest = load_contract_schema("0299_labeling_project_counter_deltas.schema.json")
     async with _restricted(test_engine) as (owner, _api, _world, _url, _batches):
         async with owner() as db:
             for function in manifest["functions"]:

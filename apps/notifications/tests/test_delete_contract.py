@@ -26,18 +26,17 @@ def test_delete_wire_schema_and_sql_resource_are_closed_and_versioned():
     assert schema["$id"] == "aap-notification-delete/v1"
     assert schema["$defs"]["DeleteOneRequest"]["additionalProperties"] is False
     assert schema["$defs"]["ClearReadRequest"]["additionalProperties"] is False
-    migration_schema = (
-        Path(__file__).resolve().parents[2]
-        / "api"
-        / "alembic"
-        / "sql"
-        / "0318_notifications_delete.schema.json"
-    )
-    assert (
-        _PACKAGE / "delete.schema.json"
-    ).read_bytes() == migration_schema.read_bytes()
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api"
+            / "alembic"
+            / "sql"
+            / "notifications.contracts.json"
+        ).read_text()
+    )["artifacts"]["0318_notifications_delete.schema.json"]
+    assert schema == migration_schema
 
-    package_sql = _PACKAGE / "sql" / "0318_notifications_delete.sql"
     migration_sql = (
         Path(__file__).resolve().parents[2]
         / "api"
@@ -45,8 +44,7 @@ def test_delete_wire_schema_and_sql_resource_are_closed_and_versioned():
         / "sql"
         / "0318_notifications_delete.sql"
     )
-    assert package_sql.read_bytes() == migration_sql.read_bytes()
-    sql = package_sql.read_text()
+    sql = migration_sql.read_text()
     assert "CREATE FUNCTION aap_notifications_v1.delete_command" in sql
     assert "SECURITY DEFINER" in sql
     assert "SET search_path = pg_catalog, pg_temp" in sql

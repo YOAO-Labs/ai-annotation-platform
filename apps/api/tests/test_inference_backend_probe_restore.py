@@ -116,13 +116,14 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
         _run_psql_file(
             test_engine,
             names[0],
-            ROOT / "infra/docker/inference-backend-probe-grants.sql",
+            ROOT / "infra/docker/inference-grants.sql",
             {
                 "expected_database": names[0],
                 "migration_role": "owner",
                 "inference_owner": "inference_code",
                 "inference_backend_probe_role": "yoao_inference_backend_probe_client",
             },
+            capability="backend_probe",
         )
         acl = await _database_acl(source)
         with setup_backend() as (url, calls):

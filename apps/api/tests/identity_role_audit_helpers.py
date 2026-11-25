@@ -187,15 +187,16 @@ async def audit_reader(test_engine, *, cli_role=False):
             await db.execute(
                 text(f"GRANT SELECT (id,role) ON public.project_members TO {role}")
             )
-        for installer, variables in (
-            ("identity-role-audit-grants.sql", {}),
-            ("workspace-role-audit-grants.sql", {}),
-            ("labeling-role-audit-grants.sql", {"labeling_owner": "labeling_code"}),
+        for installer, capability, variables in (
+            ("identity-grants.sql", "role_audit", {}),
+            ("workspace-grants.sql", "role_audit", {}),
+            ("labeling-grants.sql", "role_audit", {"labeling_owner": "labeling_code"}),
         ):
             result = await _grants(
                 test_engine,
                 ROOT / "infra/docker" / installer,
                 role,
+                capability=capability,
                 **variables,
             )
             assert result.returncode == 0, result.stderr

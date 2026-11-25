@@ -7,6 +7,7 @@ from contextlib import nullcontext
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import subprocess
 import uuid
 
@@ -470,12 +471,7 @@ async def test_bad_bulk_scope_rolls_back_prior_caller_write(
 async def test_member_native_functions_have_exact_owner_and_grants(test_engine):
     async with _world(test_engine) as (owner, _api, _world_data, _url):
         async with owner() as db:
-            artifact = json.loads(
-                (
-                    Path(__file__).resolve().parents[1]
-                    / "alembic/sql/0292_workspace_member_locks.schema.json"
-                ).read_text()
-            )
+            artifact = load_contract_schema("0292_workspace_member_locks.schema.json")
             signatures = artifact["x-postgresql-functions"]
             assert len(signatures) == 2
             assert set(signatures) == {

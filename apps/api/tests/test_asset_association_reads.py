@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import json
 import os
 from datetime import UTC, datetime
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import pytest
@@ -185,8 +184,7 @@ async def _list_project_datasets(
 
 
 async def test_association_schema_freezes_both_read_capabilities():
-    root = Path(__file__).parents[1] / "alembic" / "sql"
-    schema = json.loads((root / "0377_asset_association_reads.schema.json").read_text())
+    schema = load_contract_schema("0377_asset_association_reads.schema.json")
     assert schema["$id"] == "urn:aap:assets-associations:v1"
     assert set(schema["x-postgresql-functions"]) == {
         "aap_assets_v1.list_dataset_projects(uuid, uuid)",
@@ -276,14 +274,7 @@ async def test_dataset_projects_keep_global_read_policy_raw_workspace_and_stored
         str(older_project.id),
     ]
     older = projects[1]
-    schema = json.loads(
-        (
-            Path(__file__).parents[1]
-            / "alembic"
-            / "sql"
-            / "0377_asset_association_reads.schema.json"
-        ).read_text()
-    )
+    schema = load_contract_schema("0377_asset_association_reads.schema.json")
     expected_project_fields = set(
         schema["$defs"]["workspaceProjectSnapshot"]["required"]
     ) | {

@@ -27,15 +27,17 @@ _PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 def test_wire_schema_is_one_closed_document_with_all_local_references():
     package_schema = _PACKAGE / "preferences.schema.json"
-    migration_schema = (
-        Path(__file__).resolve().parents[2]
-        / "api"
-        / "alembic"
-        / "sql"
-        / "0311_notifications_preferences.schema.json"
-    )
-    assert package_schema.read_bytes() == migration_schema.read_bytes()
+    migration_schema = json.loads(
+        (
+            Path(__file__).resolve().parents[2]
+            / "api"
+            / "alembic"
+            / "sql"
+            / "notifications.contracts.json"
+        ).read_text()
+    )["artifacts"]["0311_notifications_preferences.schema.json"]
     schema = json.loads(package_schema.read_text())
+    assert schema == migration_schema
     assert schema == preferences_json_schema()
     assert schema["$defs"]
 
@@ -59,15 +61,13 @@ def test_policy_json_matches_the_owner_sql_policy():
     assert tuple(policy["known_notification_types"]) == KNOWN_NOTIFICATION_TYPES
     assert frozenset(policy["default_toast_types"]) == DEFAULT_TOAST_TYPES
 
-    sql = (_PACKAGE / "sql" / "0311_notifications_preferences.sql").read_text()
-    migration_sql = (
+    sql = (
         Path(__file__).resolve().parents[2]
         / "api"
         / "alembic"
         / "sql"
         / "0311_notifications_preferences.sql"
-    )
-    assert sql == migration_sql.read_text()
+    ).read_text()
     body = sql.split("CREATE FUNCTION aap_notifications_v1._preference_policy()", 1)[1]
     body = body.split("AS $function$", 1)[1].split("$function$", 1)[0]
     rows = re.findall(

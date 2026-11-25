@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 import json
 import os
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import subprocess
 import uuid
 
@@ -89,9 +90,7 @@ async def test_frozen_receipt_and_deletion_only_capability(test_engine):
         ).read_text()
     )
     assert descriptor == project_deletion_schema()
-    frozen = json.loads(
-        (ROOT / "apps/api/alembic/sql/0199_project_deletion.schema.json").read_text()
-    )
+    frozen = load_contract_schema("0199_project_deletion.schema.json")
     receipt = ProjectDeletionReceipt.model_json_schema()
     assert receipt["properties"] == frozen["$defs"]["receipt"]["properties"]
     assert receipt["required"] == frozen["$defs"]["receipt"]["required"]

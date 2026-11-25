@@ -219,4 +219,10 @@ def test_query_schema_is_closed_and_has_local_definitions():
     )
     assert json.loads(package_schema.read_text()) == schema
     assert files("yoao_audit").joinpath("query.schema.json").is_file()
-    assert files("yoao_audit.sql").joinpath("0317_audit_query.sql").is_file()
+    assert (
+        Path(__file__).resolve().parents[2]
+        / "api"
+        / "alembic"
+        / "sql"
+        / "0317_audit_query.sql"
+    ).is_file()

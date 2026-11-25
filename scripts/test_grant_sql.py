@@ -145,3 +145,152 @@ def test_checked_in_installers_resolve_for_actual_consumers():
     assert read_runtime_grant_statements(
         directory / "m2b-runtime-grants.sql", role="ordinary"
     )
+
+
+def test_capability_section_extraction_handles_nested_conditionals_and_rejects_unknown(
+    tmp_path,
+):
+    installer = _sql(
+        tmp_path,
+        "module-grants.sql",
+        "\\set ON_ERROR_STOP on\nBEGIN;\n"
+        "SELECT set_config('yoao.grant_section_applied', '0', true);\n"
+        "\\if :{?grant_alpha}\n"
+        "SELECT set_config('yoao.grant_section_applied', '1', true);\n"
+        "\\if :{?opt}\nSELECT 1;\n\\else\nSELECT 2;\n\\endif\n"
+        "\\endif\n"
+        "\\if :{?grant_beta}\n"
+        "SELECT set_config('yoao.grant_section_applied', '1', true);\n"
+        "SELECT 3;\n"
+        "\\endif\n"
+        "COMMIT;\n",
+    )
+    assert read_psql_grant_script(installer, capability="alpha") == (
+        "\\set ON_ERROR_STOP on\nBEGIN;\n"
+        "\\if :{?opt}\nSELECT 1;\n\\else\nSELECT 2;\n\\endif\nCOMMIT;\n"
+    )
+    assert read_psql_grant_script(installer, capability="beta") == (
+        "\\set ON_ERROR_STOP on\nBEGIN;\nSELECT 3;\nCOMMIT;\n"
+    )
+    with pytest.raises(ValueError, match="expected once"):
+        read_psql_grant_script(installer, capability="missing")
+    with pytest.raises(ValueError, match="Invalid grant capability"):
+        read_psql_grant_script(installer, capability="bad-name")
+
+
+def test_merged_module_installers_extract_every_capability_section():
+    directory = Path(__file__).resolve().parents[1] / "infra/docker"
+    expected_modules = {
+        "assets-grants.sql": (
+            "catalog",
+            "image",
+            "import",
+            "media",
+            "operator",
+            "source",
+        ),
+        "audit-grants.sql": ("append", "maintenance", "query", "read"),
+        "identity-grants.sql": (
+            "accounts",
+            "actor_status",
+            "admin_passwords",
+            "auth",
+            "briefs",
+            "deactivation",
+            "deletions",
+            "directory",
+            "e2e_fixture",
+            "groups",
+            "invitations",
+            "keys",
+            "offboarding",
+            "platform_roles",
+            "provisioning",
+            "recovery",
+            "role_audit",
+            "scale_seed",
+            "seed_operator",
+            "sessions",
+            "suspensions",
+        ),
+        "inference-grants.sql": (
+            "backend_probe",
+            "health_data",
+            "health_observation",
+            "health_origin",
+            "owner",
+            "pipelines",
+            "pool_reference",
+            "registry_ingress",
+            "routing",
+            "video_restore",
+        ),
+        "jobs-grants.sql": (
+            "dispatch",
+            "lifecycle",
+            "list_query",
+            "notification_scope",
+            "recovery",
+            "video_execution",
+        ),
+        "labeling-grants.sql": (
+            "annotation_maintenance",
+            "annotation_transfer",
+            "annotation_writes",
+            "batch_control",
+            "class_query",
+            "core_read",
+            "cross_frame",
+            "discussion",
+            "editing",
+            "mask_edit",
+            "mask_gc_data",
+            "mask_quality",
+            "preannotation_result_data",
+            "prediction",
+            "role_audit",
+            "scene_read",
+            "scene_track_commands",
+            "spatial_quality",
+            "task_control",
+            "task_maintenance",
+            "video_control",
+            "video_writer",
+        ),
+        "notifications-grants.sql": (
+            "append",
+            "delivery_read",
+            "inbox",
+            "preferences",
+            "read",
+        ),
+        "workspace-grants.sql": (
+            "configuration",
+            "consumer",
+            "dataset_unlink",
+            "directory_query",
+            "e2e_fixture",
+            "membership",
+            "owner_transfer",
+            "project_deletion",
+            "project_maintenance",
+            "project_query",
+            "role_audit",
+            "scale_seed",
+            "seed_operator",
+            "template_query",
+        ),
+        "platform-grants.sql": (
+            "insights_refresh",
+            "module_execution",
+            "storage_migration_control",
+        ),
+    }
+    for filename, capabilities in expected_modules.items():
+        path = directory / filename
+        full = read_psql_grant_script(path)
+        assert full.rstrip().endswith("COMMIT;")
+        for capability in capabilities:
+            section = read_psql_grant_script(path, capability=capability)
+            assert section.startswith("\\set ON_ERROR_STOP on\nBEGIN;\n")
+            assert section.endswith("\nCOMMIT;\n")

@@ -62,7 +62,10 @@ async def fixture_operator(test_engine):
     """A separate operator LOGIN for explicit fixture capability tests only."""
     async with _world(test_engine, apply=True) as (_owner, consumer, role, _url):
         result = await _grants(
-            test_engine, ROOT / "infra/docker/identity-e2e-fixture-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/identity-grants.sql",
+            role,
+            capability="e2e_fixture",
         )
         assert result.returncode == 0, result.stderr
         yield consumer.kw["bind"]

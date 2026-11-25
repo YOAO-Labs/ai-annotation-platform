@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import os
-from pathlib import Path
+from tests.contract_schemas import load_contract_schema
 import uuid
 
 import asyncpg
@@ -31,12 +30,7 @@ pytestmark = [
 
 _EVALUATION_FUNCTION = "yoao_learning_v1.registry_evaluation_reference_exists(uuid)"
 _JOBS_FUNCTION = "yoao_jobs_v1.count_running_registry_predictions(uuid)"
-_SCHEMA_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "alembic"
-    / "sql"
-    / "0273_inference_backend_dependency_reads.schema.json"
-)
+_SCHEMA_PATH = "0273_inference_backend_dependency_reads.schema.json"
 
 
 def _owner_dsn(test_engine) -> str:
@@ -339,7 +333,7 @@ async def test_inference_role_gets_owner_reads_without_learning_table_access(
 
 
 async def test_backend_dependency_catalog_schema_is_closed_and_typed() -> None:
-    schema = current(json.loads(_SCHEMA_PATH.read_text(encoding="utf-8")))
+    schema = current(load_contract_schema(_SCHEMA_PATH))
     signatures = [_EVALUATION_FUNCTION, _JOBS_FUNCTION]
 
     assert schema["$id"] == "aap-inference-backend-dependency-reads/v1"

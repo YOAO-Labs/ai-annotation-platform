@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
 
 import pytest
 from sqlalchemy import delete, select, text
@@ -17,7 +18,7 @@ from app.db.models.user import User
 
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0235_identity_admission.sql"
-_SCHEMA = _SQL_DIR / "0235_identity_admission.schema.json"
+_SCHEMA = "0235_identity_admission.schema.json"
 
 
 def _uuid(value: uuid.UUID | None) -> str | None:
@@ -93,7 +94,7 @@ async def _call(session: AsyncSession, sql: str, **params):
 
 
 def test_frozen_identity_admission_protocol_and_ownership_artifacts():
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     functions = {
         "aap_identity_v1.authentication_policy()",
@@ -114,9 +115,10 @@ def test_frozen_identity_admission_protocol_and_ownership_artifacts():
     assert artifact.count("CREATE FUNCTION") == 12
     assert artifact.count("REVOKE ALL ON FUNCTION") == 12
     assert artifact.count("SET search_path = pg_catalog, pg_temp") == 12
-    assert "identity_auth_role=yoao_identity_auth_client" in Path(__file__).parents[
-        3
-    ].joinpath("infra/docker/identity-auth-grants.sql").read_text(encoding="utf-8")
+    assert "yoao.identity_auth_role" in read_psql_grant_script(
+        Path(__file__).parents[3] / "infra/docker/identity-grants.sql",
+        capability="auth",
+    )
 
 
 @pytest.mark.asyncio

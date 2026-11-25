@@ -36,7 +36,7 @@ docs/research/data/
 infra/grafana/dashboards/
 data/backend-manager/
 
-apps/api/alembic/sql/*.schema.json
+apps/api/alembic/sql/*.contracts.json
 apps/_shared/inference_contract/src/yoao_inference_contract/backend_probe.schema.json
 apps/api/tests/fixtures/workspace_template_queries_legacy/*.json
 apps/api/tests/fixtures/workspace_project_queries_legacy/*.json

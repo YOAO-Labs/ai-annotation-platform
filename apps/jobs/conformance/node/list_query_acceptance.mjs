@@ -135,14 +135,18 @@ function assertPageOrder(rows) {
 
 async function selfCheck() {
   phase = "self-check resources";
-  const [schemaText, sql, frozenSchemaText, frozenSql] = await Promise.all([
+  const [schemaText, sql, frozenContractsText, frozenSql] = await Promise.all([
     readFile(schemaPath, "utf8"),
     readFile(sqlPath, "utf8"),
-    readFile(path.join(frozenRoot, "0326_jobs_list_query.schema.json"), "utf8"),
+    readFile(path.join(frozenRoot, "jobs.contracts.json"), "utf8"),
     readFile(path.join(frozenRoot, "0326_jobs_list_query.sql"), "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  const expectedSchema = JSON.parse(currentNames(frozenSchemaText));
+  const expectedSchema = JSON.parse(
+    currentNames(
+      JSON.stringify(JSON.parse(frozenContractsText).artifacts["0326_jobs_list_query.schema.json"]),
+    ),
+  );
   expectedSchema.title = "YOAO Jobs async-job list query";
   assert.deepEqual(schema, expectedSchema);
   assert.equal(sql, currentNames(frozenSql));

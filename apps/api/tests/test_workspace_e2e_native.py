@@ -82,12 +82,17 @@ async def e2e_consumer(test_engine):
 async def fixture_operator(test_engine):
     """A separate LOGIN for explicit Workspace fixture capability checks."""
     async with _world(test_engine, apply=True) as (_, producer, role, _):
-        for profile in (
-            "identity-e2e-fixture-grants.sql",
-            "workspace-seed-operator-grants.sql",
-            "workspace-e2e-fixture-grants.sql",
+        for profile, capability in (
+            ("identity-grants.sql", "e2e_fixture"),
+            ("workspace-grants.sql", "seed_operator"),
+            ("workspace-grants.sql", "e2e_fixture"),
         ):
-            result = await _grants(test_engine, ROOT / "infra/docker" / profile, role)
+            result = await _grants(
+                test_engine,
+                ROOT / "infra/docker" / profile,
+                role,
+                capability=capability,
+            )
             assert result.returncode == 0, result.stderr
         yield producer.kw["bind"]
 
@@ -641,12 +646,18 @@ async def test_fixture_capabilities_require_explicit_operator_profile(test_engin
 
         await allowed(False)
         result = await _grants(
-            test_engine, ROOT / "infra/docker/workspace-e2e-fixture-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/workspace-grants.sql",
+            role,
+            capability="e2e_fixture",
         )
         assert result.returncode == 0, result.stderr
         await allowed(True)
         result = await _grants(
-            test_engine, ROOT / "infra/docker/workspace-consumer-grants.sql", role
+            test_engine,
+            ROOT / "infra/docker/workspace-grants.sql",
+            role,
+            capability="consumer",
         )
         assert result.returncode == 0, result.stderr
         await allowed(False)
