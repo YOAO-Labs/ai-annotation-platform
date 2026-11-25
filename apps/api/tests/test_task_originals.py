@@ -1,8 +1,9 @@
 """Real independent publication transactions and historical migration fixtures."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from copy import deepcopy
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import FrozenInstanceError, dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import importlib.util
@@ -30,48 +31,63 @@ from tests.factory import create_project
 from tests.managed_original_client_support import Client, stage_client
 
 
-@pytest.fixture
-async def current_original_db(managed_database):
-    """Use public Native owners in a freshly migrated, fixture-owned database."""
+@dataclass(frozen=True)
+class OriginalFixtureIds:
+    actor_id: uuid.UUID
+    project_id: uuid.UUID
+    dataset_id: uuid.UUID
+    item_id: uuid.UUID
+
+
+@asynccontextmanager
+async def current_original_session(engine):
     from app.db.models.dataset import Dataset, DatasetItem
     from app.db.models.user import User
 
-    async with managed_database() as engine:
-        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            actor = User(
-                id=uuid.uuid4(),
-                email=uuid.uuid4().hex + "@example.test",
-                name="Original fixture owner",
-                password_hash="unused",
-                role="project_admin",
-                is_active=True,
-            )
-            db.add(actor)
-            await db.flush()
-            project = await create_project(db, owner_id=actor.id)
-            dataset = Dataset(
-                id=uuid.uuid4(),
-                display_id="orig-" + uuid.uuid4().hex[:12],
-                name="Original fixture dataset",
-                created_by=actor.id,
-            )
-            db.add(dataset)
-            await db.flush()
-            item = DatasetItem(
-                id=uuid.uuid4(),
-                dataset_id=dataset.id,
-                file_name="fixture.bin",
-                file_path="fixture/" + uuid.uuid4().hex,
-                file_type="other",
-            )
-            db.add(item)
-            await ensure_legacy_bindings(db)
-            await db.commit()
-            db.info["original_fixture"] = (actor.id, project.id, item.id)
-            try:
-                yield db
-            finally:
-                await db.rollback()
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        actor = User(
+            id=uuid.uuid4(),
+            email=uuid.uuid4().hex + "@example.test",
+            name="Original fixture owner",
+            password_hash="unused",
+            role="project_admin",
+            is_active=True,
+        )
+        db.add(actor)
+        await db.flush()
+        project = await create_project(db, owner_id=actor.id)
+        dataset = Dataset(
+            id=uuid.uuid4(),
+            display_id="orig-" + uuid.uuid4().hex[:12],
+            name="Original fixture dataset",
+            created_by=actor.id,
+        )
+        db.add(dataset)
+        await db.flush()
+        item = DatasetItem(
+            id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            file_name="fixture.bin",
+            file_path="fixture/" + uuid.uuid4().hex,
+            file_type="other",
+        )
+        db.add(item)
+        await ensure_legacy_bindings(db)
+        await db.commit()
+        db.info["original_fixture"] = OriginalFixtureIds(
+            actor.id, project.id, dataset.id, item.id
+        )
+        try:
+            yield db
+        finally:
+            await db.rollback()
+
+
+@pytest.fixture
+async def current_original_db(managed_database):
+    """Use public Native owners in a freshly migrated, fixture-owned database."""
+    async with managed_database() as engine, current_original_session(engine) as db:
+        yield db
 
 
 def migration(connection, number):
@@ -166,7 +182,10 @@ def original_client(monkeypatch):
 
 async def allocated(db, *, commit=True, legacy=False):
     fixture = db.info.get("original_fixture")
-    actor_id, project_id = fixture[:2] if fixture else (uuid.uuid4(), uuid.uuid4())
+    if fixture is None:
+        actor_id, project_id = uuid.uuid4(), uuid.uuid4()
+    else:
+        actor_id, project_id = fixture.actor_id, fixture.project_id
     task = Task(
         id=uuid.uuid4(),
         project_id=project_id,
@@ -361,12 +380,12 @@ async def test_null_item_alone_does_not_prove_standalone_scope(
     db = current_original_db
     task, allocation, created = await verified(db, original_client)
     if kind == "dataset_item":
-        task.dataset_item_id = db.info["original_fixture"][2]
+        task.dataset_item_id = db.info["original_fixture"].item_id
     else:
         db.add(
             TaskDatasetItemLink(
                 task_id=task.id,
-                dataset_item_id=db.info["original_fixture"][2],
+                dataset_item_id=db.info["original_fixture"].item_id,
                 role="primary_lidar",
             )
         )
