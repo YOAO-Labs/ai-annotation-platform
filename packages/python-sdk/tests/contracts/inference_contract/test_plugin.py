@@ -7,13 +7,19 @@ from pydantic import ValidationError
 
 from yoao_inference_contract.execution import freeze_json
 from yoao_inference_contract.plugin import (
+    EXTENSION_MANIFEST_SCHEMA,
+    INFERENCE_CAPABILITIES,
+    INFERENCE_PROTOCOL_VERSION,
+    INFERENCE_WIRE_PROTOCOL_VERSION,
     PLUGIN_MANIFEST_OCI_LABEL,
     PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+    InferenceExtensionManifestV1,
     PluginActivateRequest,
     PluginImageManifest,
     PluginInstallation,
     PluginLifecycleQualification,
     PluginManifest,
+    parse_inference_manifest,
     parse_oci_plugin_manifest,
     parse_oci_qualification_command,
     plugin_is_active,
@@ -376,3 +382,268 @@ def test_parse_oci_qualification_command_accepts_fixed_commands_and_rejects_unsa
     assert len(compact_raw.encode("utf-8")) <= 4096
     parsed_compact = parse_oci_qualification_command(compact_raw)
     assert validate_oci_qualification_command(parsed_compact) == tuple(compact_args)
+
+
+def layered_container_manifest():
+    return {
+        "manifest_schema": EXTENSION_MANIFEST_SCHEMA,
+        "extension_point": "inference",
+        "plugin_id": "yoao.inference.yolo",
+        "version": "1.0.0",
+        "display_name": "YOLO Inference",
+        "description": "Multi-task detection and segmentation plugin.",
+        "homepage": "https://example.com/yolo",
+        "publisher": "YOAO Official",
+        "license": "AGPL-3.0",
+        "protocol_version": INFERENCE_PROTOCOL_VERSION,
+        "entrypoint": ["yoao-yolo", "serve", "--port", "8000"],
+        "capabilities": [
+            "inference",
+            "detection",
+            "segmentation",
+            "managed_models",
+            "managed_evaluation",
+        ],
+        "resource": {"memory_mb": 2048},
+        "extension": {
+            "execution_mode": "container",
+            "models": [
+                {
+                    "id": "seg",
+                    "task": "segment",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image", "crop"],
+                    "supported_geometric_outputs": ["polygon", "mask_rle"],
+                }
+            ],
+            "pools": {"seg": {"cap": 2}},
+            "compute": {"device": "cuda", "gpu_memory_mb": 2048},
+            "asset_manifest_sha256": "b" * 64,
+            "allowed_asset_sources": ["https://example.com/assets"],
+            "managed_model_compatibility": [
+                {
+                    "framework": "ultralytics",
+                    "format": None,
+                    "runtime_device": "cuda",
+                }
+            ],
+        },
+    }
+
+
+def layered_direct_manifest(*, device="cuda"):
+    return {
+        "manifest_schema": EXTENSION_MANIFEST_SCHEMA,
+        "extension_point": "inference",
+        "plugin_id": "custom.inference.ocr",
+        "version": "0.1.0",
+        "display_name": "Remote OCR",
+        "publisher": "Team",
+        "license": "MIT",
+        "protocol_version": INFERENCE_PROTOCOL_VERSION,
+        "capabilities": ["inference", "ocr", "pose", "doc_layout"],
+        "extension": {
+            "execution_mode": "direct",
+            "models": [
+                {
+                    "id": "ocr",
+                    "task": "ocr",
+                    "is_interactive": False,
+                    "supported_prompts": ["none"],
+                    "supported_inputs": ["full_image"],
+                    "supported_geometric_outputs": ["polygon"],
+                }
+            ],
+            "pools": {"ocr": {"cap": 1}},
+            "compute": {"device": device, "gpu_memory_mb": 0},
+        },
+    }
+
+
+def test_layered_v1_inference_manifest_projection_and_oci_parsing():
+    assert INFERENCE_WIRE_PROTOCOL_VERSION == "2.0"
+    assert "train" not in INFERENCE_CAPABILITIES
+    assert {"pose", "doc_layout", "managed_evaluation"}.issubset(INFERENCE_CAPABILITIES)
+
+    artifact = "registry.example/yolo@sha256:" + "a" * 64
+    raw = json.dumps(layered_container_manifest(), separators=(",", ":"))
+    projected = parse_oci_plugin_manifest(raw, artifact=artifact)
+    assert projected.manifest_schema == EXTENSION_MANIFEST_SCHEMA
+    assert projected.protocol_version == INFERENCE_PROTOCOL_VERSION
+    assert projected.execution_mode == "container"
+    assert projected.display_name == "YOLO Inference"
+    assert projected.artifact == artifact
+    assert projected.sdk_compatibility is None
+    assert projected.resource.device == "cuda"
+    assert projected.resource.memory_mb == 2048
+    assert projected.resource.gpu_memory_mb == 2048
+    assert "managed_evaluation" in projected.capabilities
+
+    embedded = {**layered_container_manifest(), "artifact": artifact}
+    with pytest.raises(ValueError, match="must not embed artifact"):
+        parse_oci_plugin_manifest(json.dumps(embedded), artifact=artifact)
+
+    direct_raw = json.dumps(layered_direct_manifest())
+    with pytest.raises(ValueError, match="execution_mode='container'"):
+        parse_oci_plugin_manifest(direct_raw, artifact=artifact)
+
+    parsed_direct = parse_inference_manifest(direct_raw)
+    assert parsed_direct.execution_mode == "direct"
+    assert parsed_direct.artifact is None
+    assert parsed_direct.entrypoint is None
+    assert parsed_direct.resource.memory_mb is None
+    assert parsed_direct.resource.device == "cuda"
+    assert parsed_direct.resource.gpu_memory_mb == 0
+    assert parsed_direct.asset_manifest_sha256 is None
+
+
+def test_direct_and_container_installation_resource_binding_invariants():
+    direct_cuda = parse_inference_manifest(layered_direct_manifest(device="cuda"))
+    d1_gpu_install = PluginInstallation(
+        installation_id=uuid4(),
+        manifest=direct_cuda,
+        status="active",
+        revision=1,
+        execution_mode="direct",
+        source_tier="third_party",
+        resource={
+            "gpu_resource_id": None,
+            "physical_gpu_uuid": None,
+            "logical_device": "cuda",
+        },
+    )
+    assert plugin_is_active({"plugin": d1_gpu_install.model_dump(mode="json")})
+
+    with pytest.raises(ValidationError):
+        PluginInstallation(
+            installation_id=uuid4(),
+            manifest=direct_cuda,
+            status="active",
+            revision=1,
+            execution_mode="container",
+            resource={
+                "gpu_resource_id": None,
+                "physical_gpu_uuid": None,
+                "logical_device": "cuda",
+            },
+        )
+
+    with pytest.raises(ValidationError):
+        PluginInstallation(
+            installation_id=uuid4(),
+            manifest=direct_cuda,
+            status="active",
+            revision=1,
+            execution_mode="direct",
+            resource={
+                "gpu_resource_id": "node/gpu0",
+                "physical_gpu_uuid": "GPU-1234",
+                "logical_device": "cuda:0",
+            },
+        )
+
+    direct_cpu = parse_inference_manifest(layered_direct_manifest(device="cpu"))
+    d1_cpu_install = PluginInstallation(
+        installation_id=uuid4(),
+        manifest=direct_cpu,
+        status="active",
+        revision=1,
+        execution_mode="direct",
+        source_tier="official",
+        resource={
+            "gpu_resource_id": None,
+            "physical_gpu_uuid": None,
+            "logical_device": "cpu",
+        },
+    )
+    assert d1_cpu_install.source_tier == "official"
+    assert plugin_is_active({"plugin": d1_cpu_install.model_dump(mode="json")})
+
+    for bad in (
+        {**layered_container_manifest(), "capabilities": ["inference", "train"]},
+        {
+            **layered_container_manifest(),
+            "capabilities": ["inference", "managed_evaluation"],
+        },
+        {**layered_container_manifest(), "homepage": "http://example.com"},
+        {**layered_container_manifest(), "homepage": "https://127.0.0.1/x"},
+        {**layered_container_manifest(), "homepage": "https://example.com:99999/x"},
+        {**layered_container_manifest(), "homepage": "https://example.com:/x"},
+        {**layered_container_manifest(), "homepage": "https://2130706433/x"},
+        {**layered_container_manifest(), "entrypoint": ["bash", "-c", "id"]},
+        {**layered_container_manifest(), "entrypoint": ["yoao-yolo", "   "]},
+        {**layered_container_manifest(), "version": "   "},
+        {**layered_container_manifest(), "publisher": "bad\x00pub"},
+        {
+            **layered_direct_manifest(),
+            "artifact": "registry.example/ocr@sha256:" + "a" * 64,
+        },
+        {
+            k: v
+            for k, v in layered_container_manifest().items()
+            if k != "protocol_version"
+        },
+        {
+            k: v
+            for k, v in layered_container_manifest().items()
+            if k != "extension_point"
+        },
+        {
+            k: v
+            for k, v in layered_container_manifest().items()
+            if k != "manifest_schema"
+        },
+    ):
+        with pytest.raises(ValidationError):
+            InferenceExtensionManifestV1.model_validate(bad)
+
+    missing_format = layered_container_manifest()
+    del missing_format["extension"]["managed_model_compatibility"][0]["format"]
+    with pytest.raises(ValidationError):
+        InferenceExtensionManifestV1.model_validate(missing_format)
+
+
+def test_legacy_serialization_roundtrip_and_prepare_container_gate():
+    from yoao_inference_contract.plugin import PreparePluginInstallation
+
+    legacy_raw = manifest()
+    parsed_legacy = PluginManifest.model_validate(legacy_raw)
+    assert set(parsed_legacy.model_dump(mode="json")) == set(legacy_raw)
+    assert parse_inference_manifest(parsed_legacy.model_dump_json()) == parsed_legacy
+
+    artifact = "registry.example/yolo@sha256:" + "a" * 64
+    parsed_v1 = parse_oci_plugin_manifest(
+        json.dumps(layered_container_manifest()), artifact=artifact
+    )
+    assert parse_inference_manifest(parsed_v1.model_dump_json()) == parsed_v1
+
+    with pytest.raises(ValueError, match="must not embed artifact"):
+        parse_oci_plugin_manifest(
+            json.dumps({**layered_container_manifest(), "artifact": None}),
+            artifact=artifact,
+        )
+
+    parsed_direct = parse_inference_manifest(layered_direct_manifest(device="cpu"))
+    assert parse_inference_manifest(parsed_direct.model_dump_json()) == parsed_direct
+    with pytest.raises(ValidationError):
+        PreparePluginInstallation(
+            installation_id=uuid4(),
+            name="direct-via-prepare",
+            url="http://127.0.0.1:8001",
+            auth_token="t" * 32,
+            manifest=parsed_direct,
+            resource={
+                "gpu_resource_id": None,
+                "physical_gpu_uuid": None,
+                "logical_device": "cpu",
+            },
+        )
+
+    embedded_v1 = InferenceExtensionManifestV1.model_validate(
+        {**layered_container_manifest(), "artifact": artifact}
+    )
+    with pytest.raises(ValueError, match="already embeds a different artifact"):
+        embedded_v1.to_plugin_manifest(
+            artifact="registry.example/yolo@sha256:" + "f" * 64
+        )

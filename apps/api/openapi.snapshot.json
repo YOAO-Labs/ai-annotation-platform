@@ -27115,6 +27115,7 @@
           "format": {
             "anyOf": [
               {
+                "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
               },
@@ -27126,6 +27127,7 @@
             "title": "Format"
           },
           "framework": {
+            "maxLength": 64,
             "minLength": 1,
             "title": "Framework",
             "type": "string"
@@ -37248,6 +37250,15 @@
       "PluginInstallation": {
         "additionalProperties": false,
         "properties": {
+          "execution_mode": {
+            "default": "container",
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
           "installation_id": {
             "format": "uuid",
             "title": "Installation Id",
@@ -37263,6 +37274,15 @@
             "minimum": 1.0,
             "title": "Revision",
             "type": "integer"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -37396,35 +37416,106 @@
             "type": "array"
           },
           "artifact": {
-            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$",
-            "title": "Artifact",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
           },
           "asset_manifest_sha256": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Asset Manifest Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Manifest Sha256"
           },
           "capabilities": {
             "items": {
               "enum": [
                 "inference",
                 "detection",
-                "managed_models"
+                "segmentation",
+                "interactive",
+                "video_tracking",
+                "ocr",
+                "classification",
+                "obb",
+                "pose",
+                "doc_layout",
+                "managed_models",
+                "managed_evaluation"
               ],
               "type": "string"
             },
+            "maxItems": 16,
             "minItems": 1,
             "title": "Capabilities",
             "type": "array"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "entrypoint": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Entrypoint",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entrypoint"
+          },
+          "execution_mode": {
+            "default": "container",
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
           },
           "license": {
             "maxLength": 255,
@@ -37438,6 +37529,18 @@
             },
             "title": "Managed Model Compatibility",
             "type": "array"
+          },
+          "manifest_schema": {
+            "anyOf": [
+              {
+                "const": "yoao-extension-manifest/v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Schema"
           },
           "models": {
             "items": {
@@ -37463,6 +37566,18 @@
             "title": "Pools",
             "type": "object"
           },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "const": "yoao-inference/v2",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
           "publisher": {
             "maxLength": 255,
             "minLength": 1,
@@ -37473,10 +37588,17 @@
             "$ref": "#/components/schemas/PluginResourceRequirements"
           },
           "sdk_compatibility": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Sdk Compatibility",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Compatibility"
           },
           "version": {
             "maxLength": 128,
@@ -37490,15 +37612,10 @@
           "version",
           "publisher",
           "license",
-          "sdk_compatibility",
-          "entrypoint",
           "capabilities",
           "models",
           "pools",
-          "resource",
-          "asset_manifest_sha256",
-          "allowed_asset_sources",
-          "artifact"
+          "resource"
         ],
         "title": "PluginManifest",
         "type": "object"
@@ -37659,20 +37776,26 @@
             "type": "string"
           },
           "gpu_memory_mb": {
+            "default": 0,
             "minimum": 0.0,
             "title": "Gpu Memory Mb",
             "type": "integer"
           },
           "memory_mb": {
-            "exclusiveMinimum": 0.0,
-            "title": "Memory Mb",
-            "type": "integer"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Mb"
           }
         },
         "required": [
-          "device",
-          "memory_mb",
-          "gpu_memory_mb"
+          "device"
         ],
         "title": "PluginResourceRequirements",
         "type": "object"

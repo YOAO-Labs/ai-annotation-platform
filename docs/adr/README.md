@@ -40,7 +40,8 @@
 
 ### 待决（Proposed / Draft）
 
-- [0189](0189-trainer-extension-point.md) — 训练器扩展点与隔离作业协议（T0 契约已冻结，待维护者确认后进入 T1）
+- [0190](0190-inference-plugin-generalization-and-direct-tier.md) — 推理插件机制升级：统一清单、非容器直连档与框架去硬编码（I0 双仓统一推理清单契约已完成，待推进 I1）
+- [0189](0189-trainer-extension-point.md) — 训练器扩展点与隔离作业协议（T0 与 T1 已完成，按维护者决定先完成 ADR-0190 推理插件升级并拉齐非容器双轨口径后再进入 T2）
 - [0180](0180-installable-inference-plugins.md) — 可安装推理插件与组合式检测开发包（实施与 GPU 验收中）
 - [0166](0166-workspace-locked-authority-snapshots.md) — Workspace 锁定权限读取与会话快照（限定本地定向验收通过）
 - [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）

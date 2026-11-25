@@ -1,6 +1,6 @@
 # 训练器插件化架构与实施计划
 
-> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）已完成，待维护者确认 ADR-0189 后推进 T1 至 T4。
+> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）与 T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）已完成；按维护者决定先完成 [ADR-0190（推理插件机制升级）](../adr/0190-inference-plugin-generalization-and-direct-tier.md) 并拉齐非容器双轨口径后再修订 ADR-0189 进入 T2。
 >
 > 创建日期：2026-11-25。
 >
@@ -200,5 +200,4 @@
   - 已完成 **T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）**，在 `YOAO-Labs/Plugin-SDK` 与主仓 `yoao-sdk` 双向冻结 13 个协议模型与校验原语。
   - 已完成 **T1（Learning Owner 边界收口与前向 SQL 泛化）**：新增前向迁移 `bo0512`（`0512_trainer_extension_generalization.sql` / `.py`）泛化 7 个 Learning SQL 函数而不改动冻结历史文件 `0491`–`0493`（保持冻结 `schema 1–4` 与 Python 契约逐条对等，从 `schema >= 5` 起开放泛化插件契约）；移除 API Schema 与路由中的硬编码框架/桥接 `Literal`，切换至 `training_adapters` 能力检查与动态框架校验，并同步 OpenAPI 快照、SDK 操作目录与 Web 生成客户端（手动前端类型与 Python SDK 包装模型残留 `Literal` 留待 T2/T3 收敛）；收口 Learning 服务中的跨模块 `User`/`Project` ORM、`MLBackendService` 与私有 `MLBackendRouter._build_candidates`/`_router_mode` 直连并补齐 AST 边界守卫与真实 PostgreSQL 迁移测试。
 - **待维护者确认（进入 T2 前）**：
-  1. 确认启动 **T2（`yoao_learning_v1.trainer_plugins` 与 `training-supervisor` 容器化执行监督器）**。
-  2. 明确 T2 容器运行边界选择：自托管默认仅实现本地 Docker Engine 通道，还是新增窄 `ContainerRuntimePort` 并提供本地 Docker（可选 Podman/OCI）实现。
+  - 维护者已选择先推进推理插件机制升级（见 [ADR-0190](../adr/0190-inference-plugin-generalization-and-direct-tier.md) 与 [1795617883_inference-plugin-upgrade.md](1795617883_inference-plugin-upgrade.md)），优先拉齐非容器运行（推理 `direct` / 训练器 `local_process`）与受管容器运行（共享窄 `ContainerRuntimePort`）以及 `yoao-extension-manifest/v1` 口径；完成推理插件升级后再同步修订 [ADR-0189](../adr/0189-trainer-extension-point.md) 并启动 **T2**。
