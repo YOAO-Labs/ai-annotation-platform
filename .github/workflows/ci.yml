@@ -4,7 +4,9 @@ on:
   push:
     branches: [dev]
   pull_request:
-    branches: [dev]
+    branches: [dev, "ci/**"]
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       e2e_scope:
@@ -12,592 +14,138 @@ on:
         required: false
         default: extended
         type: choice
-        options:
-          - extended
-          - full
+        options: [extended, full]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  plugin-sdk:
-    name: Plugin SDK test dependency
-    needs: e2e-plan
-    if: needs.e2e-plan.outputs.docs-only != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Stage verified Plugin-SDK artifacts
-        env:
-          MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
-          SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
-        run: >-
-          python3 scripts/fetch-python-artifacts.py --manifest "$MANIFEST" --sha256 "$SHA256"
-          --output "$RUNNER_TEMP/plugin-sdk" --package yoao-backend-runtime
-      - uses: actions/upload-artifact@v4
-        with:
-          name: plugin-sdk-runtime
-          path: ${{ runner.temp }}/plugin-sdk/*.whl
-          if-no-files-found: error
-
-  backend-tests-shard-zero:
-    name: Backend tests shard zero
-    needs: plugin-sdk
-    uses: ./.github/workflows/backend-test.yml
-    with:
-      shard-index: 0
-      shard-count: 4
-
-  backend-tests-shard-one:
-    name: Backend tests shard one
-    needs: plugin-sdk
-    uses: ./.github/workflows/backend-test.yml
-    with:
-      shard-index: 1
-      shard-count: 4
-
-  backend-tests-shard-two:
-    name: Backend tests shard two
-    needs: plugin-sdk
-    uses: ./.github/workflows/backend-test.yml
-    with:
-      shard-index: 2
-      shard-count: 4
-
-  backend-tests-shard-three:
-    name: Backend tests shard three
-    needs: plugin-sdk
-    uses: ./.github/workflows/backend-test.yml
-    with:
-      shard-index: 3
-      shard-count: 4
-
-  worktree-tests:
-    name: Backend worktree and maintenance tests
-    needs: plugin-sdk
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: user
-          POSTGRES_PASSWORD: pass
-          POSTGRES_DB: annotation_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    env:
-      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
-      SECRET_KEY: ci-test-secret
-      MINIO_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
-      BACKEND_MINIO_PROJECT: worktree-minio-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup-backend-test-python
-        id: python
-      - uses: ./.github/actions/start-test-minio
-        id: minio
-        with:
-          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
-      - name: Prepare pinned MinIO client
-        id: mc
-        run: |
-          mkdir -p "$RUNNER_TEMP/minio-client"
-          docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml \
-            cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
-          chmod 700 "$RUNNER_TEMP/minio-client/mc"
-          echo "$RUNNER_TEMP/minio-client" >> "$GITHUB_PATH"
-      - name: Worktree and local service maintenance unit tests
-        if: ${{ !cancelled() && steps.python.outcome == 'success' }}
-        working-directory: apps/api
-        run: >-
-          uv run python -m pytest -q --tb=short ../../scripts/test_worktree*.py
-          ../../scripts/test_production_health_recover.py ../../scripts/test_development_restart.py
-          --junitxml=worktree-unit-results.xml
-      - name: Orca and Codex worktree setup
-        if: ${{ !cancelled() && steps.python.outcome == 'success' }}
-        working-directory: apps/api
-        run: uv run python ../../scripts/test-orca-worktree-setup.py
-      - name: Worktree resource isolation acceptance
-        if: ${{ !cancelled() && steps.python.outcome == 'success' && steps.mc.outcome == 'success' }}
-        working-directory: apps/api
-        run: uv run python -m pytest -q --tb=short ../../scripts/verify_worktree_isolation.py --junitxml=worktree-isolation-results.xml
-      - uses: actions/setup-node@v4
-        id: node
-        if: ${{ !cancelled() && steps.python.outcome == 'success' && steps.mc.outcome == 'success' }}
-        with:
-          node-version: "22"
-      - name: Verify task and dataset item playback cleanup over HTTP
-        id: playback
-        if: ${{ !cancelled() && steps.node.outcome == 'success' }}
-        env:
-          ENVIRONMENT: development
-        run: |
-          packages=()
-          if ! command -v ffprobe >/dev/null || ! command -v ffmpeg >/dev/null; then
-            packages+=(ffmpeg)
-          fi
-          if [ ! -f /usr/share/color/icc/sRGB.icc ] && [ ! -f /usr/share/color/icc/sRGB.icm ] &&
-             [ ! -f /usr/share/color/icc/colord/sRGB.icc ]; then
-            packages+=(icc-profiles-free)
-          fi
-          if [ "${#packages[@]}" -gt 0 ]; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends "${packages[@]}"
-          fi
-          PLAYWRIGHT_ML_FIXTURE_HOST=$(docker network inspect bridge --format '{{(index .IPAM.Config 0).Gateway}}')
-          export PLAYWRIGHT_ML_FIXTURE_HOST
-          node scripts/dev-worktree.mjs exec --mode e2e -- \
-            node --test --test-reporter=spec --test-reporter-destination=stdout \
-            --test-reporter=junit --test-reporter-destination=apps/api/original-playback-http-results.xml \
-            scripts/verify_original_playback_http.mjs
-          python - <<'PY'
-          from xml.etree import ElementTree
-          cases = list(ElementTree.parse("apps/api/original-playback-http-results.xml").iter("testcase"))
-          assert sorted(case.get("name") for case in cases) == [
-              "item original playback fixture cleanup", "task original playback fixture cleanup",
-          ]
-          assert not any(case.find(tag) is not None for case in cases for tag in ("skipped", "failure", "error"))
-          PY
-      - name: Retire playback fixture resources
-        id: retire-playback
-        if: ${{ always() && steps.playback.outcome != 'skipped' }}
-        env:
-          ENVIRONMENT: development
-        run: |
-          if [ -f .worktree/e2e/resources.json ]; then
-            confirmation=$(jq -er '.resources.confirmation' .worktree/e2e/resources.json)
-            node scripts/dev-worktree.mjs destroy --mode e2e --confirm "$confirmation"
-          fi
-      - name: Upload worktree test results
-        if: ${{ !cancelled() && steps.python.outcome == 'success' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: worktree-test-results
-          path: |
-            apps/api/worktree-unit-results.xml
-            apps/api/worktree-isolation-results.xml
-            apps/api/original-playback-http-results.xml
-          if-no-files-found: error
-          retention-days: 7
-      - name: Retire worktree object store
-        if: ${{ always() && steps.minio.outcome != 'skipped' && (steps.playback.outcome == 'skipped' || steps.retire-playback.outcome == 'success') }}
-        run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
-
-  pytest:
-    name: Backend tests
-    runs-on: ubuntu-latest
-    needs:
-      - e2e-plan
-      - worktree-tests
-      - backend-tests-shard-zero
-      - backend-tests-shard-one
-      - backend-tests-shard-two
-      - backend-tests-shard-three
-    if: always()
-    steps:
-      - name: Verify backend results for the planned scope
-        env:
-          PLAN_RESULT: ${{ needs.e2e-plan.result }}
-          EXPECTED: ${{ needs.e2e-plan.outputs.docs-only == 'true' && 'skipped' || 'success' }}
-          WORKTREE_RESULT: ${{ needs.worktree-tests.result }}
-          SHARD_ZERO_RESULT: ${{ needs.backend-tests-shard-zero.result }}
-          SHARD_ONE_RESULT: ${{ needs.backend-tests-shard-one.result }}
-          SHARD_TWO_RESULT: ${{ needs.backend-tests-shard-two.result }}
-          SHARD_THREE_RESULT: ${{ needs.backend-tests-shard-three.result }}
-        run: |
-          test "$PLAN_RESULT" = success
-          for result in "$WORKTREE_RESULT" "$SHARD_ZERO_RESULT" "$SHARD_ONE_RESULT" "$SHARD_TWO_RESULT" "$SHARD_THREE_RESULT"; do
-            if [ "$result" != "$EXPECTED" ]; then
-              echo "::error::Expected backend test result $EXPECTED; got $result"
-              exit 1
-            fi
-          done
-
-  examples-pytest:
-    name: ML examples tests
-    needs: e2e-plan
-    if: needs.e2e-plan.outputs.docs-only != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install uv
-        id: setup-uv
-        run: pip install uv
-      - name: echo-ml-backend contract tests
-        working-directory: examples/ml-backend/echo-ml-backend
-        run: uv run --extra test pytest -q --junitxml=echo-test-results.xml
-      - name: mock-v2-backend contract tests
-        if: ${{ !cancelled() && steps.setup-uv.outcome == 'success' }}
-        working-directory: examples/ml-backend/mock-v2-backend
-        run: uv run --extra test pytest -q --junitxml=mock-v2-test-results.xml
-      - name: Upload echo example results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: echo-example-test-results
-          path: examples/ml-backend/echo-ml-backend/echo-test-results.xml
-          if-no-files-found: error
-      - name: Upload mock v2 example results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: mock-v2-example-test-results
-          path: examples/ml-backend/mock-v2-backend/mock-v2-test-results.xml
-          if-no-files-found: error
-
-  python-sdk-pytest:
-    name: Python SDK tests
-    needs: plugin-sdk
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - uses: actions/download-artifact@v4
-        with:
-          name: plugin-sdk-runtime
-          path: .artifacts/python/plugin-sdk
-      - name: Test repository contracts and installed SDK distributions
-        id: sdk-tests
-        run: python scripts/test-sdk-distributions.py "$RUNNER_TEMP/sdk-reports"
-      - name: Upload SDK results
-        if: ${{ !cancelled() && steps.sdk-tests.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-sdk-test-results
-          path: ${{ runner.temp }}/sdk-reports/
-          if-no-files-found: error
-
-  owner-test-plan:
-    name: Owner suite inventory
-    needs: e2e-plan
-    if: needs.e2e-plan.outputs.docs-only != 'true'
+  plan:
+    name: CI scope
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
+      plan: ${{ steps.route.outputs.plan }}
+      receipt: ${{ steps.route.outputs.id }}
+      full: ${{ steps.route.outputs.full }}
     steps:
       - uses: actions/checkout@v4
-      - name: Audit independent test roots
-        id: plan
-        run: node scripts/test-suite-inventory.mjs --owner-matrix >> "$GITHUB_OUTPUT"
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Select checks using the base policy
+        id: route
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          GROUP: ${{ github.event.merge_group.head_sha }}
+          CUTOVER: ${{ vars.CI_AFFECTED_ONLY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          plan='{"scope":"full","reason":"Non-PR event","docs":false,"web":[],"api":[]}'
+          full=true
+          if [[ $GITHUB_EVENT_NAME == merge_group ]]; then
+            test "$GROUP" = "$GITHUB_SHA"
+          elif [[ $GITHUB_EVENT_NAME == pull_request ]]; then
+            test "$(git rev-parse HEAD^1)" = "$BASE"
+            test "$(git rev-parse HEAD^2)" = "$HEAD"
+            if git cat-file -e "$BASE:scripts/plan-affected-pr.mjs"; then
+              policy=$(mktemp -d)
+              for file in plan-affected-pr.mjs affected-pr-python.py test-suites.json; do
+                git show "$BASE:scripts/$file" > "$policy/$file"
+              done
+              plan=$(node "$policy/plan-affected-pr.mjs" "$BASE" "$GITHUB_SHA" | jq -ce .)
+            else
+              plan=$(jq -c '.reason="Base predates the affected-check policy"' <<< "$plan")
+            fi
+            case $(jq -er .scope <<< "$plan") in
+              affected)
+                if [[ $GITHUB_BASE_REF != dev ]]; then
+                  full=false
+                elif [[ $CUTOVER == true ]]; then
+                  if gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/rules/branches/dev" | jq -e '
+                    add | any(.type == "merge_queue") and any(.type == "required_status_checks" and
+                      any(.parameters.required_status_checks[]; .context == "CI verdict" and .integration_id == 15368))' >/dev/null; then
+                    full=false
+                  else
+                    echo '::warning::Cannot confirm the dev merge queue and required Actions verdict; retaining full CI.'
+                  fi
+                fi ;;
+              full) ;;
+              *) exit 1 ;;
+            esac
+          fi
+          printf 'plan=%s\nfull=%s\n' "$plan" "$full" >> "$GITHUB_OUTPUT"
+          echo "id=$GITHUB_SHA/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          printf 'Base `%s` · tested `%s` · attempt `%s` · run full suite: `%s`\n\n' "$BASE" "$GITHUB_SHA" "$GITHUB_RUN_ATTEMPT" "$full" >> "$GITHUB_STEP_SUMMARY"
+          jq -r '"```json\n" + tojson + "\n```"' <<< "$plan" >> "$GITHUB_STEP_SUMMARY"
 
-  owner-contract-tests:
-    name: Owner contract suite execution
-    needs: owner-test-plan
+  affected:
+    name: CI affected
+    needs: plan
+    if: fromJSON(needs.plan.outputs.plan).scope == 'affected'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.owner-test-plan.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - name: Install native tools
-        if: matrix.system_packages != ''
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ${{ matrix.system_packages }}
-      - name: Run owner tests in their own environment
-        working-directory: ${{ matrix.directory }}
-        run: uv run ${{ matrix.options }} pytest -q --junitxml=owner-test-results.xml
-      - name: Upload owner results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owner-test-results-${{ strategy.job-index }}
-          path: ${{ matrix.directory }}/owner-test-results.xml
-          if-no-files-found: error
-
-  storage-agent-tests:
-    name: Storage agent tests
-    needs: e2e-plan
-    if: needs.e2e-plan.outputs.docs-only != 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - name: Run storage agent and portable contracts
-        env:
-          PYTHONPATH: apps/storage-agent:apps/_shared/filesystem_read/src:apps/_shared/site_agent_contract/src
-        run: >-
-          uv run --no-project --with pytest pytest -q --import-mode=importlib
-          apps/_shared/filesystem_read/tests apps/_shared/site_agent_contract/tests
-          apps/storage-agent/tests --junitxml=storage-agent-test-results.xml
-      - name: Upload storage agent results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: storage-agent-test-results
-          path: storage-agent-test-results.xml
-          if-no-files-found: error
-
-  training-executor-tests:
-    name: Training executor tests
-    needs: e2e-plan
-    if: needs.e2e-plan.outputs.docs-only != 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install offline Ultralytics fonts
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-cjk
-          test -r /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
-          test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install uv
-        id: setup-uv
-        run: pip install uv
-      - name: Verify official YOLO11n preview weights
-        working-directory: ${{ runner.temp }}
-        run: |
-          curl --fail --silent --show-error --location --proto '=https' --max-time 120 \
-            --output yolo11n.pt.part \
-            https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
-          echo '0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1  yolo11n.pt.part' | sha256sum --check --strict
-          mv yolo11n.pt.part yolo11n.pt
-      - name: Run training executor tests
-        if: ${{ !cancelled() && steps.setup-uv.outcome == 'success' }}
-        env:
-          PREVIEW_TEST_BASE: ${{ runner.temp }}/yolo11n.pt
-        working-directory: apps/training-executor
-        run: uv run --with pytest --with pytest-asyncio pytest -q --junitxml=training-executor-test-results.xml
-      - name: Upload training executor results
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: training-executor-test-results
-          path: apps/training-executor/training-executor-test-results.xml
-          if-no-files-found: error
-
-  vitest:
-    name: Frontend verification
-    needs: e2e-plan
-    if: needs.e2e-plan.outputs.docs-only != 'true'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v4
-      - name: pnpm install
-        working-directory: apps/web
-        run: pnpm install --frozen-lockfile
-      - name: tsc + build (codegen reads checked-in snapshot)
-        working-directory: apps/web
-        env:
-          OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
-        run: pnpm build
-      - name: Test timeline layout in Chromium
-        if: needs.e2e-plan.outputs.timeline-layout != 'false'
-        id: timeline-layout
-        env:
-          PLAYWRIGHT_JUNIT_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.xml
-          PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ runner.temp }}/video-timeline-layout.json
-        run: |
-          pnpm --filter web exec playwright install --with-deps --only-shell chromium
-          pnpm --filter web test:e2e:layout video-playback-overlay.spec.ts --reporter=list,junit,json
-          E2E_REQUIRE_ALL_TESTS=1 node scripts/summarize-e2e-results.mjs timeline-layout success "$PLAYWRIGHT_JSON_OUTPUT_NAME"
-      - name: Upload timeline layout results
-        if: ${{ !cancelled() && steps.timeline-layout.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-video-timeline-layout
-          path: ${{ runner.temp }}/video-timeline-layout.*
-          if-no-files-found: error
-      - name: Bundle size check
-        working-directory: apps/web
-        run: pnpm size
-      - name: Run Vitest
-        working-directory: apps/web
-        run: pnpm test
-
-  lint:
-    name: Repository quality
-    needs: e2e-plan
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    outputs:
+      receipt: ${{ steps.receipt.outputs.id }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+          persist-credentials: false
+      - uses: ./.github/actions/run-affected
         with:
-          python-version: "3.11"
-      - name: Install uv
-        run: pip install uv
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - uses: pnpm/action-setup@v4
-      - name: pnpm install
-        run: pnpm install --frozen-lockfile
-      - name: Repository format check
-        if: needs.e2e-plan.outputs.docs-only != 'true'
-        run: pnpm format:check
-      - name: codegen (read snapshot for typecheck)
-        if: needs.e2e-plan.outputs.docs-only != 'true'
-        working-directory: apps/web
-        env:
-          OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
-        run: pnpm codegen
-      - name: tsc --noEmit
-        if: needs.e2e-plan.outputs.docs-only != 'true'
-        working-directory: apps/web
-        run: pnpm typecheck
-      - name: Repository lint
-        if: needs.e2e-plan.outputs.docs-only != 'true'
-        env:
-          COMMENT_LINT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
-        run: pnpm lint
-      - name: Comment ratchet regression cases
-        if: needs.e2e-plan.outputs.docs-only != 'true'
-        run: pnpm lint:comments --test
-      - name: Pre-commit checks on changed files
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          scope=(--all-files)
-          if [[ -n "$BASE" && ! "$BASE" =~ ^0+$ ]]; then
-            scope=(--from-ref "$BASE" --to-ref HEAD)
-          fi
-          uv tool run --from pre-commit==4.6.1 pre-commit run "${scope[@]}" --hook-stage manual --show-diff-on-failure
-      - name: Repository Node script tests
-        if: needs.e2e-plan.outputs.docs-only != 'true'
-        run: node --test scripts/*.test.mjs scripts/test-codex-session-start.mjs
-      - name: Check Python SDK documentation snippets
-        if: needs.e2e-plan.outputs.docs-only == 'true'
-        run: uv run --no-project --with pytest pytest --noconftest -q packages/python-sdk/tests/test_docs_snippets.py
-      - name: New product names
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then
-            BASE=$(git rev-parse HEAD^ 2>/dev/null || git hash-object -t tree /dev/null)
-          fi
-          node scripts/check-product-naming.mjs --base "$BASE"
+          plan: ${{ needs.plan.outputs.plan }}
+          base: ${{ github.event.pull_request.base.sha }}
+          manifest: ${{ vars.YOAO_SDK_MANIFEST }}
+          manifest-sha256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
+      - id: receipt
+        run: echo "id=$GITHUB_SHA/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
 
-  e2e-plan:
-    name: CI test planning
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      docs-only: ${{ steps.plan.outputs.docs_only }}
-      timeline-layout: ${{ steps.plan.outputs.timeline_layout }}
-      matrix: ${{ steps.plan.outputs.matrix }}
-      required: ${{ steps.plan.outputs.required }}
-      run-suites: ${{ steps.plan.outputs.run_suites }}
-      ml-cpu: ${{ steps.plan.outputs.ml_cpu }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - name: Fetch PR base
-        if: github.event_name == 'pull_request'
-        env:
-          E2E_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git fetch --no-tags --depth=1 origin "$E2E_BASE_SHA"
-      - name: Select E2E suites
-        id: plan
-        env:
-          E2E_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          E2E_SHADOW_PATH: ${{ runner.temp }}/e2e-shadow.json
-          E2E_DISPATCH_SCOPE: ${{ inputs.e2e_scope }}
-          E2E_SELECTION_MODE: ${{ vars.E2E_SELECTION_MODE }}
-        run: node scripts/plan-e2e-suites.mjs "$E2E_BASE_SHA" "$GITHUB_STEP_SUMMARY" >> "$GITHUB_OUTPUT"
-      - name: Upload complete E2E selection report
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-selection-report
-          path: ${{ steps.plan.outputs.shadow_path }}
-          if-no-files-found: error
-
-  ml-cpu:
-    name: ML CPU contract tests
-    needs: [e2e-plan]
-    if: needs.e2e-plan.outputs.ml-cpu == 'true'
-    uses: ./.github/workflows/ml-cpu-test.yml
+  full:
+    name: CI full suite
+    needs: plan
+    if: needs.plan.outputs.full == 'true'
+    uses: ./.github/workflows/ci-full.yml
     with:
-      suites: "all"
+      e2e_scope: ${{ inputs.e2e_scope || 'extended' }}
+      force-full: ${{ github.event_name == 'merge_group' || (github.event_name == 'pull_request' && fromJSON(needs.plan.outputs.plan).scope == 'full') }}
+      check-docs: ${{ github.event_name == 'merge_group' || (github.event_name == 'pull_request' && fromJSON(needs.plan.outputs.plan).scope == 'full') }}
 
-  e2e-suites:
-    name: Frontend E2E execution
-    needs: [e2e-plan]
-    if: needs.e2e-plan.outputs.run-suites == 'true'
-    uses: ./.github/workflows/e2e-run.yml
-    with:
-      matrix: ${{ needs.e2e-plan.outputs.matrix }}
-
-  e2e:
-    name: Frontend E2E
-    runs-on: ubuntu-latest
-    needs: [e2e-plan, e2e-suites]
+  verdict:
+    name: CI verdict
     if: always()
+    needs: [plan, affected, full]
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Collect per-suite status artifacts
-        if: needs.e2e-plan.outputs.run-suites == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          pattern: playwright-report-*
-          path: suite-status-raw
-          merge-multiple: true
-      - name: Audit planned suites against actual results
-        if: needs.e2e-plan.outputs.required != ''
+      - name: Require every selected job
         env:
-          E2E_REQUIRED: ${{ needs.e2e-plan.outputs.required }}
-          E2E_RUN_SUITES: ${{ needs.e2e-plan.outputs.run-suites }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PLAN_RECEIPT: ${{ needs.plan.outputs.receipt }}
+          PLAN: ${{ needs.plan.outputs.plan }}
+          FULL: ${{ needs.plan.outputs.full }}
+          FULL_RESULT: ${{ needs.full.result }}
+          AFFECTED_RESULT: ${{ needs.affected.result }}
+          RECEIPT: ${{ needs.affected.outputs.receipt }}
         run: |
-          printf '%s' "$E2E_REQUIRED" > required-suites.json
-          if [ "$E2E_RUN_SUITES" = "true" ]; then
-            node scripts/audit-e2e-requirements.mjs required-suites.json suite-status-raw/suite-status
-          else
-            mkdir -p empty-status
-            node scripts/audit-e2e-requirements.mjs required-suites.json empty-status
+          set -euo pipefail
+          test "$PLAN_RESULT" = success
+          if [[ $PLAN_RECEIPT != "$GITHUB_SHA/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" ]]; then
+            echo '::error::Rerun all jobs to collect evidence for this attempt.'
+            exit 1
           fi
-      - name: Require every planned E2E suite to pass
-        env:
-          E2E_PLAN_RESULT: ${{ needs.e2e-plan.result }}
-          E2E_SUITES_RESULT: ${{ needs.e2e-suites.result }}
-          E2E_RUN_SUITES: ${{ needs.e2e-plan.outputs.run-suites }}
-        run: |
-          test "$E2E_PLAN_RESULT" = success
-          if [ "$E2E_RUN_SUITES" = "true" ]; then
-            test "$E2E_SUITES_RESULT" = success
-          else
-            test "$E2E_SUITES_RESULT" = skipped
-          fi
+          scope=$(jq -er .scope <<< "$PLAN")
+          case "$scope/$FULL" in
+            full/true) test "$AFFECTED_RESULT" = skipped ;;
+            affected/true|affected/false)
+              test "$GITHUB_EVENT_NAME" = pull_request
+              test "$AFFECTED_RESULT" = success
+              test "$RECEIPT" = "$GITHUB_SHA/$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT" ;;
+            *) exit 1 ;;
+          esac
+          if [[ $FULL == true ]]; then test "$FULL_RESULT" = success; else test "$FULL_RESULT" = skipped; fi
+          printf 'Tested `%s` · scope `%s` · affected `%s` · full `%s`\n' "$GITHUB_SHA" "$scope" "$AFFECTED_RESULT" "$FULL_RESULT" >> "$GITHUB_STEP_SUMMARY"

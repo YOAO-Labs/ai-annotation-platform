@@ -2,7 +2,7 @@
 
 Give authors a verdict on each ordinary push in **less than 600 seconds**, including queues. Let that verdict admit a PR to the merge queue, never straight into `dev`. Keep the full product suite on the candidate that actually merges. Do not delete a test to make a lane fit.
 
-Status: design for review, not a change to Actions or branch protection. The reference is [PR #195 at `1c855e083`](https://github.com/YOAO-Labs/YOAO/tree/1c855e083cfc2fd7a1e742e28233ce5f7301c797). Rebase the plan on the CI that lands. Proposed deliveries **A** and **B** can branch independently from that baseline. **C** needs both. **D** needs C and maintainer approval of the `dev` protection change. The letters are delivery IDs, not open PRs.
+Status: [PR #195](https://github.com/YOAO-Labs/YOAO/pull/195) implements the affected lane. It runs independently of the existing `dev` checks. Stacked PRs targeting `ci/**` exercise affected-only selection before rollout. The platform validates its repository documentation; the documentation site now builds in YOAO-Docs. Do not enable affected-only checks on `dev` until the queue and baseline satisfy the gates below.
 
 ## Where the minutes go
 

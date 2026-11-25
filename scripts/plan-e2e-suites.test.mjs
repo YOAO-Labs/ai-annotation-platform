@@ -930,6 +930,17 @@ test("the required manifest audits every effective job and the bundled Worker in
       assert.deepEqual(requiredIds(out.required), withWorkerReceipt(broadened), event);
       assertFullDispatch(out.matrix);
     }
+    for (const event of ["merge_group", "pull_request"]) {
+      const out = run({
+        GITHUB_EVENT_NAME: event,
+        E2E_SELECTION_MODE: "legacy",
+        ...(event === "pull_request" && { E2E_FORCE_FULL: "true" }),
+      });
+      assert.equal(out.ml_cpu, "true", event);
+      assert.equal(out.docs_only, "false", event);
+      assert.deepEqual(requiredIds(out.required), withWorkerReceipt(broadened), event);
+      assertFullDispatch(out.matrix);
+    }
 
     const pointcloudBase = git("rev-parse", "HEAD");
     mkdirSync(join(cwd, "apps/web/e2e/tests"), { recursive: true });

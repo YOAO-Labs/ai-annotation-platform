@@ -23,6 +23,16 @@
 
 测试隔离、模块定向用例及证据要求见[测试指南](https://yoao-labs.github.io/YOAO-Docs/dev/testing)。
 
+## PR 检查
+
+`CI scope` 比较 PR 基线与实际测试的合并提交。选中 `CI affected` 时，摘要列出本次要跑的检查。纯文档不启动应用；训练列表与占比图跑对应的组件用例和 Web 类型检查；审计月报纯计算只运行 `tests/test_audit_summary.py`，不启动数据库。改公共接口、共享夹具、依赖、CI 规则或未登记的代码会回退到完整检查。平台仓库不构建已迁出的文档站。
+
+`ci/**` 集成分支上的普通 PR 只跑受影响检查。向 `dev` 提交时，先看独立的快速结果，完整 CI 在对照期仍运行。合并队列始终在候选 SHA 上跑完整 CI。仅在实测失败会阻止合并、成功的完整候选可以合并后，维护者才可设置仓库变量 `CI_AFFECTED_ONLY=true`。若 `dev` 的有效规则无法确认强制队列与 GitHub Actions 的 `CI verdict`，仍保留完整 CI。重跑请选择 **Re-run all jobs**，不把旧 attempt 的通过结果当作本次证据。
+
+普通 PR 的十分钟从 GitHub 收到更新算到 `CI verdict` 完成，包含排队和安装。单次 `CI affected` 通过只证明该提交选中的检查；完整门禁和正式达标样本分开计时。
+
+完整 CI 让四个 API 分片复用经清单校验的 runtime wheel；工作树与维护用例单独并行，不在各片重复。复现第 3 片时，在隔离测试环境的 `apps/api` 中运行 `uv run pytest -q --shard-index 3 --shard-count 4 --shard-plan tests/ci-shard-plan.json`。pytest 和 Vitest 默认不采集覆盖率。
+
 ## 按主题查阅
 
 - **代码与配置**：[仓库地图](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/repository-map)、[API 参考](https://yoao-labs.github.io/YOAO-Docs/api/)、[设计系统](https://yoao-labs.github.io/YOAO-Docs/dev/reference/design-system)、[环境变量](https://yoao-labs.github.io/YOAO-Docs/dev/reference/env-vars)。

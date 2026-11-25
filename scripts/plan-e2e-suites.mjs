@@ -530,8 +530,10 @@ function selectPrSuites(paths) {
 }
 
 export function selectSuites(eventName, paths, options = {}) {
-  if (eventName === "pull_request") return selectPrSuites(paths);
+  if (eventName === "pull_request" && !options.forceFull) return selectPrSuites(paths);
   const scopes = {
+    pull_request: "full",
+    merge_group: "full",
     push: "full",
     schedule: process.env.E2E_SCHEDULE_SCOPE ?? "full",
     workflow_dispatch: options.dispatchScope ?? "extended",
@@ -622,7 +624,7 @@ export function planE2ESuites(eventName, paths) {
   const legacy = SUITE_CONTRACT.filter((suite) => suite.legacyGate);
   if (["schedule", "workflow_dispatch"].includes(eventName))
     return { include: legacy.filter(({ scope }) => scope === "extended") };
-  if (eventName === "push") return { include: legacy };
+  if (eventName === "push" || eventName === "merge_group") return { include: legacy };
   if (eventName !== "pull_request") throw new Error(`Unsupported E2E event: ${eventName}`);
   if (!Array.isArray(paths)) throw new Error("PR changed paths must be supplied");
   return {
@@ -647,8 +649,9 @@ function dispatchMatrix(entries) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const eventName = process.env.GITHUB_EVENT_NAME;
-  let paths;
-  if (eventName === "pull_request") {
+  const forceFull = eventName === "merge_group" || process.env.E2E_FORCE_FULL === "true";
+  let paths = [];
+  if (eventName === "pull_request" && !forceFull) {
     const base = process.argv[2];
     if (!/^[a-f0-9]{40}$/.test(base ?? "")) throw new Error("A full PR base SHA is required");
     paths = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", base, "HEAD", "--"], {
@@ -658,10 +661,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       .filter(Boolean);
   }
   const dispatchScope = process.env.E2E_DISPATCH_SCOPE;
-  const selectionMode = (process.env.E2E_SELECTION_MODE ?? "").trim() || "planned";
+  const selectionMode = forceFull
+    ? "planned"
+    : (process.env.E2E_SELECTION_MODE ?? "").trim() || "planned";
   if (!["planned", "legacy"].includes(selectionMode))
     throw new Error(`Invalid E2E selection mode: ${selectionMode}`);
-  const shadow = shadowPlan(eventName, paths, { dispatchScope, selectionMode });
+  const shadow = shadowPlan(eventName, paths, { dispatchScope, selectionMode, forceFull });
   const docsOnly = shadow.classification.docsOnly === true;
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
@@ -670,7 +675,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     ".github/workflows/ml-cpu-test.yml",
   ];
   let mlCpu;
-  if (eventName === "push" || eventName === "schedule") mlCpu = true;
+  if (forceFull || eventName === "push" || eventName === "schedule") mlCpu = true;
   else if (eventName === "workflow_dispatch")
     mlCpu = (process.env.E2E_DISPATCH_SCOPE ?? "extended") === "full";
   else if (eventName === "pull_request") {
