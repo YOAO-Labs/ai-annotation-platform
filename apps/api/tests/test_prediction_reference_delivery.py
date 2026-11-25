@@ -619,18 +619,14 @@ async def test_dispatch_authority_failure_cannot_degrade_into_partial(mode):
             calls.append(True)
             return [PredictionResult(task_id="root", result=[rectangle()])]
 
-    checks = 0
-
-    async def guard():
-        nonlocal checks
-        checks += 1
-        if checks == 2:
+    async def guard(stage, _dispatch):
+        if stage == 9:
             raise ContentError("api_key_authority_revoked", 403)
 
     task = SimpleNamespace(id="root")
     image = Image.new("RGB", (48, 32), "red")
     try:
-        with pytest.raises(ContentError):
+        with pytest.raises(ContentError, match="^api_key_authority_revoked$"):
             await run_client_task_pipeline(
                 task,
                 [
@@ -648,8 +644,9 @@ async def test_dispatch_authority_failure_cannot_degrade_into_partial(mode):
                 [None, None],
                 resolve_url=lambda t: "http://owned.test",
                 stage_modes=["crop", mode],
-                load_image=lambda t: image.copy(),
-                before_dispatch=lambda *_args: guard(),
+                instance_id=uuid.uuid4(),
+                load_image=lambda _task: image,
+                before_dispatch=guard,
             )
         assert len(calls) == 1
     finally:
