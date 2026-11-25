@@ -103,7 +103,7 @@ GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_catalog_role";
 
 GRANT SELECT (
     id, display_id, name, description, data_type, is_temporal, file_count,
-    created_by, metadata, created_at, updated_at
+    created_by, metadata, created_at, updated_at, archived_at, archived_by, lifecycle_revision
 ), INSERT (
     id, display_id, name, description, data_type, is_temporal, file_count,
     created_by, metadata
@@ -125,6 +125,8 @@ ALTER FUNCTION yoao_assets_v1.list_catalog_datasets(
     uuid, text, text, boolean, integer, bigint
 ) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.get_catalog_dataset(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.get_catalog_dataset_detail(uuid, uuid)
     OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1.list_catalog_items(uuid, uuid, integer, bigint)
     OWNER TO :"assets_owner";

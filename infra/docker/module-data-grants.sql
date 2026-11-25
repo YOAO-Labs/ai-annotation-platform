@@ -5591,7 +5591,9 @@ GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), yoao_jobs_v1.read_job_for
     yoao_jobs_v1.transition_directory_registration_job(uuid, uuid, text, text, text, timestamptz, text, jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid, boolean) TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION yoao_assets_v1._catalog_dataset_summary(uuid) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1._catalog_failure(text),
+    yoao_assets_v1._catalog_actor(uuid, boolean), yoao_assets_v1._catalog_dataset_summary(uuid)
+    TO :"assets_owner";
 GRANT SELECT (id, dataset_item_id, project_id) ON yoao_labeling_v1.task_rows TO :"assets_owner";
 GRANT SELECT (id, task_id, dataset_item_id, role) ON yoao_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
 GRANT SELECT (id, task_id) ON yoao_labeling_v1.annotation_rows TO :"assets_owner";
@@ -5621,6 +5623,7 @@ GRANT DELETE ON public.dataset_quality_review_batches TO :"assets_owner";
 GRANT USAGE ON SEQUENCE public.dataset_source_acceptance_order_seq TO :"assets_owner";
 
 GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.get_catalog_dataset_detail(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._dataset_quality_duplicate_groups(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._dataset_quality_evidence(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._dataset_quality_job_matches(uuid, text, text) OWNER TO :"assets_owner";
