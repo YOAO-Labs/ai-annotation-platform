@@ -4,6 +4,7 @@ import hashlib
 import json
 from uuid import uuid4
 
+from yoao._plugin_docker import InspectedPluginImage
 from yoao.errors import SDKError, APIStatusError
 from yoao.plugin_deployment import LocalPluginConfig
 from yoao_inference_contract.plugin import (
@@ -274,17 +275,31 @@ class LocalDocker:
             "yoao-libreyolo",
             "qualify",
         )
+        self.prepare_assets_command: tuple[str, ...] | None = (
+            "yoao-libreyolo",
+            "prepare-assets",
+        )
+        self.prepare_assets_runs: list[dict] = []
         self.qualification_runs: list[dict] = []
         self.qualification_writer = None
 
     def image_id(self, config):
         return self.image_digest
 
-    def inspect_image_manifest(self, image):
+    def inspect_image_metadata(self, image):
         manifest = self.manifest or config().manifest
         if manifest.artifact != image:
             manifest = manifest.bind_artifact(image)
-        return manifest, self.image_digest, self.qualification_command
+        return InspectedPluginImage(
+            manifest=manifest,
+            image_id=self.image_digest,
+            qualification_command=self.qualification_command,
+            prepare_assets_command=self.prepare_assets_command,
+        )
+
+    def inspect_image_manifest(self, image):
+        inspected = self.inspect_image_metadata(image)
+        return inspected.manifest, inspected.image_id, inspected.qualification_command
 
     def run_qualification(self, run_cfg):
         run_cfg.validate()
@@ -431,7 +446,13 @@ class LocalDocker:
         self.created = False
         self.candidate_token = None
 
-    def prepare_assets(self, config):
+    def prepare_assets(self, config, command=None):
+        self.prepare_assets_runs.append(
+            {
+                "config": config,
+                "command": tuple(command) if command is not None else None,
+            }
+        )
         self.events.append("assets")
 
     def create_candidate(self, config):

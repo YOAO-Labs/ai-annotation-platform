@@ -115,7 +115,7 @@ def inspect_image_command(
     ),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Inspect a digest-pinned local plugin image's OCI manifest and qualification labels."""
+    """Inspect a digest-pinned local plugin image's OCI manifest and command labels."""
     with cli_errors(json_output):
         result = _inspect_image(image)
     print_learning_result(result, json_output)
@@ -295,7 +295,7 @@ def prepare_assets(
     state_dir: Path = typer.Option(..., "--state-dir"),
     json_output: bool = typer.Option(False, "--json"),
 ) -> None:
-    """Explicitly prepare the pinned default asset using the approved image."""
+    """Explicitly prepare assets using the image's OCI prepare-assets command."""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             result = _deployment(client, state_dir).prepare_assets()

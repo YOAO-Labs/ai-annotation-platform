@@ -26,15 +26,18 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from yoao._plugin_docker import (
+    PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL,
     QUALIFICATION_CONTEXT_TARGET,
     QUALIFICATION_FIXTURE_TARGET,
     QUALIFICATION_OUTPUT_FILE_TARGET,
     ContainerConfig,
     Docker,
+    InspectedPluginImage,
     QualificationRunConfig,
     _validate_entrypoint,
 )
 from yoao._plugin_receipt import ReceiptStore, _check_private, atomic_write_private
+from yoao.container_runtime import ContainerRuntimePort
 from yoao.errors import SDKError, APIStatusError, InstallError
 from yoao_inference_contract.plugin import (
     PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
@@ -188,14 +191,45 @@ def _default_container_port(entrypoint: Sequence[str]) -> int:
     return 8000
 
 
+def _coerce_plugin_docker(
+    docker: Docker | ContainerRuntimePort | None = None,
+    runtime: ContainerRuntimePort | None = None,
+) -> Any:
+    if docker is not None and runtime is not None:
+        raise ValueError("Specify at most one of docker or runtime")
+    if runtime is not None:
+        return Docker(runtime=runtime)
+    if docker is None:
+        return Docker()
+    if isinstance(docker, ContainerRuntimePort) and not isinstance(docker, Docker):
+        return Docker(runtime=docker)
+    return docker
+
+
+def _inspect_plugin_image(docker: Any, image: str) -> InspectedPluginImage:
+    if hasattr(docker, "inspect_image_metadata"):
+        return docker.inspect_image_metadata(image)
+    manifest, image_id, qualification_command = docker.inspect_image_manifest(image)
+    return InspectedPluginImage(
+        manifest=manifest,
+        image_id=image_id,
+        qualification_command=qualification_command,
+        prepare_assets_command=None,
+    )
+
+
 def resolve_local_plugin_config(
-    spec: LocalPluginDeploymentInput, docker: Docker | None = None
+    spec: LocalPluginDeploymentInput,
+    docker: Docker | ContainerRuntimePort | None = None,
+    *,
+    runtime: ContainerRuntimePort | None = None,
 ) -> ResolvedLocalPluginConfig:
     if spec.manifest is not None:
         manifest = spec.manifest
         from_oci_label = False
     elif spec.image is not None:
-        manifest, _, _ = (docker or Docker()).inspect_image_manifest(spec.image)
+        controller = _coerce_plugin_docker(docker, runtime)
+        manifest = _inspect_plugin_image(controller, spec.image).manifest
         from_oci_label = True
     else:
         raise SDKError("Specify exactly one of manifest or image")
@@ -220,12 +254,26 @@ def resolve_local_plugin_config(
     return ResolvedLocalPluginConfig(config=config, from_oci_label=from_oci_label)
 
 
-def inspect_image(image: str, docker: Docker | None = None) -> dict[str, Any]:
-    manifest, image_id, qcmd = (docker or Docker()).inspect_image_manifest(image)
+def inspect_image(
+    image: str,
+    docker: Docker | ContainerRuntimePort | None = None,
+    *,
+    runtime: ContainerRuntimePort | None = None,
+) -> dict[str, Any]:
+    inspected = _inspect_plugin_image(_coerce_plugin_docker(docker, runtime), image)
     return {
-        "image_id": image_id,
-        "manifest": manifest.model_dump(mode="json"),
-        "qualification_command": list(qcmd) if qcmd is not None else None,
+        "image_id": inspected.image_id,
+        "manifest": inspected.manifest.model_dump(mode="json"),
+        "qualification_command": (
+            list(inspected.qualification_command)
+            if inspected.qualification_command is not None
+            else None
+        ),
+        "prepare_assets_command": (
+            list(inspected.prepare_assets_command)
+            if inspected.prepare_assets_command is not None
+            else None
+        ),
     }
 
 
@@ -278,12 +326,15 @@ class LocalPluginDeployment:
         plugins: PluginInstallations,
         api_origin: str,
         state_dir: Path,
-        docker: Docker | None = None,
+        docker: Docker | ContainerRuntimePort | None = None,
+        *,
+        runtime: ContainerRuntimePort | None = None,
     ):
         self.plugins = plugins
         self.api_origin = api_origin.rstrip("/")
         self.store = ReceiptStore(state_dir)
-        self.docker = docker or Docker()
+        self.docker = _coerce_plugin_docker(docker, runtime)
+        self.runtime = getattr(self.docker, "runtime", None)
 
     def _load(self) -> dict:
         receipt = self.store.load()
@@ -557,21 +608,26 @@ class LocalPluginDeployment:
             "OMP_NUM_THREADS": str(max(1, int(config.cpus))),
             "MKL_NUM_THREADS": str(max(1, int(config.cpus))),
             "OPENBLAS_NUM_THREADS": str(max(1, int(config.cpus))),
-        }
-        if config.manifest.plugin_id != "libreyolo":
-            env["ROUTE_REGISTRY_ID"] = str(result.registry_id)
-            env["YOAO_PLUGIN_ID"] = config.manifest.plugin_id
-            env["YOAO_PLUGIN_VERSION"] = config.manifest.version
-            env["YOAO_PLUGIN_ASSET_MANIFEST_SHA256"] = (
-                config.manifest.asset_manifest_sha256
-            )
-            env["YOAO_PLUGIN_MANAGED_MODEL_COMPATIBILITY"] = json.dumps(
+            "ROUTE_REGISTRY_ID": str(result.registry_id),
+            "YOAO_PLUGIN_ID": config.manifest.plugin_id,
+            "YOAO_PLUGIN_VERSION": config.manifest.version,
+            **(
+                {
+                    "YOAO_PLUGIN_ASSET_MANIFEST_SHA256": (
+                        config.manifest.asset_manifest_sha256
+                    )
+                }
+                if config.manifest.asset_manifest_sha256 is not None
+                else {}
+            ),
+            "YOAO_PLUGIN_MANAGED_MODEL_COMPATIBILITY": json.dumps(
                 [
                     entry.model_dump(mode="json")
                     for entry in config.manifest.managed_model_compatibility
                 ],
                 separators=(",", ":"),
-            )
+            ),
+        }
         if config.manifest.resource.device == "cpu":
             env["NVIDIA_VISIBLE_DEVICES"] = "void"
             env["CUDA_VISIBLE_DEVICES"] = ""
@@ -633,12 +689,20 @@ class LocalPluginDeployment:
                 raise SDKError(
                     "Assets can only be prepared for a prepared installation"
                 )
-            if result.installation.manifest.plugin_id != "libreyolo":
+            manifest = result.installation.manifest
+            inspected = _inspect_plugin_image(self.docker, manifest.artifact)
+            if inspected.manifest != manifest:
                 raise SDKError(
-                    "This plugin does not provide an installer asset-preparation command"
+                    "Local image manifest differs from the reserved installation"
+                )
+            if inspected.prepare_assets_command is None:
+                raise SDKError(
+                    f"Local image does not declare {PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL}; "
+                    "prepare assets according to the plugin documentation"
                 )
             self.docker.prepare_assets(
-                self._container(receipt, result, with_qualification=False)
+                self._container(receipt, result, with_qualification=False),
+                inspected.prepare_assets_command,
             )
             return result
 
@@ -648,12 +712,11 @@ class LocalPluginDeployment:
             from yoao_lifecycle_contract import (
                 validate_managed_lifecycle_evidence,
             )
-            from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
         except ModuleNotFoundError as exc:
             raise InstallError(
                 "Plugin deployment dependencies are missing; install 'yoao-sdk[plugins]' from the private wheel index"
             ) from exc
-        return validate_managed_lifecycle_evidence, LIBRE_CUDA_RUNTIME
+        return validate_managed_lifecycle_evidence
 
     @staticmethod
     def _read_canonical_report(source: Path) -> tuple[Any, str, str]:
@@ -682,9 +745,7 @@ class LocalPluginDeployment:
         expected_image_id: str | None = None,
         saved_image_id: str | None = None,
     ) -> tuple[dict, str, str]:
-        validate_managed_lifecycle_evidence, libre_cuda_runtime = (
-            self._lifecycle_validators()
-        )
+        validate_managed_lifecycle_evidence = self._lifecycle_validators()
         raw_report, canonical, digest = self._read_canonical_report(source)
         try:
             report = validate_managed_lifecycle_evidence(raw_report)
@@ -715,16 +776,6 @@ class LocalPluginDeployment:
             "gpu_resource_id": resource.gpu_resource_id,
             "driver_version": gpu["driver_version"],
         }
-        if any(
-            entry.framework == "libreyolo"
-            for entry in item.manifest.managed_model_compatibility
-        ):
-            required.update(
-                {
-                    key: str(value).lower() if isinstance(value, bool) else str(value)
-                    for key, value in libre_cuda_runtime.items()
-                }
-            )
         expected_topology = {
             "registry_id": str(result.registry_id),
             "gpu_resource_id": resource.gpu_resource_id,
@@ -744,8 +795,8 @@ class LocalPluginDeployment:
             or deployment["pool_topology"] != expected_topology
             or any(versions.get(key) != value for key, value in required.items())
             or (
-                "cuda_build" in required
-                and gpu["runtime_version"] != required["cuda_build"]
+                "cuda_build" in versions
+                and gpu["runtime_version"] != versions["cuda_build"]
             )
         ):
             raise SDKError(
@@ -803,9 +854,10 @@ class LocalPluginDeployment:
             _validate_output_path(output_path)
 
         opts = options or QualificationOptions()
-        inspected_manifest, image_id, qualification_command = (
-            self.docker.inspect_image_manifest(manifest.artifact)
-        )
+        inspected = _inspect_plugin_image(self.docker, manifest.artifact)
+        inspected_manifest = inspected.manifest
+        image_id = inspected.image_id
+        qualification_command = inspected.qualification_command
         if inspected_manifest != manifest:
             raise SDKError(
                 "Local image manifest differs from the reserved installation"

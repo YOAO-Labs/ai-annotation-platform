@@ -300,42 +300,316 @@ async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_an
 async def test_libreyolo_cpu_admission_keeps_runtime_and_fallback_pins():
     from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME
 
-    installation, receipt, challenge, health, setup = observation()
-    data = installation.model_dump(mode="json")
-    compatibility = [
-        {"framework": "libreyolo", "format": LIBRE_FORMAT, "runtime_device": "cpu"}
-    ]
-    data["installation"]["manifest"].update(
-        plugin_id="libreyolo",
+    for plugin_id, framework, fmt, runtime_info in (
+        ("libreyolo", "libreyolo", LIBRE_FORMAT, dict(LIBRE_RUNTIME)),
+        (
+            "custom.detector",
+            "custom_detector",
+            "custom-weights-v1",
+            {"device": "cpu", "custom_detector": "2.1.0"},
+        ),
+    ):
+        installation, receipt, challenge, health, setup = observation()
+        data = installation.model_dump(mode="json")
+        compatibility = [
+            {"framework": framework, "format": fmt, "runtime_device": "cpu"}
+        ]
+        data["installation"]["manifest"].update(
+            plugin_id=plugin_id,
+            capabilities=["inference", "detection", "managed_models"],
+            managed_model_compatibility=compatibility,
+        )
+        installation = PluginInstallationResponse.model_validate(data)
+        setup.update(
+            plugin_identity={"plugin_id": plugin_id, "version": "1.0"},
+            managed_model_compatibility=compatibility,
+            runtime_info=runtime_info,
+        )
+        kwargs = dict(
+            endpoint="http://cpu.example.test",
+            challenge=challenge,
+            healthy=True,
+            health=health,
+            setup=setup,
+        )
+        verify_endpoint_observation(installation, receipt, **kwargs)
+        changed_runtime_setup = deepcopy(setup)
+        changed_runtime_setup["runtime_info"]["torch"] = "different"
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": changed_runtime_setup}
+        )
+        for change in (
+            lambda h, s: h["compute"].update(cpu_fallback_supported=True),
+            lambda h, s: s.update(managed_model_compatibility=[]),
+        ):
+            changed_health, changed_setup = deepcopy(health), deepcopy(setup)
+            change(changed_health, changed_setup)
+            with pytest.raises(PluginObservationRejected):
+                verify_endpoint_observation(
+                    installation,
+                    receipt,
+                    **{**kwargs, "health": changed_health, "setup": changed_setup},
+                )
+
+
+async def test_framework_agnostic_cuda_qualification_and_top_level_fallback():
+    import hashlib
+    import json
+    from yoao_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
+    from yoao_lifecycle_contract import memory_cycle_evidence
+    from yoao_inference_contract.plugin import PluginLifecycleQualification
+
+    original, receipt, challenge, health, setup = observation()
+    model = original.model_dump(mode="json")
+    manifest = model["installation"]["manifest"]
+    manifest.update(
+        plugin_id="custom.detector",
         capabilities=["inference", "detection", "managed_models"],
-        managed_model_compatibility=compatibility,
+        resource={"device": "cuda", "memory_mb": 1024, "gpu_memory_mb": 512},
+        managed_model_compatibility=[
+            {
+                "framework": "custom_detector",
+                "format": "custom-weights-v1",
+                "runtime_device": "cuda",
+            }
+        ],
     )
-    installation = PluginInstallationResponse.model_validate(data)
+    resource = {
+        "gpu_resource_id": "node/GPU-456",
+        "physical_gpu_uuid": "GPU-456",
+        "logical_device": "cuda:0",
+    }
+    model["installation"]["resource"] = resource
+    installation = PluginInstallationResponse.model_validate(model)
+    receipt = PluginLaunchReceipt.model_validate(
+        {**receipt.model_dump(mode="json"), "resource": resource}
+    )
+    health["compute"]["configured_device"] = "cuda:0"
+    health["gpu_info"].update(
+        device_uuid="GPU-456", driver_version="driver-2", total_memory_mb=16384
+    )
+    health["residency"].update(
+        lifecycle_gate="enforce",
+        control_epoch="1",
+        identity={
+            "audience": "aap-gpu-lifecycle",
+            "backend_registry_id": str(installation.registry_id),
+            "gpu_resource_id": resource["gpu_resource_id"],
+        },
+    )
     setup.update(
-        plugin_identity={"plugin_id": "libreyolo", "version": "1.0"},
-        managed_model_compatibility=compatibility,
-        runtime_info=dict(LIBRE_RUNTIME),
+        plugin_identity={"plugin_id": "custom.detector", "version": "1.0"},
+        physical_gpu_uuid="GPU-456",
+        gpu_resource_id=resource["gpu_resource_id"],
+        terminal_lifecycle={
+            "terminal_drain_signed_endpoint": "/lifecycle/terminal-drain-signed"
+        },
+        managed_model_compatibility=manifest["managed_model_compatibility"],
+        runtime_info={
+            "device": "cuda",
+            "cuda_build": "12.8",
+            "driver_version": "driver-2",
+            "total_memory_mb": 16384,
+            "runtime_versions": {
+                "custom_detector": "2.1.0",
+                "torch": "2.6.0+cu128",
+            },
+        },
+    )
+    setup["models"][0]["resource_profile"]["device"] = "gpu"
+
+    def make_qualification(extra_versions: dict[str, str]):
+        runtime_versions = {
+            "plugin_id": "custom.detector",
+            "plugin_version": "1.0",
+            "artifact": receipt.artifact,
+            "asset_manifest_sha256": manifest["asset_manifest_sha256"],
+            "registry_id": str(installation.registry_id),
+            "gpu_resource_id": resource["gpu_resource_id"],
+            "driver_version": "driver-2",
+            **extra_versions,
+        }
+        cycles = [
+            memory_cycle_evidence(
+                cycle=n,
+                generation=str(n),
+                context_samples_mb=[100] * 5,
+                loaded_samples_mb=[1000] * 5,
+                unloaded_samples_mb=[100] * 5,
+            )
+            for n in (1, 2)
+        ]
+        report = build_managed_lifecycle_evidence(
+            backend_name="custom.detector",
+            deployment={
+                "git_commit": "abc",
+                "image_id": receipt.image_id,
+                "runtime_versions": runtime_versions,
+                "pool_topology": {
+                    "registry_id": str(installation.registry_id),
+                    "gpu_resource_id": resource["gpu_resource_id"],
+                    "pools": {"models": {"cap": 1}},
+                },
+            },
+            artifacts=[
+                {
+                    "kind": kind,
+                    "name": kind,
+                    "size_bytes": 5,
+                    "sha256": "a" * 64,
+                    "approval_ref": "approved",
+                }
+                for kind in ("weight", "fixture")
+            ],
+            gpu={
+                "uuid": "GPU-456",
+                "total_memory_mb": 16384,
+                "driver_version": "driver-2",
+                "runtime_version": "12.8",
+                "visible_device_count": 1,
+            },
+            cycles=cycles,
+            contract_checks=dict.fromkeys(
+                (
+                    "managed_lifecycle_advertised",
+                    "real_inference",
+                    "provider_or_device_gpu",
+                    "busy_unload_rejected",
+                    "cancel_accounting",
+                    "stale_generation_rejected",
+                    "token_replay_rejected",
+                    "partial_headers_rejected",
+                    "full_cleanup",
+                ),
+                True,
+            ),
+            final_residency=health["residency"],
+            runtime_ephemera_clean=True,
+        )
+        digest = hashlib.sha256(
+            json.dumps(
+                report,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=True,
+                allow_nan=False,
+            ).encode()
+        ).hexdigest()
+        return PluginLifecycleQualification(report=report, sha256=digest)
+
+    qualification = make_qualification(
+        {
+            "custom_detector": "2.1.0",
+            "torch": "2.6.0+cu128",
+            "tf32": "false",
+        }
     )
     kwargs = dict(
-        endpoint="http://cpu.example.test",
+        endpoint="http://custom.example.test:8000",
         challenge=challenge,
         healthy=True,
         health=health,
         setup=setup,
+        qualification=qualification,
     )
     verify_endpoint_observation(installation, receipt, **kwargs)
-    for change in (
-        lambda h, s: s["runtime_info"].update(torch="different"),
-        lambda h, s: h["compute"].update(cpu_fallback_supported=True),
+
+    drifted_nested = deepcopy(setup)
+    drifted_nested["runtime_info"]["runtime_versions"]["custom_detector"] = "9.9.9"
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": drifted_nested}
+        )
+
+    tf32_nested = deepcopy(setup)
+    tf32_nested["runtime_info"]["tf32"] = True
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation, receipt, **{**kwargs, "setup": tf32_nested}
+        )
+
+    top_level_setup = deepcopy(setup)
+    top_level_setup["runtime_info"] = {
+        "device": "cuda",
+        "cuda_build": "12.8",
+        "driver_version": "driver-2",
+        "total_memory_mb": 16384,
+        "custom_detector": "2.1.0",
+        "torch": "2.6.0+cu128",
+        "tf32": False,
+        "precision": None,
+        "revision": 1,
+    }
+    verify_endpoint_observation(
+        installation, receipt, **{**kwargs, "setup": top_level_setup}
+    )
+
+    for mutate in (
+        lambda s: s["runtime_info"].update(custom_detector="9.9.9"),
+        lambda s: s["runtime_info"].update(tf32=True),
+        lambda s: s["runtime_info"].__setitem__("runtime_versions", {}),
     ):
-        changed_health, changed_setup = deepcopy(health), deepcopy(setup)
-        change(changed_health, changed_setup)
+        bad_setup = deepcopy(top_level_setup)
+        mutate(bad_setup)
         with pytest.raises(PluginObservationRejected):
             verify_endpoint_observation(
-                installation,
-                receipt,
-                **{**kwargs, "health": changed_health, "setup": changed_setup},
+                installation, receipt, **{**kwargs, "setup": bad_setup}
             )
+
+    minimal_qualification = make_qualification({})
+    unmatched_top_level = deepcopy(top_level_setup)
+    unmatched_top_level["runtime_info"] = {
+        "device": "cuda",
+        "cuda_build": "12.8",
+        "driver_version": "driver-2",
+        "total_memory_mb": 16384,
+    }
+    with pytest.raises(PluginObservationRejected):
+        verify_endpoint_observation(
+            installation,
+            receipt,
+            **{
+                **kwargs,
+                "setup": unmatched_top_level,
+                "qualification": minimal_qualification,
+            },
+        )
+
+
+async def test_plugin_installation_observation_has_no_framework_hardcodings():
+    import ast
+    from pathlib import Path
+    import app.services.plugin_installation_observation as observation_module
+
+    source = Path(observation_module.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    forbidden = (
+        "libreyolo",
+        "ultralytics",
+        "yoao-libreyolo",
+        "libre_cuda_runtime",
+        "libre_runtime",
+    )
+    hits: list[str] = []
+    for node in ast.walk(tree):
+        candidates: list[str] = []
+        if isinstance(node, ast.Import):
+            candidates.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                candidates.append(node.module)
+            candidates.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.Name):
+            candidates.append(node.id)
+        elif isinstance(node, ast.Attribute):
+            candidates.append(node.attr)
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+            candidates.append(node.value)
+        for text in candidates:
+            lowered = text.lower()
+            if any(token in lowered for token in forbidden):
+                hits.append(text)
+    assert hits == []
 
 
 async def test_prepare_requires_super_admin_and_replay_matches_intent(

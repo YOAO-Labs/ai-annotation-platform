@@ -1,24 +1,33 @@
-"""Fixed Docker operations for one explicitly bound plugin installation.
+"""Fixed container operations for one explicitly bound plugin installation.
 
-No shell, caller-supplied command, privileged mode, Docker socket or arbitrary
+No shell, caller-supplied command, privileged mode, container socket or arbitrary
 mounts are accepted. Container identity is checked before every mutation.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 import hashlib
 import json
 import math
 import os
-import re
-import subprocess
-from collections.abc import Sequence
-import time
-from dataclasses import dataclass
 from pathlib import Path
+import re
+import time
 
 import httpx
 
+from yoao.container_runtime import (
+    ContainerInspection,
+    ContainerMount,
+    ContainerPortBinding,
+    ContainerRuntimePort,
+    ContainerStateInfo,
+    DetachedContainerSpec,
+    LocalDockerRuntime,
+    OneShotContainerSpec,
+)
 from yoao.errors import SDKError
 from yoao_inference_contract.plugin import (
     PLUGIN_MANIFEST_OCI_LABEL,
@@ -30,12 +39,13 @@ from yoao_inference_contract.plugin import (
     validate_oci_qualification_command,
 )
 
+PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL = "io.yoao.plugin.prepare-assets-command"
+
 _GPU = re.compile(
     r"^GPU-[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$"
 )
 _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _OWNER = re.compile(r"^[0-9a-f]{64}$")
-_LIBREYOLO_ENTRYPOINT = "yoao-libreyolo"
 
 _LABEL_INSTALLATION = "yoao.installation"
 _LABEL_OWNER = "yoao.owner"
@@ -47,6 +57,32 @@ QUALIFICATION_CONTEXT_TARGET = "/var/lib/yoao-qualification/context.json"
 QUALIFICATION_OUTPUT_DIR_TARGET = "/var/lib/yoao-qualification/output"
 QUALIFICATION_OUTPUT_FILE_TARGET = f"{QUALIFICATION_OUTPUT_DIR_TARGET}/report.json"
 QUALIFICATION_FIXTURE_TARGET = "/var/lib/yoao-qualification/fixture"
+
+
+def validate_oci_prepare_assets_command(command: Sequence[object]) -> tuple[str, ...]:
+    """Validate an asset-preparation argument vector as a fixed non-shell command."""
+    try:
+        return validate_oci_qualification_command(command)
+    except ValueError as exc:
+        raise ValueError(
+            str(exc).replace(
+                PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+                PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL,
+            )
+        ) from None
+
+
+def parse_oci_prepare_assets_command(raw: object) -> tuple[str, ...]:
+    """Parse an OCI prepare-assets command label as a fixed non-shell argument vector."""
+    try:
+        return parse_oci_qualification_command(raw)
+    except ValueError as exc:
+        raise ValueError(
+            str(exc).replace(
+                PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
+                PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL,
+            )
+        ) from None
 
 
 def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None:
@@ -76,6 +112,16 @@ def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None
             or entrypoint[index + 1] != str(container_port)
         ):
             raise ValueError("Plugin entrypoint port differs from the approved port")
+
+
+@dataclass(frozen=True)
+class InspectedPluginImage:
+    """Verified OCI plugin image manifest and optional lifecycle command labels."""
+
+    manifest: PluginManifest
+    image_id: str
+    qualification_command: tuple[str, ...] | None
+    prepare_assets_command: tuple[str, ...] | None
 
 
 @dataclass(frozen=True)
@@ -233,46 +279,34 @@ class QualificationRunConfig:
 
 
 class Docker:
-    def _run(self, *args: str, input: str | None = None) -> str:
-        try:
-            result = subprocess.run(
-                ["docker", *args],
-                input=input,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError as exc:
-            raise SDKError("Docker CLI is unavailable") from exc
-        if result.returncode:
-            raise SDKError(f"Docker {args[0]} failed (exit {result.returncode})")
-        return result.stdout.strip()
+    """Plugin deployment container controller backed by a ContainerRuntimePort."""
 
-    def _inspect(self, config: ContainerConfig) -> dict | None:
-        ids = self._run(
-            "container",
-            "ls",
-            "-a",
-            "--no-trunc",
-            "--filter",
-            f"name=^/{config.name}$",
-            "--format",
-            "{{.ID}}",
-        )
-        if not ids:
-            return None
-        if len(ids.splitlines()) != 1:
-            raise SDKError("Container name is ambiguous")
-        container_id = ids
-        if not re.fullmatch(r"[0-9a-f]{64}", container_id):
+    def __init__(self, runtime: ContainerRuntimePort | None = None) -> None:
+        self.runtime: ContainerRuntimePort = runtime or LocalDockerRuntime()
+
+    @staticmethod
+    def _user() -> str:
+        if os.geteuid() == 0:
+            raise SDKError(
+                "Run plugin deployment as a non-root container administrator"
+            )
+        return f"{os.geteuid()}:{os.getegid()}"
+
+    @staticmethod
+    def _verify_clean_state(state: ContainerStateInfo) -> ContainerStateInfo:
+        if state.restarting or state.paused or state.dead:
+            raise SDKError("Unable to verify container process state")
+        return state
+
+    @staticmethod
+    def _never_finished(state: ContainerStateInfo) -> bool:
+        return state.finished_at == "0001-01-01T00:00:00Z"
+
+    def _verify_owned_inspection(
+        self, config: ContainerConfig, info: ContainerInspection
+    ) -> dict:
+        if not re.fullmatch(r"[0-9a-f]{64}", info.container_id):
             raise SDKError("Container runtime returned an invalid full container ID")
-        raw = self._run(
-            "container", "inspect", "--format", "{{json .Config.Labels}}", container_id
-        )
-        try:
-            labels = json.loads(raw)
-        except ValueError as exc:
-            raise SDKError("Unable to verify container ownership") from exc
         expected = {
             _LABEL_INSTALLATION: config.installation_id,
             _LABEL_OWNER: config.owner_hash,
@@ -281,28 +315,16 @@ class Docker:
         }
         if config.candidate_token is not None:
             expected[_LABEL_CANDIDATE] = config.candidate_token
-        if not isinstance(labels, dict) or any(
-            labels.get(k) != v for k, v in expected.items()
+        if not isinstance(info.labels, dict) or any(
+            info.labels.get(k) != v for k, v in expected.items()
         ):
             raise SDKError(
                 "Container belongs to another installation or has a different configuration"
             )
-        image = self._run(
-            "container", "inspect", "--format", "{{.Config.Image}}", container_id
-        )
-        if image != config.image:
+        if info.image_ref != config.image:
             raise SDKError("Container image does not match the installation receipt")
-        raw_config = self._run(
-            "container", "inspect", "--format", "{{json .HostConfig}}", container_id
-        )
-        raw_mounts = self._run(
-            "container", "inspect", "--format", "{{json .Mounts}}", container_id
-        )
-        try:
-            host = json.loads(raw_config)
-            mounts = json.loads(raw_mounts)
-        except ValueError as exc:
-            raise SDKError("Unable to verify container resource configuration") from exc
+        host = info.host_config
+        mounts = info.mounts
         devices = host.get("DeviceRequests") if isinstance(host, dict) else None
         if (
             not isinstance(host, dict)
@@ -362,83 +384,40 @@ class Docker:
             expected_mounts.add(
                 (str(config.qualification_file), config.qualification_target, False)
             )
-        if not isinstance(mounts, list) or any(
-            not isinstance(m, dict) or m.get("Type") != "bind" for m in mounts
-        ):
+        if any(not isinstance(m, dict) or m.get("Type") != "bind" for m in mounts):
             raise SDKError("Container mounts do not match the approved installation")
         actual_mounts = {
             (m.get("Source"), m.get("Destination"), m.get("RW")) for m in mounts
         }
         if len(mounts) != len(expected_mounts) or actual_mounts != expected_mounts:
             raise SDKError("Container mounts do not match the approved installation")
-        user = self._run(
-            "container", "inspect", "--format", "{{.Config.User}}", container_id
-        )
-        entrypoint = self._run(
-            "container",
-            "inspect",
-            "--format",
-            "{{json .Config.Entrypoint}}",
-            container_id,
-        )
-        command = self._run(
-            "container", "inspect", "--format", "{{json .Config.Cmd}}", container_id
-        )
-        try:
-            entry = json.loads(entrypoint)
-            cmd = json.loads(command)
-        except ValueError as exc:
-            raise SDKError("Unable to verify container entrypoint") from exc
         if (
-            user != self._user()
-            or entry != list(config.entrypoint)
-            or cmd not in (None, [])
+            info.user != self._user()
+            or info.entrypoint != config.entrypoint
+            or info.cmd not in (None, ())
         ):
             raise SDKError(
                 "Container user or entrypoint differs from the approved runtime"
             )
-        return {"id": container_id, "name": config.name}
+        return {"id": info.container_id, "name": config.name}
 
-    def _verify_image_reference(self, image: str) -> None:
-        raw = self._run("image", "inspect", "--format", "{{json .RepoDigests}}", image)
-        try:
-            digests = json.loads(raw)
-        except ValueError as exc:
-            raise SDKError("Unable to verify local image digest") from exc
-        if not isinstance(digests, list) or image not in digests:
-            raise SDKError("Local image does not have the approved digest")
+    def _inspect(self, config: ContainerConfig) -> dict | None:
+        info = self.runtime.inspect_container(name=config.name)
+        if info is None:
+            return None
+        return self._verify_owned_inspection(config, info)
 
-    def _verify_image(self, config: ContainerConfig) -> None:
-        self._verify_image_reference(config.image)
+    def _state(self, container_id: str) -> ContainerStateInfo:
+        info = self.runtime.inspect_container(container_id=container_id)
+        if info is None:
+            raise SDKError("Unable to verify container process state")
+        return self._verify_clean_state(info.state)
 
     def inspect_image_labels(self, image: str) -> tuple[str, dict[str, str]]:
-        try:
-            validate_oci_digest_reference(image)
-        except ValueError as exc:
-            raise SDKError("Plugin image must be pinned to a sha256 digest") from exc
-        self._verify_image_reference(image)
-        image_id = self._run("image", "inspect", "--format", "{{.Id}}", image)
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
-            raise SDKError("Docker returned an invalid image ID")
-        raw_labels = self._run(
-            "image", "inspect", "--format", "{{json .Config.Labels}}", image
-        )
-        try:
-            labels = json.loads(raw_labels)
-        except ValueError as exc:
-            raise SDKError("Unable to read local image labels") from exc
-        if labels is None:
-            return image_id, {}
-        if not isinstance(labels, dict) or any(
-            not isinstance(key, str) or not isinstance(value, str)
-            for key, value in labels.items()
-        ):
-            raise SDKError("Local image returned invalid labels")
-        return image_id, labels
+        info = self.runtime.inspect_image(image)
+        return info.image_id, dict(info.labels)
 
-    def inspect_image_manifest(
-        self, image: str
-    ) -> tuple[PluginManifest, str, tuple[str, ...] | None]:
+    def inspect_image_metadata(self, image: str) -> InspectedPluginImage:
         image_id, labels = self.inspect_image_labels(image)
         raw_manifest = labels.get(PLUGIN_MANIFEST_OCI_LABEL)
         if raw_manifest is None:
@@ -458,102 +437,102 @@ class Docker:
                 raise SDKError(
                     f"Local image declares an invalid {PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL} label"
                 ) from exc
-        return manifest, image_id, qualification_command
+        raw_prepare_assets = labels.get(PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL)
+        prepare_assets_command: tuple[str, ...] | None = None
+        if raw_prepare_assets is not None:
+            try:
+                prepare_assets_command = parse_oci_prepare_assets_command(
+                    raw_prepare_assets
+                )
+            except ValueError as exc:
+                raise SDKError(
+                    f"Local image declares an invalid {PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL} label"
+                ) from exc
+        return InspectedPluginImage(
+            manifest=manifest,
+            image_id=image_id,
+            qualification_command=qualification_command,
+            prepare_assets_command=prepare_assets_command,
+        )
+
+    def inspect_image_manifest(
+        self, image: str
+    ) -> tuple[PluginManifest, str, tuple[str, ...] | None]:
+        inspected = self.inspect_image_metadata(image)
+        return (
+            inspected.manifest,
+            inspected.image_id,
+            inspected.qualification_command,
+        )
 
     def run_qualification(self, config: QualificationRunConfig) -> None:
         config.validate()
-        self._verify_image_reference(config.image)
-        mounts = [
-            "--mount",
-            f"type=bind,src={config.context_file},dst={QUALIFICATION_CONTEXT_TARGET},readonly",
-            "--mount",
-            f"type=bind,src={config.output_dir},dst={QUALIFICATION_OUTPUT_DIR_TARGET}",
+        self.runtime.inspect_image(config.image)
+        mounts: list[ContainerMount] = [
+            ContainerMount(
+                source=config.context_file,
+                target=QUALIFICATION_CONTEXT_TARGET,
+                readonly=True,
+            ),
+            ContainerMount(
+                source=config.output_dir,
+                target=QUALIFICATION_OUTPUT_DIR_TARGET,
+                readonly=False,
+            ),
         ]
         if config.assets_dir is not None:
-            mounts.extend(
-                [
-                    "--mount",
-                    f"type=bind,src={config.assets_dir},dst={config.data_target}/assets,readonly",
-                ]
+            mounts.append(
+                ContainerMount(
+                    source=config.assets_dir,
+                    target=f"{config.data_target}/assets",
+                    readonly=True,
+                )
             )
         if config.fixture_file is not None:
-            mounts.extend(
-                [
-                    "--mount",
-                    f"type=bind,src={config.fixture_file},dst={QUALIFICATION_FIXTURE_TARGET},readonly",
-                ]
+            mounts.append(
+                ContainerMount(
+                    source=config.fixture_file,
+                    target=QUALIFICATION_FIXTURE_TARGET,
+                    readonly=True,
+                )
             )
-        self._run(
-            "container",
-            "run",
-            "--rm",
-            "--network",
-            "none",
-            "--user",
-            self._user(),
-            "--gpus",
-            f"device={config.gpu_uuid}",
-            "--memory",
-            f"{config.memory_mb}m",
-            "--cpus",
-            str(config.cpus),
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--env-file",
-            str(config.env_file),
-            *mounts,
-            "--entrypoint",
-            config.command[0],
-            "--",
-            config.image,
-            *config.command[1:],
+        self.runtime.run_oneshot(
+            OneShotContainerSpec(
+                image=config.image,
+                command=config.command,
+                network="none",
+                memory_mb=config.memory_mb,
+                cpus=config.cpus,
+                user=self._user(),
+                gpu_uuid=config.gpu_uuid,
+                env_file=config.env_file,
+                mounts=tuple(mounts),
+            )
         )
 
     def image_id(self, config: ContainerConfig) -> str:
         config.validate()
-        self._verify_image(config)
-        image_id = self._run("image", "inspect", "--format", "{{.Id}}", config.image)
-        if not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
-            raise SDKError("Docker returned an invalid image ID")
-        return image_id
-
-    @staticmethod
-    def _user() -> str:
-        if os.geteuid() == 0:
-            raise SDKError("Run plugin deployment as a non-root Docker administrator")
-        return f"{os.geteuid()}:{os.getegid()}"
+        return self.runtime.inspect_image(config.image).image_id
 
     def verify_running(self, config: ContainerConfig) -> dict:
         config.validate()
-        self._verify_image(config)
-        existing = self._inspect(config)
-        if existing is None:
+        image_id = self.runtime.inspect_image(config.image).image_id
+        info = self.runtime.inspect_container(name=config.name)
+        if info is None:
             raise SDKError(
                 "Active installation has no owned container; unexpected exit requires owner recovery"
             )
-        image_id = self._run("image", "inspect", "--format", "{{.Id}}", config.image)
-        container_image = self._run(
-            "container", "inspect", "--format", "{{.Image}}", existing["id"]
-        )
+        existing = self._verify_owned_inspection(config, info)
         if (
             not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
-            or image_id != container_image
+            or image_id != info.image_id
         ):
             raise SDKError("Running container does not use the verified local image")
-        if (
-            self._run(
-                "container", "inspect", "--format", "{{.State.Running}}", existing["id"]
-            )
-            != "true"
-        ):
+        if not info.state.running:
             raise SDKError(
                 "Active installation container is not running; unexpected exit requires owner recovery"
             )
-        started_at = self._run(
-            "container", "inspect", "--format", "{{.State.StartedAt}}", existing["id"]
-        )
+        started_at = info.state.started_at
         if not started_at or started_at.startswith("0001-"):
             raise SDKError("Unable to verify container process start identity")
         return {**existing, "image_id": image_id, "started_at": started_at}
@@ -563,16 +542,10 @@ class Docker:
     ) -> list[str]:
         """Hash files in the running container, not a replaceable host pathname."""
         probe = Path(__file__).with_name("_plugin_asset_measure.py").read_text()
-        output = self._run(
-            "exec",
-            "--interactive",
+        output = self.runtime.exec_in_container(
             container_id,
-            "python3",
-            "-I",
-            "-S",
-            "-c",
-            probe,
-            input=json.dumps({"root": config.data_target, "assets": assets}),
+            ("python3", "-I", "-S", "-c", probe),
+            input_text=json.dumps({"root": config.data_target, "assets": assets}),
         )
         try:
             measured = json.loads(output)
@@ -584,31 +557,6 @@ class Docker:
             raise SDKError("Container returned an invalid asset measurement")
         return measured
 
-    def _state(self, container_id: str) -> dict:
-        try:
-            state = json.loads(
-                self._run(
-                    "container", "inspect", "--format", "{{json .State}}", container_id
-                )
-            )
-        except (TypeError, ValueError) as exc:
-            raise SDKError("Unable to verify container process state") from exc
-        if (
-            not isinstance(state, dict)
-            or type(state.get("Running")) is not bool
-            or state.get("Restarting") is not False
-            or state.get("Paused") is not False
-            or state.get("Dead") is not False
-            or not isinstance(state.get("StartedAt"), str)
-            or not isinstance(state.get("FinishedAt"), str)
-        ):
-            raise SDKError("Unable to verify container process state")
-        return state
-
-    @staticmethod
-    def _never_finished(state: dict) -> bool:
-        return state["FinishedAt"] == "0001-01-01T00:00:00Z"
-
     def create_candidate(self, config: ContainerConfig) -> dict:
         """Replay only the container marked by this private candidate intent."""
         config.validate()
@@ -619,7 +567,7 @@ class Docker:
         self, config: ContainerConfig, container_id: str, *, may_start: bool
     ) -> dict:
         config.validate()
-        self._verify_image(config)
+        self.runtime.inspect_image(config.image)
         existing = self._inspect(config)
         if existing is None or existing["id"] != container_id:
             raise SDKError("Candidate container ID differs from the recorded identity")
@@ -628,17 +576,17 @@ class Docker:
             raise SDKError(
                 "Candidate has previously exited; refusing an unproven restart"
             )
-        if not state["Running"] and may_start:
-            if state["StartedAt"] != "0001-01-01T00:00:00Z":
+        if not state.running and may_start:
+            if state.started_at != "0001-01-01T00:00:00Z":
                 raise SDKError("Candidate process exited; refusing an unproven restart")
-            self._run("container", "start", container_id)
-        elif not state["Running"]:
+            self.runtime.start_container(container_id)
+        elif not state.running:
             raise SDKError("Candidate process exited; refusing an unproven restart")
         inspected = self.verify_running(config)
         state = self._state(container_id)
         if (
-            not state["Running"]
-            or state["StartedAt"] != inspected["started_at"]
+            not state.running
+            or state.started_at != inspected["started_at"]
             or (may_start and not self._never_finished(state))
         ):
             raise SDKError("Candidate process identity changed or previously exited")
@@ -646,65 +594,63 @@ class Docker:
 
     def _create(self, config: ContainerConfig) -> dict:
         config.validate()
-        self._verify_image(config)
+        self.runtime.inspect_image(config.image)
         if config.gpu_uuid is not None and config.qualification_file is None:
             raise SDKError("GPU qualification report is required before starting")
-        candidate_label = (
-            ["--label", f"{_LABEL_CANDIDATE}={config.candidate_token}"]
-            if config.candidate_token
-            else []
+        labels: list[tuple[str, str]] = []
+        if config.candidate_token:
+            labels.append((_LABEL_CANDIDATE, config.candidate_token))
+        labels.extend(
+            [
+                (_LABEL_INSTALLATION, config.installation_id),
+                (_LABEL_OWNER, config.owner_hash),
+                (_LABEL_IMAGE, config.image),
+                (_LABEL_CONFIG, config.identity()),
+            ]
         )
-        self._run(
-            "container",
-            "create",
-            "--name",
-            config.name,
-            *candidate_label,
-            "--label",
-            f"{_LABEL_INSTALLATION}={config.installation_id}",
-            "--label",
-            f"{_LABEL_OWNER}={config.owner_hash}",
-            "--label",
-            f"{_LABEL_IMAGE}={config.image}",
-            "--user",
-            self._user(),
-            "--network",
-            config.network,
-            *(["--gpus", f"device={config.gpu_uuid}"] if config.gpu_uuid else []),
-            "--memory",
-            f"{config.memory_mb}m",
-            "--cpus",
-            str(config.cpus),
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--publish",
-            f"{config.host_port}:{config.container_port}",
-            "--label",
-            f"{_LABEL_CONFIG}={config.identity()}",
-            "--env-file",
-            str(config.env_file),
-            "--mount",
-            f"type=bind,src={config.data_dir},dst={config.data_target}",
-            *(
-                [
-                    "--mount",
-                    f"type=bind,src={config.data_dir / 'gpu-keyring.json'},dst={config.data_target}/gpu-keyring.json,readonly",
-                ]
-                if config.gpu_uuid
-                else []
+        mounts: list[ContainerMount] = [
+            ContainerMount(
+                source=config.data_dir,
+                target=config.data_target,
+                readonly=False,
+            )
+        ]
+        if config.gpu_uuid is not None:
+            mounts.append(
+                ContainerMount(
+                    source=config.data_dir / "gpu-keyring.json",
+                    target=f"{config.data_target}/gpu-keyring.json",
+                    readonly=True,
+                )
+            )
+        if config.qualification_file is not None:
+            mounts.append(
+                ContainerMount(
+                    source=config.qualification_file,
+                    target=config.qualification_target,
+                    readonly=True,
+                )
+            )
+        self.runtime.run_detached(
+            DetachedContainerSpec(
+                name=config.name,
+                image=config.image,
+                network=config.network,
+                memory_mb=config.memory_mb,
+                cpus=config.cpus,
+                user=self._user(),
+                labels=tuple(labels),
+                gpu_uuid=config.gpu_uuid,
+                ports=(
+                    ContainerPortBinding(
+                        host_port=config.host_port,
+                        container_port=config.container_port,
+                    ),
+                ),
+                env_file=config.env_file,
+                mounts=tuple(mounts),
             ),
-            *(
-                [
-                    "--mount",
-                    f"type=bind,src={config.qualification_file},dst={config.qualification_target},readonly",
-                ]
-                if config.qualification_file
-                else []
-            ),
-            "--",
-            config.image,
+            start=False,
         )
         existing = self._inspect(config)
         if existing is None:
@@ -713,28 +659,22 @@ class Docker:
 
     def ensure_started(self, config: ContainerConfig) -> dict:
         config.validate()
-        self._verify_image(config)
+        image_id = self.runtime.inspect_image(config.image).image_id
         if config.gpu_uuid is not None and config.qualification_file is None:
             raise SDKError("GPU qualification report is required before starting")
         existing = self._inspect(config)
         if existing is None:
             existing = self._create(config)
-        image_id = self._run("image", "inspect", "--format", "{{.Id}}", config.image)
-        container_image = self._run(
-            "container", "inspect", "--format", "{{.Image}}", existing["id"]
-        )
+        info = self.runtime.inspect_container(container_id=existing["id"])
+        if info is None:
+            raise SDKError("Created container could not be verified")
         if (
             not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
-            or image_id != container_image
+            or image_id != info.image_id
         ):
             raise SDKError("Running container does not use the verified local image")
-        state = self._run(
-            "container", "inspect", "--format", "{{.State.Running}}", existing["id"]
-        )
-        if state == "false":
-            self._run("container", "start", existing["id"])
-        elif state != "true":
-            raise SDKError("Unknown container state")
+        if not info.state.running:
+            self.runtime.start_container(existing["id"])
         return self.verify_running(config)
 
     def wait_ready(self, config: ContainerConfig, container_id: str) -> None:
@@ -742,16 +682,8 @@ class Docker:
         deadline = time.monotonic() + 60
         with httpx.Client(timeout=1, trust_env=False, follow_redirects=False) as client:
             while time.monotonic() < deadline:
-                if (
-                    self._run(
-                        "container",
-                        "inspect",
-                        "--format",
-                        "{{.State.Running}}",
-                        container_id,
-                    )
-                    != "true"
-                ):
+                info = self.runtime.inspect_container(container_id=container_id)
+                if info is None or not info.state.running:
                     raise SDKError(
                         "Plugin process exited before its health endpoint became ready"
                     )
@@ -775,44 +707,31 @@ class Docker:
             "Plugin startup timed out after 60 seconds; activation was not submitted"
         )
 
-    def prepare_assets(self, config: ContainerConfig) -> None:
+    def prepare_assets(self, config: ContainerConfig, command: Sequence[str]) -> None:
+        """Run the image-declared non-shell asset preparation command."""
         config.validate()
-        if config.entrypoint[0] != _LIBREYOLO_ENTRYPOINT:
-            raise SDKError(
-                "Selected LibreYOLO image manifest does not declare the "
-                "yoao-libreyolo entrypoint; use its original tools for historical "
-                "images or select a new compatible image"
+        try:
+            validated_command = validate_oci_prepare_assets_command(command)
+        except ValueError as exc:
+            raise SDKError("Invalid approved asset-preparation command") from exc
+        self.runtime.inspect_image(config.image)
+        self.runtime.run_oneshot(
+            OneShotContainerSpec(
+                image=config.image,
+                command=validated_command,
+                network=config.network,
+                memory_mb=config.memory_mb,
+                cpus=config.cpus,
+                user=self._user(),
+                env_file=config.env_file,
+                mounts=(
+                    ContainerMount(
+                        source=config.data_dir,
+                        target=config.data_target,
+                        readonly=False,
+                    ),
+                ),
             )
-        self._verify_image(config)
-        self._run(
-            "container",
-            "run",
-            "--rm",
-            "--network",
-            config.network,
-            "--user",
-            self._user(),
-            "--memory",
-            f"{config.memory_mb}m",
-            "--cpus",
-            str(config.cpus),
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges",
-            "--env-file",
-            str(config.env_file),
-            "--mount",
-            f"type=bind,src={config.data_dir},dst={config.data_target}",
-            "--entrypoint",
-            _LIBREYOLO_ENTRYPOINT,
-            "--",
-            config.image,
-            "prepare-assets",
-            "--size",
-            "t",
-            "--asset-dir",
-            f"{config.data_target}/assets",
         )
 
     def exists(self, config: ContainerConfig) -> bool:
@@ -828,14 +747,8 @@ class Docker:
             return
         if existing["id"] != proven_id:
             raise SDKError("Container ID differs from the proven container")
-        state = self._state(proven_id)
-        if not started_at or state["StartedAt"] != started_at:
+        if not started_at:
             raise SDKError(
                 "Container process identity differs from the quiescence proof"
             )
-        if state["Running"]:
-            self._run("container", "stop", proven_id)
-            state = self._state(proven_id)
-            if state["Running"] or state["StartedAt"] != started_at:
-                raise SDKError("Container process identity changed after quiescence")
-        self._run("container", "rm", proven_id)
+        self.runtime.stop_and_remove(proven_id, expected_started_at=started_at)

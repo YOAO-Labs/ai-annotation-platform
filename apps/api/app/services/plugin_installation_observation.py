@@ -36,8 +36,6 @@ from yoao_protocol_v2.lifecycle import (
 )
 from yoao_protocol_v2.version import PROTOCOL_VERSION
 from yoao_protocol_v2.vocab import GEOMETRY_VALUES, INPUT_VALUES, PROMPT_VALUES
-from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
-from training_contract.model_return import LIBRE_RUNTIME
 
 from app.config import settings
 from app.services.inference_health_observation import HealthObservationClient
@@ -254,14 +252,11 @@ def verify_endpoint_observation(
     ):
         raise PluginObservationRejected("runtime device differs from reservation")
     if (
-        any(
-            entry.framework == "libreyolo"
-            for entry in manifest.managed_model_compatibility
-        )
+        manifest.managed_model_compatibility
         and compute["cpu_fallback_supported"] is not False
     ):
         raise PluginObservationRejected(
-            "LibreYOLO fallback policy differs from reservation"
+            "managed model compatibility requires cpu_fallback_supported=false"
         )
     compatibility = [
         entry.model_dump(mode="json") for entry in manifest.managed_model_compatibility
@@ -275,26 +270,6 @@ def verify_endpoint_observation(
         and setup.get("managed_evaluation") is not True
     ):
         raise PluginObservationRejected("managed evaluation capability unavailable")
-    if not for_drain and any(
-        entry.framework == "libreyolo" for entry in manifest.managed_model_compatibility
-    ):
-        baseline = (
-            LIBRE_CUDA_RUNTIME if manifest.resource.device == "cuda" else LIBRE_RUNTIME
-        )
-        if any(
-            runtime.get(key) != baseline[key]
-            for key in ("libreyolo", "torch", "torchvision")
-        ):
-            raise PluginObservationRejected(
-                "installed runtime versions are not qualified"
-            )
-        if manifest.resource.device == "cuda" and (
-            runtime.get("cuda_build") != baseline["cuda_build"]
-            or runtime.get("tf32") is not False
-        ):
-            raise PluginObservationRejected(
-                "CUDA build or execution configuration is not qualified"
-            )
     validate_manifest_capabilities(manifest)
     if not for_drain:
         if not _model_capabilities_match(manifest, setup.get("models")):
@@ -457,11 +432,16 @@ def verify_qualification(
             "qualification final identity differs from reservation"
         )
     versions = deployment["runtime_versions"]
-    is_libreyolo = any(
-        entry.framework == "libreyolo"
-        for entry in item.manifest.managed_model_compatibility
-    )
-    if live_versions is not None or not is_libreyolo:
+    required = {
+        "plugin_id": item.manifest.plugin_id,
+        "plugin_version": item.manifest.version,
+        "artifact": receipt.artifact,
+        "asset_manifest_sha256": item.manifest.asset_manifest_sha256,
+        "registry_id": str(installation.registry_id),
+        "gpu_resource_id": resource.gpu_resource_id,
+        "driver_version": gpu["driver_version"],
+    }
+    if live_versions is not None:
         if (
             type(live_versions) is not dict
             or not live_versions
@@ -475,24 +455,33 @@ def verify_qualification(
             raise PluginObservationRejected(
                 "qualification runtime versions differ from endpoint"
             )
-    required = {
-        "plugin_id": item.manifest.plugin_id,
-        "plugin_version": item.manifest.version,
-        "artifact": receipt.artifact,
-        "asset_manifest_sha256": item.manifest.asset_manifest_sha256,
-        "registry_id": str(installation.registry_id),
-        "gpu_resource_id": resource.gpu_resource_id,
-        "driver_version": gpu["driver_version"],
-    }
-    if any(
-        entry.framework == "libreyolo"
-        for entry in item.manifest.managed_model_compatibility
-    ):
-        required.update(
-            {
-                key: str(value).lower() if isinstance(value, bool) else str(value)
-                for key, value in LIBRE_CUDA_RUNTIME.items()
-            }
+    else:
+        matched_version_keys: set[str] = set()
+        non_version_keys = set(required) | {"device"}
+        for key, value in runtime.items():
+            if key not in versions:
+                continue
+            if type(value) is bool:
+                normalized = "true" if value else "false"
+            elif type(value) is str:
+                normalized = value
+            else:
+                continue
+            if versions[key] != normalized:
+                raise PluginObservationRejected(
+                    "qualification runtime versions differ from endpoint"
+                )
+            if key not in non_version_keys:
+                matched_version_keys.add(key)
+        if not matched_version_keys or (
+            is_onnx and "onnxruntime" not in matched_version_keys
+        ):
+            raise PluginObservationRejected(
+                "qualification runtime versions differ from endpoint"
+            )
+    if versions.get("tf32") == "false" and runtime.get("tf32") is True:
+        raise PluginObservationRejected(
+            "qualification runtime versions differ from endpoint"
         )
     if any(versions.get(key) != value for key, value in required.items()):
         raise PluginObservationRejected(

@@ -48,6 +48,8 @@ def test_cpu_libreyolo_denies_gpu_and_preserves_existing_drain_state(tmp_path):
     assert container.name == f"yoao-plugin-{receipt['installation_id']}"
     assert container.data_target == "/var/lib/yoao-plugin"
     assert "\nYOAO_PLUGIN_DATA_DIR=/var/lib/yoao-plugin\n" in env
+    assert f"ROUTE_REGISTRY_ID={result.registry_id}\n" in env
+    assert "YOAO_PLUGIN_ID=libreyolo\n" in env
     assert "AAP_" not in env
     assert "\nNVIDIA_VISIBLE_DEVICES=void\n" in env
     assert "\nCUDA_VISIBLE_DEVICES=\n" in env
@@ -826,6 +828,7 @@ def test_resolve_local_plugin_config_from_oci_label_and_port_inference():
     assert info["image_id"] == docker.image_digest
     assert info["manifest"] == no_port_manifest.model_dump(mode="json")
     assert info["qualification_command"] == ["yoao-libreyolo", "qualify"]
+    assert info["prepare_assets_command"] == ["yoao-libreyolo", "prepare-assets"]
 
 
 def test_qualify_writes_output_without_mutating_receipt_and_cleans_workdir(tmp_path):
