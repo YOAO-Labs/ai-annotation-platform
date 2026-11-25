@@ -1,22 +1,25 @@
 """Frozen delivery orchestration with real PCD inspection and owned-copy receipts."""
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
-import importlib.util
 import io
-import json
-from pathlib import Path
-from types import ModuleType, SimpleNamespace
-import sys
+from types import SimpleNamespace
 import uuid
 
 import pytest
 
+from app.services import auxiliary_originals, original_sources
+from app.services import export_media_bundles as bundles
+from app.services import export_media_storage as physical
+from app.services import export_media_transfer as transfer
 from app.services.content_snapshot import ContentError
+from app.services.exporting import lidar_delivery, lidar_inputs
+from app.services.exporting.lidar_frozen import FrozenLidar
 from app.services.exporting.lidar_media_paths import logical_sources
 from app.services.exporting.lidar_pcd import PcdInfo, inspect_pcd
+from app.services.exporting.lidar_sources import canonical_identity
 
 
 def pcd(rows=("1 2 3", "nan 5 6", "7 8 9")):
@@ -33,47 +36,41 @@ def forbidden(*args, **kwargs):
     )
 
 
-@dataclass(frozen=True)
-class Receipt:
-    original_sha: str
-    size: int
-    gate_revision: int
-    url: str = field(repr=False)
-    inspection: object = field(repr=False)
-
-
 @pytest.fixture
 def world(monkeypatch):
-    project_id, bundle_id = uuid.uuid4(), uuid.uuid4()
-    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    project_id, bundle_id, dataset_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     data = {
-        "schema": 1,
+        "schema": lidar_inputs.CONTRACT,
         "project_id": str(project_id),
         "batch_id": None,
-        "project": {"id": str(project_id)},
+        "project": {"id": str(project_id), "tool_bindings": {}},
         "targets": ["pointmask"],
         "options": {"lidar": {}},
         "tasks": [],
         "items": [],
         "links": [],
         "media": [],
-        "datasets": [],
+        "datasets": [
+            {"id": str(dataset_id), "metadata_": {"axis_convention": "iso_8855"}}
+        ],
         "annotations": [],
+        "scenes": [],
+        "poses": [],
+        "tracks": [],
+        "intervals": [],
+        "calibrations": [],
     }
-    prefix = f"lidar-export-media/objects/{bundle_id}/"
-    snapshot = SimpleNamespace(
-        id=bundle_id,
-        project_id=project_id,
-        input_snapshot=data,
-        expires_at=expires_at,
-        storage_ref={"key_prefix": prefix, "bucket": "saved-output-bucket"},
-    )
+    storage_ref = physical.make_ref(bundle_id, bucket="saved-output-bucket")
     state = SimpleNamespace(
         data=data,
-        snapshot=snapshot,
-        prefix=prefix,
+        bundle_id=bundle_id,
+        dataset_id=dataset_id,
+        storage_ref=storage_ref,
+        snapshot=None,
         source_bytes={},
         source_items={},
+        sources={},
+        source_failures={},
         copies={},
         receipts={},
         stages=[],
@@ -81,33 +78,12 @@ def world(monkeypatch):
         resolves=[],
         reads=[],
         guards=[],
-        object_calls=[],
         inspections={},
         receipt_overrides={},
         fail_at=None,
         guard_failure=None,
-        objects_override=None,
         db=SimpleNamespace(commit=forbidden, add=forbidden, flush=forbidden),
     )
-
-    class Frozen:
-        def __init__(self, facts):
-            self.project = SimpleNamespace(**deepcopy(facts["project"]))
-            self.tasks = [
-                SimpleNamespace(**{**deepcopy(row), "id": uuid.UUID(row["id"])})
-                for row in facts["tasks"]
-            ]
-            self._frozen_facts = deepcopy(facts)
-
-        def axis_convention(self, task_id):
-            assert uuid.UUID(str(task_id)) in {task.id for task in self.tasks}
-            return "iso_8855"
-
-        def service(self, db):
-            assert db is state.db
-            return SimpleNamespace(project=self.project, tasks=self.tasks)
-
-    state.Frozen = Frozen
 
     async def guard(db):
         assert db is state.db
@@ -117,72 +93,61 @@ def world(monkeypatch):
 
     state.guard = guard
 
-    async def check_source(db, binding, *, lock=False):
+    def source(db, task_id, selector, lock):
         assert db is state.db and not lock
+        key = task_id, selector
+        if key in state.source_failures:
+            raise state.source_failures[key]
+        binding, original = state.sources[key]
         state.resolves.append(deepcopy(binding))
-        return SimpleNamespace(**deepcopy(binding["source"]))
+        return original
 
-    def source_objects(saved, logical):
-        assert saved is snapshot
-        assert logical == logical_sources(data)
-        state.object_calls.append(deepcopy(logical))
-        if state.objects_override is not None:
-            return state.objects_override
-        return {
-            key: prefix + str(uuid.UUID(key[:32])) + ".bin"
-            for key in {binding["source_key"] for binding in data["media"]}
-        }
+    async def task_source(db, task_id, *, lock, compact_relation):
+        assert compact_relation
+        return source(db, task_id, "primary_lidar", lock)
 
-    class Owner:
-        prefix = state.prefix
+    async def link_source(db, task_id, link_id, *, lock, compact_relation):
+        assert compact_relation
+        return source(db, task_id, link_id, lock)
 
-        def contains(self, key):
-            if not isinstance(key, str) or not key.startswith(self.prefix):
-                raise ContentError("export_media_storage_invalid_key")
-            if "/" in key[len(self.prefix) :] or ".." in key:
-                raise ContentError("export_media_storage_invalid_key")
-            return True
+    async def raw_source(db, task_id, *, lock):
+        return source(db, task_id, "raw_lidar", lock)
 
-    def resolve(saved):
-        assert (
-            saved is snapshot and saved.storage_ref["bucket"] == "saved-output-bucket"
-        )
-        return Owner()
+    async def map_source(db, task_id, *, lock):
+        return source(db, task_id, "map", lock)
 
-    async def copy_source(db, saved, **kwargs):
-        assert db is state.db and saved is snapshot
-        assert kwargs["resolve_source"] is state.delivery.lidar_inputs.check_source
-        assert callable(kwargs["guard"])
-        binding = kwargs["binding"]
+    async def copy_source(
+        db, saved, *, binding, relative, resolve_source, guard, inspect
+    ):
+        assert db is state.db and saved is state.snapshot
+        assert saved.storage_ref["bucket"] == "saved-output-bucket"
         key = binding["source_key"]
-        state.calls.append((deepcopy(binding), kwargs["relative"], kwargs["inspect"]))
-        await kwargs["guard"](db)
-        await kwargs["resolve_source"](db, binding)
+        state.calls.append((deepcopy(binding), relative, inspect))
+        await guard(db)
+        original = await resolve_source(db, binding)
         if state.fail_at == len(state.calls):
             raise ContentError("saved_copy_failed")
-        body = state.source_bytes[key]
+        body = state.source_bytes[original.object_key]
         stage = io.BytesIO(body)
         state.stages.append(stage)
-        inspect = kwargs["inspect"]
         inspection = None if inspect is None else inspect(stage)
         assert not stage.closed and stage.tell() == 0
         if key in state.inspections:
             inspection = state.inspections[key]
-        stage.seek(0)
-        state.copies[kwargs["relative"]] = stage.read()
-        receipt = Receipt(
+        state.copies[relative] = stage.read()
+        receipt = transfer.TransferReceipt(
             hashlib.sha256(body).hexdigest(),
             len(body),
             1,
-            "https://saved.invalid/" + kwargs["relative"] + "?signature=private",
+            "https://saved.invalid/" + relative + "?signature=private",
             inspection,
         )
         receipt = state.receipt_overrides.get(key, receipt)
-        state.receipts[kwargs["relative"]] = receipt
+        state.receipts[relative] = receipt
         return receipt
 
     async def read_copy(db, saved, *, relative, guard, read):
-        assert db is state.db and saved is snapshot
+        assert db is state.db and saved is state.snapshot
         await guard(db)
         state.reads.append(relative)
         body = state.copies[relative]
@@ -193,71 +158,115 @@ def world(monkeypatch):
         state.stages.append(stage)
         return read(stage)
 
-    modules = {}
-    for suffix in (
-        "services.export_media_bundles",
-        "services.export_media_storage",
-        "services.export_media_transfer",
-        "services.exporting.lidar_inputs",
-        "services.exporting.lidar_frozen",
-    ):
-        name = "app." + suffix
-        module = ModuleType(name)
-        modules[name] = module
-        monkeypatch.setitem(sys.modules, name, module)
-        parent_name, attribute = name.rsplit(".", 1)
-        parent = __import__(parent_name, fromlist=[attribute])
-        monkeypatch.setattr(parent, attribute, module, raising=False)
-    modules["app.services.export_media_bundles"].source_objects = source_objects
-    modules["app.services.export_media_storage"].resolve = resolve
-    modules["app.services.export_media_transfer"].copy_source = copy_source
-    modules["app.services.export_media_transfer"].read_copy = read_copy
-    modules["app.services.exporting.lidar_inputs"].check_source = check_source
-    modules["app.services.exporting.lidar_frozen"].FrozenLidar = Frozen
-    path = Path(__file__).parents[1] / "app/services/exporting/lidar_delivery.py"
-    spec = importlib.util.spec_from_file_location("lidar_delivery_under_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    state.delivery = module
+    monkeypatch.setattr(original_sources, "resolve_task", task_source)
+    monkeypatch.setattr(original_sources, "resolve_task_link", link_source)
+    monkeypatch.setattr(auxiliary_originals, "resolve_task_raw", raw_source)
+    monkeypatch.setattr(auxiliary_originals, "resolve_scene_map", map_source)
+    monkeypatch.setattr(transfer, "copy_source", copy_source)
+    monkeypatch.setattr(transfer, "read_copy", read_copy)
     yield state
     for stage in state.stages:
         stage.close()
 
 
+def add_source(world, role, item, relation, payload, *, link_id=None, owner_id=None):
+    auxiliary = role in {"raw_lidar", "map"}
+    media_type = role if auxiliary else item["file_type"]
+    item_id = uuid.UUID(item["id"])
+    content_id = owner_id or item_id
+    object_key = (
+        f"__aap_auxiliary_originals__/{world.dataset_id}/{content_id}/payload"
+        if auxiliary
+        else item["file_path"]
+    )
+    checksum = hashlib.sha256(payload).hexdigest()
+    source = original_sources.OriginalSource(
+        owner_kind="dataset_auxiliary" if auxiliary else "dataset_asset",
+        content_id=content_id,
+        sha256=checksum,
+        size_bytes=len(payload),
+        media_type=media_type,
+        item_id=item_id,
+        relation=relation,
+        bucket="saved-original-bucket",
+        object_key=object_key,
+        endpoint_url=world.storage_ref["endpoint_url"],
+        location_id=physical.LEGACY_LOCATION_ID,
+        location_revision=1,
+        maintenance_revision=1,
+        ownership_facts=(
+            {"id": owner_id, "kind": role}
+            if auxiliary
+            else original_sources.AssetFacts(
+                content_id, item_id, media_type, checksum, len(payload)
+            )
+        ),
+        item_facts=original_sources.ItemFacts(
+            item_id, world.dataset_id, item["file_path"], item["file_type"], None, None
+        ),
+        replica_facts=None,
+        location_facts=None,
+    )
+    binding = {
+        "task_id": str(relation.task_id),
+        "role": role,
+        "link_id": str(link_id) if link_id else None,
+        "source_key": lidar_inputs.source_key(source),
+        "source": lidar_inputs.source_value(source, link_id),
+    }
+    world.data["media"].append(binding)
+    world.sources[relation.task_id, link_id or role] = (binding, source)
+    world.source_bytes[object_key] = payload
+
+
 def add_task(world, *, primary="pcd-a", cameras=(), body=None):
     task_id = uuid.uuid4()
+    frame = f"frame-{len(world.data['tasks'])}.pcd"
     task = {
         "id": str(task_id),
         "project_id": world.data["project_id"],
         "dataset_item_id": None,
         "display_id": "T-" + str(len(world.data["tasks"])),
-        "file_path": f"frames/frame-{len(world.data['tasks'])}.pcd",
+        "file_name": frame,
+        "file_path": f"frames/{frame}",
+        "file_type": "point_cloud",
     }
     world.data["tasks"].append(task)
     roles = ([] if primary is None else [("primary_lidar", primary)]) + list(cameras)
+    links, assets = [], []
     for role, name in roles:
         is_pcd = role == "primary_lidar"
         if name not in world.source_items:
+            filename = name + (".pcd" if is_pcd else ".jpg")
             item = {
                 "id": str(uuid.uuid4()),
-                "file_path": f"saved-inputs/{name}.pcd"
-                if is_pcd
-                else f"saved-inputs/{name}.jpg",
+                "dataset_id": str(world.dataset_id),
+                "file_name": filename,
+                "file_path": f"saved-inputs/{filename}",
+                "file_type": "point_cloud" if is_pcd else "image",
                 "metadata_": {"point_count": 999_999_999},
             }
             world.source_items[name] = item
             world.data["items"].append(item)
         item = world.source_items[name]
-        link_id = str(uuid.uuid4()) if role != "primary_lidar" else None
-        if link_id:
+        link_id = None if is_pcd else uuid.uuid4()
+        if is_pcd:
+            task["dataset_item_id"] = item["id"]
+        else:
+            sensor = role.removeprefix("camera_")
             world.data["links"].append(
                 {
-                    "id": link_id,
+                    "id": str(link_id),
                     "task_id": str(task_id),
                     "dataset_item_id": item["id"],
                     "role": role,
-                    "sensor_name": role.removeprefix("camera_"),
+                    "sensor_name": sensor,
                 }
+            )
+            links.append(
+                original_sources.LinkFact(
+                    link_id, task_id, uuid.UUID(item["id"]), role, sensor
+                )
             )
         payload = (
             body
@@ -266,35 +275,70 @@ def add_task(world, *, primary="pcd-a", cameras=(), body=None):
             if is_pcd
             else b"same-image-content"
         )
-        source = {
-            "media_type": "point_cloud" if is_pcd else "image",
-            "item_id": item["id"],
-            "sha256": hashlib.sha256(payload).hexdigest(),
-            "size_bytes": len(payload),
-            "object_key": "canonical-input/" + name,
-            "relation": {
-                "task_id": str(task_id),
-                "links": [link_id] if link_id else [],
-            },
-        }
-        identity = {**source, "relation": None}
-        source_key = hashlib.sha256(
-            json.dumps(identity, sort_keys=True).encode()
-        ).hexdigest()
-        binding = {
-            "task_id": str(task_id),
-            "role": role,
-            "link_id": link_id,
-            "source_key": source_key,
-            "source": source,
-        }
-        world.data["media"].append(binding)
-        world.source_bytes[source_key] = payload
+        assets.append((role, item, payload, link_id))
+    item_id = uuid.UUID(task["dataset_item_id"]) if primary is not None else None
+    relation = original_sources.TaskRelation(
+        task_id=task_id,
+        project_id=uuid.UUID(task["project_id"]),
+        batch_id=None,
+        file_path=task["file_path"],
+        file_type=task["file_type"],
+        original_id=None,
+        direct_item_id=item_id,
+        primary_item_id=None,
+        primary_link_id=None,
+        item_id=item_id,
+        links=tuple(links),
+    )
+    for role, item, payload, link_id in assets:
+        add_source(world, role, item, relation, payload, link_id=link_id)
     return task_id
 
 
-async def prepare(world):
-    return await world.delivery.prepare(world.db, world.snapshot, guard=world.guard)
+def bundle(world):
+    logical = logical_sources(world.data)
+    receipts = {}
+    for binding in world.data["media"]:
+        key, source = binding["source_key"], binding["source"]
+        receipts[key] = {"sha256": source["sha256"], "size_bytes": source["size_bytes"]}
+    keys = {
+        key: world.storage_ref["key_prefix"] + str(uuid.UUID(key[:32])) + ".bin"
+        for key in receipts
+    }
+    created = datetime.now(timezone.utc)
+    return bundles.snapshot(
+        {
+            "id": world.bundle_id,
+            "project_id": uuid.UUID(world.data["project_id"]),
+            "job_id": uuid.uuid4(),
+            "zip_output_id": uuid.uuid4(),
+            "state": "building",
+            "storage_ref": world.storage_ref,
+            "created_at": created,
+            "expires_at": created + timedelta(days=7),
+            "input_schema": world.data["schema"],
+            "input_snapshot": world.data,
+            "input_digest": lidar_inputs.digest(world.data),
+            "object_count": len(keys),
+            "size_bytes": sum(receipt["size_bytes"] for receipt in receipts.values()),
+            "logical_paths": {
+                "schema": 1,
+                "targets": {
+                    target: {path: keys[key] for path, key in paths.items()}
+                    for target, paths in logical.items()
+                },
+            },
+            "inventory": {
+                "schema": 1,
+                "objects": {keys[key]: receipt for key, receipt in receipts.items()},
+            },
+        }
+    )
+
+
+async def prepare(world, snapshot=None):
+    world.snapshot = bundle(world) if snapshot is None else snapshot
+    return await lidar_delivery.prepare(world.db, world.snapshot, guard=world.guard)
 
 
 async def test_dedup_preserves_first_binding_order_and_each_task_receipt(world):
@@ -314,11 +358,18 @@ async def test_dedup_preserves_first_binding_order_and_each_task_receipt(world):
     assert value.entry(first, "primary_lidar") == value.entry(second, "primary_lidar")
     assert value.entry(first, "camera_front") == value.entry(second, "camera_front")
     assert value.point_count(first) == value.point_count(str(second)) == 3
-    assert world.data == before
-    assert isinstance(value, world.Frozen)
+    assert world.data == world.snapshot.input_snapshot == before
+    assert isinstance(value, FrozenLidar)
     assert value.axis_convention(first) == "iso_8855"
-    assert value.service(world.db).project.id == world.data["project_id"]
-    assert len(world.object_calls) == 1
+    project_id = uuid.UUID(world.data["project_id"])
+    assert value.project.id == project_id
+    chunks = value.service(world.db).iter_export_chunks(project_id)
+    assert [task.id async for tasks, _, _ in chunks for task in tasks] == [
+        first,
+        second,
+    ]
+    assert world.snapshot.object_count == 2
+    assert list(world.copies.values()) == [pcd(), b"same-image-content"]
 
 
 async def test_identical_sha_different_canonical_source_keys_stay_independent(world):
@@ -355,7 +406,7 @@ async def test_exact_job_point_budget_allows_shared_source_per_frame(
     world, monkeypatch
 ):
     first, second = add_task(world), add_task(world)
-    monkeypatch.setattr(world.delivery, "MAX_JOB_POINTS", 6)
+    monkeypatch.setattr(lidar_delivery, "MAX_JOB_POINTS", 6)
     value = await prepare(world)
     assert value.point_count(first) + value.point_count(second) == 6
     assert len(world.calls) == 1
@@ -450,36 +501,39 @@ async def test_unknown_role_is_refused(world, role):
 
 
 @pytest.mark.parametrize("fault", ["unknown_task", "duplicate", "media_type", "role"])
-async def test_binding_scope_is_validated_before_copy(world, fault, monkeypatch):
+async def test_binding_scope_is_validated_before_copy(world, fault):
     add_task(world)
+    snapshot = bundle(world)
     binding = world.data["media"][0]
+    error_type, code = ContentError, "export_media_bundle_invalid"
     if fault == "unknown_task":
-        binding["task_id"] = str(uuid.uuid4())
+        world.data["media"].append({**binding, "task_id": str(uuid.uuid4())})
     elif fault == "duplicate":
         world.data["media"].append(deepcopy(binding))
+        error_type, code = ValueError, "lidar_media_binding_conflict"
     elif fault == "media_type":
         binding["source"]["media_type"] = "image"
     else:
-        binding["role"] = "arbitrary"
-    monkeypatch.setattr(world.delivery, "logical_sources", lambda data: {})
-    monkeypatch.setattr(
-        world.delivery.bundles,
-        "source_objects",
-        lambda *args: {
-            binding["source_key"]: world.prefix + str(uuid.uuid4()) + ".bin"
-        },
-    )
-    with pytest.raises(ContentError, match="scope_unknown"):
-        await prepare(world)
+        world.data["media"].append({**binding, "role": "arbitrary"})
+    with pytest.raises(error_type, match=f"^{code}$"):
+        await prepare(world, replace(snapshot, _input_snapshot=world.data))
     assert not world.calls
 
 
 async def test_unowned_output_path_is_rejected_before_copy(world):
     add_task(world)
-    key = world.data["media"][0]["source_key"]
-    world.objects_override = {key: "other-owner/unregistered.bin"}
-    with pytest.raises(ContentError, match="invalid_key"):
-        await prepare(world)
+    snapshot = bundle(world)
+    logical, inventory = snapshot.logical_paths, snapshot.inventory
+    paths = logical["targets"]["pointmask"]
+    old_key = paths["velodyne/pcd-a.pcd"]
+    foreign_key = "other-owner/" + old_key.rsplit("/", 1)[1]
+    paths["velodyne/pcd-a.pcd"] = foreign_key
+    inventory["objects"][foreign_key] = inventory["objects"].pop(old_key)
+    with pytest.raises(physical.ExportMediaStorageError) as error:
+        await prepare(
+            world, replace(snapshot, _logical_paths=logical, _inventory=inventory)
+        )
+    assert error.value.code == "export_media_storage_invalid_key"
     assert not world.calls
 
 
@@ -491,7 +545,7 @@ async def test_midway_failure_preserves_previous_physical_responsibility(world):
         await prepare(world)
     assert len(world.calls) == 2 and len(world.copies) == 1
     assert next(iter(world.copies.values())) == pcd()
-    assert world.data == before
+    assert world.data == world.snapshot.input_snapshot == before
 
 
 async def test_guard_revocation_propagates_without_dispatch_or_new_owner(world):
@@ -508,7 +562,7 @@ async def test_guard_revocation_propagates_without_dispatch_or_new_owner(world):
 async def test_transfer_receipt_must_match_exact_source(world, fault):
     add_task(world)
     key = world.data["media"][0]["source_key"]
-    world.receipt_overrides[key] = Receipt(
+    world.receipt_overrides[key] = transfer.TransferReceipt(
         "0" * 64 if fault == "sha256" else hashlib.sha256(pcd()).hexdigest(),
         len(pcd()) + (1 if fault == "size" else 0),
         1,
@@ -523,28 +577,37 @@ async def test_transfer_receipt_must_match_exact_source(world, fault):
 async def test_missing_guard_is_rejected_before_physical_work(world):
     add_task(world)
     with pytest.raises(ContentError, match="callbacks_required"):
-        await world.delivery.prepare(world.db, world.snapshot, guard=None)
+        await lidar_delivery.prepare(world.db, bundle(world), guard=None)
     assert not world.calls
 
 
 async def test_one_source_key_cannot_silently_change_canonical_facts(world):
     add_task(world)
     add_task(world)
+    snapshot = bundle(world)
     world.data["media"][1]["source"]["object_key"] = "changed-source"
-    with pytest.raises(ContentError, match="delivery_changed"):
-        await prepare(world)
+    with pytest.raises(ContentError, match="^export_media_bundle_source_changed$"):
+        await prepare(world, replace(snapshot, _input_snapshot=world.data))
     assert not world.calls
 
 
 async def test_unused_output_responsibility_is_not_invented_or_delivered(world):
     add_task(world)
-    key = world.data["media"][0]["source_key"]
-    world.objects_override = {
-        key: world.prefix + str(uuid.uuid4()) + ".bin",
-        "0" * 64: world.prefix + str(uuid.uuid4()) + ".bin",
-    }
-    with pytest.raises(ContentError, match="delivery_changed"):
-        await prepare(world)
+    snapshot = bundle(world)
+    inventory = snapshot.inventory
+    objects = inventory["objects"]
+    receipt = next(iter(objects.values()))
+    objects[world.storage_ref["key_prefix"] + str(uuid.uuid4()) + ".bin"] = receipt
+    with pytest.raises(ContentError, match="^export_media_bundle_coverage$"):
+        await prepare(
+            world,
+            replace(
+                snapshot,
+                _inventory=inventory,
+                object_count=snapshot.object_count + 1,
+                size_bytes=snapshot.size_bytes + receipt["size_bytes"],
+            ),
+        )
     assert not world.calls
 
 
@@ -560,42 +623,38 @@ async def test_saved_copy_read_rechecks_guard_without_any_original_resolution(wo
 
 
 async def test_mixed_nuscenes_uses_private_logical_slot_and_same_saved_copy(world):
+    world.data["schema"] = 1
     world.data["targets"].append("nuscenes")
     task = add_task(world)
     value = await prepare(world)
-    logical = world.object_calls[0]
+    logical = world.snapshot.logical_paths["targets"]
     assert set(logical) == {"pointmask", "nuscenes"}
-    assert all(path.startswith("support/pointclouds/") for path in logical["nuscenes"])
+    assert logical["nuscenes"] == {
+        f"support/pointclouds/{task}/pcd-a.pcd": logical["pointmask"][
+            "velodyne/pcd-a.pcd"
+        ]
+    }
     assert len(world.calls) == 1
     assert await value.pcd_bytes(task) == pcd()
     assert world.reads == [world.calls[0][1]]
 
 
-def add_nuscenes_auxiliary(world, task_id, *, map_owner):
-    from app.services.exporting.lidar_sources import canonical_identity
-
-    world.data["schema"] = 2
+def add_nuscenes_auxiliary(world, task_id, *, map_owner, raw_data=b"r" * 80):
     world.data["targets"] = ["nuscenes"]
     scene_id = str(uuid.uuid5(uuid.NAMESPACE_URL, "owned-nuscenes-scene"))
-    world.data.setdefault(
-        "scenes",
-        [
+    if not world.data["scenes"]:
+        world.data["scenes"].append(
             {
                 "id": scene_id,
                 "source_metadata": {
                     "nuscenes_export": {"map": {"filename": "maps/map.png"}}
                 },
             }
-        ],
-    )
-    selected = [row for row in world.data["media"] if row["task_id"] == str(task_id)]
-    primary = next(row for row in selected if row["role"] == "primary_lidar")
-    for binding in selected:
-        item = next(
-            row
-            for row in world.data["items"]
-            if row["id"] == binding["source"]["item_id"]
         )
+    selected = [row for row in world.data["media"] if row["task_id"] == str(task_id)]
+    items = {row["id"]: row for row in world.data["items"]}
+    for binding in selected:
+        item = items[binding["source"]["item_id"]]
         item["scene_id"] = scene_id
         item["metadata_"]["nuscenes_export"] = {
             "sample_data": {
@@ -606,37 +665,12 @@ def add_nuscenes_auxiliary(world, task_id, *, map_owner):
                 )
             }
         }
-    for role, owner in (("raw_lidar", uuid.uuid4()), ("map", map_owner)):
-        payload = b"r" * 80 if role == "raw_lidar" else b"shared-map"
-        source = {
-            "owner_kind": "dataset_auxiliary",
-            "content_id": str(owner),
-            "media_type": role,
-            "item_id": primary["source"]["item_id"],
-            "item_facts": {"id": primary["source"]["item_id"]},
-            "ownership_facts": {
-                "id": str(owner),
-                "kind": role,
-                "source_contract": "{}",
-            },
-            "sha256": hashlib.sha256(payload).hexdigest(),
-            "size_bytes": len(payload),
-            "object_key": f"__aap_auxiliary_originals__/dataset/{owner}/payload",
-            "relation": {"task_id": str(task_id)},
-        }
-        key = hashlib.sha256(
-            json.dumps(canonical_identity(source), sort_keys=True).encode()
-        ).hexdigest()
-        world.data["media"].append(
-            {
-                "task_id": str(task_id),
-                "role": role,
-                "link_id": None,
-                "source_key": key,
-                "source": source,
-            }
-        )
-        world.source_bytes[key] = payload
+    _, primary = world.sources[task_id, "primary_lidar"]
+    item = items[str(primary.item_id)]
+    add_source(
+        world, "raw_lidar", item, primary.relation, raw_data, owner_id=uuid.uuid4()
+    )
+    add_source(world, "map", item, primary.relation, b"shared-map", owner_id=map_owner)
 
 
 async def test_nuscenes_shared_map_has_one_copy_and_every_binding_is_fresh(world):
@@ -672,23 +706,16 @@ async def test_nuscenes_shared_map_has_one_copy_and_every_binding_is_fresh(world
         for binding, _, inspect in world.calls
         if binding["role"] in {"raw_lidar", "map"}
     )
-    logical = world.object_calls[0]["nuscenes"]
+    logical = world.snapshot.logical_paths["targets"]["nuscenes"]
     assert len(logical) == 7 and "maps/map.png" in logical
 
 
-async def test_shared_map_second_task_revocation_prevents_copy(world, monkeypatch):
+async def test_shared_map_second_task_revocation_prevents_copy(world):
     first, second = add_task(world, primary="first"), add_task(world, primary="second")
     owner = uuid.uuid4()
     for task_id in (first, second):
         add_nuscenes_auxiliary(world, task_id, map_owner=owner)
-    original = world.delivery.lidar_inputs.check_source
-
-    async def check(db, binding, **options):
-        if binding["role"] == "map" and binding["task_id"] == str(second):
-            raise ContentError("map_binding_revoked")
-        return await original(db, binding, **options)
-
-    monkeypatch.setattr(world.delivery.lidar_inputs, "check_source", check)
+    world.source_failures[second, "map"] = ContentError("map_binding_revoked")
     with pytest.raises(ContentError, match="map_binding_revoked"):
         await prepare(world)
     map_calls = [
@@ -709,6 +736,13 @@ def test_nuscenes_paths_cover_aux_all_cameras_and_private_pcd_in_pure_and_mixed(
     public = paths["nuscenes"]
     assert set(public.values()) == {row["source_key"] for row in world.data["media"]}
     assert len(public) == 5
+    assert set(public) == {
+        f"support/pointclouds/{task}/pcd-a.pcd",
+        f"samples/LIDAR_TOP/{task}.pcd.bin",
+        f"samples/camera_front/{task}.jpg",
+        f"samples/camera_back/{task}.jpg",
+        "maps/map.png",
+    }
     if "kitti" in targets:
         assert len(paths["kitti"]) == 2
         rear = next(
@@ -743,8 +777,6 @@ def test_nuscenes_original_paths_cannot_overwrite_generated_files_or_escape(
 
 
 def test_auxiliary_canonical_identity_deduplicates_owner_without_changing_g1_keys():
-    from app.services.exporting.lidar_sources import canonical_identity
-
     for kind in ("dataset_asset", "task_original"):
         source = {
             "owner_kind": kind,
@@ -776,16 +808,8 @@ def test_auxiliary_canonical_identity_deduplicates_owner_without_changing_g1_key
 
 
 async def test_nuscenes_empty_raw_keeps_delivery_role_and_full_receipt(world):
-    from app.services.exporting.lidar_sources import canonical_identity
-
     task = add_task(world)
-    add_nuscenes_auxiliary(world, task, map_owner=uuid.uuid4())
-    raw = next(row for row in world.data["media"] if row["role"] == "raw_lidar")
-    raw["source"].update(size_bytes=0, sha256=hashlib.sha256(b"").hexdigest())
-    raw["source_key"] = hashlib.sha256(
-        json.dumps(canonical_identity(raw["source"]), sort_keys=True).encode()
-    ).hexdigest()
-    world.source_bytes[raw["source_key"]] = b""
+    add_nuscenes_auxiliary(world, task, map_owner=uuid.uuid4(), raw_data=b"")
     delivery = await prepare(world)
     receipt = delivery.entry(task, "raw_lidar")
     assert (
@@ -793,11 +817,10 @@ async def test_nuscenes_empty_raw_keeps_delivery_role_and_full_receipt(world):
         and receipt["sha256"] == hashlib.sha256(b"").hexdigest()
     )
     assert len(world.calls) == 3
-    assert (
-        next(
-            inspect
-            for binding, _, inspect in world.calls
-            if binding["role"] == "raw_lidar"
-        )
-        is None
+    relative, inspect = next(
+        (relative, inspect)
+        for binding, relative, inspect in world.calls
+        if binding["role"] == "raw_lidar"
     )
+    assert inspect is None
+    assert world.copies[relative] == b""
