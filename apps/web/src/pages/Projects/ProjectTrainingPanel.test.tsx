@@ -300,7 +300,13 @@ describe("managed project training", () => {
     expect(trainingRunsApi.cancel).not.toHaveBeenCalled();
   });
   it("filters before pagination and links directly to independent details without loading a monitor", async () => {
-    const other = { ...run, id: "other", name: "行人分割实验", task: "segment" };
+    const other = {
+      ...run,
+      id: "other",
+      name: "行人分割实验",
+      task: "segment",
+      config: { ...run.config, framework_version: "8.4.177" },
+    };
     vi.mocked(trainingRunsApi.list).mockImplementation(
       async (_project, _offset, _options, filters) => ({
         items: (filters?.q ? [other] : [run, other]) as never,
@@ -313,6 +319,8 @@ describe("managed project training", () => {
     const user = userEvent.setup();
     mount("", "list", "?run_page=1");
     await screen.findByRole("link", { name: "车辆训练" });
+    const otherRow = await screen.findByRole("row", { name: /行人分割实验/ });
+    expect(within(otherRow).getByText("8.4.177")).toBeVisible();
     await user.type(screen.getByRole("textbox", { name: "搜索实验名称或基础权重" }), "分割");
     await user.selectOptions(screen.getByRole("combobox", { name: "实验状态筛选" }), "succeeded");
     await waitFor(() =>
