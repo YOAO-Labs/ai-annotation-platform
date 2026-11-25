@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 from PIL import Image
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
@@ -50,63 +50,31 @@ async def seed_published(db, client, admin, monkeypatch):
 
 
 @pytest.fixture
-async def trained_retry_world(managed_worker_world, app_module):
-    """Commit only these retry cases while preserving the ordinary test fixtures."""
+async def trained_retry_world(managed_worker_world, app_module, monkeypatch):
+    """Serve the retry routes from the worker's own disposable database."""
     import httpx
 
     from app.deps import get_db
-    from app.db.models.trained_model import ModelRelease, ProjectModelSelection
-    from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.db.models.training_run import TrainingRun
     from tests.conftest import _create_user
 
-    world = managed_worker_world
-    missing = object()
-    previous = app_module.dependency_overrides.get(get_db, missing)
-    try:
-        async with world.factory() as db:
-            admin = await _create_user(
-                db,
-                "super_admin",
-                f"trained-retry-{uuid.uuid4().hex}@test.local",
-                "Trained retry owner",
-            )
+    async with managed_worker_world.factory() as db:
+        admin = await _create_user(
+            db,
+            "super_admin",
+            f"trained-retry-{uuid.uuid4().hex}@test.local",
+            "Trained retry owner",
+        )
 
-            async def override():
-                yield db
+        async def override():
+            yield db
 
-            app_module.dependency_overrides[get_db] = override
-            try:
-                async with httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=app_module),
-                    base_url="http://test",
-                ) as client:
-                    yield SimpleNamespace(db=db, client=client, admin=admin)
-            finally:
-                if previous is missing:
-                    app_module.dependency_overrides.pop(get_db, None)
-                else:
-                    app_module.dependency_overrides[get_db] = previous
-                await db.rollback()
-    finally:
-        async with world.factory() as db:
-            versions = select(TrainedModelVersion.id).where(
-                TrainedModelVersion.project_id.in_(world.projects)
-            )
-            for model in (ProjectModelSelection, ModelRelease):
-                await db.execute(
-                    delete(model).where(model.project_id.in_(world.projects))
-                )
-            await db.execute(
-                delete(ModelDeployment).where(
-                    ModelDeployment.model_version_id.in_(versions)
-                )
-            )
-            for model in (TrainedModelVersion, TrainingRun, TrainingDatasetVersion):
-                await db.execute(
-                    delete(model).where(model.project_id.in_(world.projects))
-                )
-            await db.commit()
+        with monkeypatch.context() as patch:
+            patch.setitem(app_module.dependency_overrides, get_db, override)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_module),
+                base_url="http://test",
+            ) as client:
+                yield SimpleNamespace(db=db, client=client, admin=admin)
 
 
 @pytest.fixture

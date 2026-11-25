@@ -1,9 +1,7 @@
 """Committed managed-image worker inputs with controlled physical I/O only.
 
 Import ``input_world`` and ``managed_worker_world`` into a test module to expose
-both fixtures. Business rows use the migrated test schema; independent input
-owners and permits use input_world's disposable schema. Fresh credential/source
-checks and transaction-bound prediction receipts remain production code.
+both fixtures. All sessions commit to input_world's per-test migrated database.
 """
 
 from contextlib import asynccontextmanager
@@ -14,108 +12,36 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import delete, event, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
-from sqlalchemy.orm import Session
+from starlette.requests import Request
 
+from app.config import settings
 from app.core.security import create_access_token
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.db.models.ml_backend_pool import MLBackendServicePool
-from app.db.models.notification import Notification
-from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.db.models.task_batch import TaskBatch
-from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
+from app.deps import bearer_scheme, get_current_principal
 from app.services import async_job as jobs
 from app.services import prediction_originals as originals
 from app.services import prediction_references as refs
+from app.services.identity_gateway import IdentityGateway
 from app.services.prediction_execution import create_snapshot, load_snapshot
-from app.services.dataset_assets import ensure_legacy_bindings
 from tests.inference_execution_test_ports import run_batch_request
 from tests.test_managed_prediction_requests import managed_task
 from tests.test_prediction_inputs import input_world as input_world
 
 
 @pytest.fixture
-async def managed_worker_world(input_world, test_engine, monkeypatch):
-    """Own committed business fixtures and keep every real guard session visible."""
+def managed_worker_world(input_world, monkeypatch):
+    """Keep committed worker inputs visible to independent guard sessions."""
     world = SimpleNamespace(
         factory=input_world.factory,
         source_bytes={},
         captured=[],
-        projects=set(),
-        datasets=set(),
-        actors=set(),
-        backends=set(),
         monkeypatch=monkeypatch,
     )
     world.factory.configure(info={"managed_worker_world": world})
-    async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
-        await ensure_legacy_bindings(db)
-        await db.commit()
-    async with world.factory() as db:
-        schema = await db.scalar(text("SELECT current_schema()"))
-        assert schema.startswith("prediction_inputs_")
-        await db.execute(
-            text(
-                f'CREATE TABLE "{schema}".audit_logs '
-                "(LIKE public.audit_logs INCLUDING ALL)"
-            )
-        )
-        await db.commit()
-
-    created = {}
-
-    def forget(row):
-        owned = created.pop(row, None)
-        if owned is not None:
-            collection, row_id, _, _ = owned
-            if not any(
-                other is collection and other_id == row_id
-                for other, other_id, _, _ in created.values()
-            ):
-                collection.discard(row_id)
-
-    def track(session, row):
-        if session.info.get("managed_worker_world") is not world:
-            return
-        for model, collection in (
-            (Project, world.projects),
-            (Dataset, world.datasets),
-            (User, world.actors),
-            (MLBackendRegistry, world.backends),
-        ):
-            if isinstance(row, model):
-                created[row] = (collection, row.id, session, False)
-                collection.add(row.id)
-                break
-
-    def revoke(session, row):
-        if session.info.get("managed_worker_world") is not world:
-            return
-        forget(row)
-
-    def committed(session):
-        if session.info.get("managed_worker_world") is not world:
-            return
-        if session.in_nested_transaction():
-            return
-        for row, (collection, row_id, owner, is_committed) in created.items():
-            if owner is session and not is_committed:
-                created[row] = (collection, row_id, owner, True)
-
-    def transaction_ended(session, transaction):
-        if session.info.get("managed_worker_world") is not world:
-            return
-        if transaction.parent is None:
-            for row, (_, _, owner, is_committed) in list(created.items()):
-                if owner is session and not is_committed:
-                    forget(row)
 
     def capture(spec, maximum, seconds, deadline, stop, release, **kwargs):
         raw = world.source_bytes[spec.bucket, spec.object_key]
@@ -137,80 +63,18 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
         "app.services.prediction_progress.publish_progress",
         lambda *args, **kwargs: None,
     )
-    listeners = (
-        ("pending_to_persistent", track),
-        ("persistent_to_transient", revoke),
-        ("after_commit", committed),
-        ("after_transaction_end", transaction_ended),
+    return world
+
+
+async def admitted_jwt_request(db, actor):
+    token = create_access_token(subject=str(actor.id), role=actor.role)
+    request = Request(
+        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
     )
-    registered = []
-    try:
-        for name, listener in listeners:
-            event.listen(Session, name, listener)
-            registered.append((name, listener))
-        yield world
-    finally:
-        for name, listener in reversed(registered):
-            event.remove(Session, name, listener)
-        async with world.factory() as db:
-            predictions = select(Prediction.id).where(
-                Prediction.project_id.in_(world.projects)
-            )
-            failures = select(FailedPrediction.id).where(
-                FailedPrediction.project_id.in_(world.projects)
-            )
-            await db.execute(
-                delete(PredictionMeta).where(
-                    PredictionMeta.prediction_id.in_(predictions)
-                    | PredictionMeta.failed_prediction_id.in_(failures)
-                )
-            )
-            for model in (Annotation, Prediction, FailedPrediction):
-                await db.execute(
-                    delete(model).where(model.project_id.in_(world.projects))
-                )
-            if world.projects:
-                await db.execute(
-                    text(
-                        "SELECT yoao_jobs_v1.delete_fixture_project_jobs("
-                        "CAST(:project_ids AS uuid[]))"
-                    ),
-                    {"project_ids": list(world.projects)},
-                )
-            await db.execute(
-                delete(PredictionExecutionSnapshot).where(
-                    PredictionExecutionSnapshot.project_id.in_(world.projects)
-                )
-            )
-            await db.execute(
-                delete(TaskLock).where(
-                    TaskLock.task_id.in_(
-                        select(Task.id).where(Task.project_id.in_(world.projects))
-                    )
-                )
-            )
-            await db.execute(delete(Task).where(Task.project_id.in_(world.projects)))
-            await db.execute(
-                delete(TaskBatch).where(TaskBatch.project_id.in_(world.projects))
-            )
-            await db.execute(delete(Project).where(Project.id.in_(world.projects)))
-            await db.execute(delete(Dataset).where(Dataset.id.in_(world.datasets)))
-            await db.execute(
-                delete(Notification).where(Notification.user_id.in_(world.actors))
-            )
-            await db.execute(
-                delete(MLBackendServicePool).where(
-                    MLBackendServicePool.legacy_instance_id.in_(world.backends)
-                )
-            )
-            await db.execute(
-                delete(MLBackendRegistry).where(
-                    MLBackendRegistry.id.in_(world.backends)
-                )
-            )
-            await db.execute(delete(User).where(User.id.in_(world.actors)))
-            await db.commit()
-        world.source_bytes.clear()
+    await get_current_principal(
+        request, await bearer_scheme(request), db, IdentityGateway()
+    )
+    return request
 
 
 async def freeze_job(
@@ -263,11 +127,7 @@ async def freeze_job(
                 PredictionExecutionSnapshot, job.execution_snapshot_id
             )
     snapshot = snapshot or await create_snapshot(db, project.id, payload)
-    token = create_access_token(subject=str(actor.id), role=actor.role)
-    request = SimpleNamespace(
-        state=SimpleNamespace(api_key_id=None, api_key_scopes=None),
-        headers={"authorization": "Bearer " + token},
-    )
+    request = await admitted_jwt_request(db, actor)
     proof = await refs.capture_authority(
         db,
         project,
@@ -279,13 +139,18 @@ async def freeze_job(
         batch_id=batch_id,
         predict_mode=predict_mode,
     )
+    task_ids = [str(task.id) for task in tasks]
     if job is None:
         job = await jobs.create_job(
             db,
             kind="batch_predict",
             user_id=actor.id,
             project_id=project.id,
-            payload={},
+            payload={
+                "execution_scope": scope,
+                "batch_id": str(batch_id) if batch_id else None,
+                "task_ids": task_ids,
+            },
         )
     await jobs.bind_execution_snapshot(
         db, job, actor_id=actor.id, snapshot_id=snapshot.id
@@ -294,7 +159,7 @@ async def freeze_job(
     job.payload = {
         **(job.payload or {}),
         "prediction_authority": proof,
-        "scope": {"task_ids": [str(task.id) for task in tasks]},
+        "scope": {"task_ids": task_ids},
     }
     await db.commit()
     return job
@@ -302,16 +167,11 @@ async def freeze_job(
 
 @asynccontextmanager
 async def worker_engine(world):
-    """Redirect only worker construction; its sessions are real and independent."""
-    import sqlalchemy.ext.asyncio as sa_async
-
-    class Engine:
-        async def dispose(self):
-            pass
+    """Point the business worker at the case DB without replacing executor logins."""
+    url = world.factory.kw["bind"].url.render_as_string(hide_password=False)
 
     with world.monkeypatch.context() as patch:
-        patch.setattr(sa_async, "create_async_engine", lambda *args, **kw: Engine())
-        patch.setattr(sa_async, "async_sessionmaker", lambda *args, **kw: world.factory)
+        patch.setattr(settings, "database_url", url)
         yield
 
 

@@ -6,12 +6,14 @@ scope change; worker rollback must not undo either operation.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 import hashlib
 from types import SimpleNamespace
 import uuid
 from unittest.mock import AsyncMock
 
 from fastapi import HTTPException
+import httpx
 import pytest
 from sqlalchemy import func, select, text
 
@@ -21,6 +23,7 @@ from yoao_assets_input_manifests import contract as manifests
 from yoao_assets_inputs import contract as inputs
 from yoao_assets_inputs_runtime.storage import S3InputStorage
 from app.api.v1.async_jobs import cancel_async_job
+from app.config import settings
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -45,39 +48,94 @@ from tests.inference_execution_test_ports import (
     pipeline_output,
 )
 from tests.managed_prediction_worker_fixtures import (
+    admitted_jwt_request,
     freeze_job,
     input_world as input_world,
     managed_worker_world as managed_worker_world,
     worker_engine,
 )
+from tests.test_grant_namespace_security import _login
 
 pytestmark = pytest.mark.asyncio
 
 
+@asynccontextmanager
+async def _case_login(world, prefix, signatures):
+    engine = world.factory.kw["bind"]
+    database = engine.dialect.identifier_preparer.quote_identifier(engine.url.database)
+    schemas = ", ".join(sorted({name.split(".", 1)[0] for name in signatures}))
+    async with _login(engine, prefix) as (role, password):
+        async with engine.begin() as owner:
+            await owner.exec_driver_sql(
+                f"REVOKE TEMP ON DATABASE {database} FROM PUBLIC"
+            )
+            await owner.exec_driver_sql(
+                f"GRANT CONNECT ON DATABASE {database} TO {role}"
+            )
+            await owner.exec_driver_sql(f"GRANT USAGE ON SCHEMA {schemas} TO {role}")
+            await owner.exec_driver_sql(
+                f"GRANT EXECUTE ON FUNCTION {', '.join(signatures)} TO {role}"
+            )
+        yield engine.url.set(
+            drivername="postgresql", username=role, password=password
+        ).render_as_string(hide_password=False)
+
+
 @pytest.fixture
-def retained_image_storage(managed_worker_world, monkeypatch):
+async def image_executor_logins(managed_worker_world, monkeypatch):
+    from yoao_assets_images_runtime.health import _expected_signatures
+    from yoao_preannotation_results import contract, retry_contract
+
+    image = _expected_signatures("worker")
+    results = tuple(
+        f"{operation.namespace}.{name}(jsonb)"
+        for operations in (contract.OPERATIONS, retry_contract.OPERATIONS)
+        for name, operation in operations.items()
+        if operation.role == "executor"
+    )
+    async with (
+        _case_login(managed_worker_world, "image", image) as image_url,
+        _case_login(managed_worker_world, "results", results) as results_url,
+    ):
+        monkeypatch.setattr(settings, "assets_celery_image_database_url", image_url)
+        monkeypatch.setattr(settings, "assets_celery_image_database_url_file", "")
+        monkeypatch.setattr(settings, "preannotation_results_database_url", results_url)
+        monkeypatch.setattr(settings, "preannotation_results_database_url_file", "")
+        yield
+
+
+@pytest.fixture
+async def frame_publication_login(managed_worker_world, monkeypatch):
+    from yoao_jobs.publication_postgres import PUBLICATION_FUNCTIONS
+    from app.workers.jobs_dispatch import _verify_login
+
+    signatures = tuple(
+        f"yoao_jobs_v1.{name}({arguments})"
+        for name, arguments in sorted(PUBLICATION_FUNCTIONS)
+    )
+    async with _case_login(managed_worker_world, "frames", signatures) as url:
+        await _verify_login(url, PUBLICATION_FUNCTIONS)
+        monkeypatch.setattr(settings, "jobs_publication_database_url", url)
+        monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+        yield
+
+
+@pytest.fixture
+async def retained_image_storage(
+    managed_worker_world, image_executor_logins, monkeypatch
+):
     """Substitute physical bytes only; capture, preparation and sealing stay Native."""
     blobs = {}
 
-    def source_bytes(source):
-        return {
-            key: raw for (_, key), raw in managed_worker_world.source_bytes.items()
-        }[source.file_path]
-
-    async def head_source(_storage, source):
-        raw = source_bytes(source)
-        return ObjectIdentity(etag=hashlib.sha256(raw).hexdigest(), byte_size=len(raw))
-
-    async def download_source(storage, source, destination):
-        raw = source_bytes(source)
-        identity = await head_source(storage, source)
-        assert identity == source.object_identity
-        destination.write_bytes(raw)
-        return SimpleNamespace(
-            identity=identity,
-            byte_size=len(raw),
-            sha256=hashlib.sha256(raw).hexdigest(),
-        )
+    def original(request):
+        bucket, key = request.url.path.lstrip("/").split("/", 1)
+        raw = managed_worker_world.source_bytes[bucket, key]
+        etag = f'"{hashlib.sha256(raw).hexdigest()}"'
+        headers = {"etag": etag, "content-length": str(len(raw))}
+        if request.method == "HEAD":
+            return httpx.Response(200, headers=headers)
+        assert request.method == "GET" and request.headers["if-match"] == etag
+        return httpx.Response(200, headers=headers, stream=httpx.ByteStream(raw))
 
     async def upload_blob(_storage, path, key, *, sha256, byte_size):
         raw = path.read_bytes()
@@ -105,13 +163,14 @@ def retained_image_storage(managed_worker_world, monkeypatch):
         await verify_blob(storage, blob)
         return f"http://retained.test/{blob.key}?versionId={blob.version_id}"
 
-    monkeypatch.setattr(S3ImageStorage, "head_source", head_source)
-    monkeypatch.setattr(S3ImageStorage, "download_source", download_source)
     monkeypatch.setattr(S3InputStorage, "assert_versioning", AsyncMock())
     monkeypatch.setattr(S3InputStorage, "upload_blob", upload_blob)
     monkeypatch.setattr(S3InputStorage, "verify_blob", verify_blob)
     monkeypatch.setattr(S3InputStorage, "download_blob", download_blob)
     monkeypatch.setattr(S3InputStorage, "sign_blob", sign_blob)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(original)) as client:
+        monkeypatch.setattr(S3ImageStorage, "_get_http_client", lambda _storage: client)
+        yield
 
 
 @pytest.fixture
@@ -298,10 +357,12 @@ async def cancel(world, *, pid=None):
     async with world.factory() as db:
         if pid is not None:
             pid.append(await db.scalar(text("SELECT pg_backend_pid()")))
+        request = await admitted_jwt_request(db, await db.get(User, world.user))
         response = await cancel_async_job(
             world.job,
+            request=request,
             db=db,
-            actor_id=world.user,
+            actor_id=request.state.identity_principal.actor_id,
             cancellation=get_job_cancellation_port(db, get_job_execution_control()),
         )
         return response.model_dump(mode="json")
@@ -877,9 +938,9 @@ async def test_partial_completion_rejects_foreign_candidate_ids(
 
 @pytest.mark.parametrize("mode", ["overwrite", "append"])
 async def test_frame_fanout_preserves_its_existing_reset_contract(
-    managed_worker_world, monkeypatch, mode
+    managed_worker_world, frame_publication_login, monkeypatch, mode
 ):
-    from yoao_assets_inputs_runtime.storage import S3InputStorage
+    from yoao_assets_video_inputs_runtime.storage import VideoSourceStorage
     from app.application.preannotation_contract import BatchPredictionRequest
     from app.application.preannotation_execution import run_preannotation
     from app.workers.frame_preannotate import JobsFramePreannotationDispatcher
@@ -928,17 +989,29 @@ async def test_frame_fanout_preserves_its_existing_reset_contract(
         await db.commit()
         task_id, job_id, backend_id = task.id, job.id, backend.id
 
-    async def head_source(_storage, source):
+    original_head = VideoSourceStorage.head_source
+
+    async def head_source(storage, source):
         assert source.dataset_item_id == plan.input.source.dataset_item_id
         assert source.source_snapshot == plan.input.source.source_snapshot
-        return plan.input.source.object_identity
+        return await original_head(storage, source)
+
+    async def head_object(storage, _client, bucket, key):
+        assert (bucket, key) == (
+            storage.config.datasets_bucket,
+            plan.input.source.file_path,
+        )
+        return ObjectIdentity(**plan.input.source.object_identity.model_dump()), {}
 
     async def verify_blob(_storage, blob):
         assert blob == plan.input.blob
 
-    monkeypatch.setattr(S3InputStorage, "head_source", head_source)
+    monkeypatch.setattr(VideoSourceStorage, "head_source", head_source)
+    monkeypatch.setattr(S3ImageStorage, "_head_object", head_object)
     monkeypatch.setattr(S3InputStorage, "verify_blob", verify_blob)
-    monkeypatch.setattr("app.workers.frame_preannotate._init_progress", lambda *a: None)
+    monkeypatch.setattr(
+        "app.workers.frame_preannotate._cache_progress", lambda *a: None
+    )
     calls = []
 
     async def publish(envelope):
