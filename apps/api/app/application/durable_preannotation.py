@@ -368,6 +368,7 @@ async def run_durable_batch(
     failure_context=None,
 ):
     """Resume captured raw/prepared bodies; count only atomic native outcomes."""
+    from yoao_assets_input_manifests.contract import ManifestFailure
     from yoao_preannotation_results.contract import BatchResultFailure
     from yoao_assets_mask_content.contract import MaskContentFailure
     from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
@@ -481,6 +482,13 @@ async def run_durable_batch(
                         reason="already_predicted",
                     )
                     continue
+                frozen = member.manifest_member
+                if (
+                    manifest_backed
+                    and frozen is not None
+                    and frozen["state"] == "failed"
+                ):
+                    raise ManifestFailure(frozen["error"])
                 from app.services.labeling_write_guard import lock_labeling_write
 
                 await lock_labeling_write(
