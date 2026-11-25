@@ -1,6 +1,7 @@
 """Frozen family, native head and version identities at API trust boundaries."""
 
 from copy import deepcopy
+from datetime import UTC, datetime
 from types import SimpleNamespace
 import uuid
 from unittest.mock import AsyncMock
@@ -13,9 +14,11 @@ from training_contract.initialization import policy_for_model
 from training_contract.model_return import segmentation_identity, ultralytics_identity
 from training_contract.models import model_spec, models_for_framework
 
+from app.config import settings
 from app.schemas.training_initialization import (
     FrozenTrainingInitialization,
     FrozenSegmentationTrainingInitialization,
+    TrainingInitialization,
 )
 from app.services import (
     controlled_segmentation,
@@ -26,7 +29,10 @@ from app.services import (
 )
 from tests.sample_evaluation_fixtures import profile
 from tests.test_controlled_segmentation import example
-from tests.test_segmentation_initialization_evidence import source_fixture
+from tests.test_segmentation_initialization_evidence import (
+    LearningFactsSession,
+    source_fixture,
+)
 
 
 ULTRA_MODELS = [item.id for item in models_for_framework("ultralytics")]
@@ -69,26 +75,18 @@ def test_receipt_freezes_exact_family_scale_and_head(base_model):
 async def test_source_pin_and_public_schema_resolve_source_version_and_family(
     monkeypatch, base_model
 ):
-    project, version, DB, _, _, _ = source_fixture(monkeypatch)
-    _, run, dataset = list(DB().rows)
-    config = run.config
-    config.update(
-        task="detect", framework_version="8.4.183", base_model={"id": base_model}
+    project, version, DB, _, _, _ = source_fixture(
+        monkeypatch, base_model=base_model, framework_version="8.4.183"
     )
-    run.config_digest = digest(config)
-    version.framework_version = "8.4.183"
-    version.provenance.update(
-        config_digest=run.config_digest, base_model=config["base_model"]
-    )
-    rows = iter([version, run, dataset])
-    db = SimpleNamespace(scalar=AsyncMock(side_effect=lambda _: next(rows)))
-    attempt = await DB().get(None, None)
-    db.get = AsyncMock(return_value=attempt)
+    db = DB()
     pin, _ = await initialization.source_pin(db, project, version.id)
     policy = policy_for_model(base_model, "8.4.183")
     assert pin["policy_digest"] == digest(policy)
     assert pin["task"] == "detect"
     assert pin["model_family"] == model_spec("ultralytics", base_model).family
+    assert pin["model_version_id"] == str(version.id)
+    assert pin["framework_version"] == "8.4.183"
+    db.storage_transport.client.get_object.assert_not_called()
     assert FrozenTrainingInitialization.model_validate(pin).base_model == base_model
     assert (
         initialization.compatible_pin(pin, "ultralytics", base_model, ["shape"]) == []
@@ -175,10 +173,15 @@ async def test_managed_profile_requests_exact_frozen_model_and_checks_native_bra
     monkeypatch, base_model
 ):
     native, ref, runtime = managed_case(base_model)
+    project = SimpleNamespace(id=uuid.uuid4(), tool_bindings={})
+    model_id = uuid.UUID(ref["model_version_id"])
+    deployment_id = uuid.UUID(ref["deployment_id"])
+    registry_id = uuid.UUID(ref["registry_id"])
+    freeze = AsyncMock(return_value=ref)
     monkeypatch.setattr(
         managed.trained_models,
         "bind_frozen_model_reference",
-        lambda _db: SimpleNamespace(freeze=AsyncMock(return_value=ref)),
+        lambda _db: SimpleNamespace(freeze=freeze),
     )
     monkeypatch.setattr(
         managed.trained_models,
@@ -190,33 +193,44 @@ async def test_managed_profile_requests_exact_frozen_model_and_checks_native_bra
         "app.services.inference_backend_control.backend_control_service",
         lambda _db: SimpleNamespace(managed_evaluation_profile=remote),
     )
-    db = SimpleNamespace(
-        get=AsyncMock(
-            return_value=SimpleNamespace(
-                model_version_id=ref["model_version_id"],
-                registry_id=uuid.UUID(ref["registry_id"]),
-            )
-        )
+    db = LearningFactsSession(
+        {
+            ("model_deployment_detail", project.id, model_id, deployment_id): {
+                "id": deployment_id,
+                "model_version_id": model_id,
+                "registry_id": registry_id,
+                "check_id": uuid.uuid4(),
+                "status": "ready",
+                "receipt": {},
+                "trial": {},
+                "error_message": None,
+                "checked_at": None,
+                "created_at": datetime.now(UTC),
+            }
+        }
     )
-    _, checked = await managed.qualification(
-        db,
-        SimpleNamespace(id=uuid.uuid4(), tool_bindings={}),
-        ref["model_version_id"],
-        uuid.UUID(ref["deployment_id"]),
-    )
-    remote.assert_awaited_once_with(uuid.UUID(ref["registry_id"]))
+    _, checked = await managed.qualification(db, project, model_id, deployment_id)
+    request = freeze.await_args.args[0]
+    assert request.project_id == project.id
+    assert request.model_id == f"trained:{model_id}"
+    assert request.registry_id == registry_id
+    remote.assert_awaited_once_with(registry_id)
     assert checked["ultralytics_version"] == "8.4.183"
+    if native.end2end:
+        runtime["options"]["nms"] = True
+        runtime["profile_digest"] = digest(
+            {key: value for key, value in runtime.items() if key != "profile_digest"}
+        )
+        with pytest.raises(HTTPException) as error:
+            await managed.qualification(db, project, model_id, deployment_id)
+        assert error.value.detail["code"] == "runtime_unqualified"
+        runtime["options"]["nms"] = False
     runtime["ultralytics_version"] = "8.4.177"
     runtime["profile_digest"] = digest(
         {key: value for key, value in runtime.items() if key != "profile_digest"}
     )
     with pytest.raises(HTTPException) as error:
-        await managed.qualification(
-            db,
-            SimpleNamespace(id=uuid.uuid4(), tool_bindings={}),
-            ref["model_version_id"],
-            uuid.UUID(ref["deployment_id"]),
-        )
+        await managed.qualification(db, project, model_id, deployment_id)
     assert error.value.detail["code"] == "deployment_runtime_changed"
 
 
@@ -259,38 +273,47 @@ def test_observed_end2end_cannot_change_from_the_frozen_family(base_model):
 async def test_cross_version_initialization_fails_before_reading_source_storage(
     monkeypatch,
 ):
-    from app.schemas.training_initialization import TrainingInitialization
-    from app.services import training_runs
-
-    project, version, DB, _, _, _ = source_fixture(monkeypatch)
-    pin, metrics = await initialization.source_pin(DB(), project, version.id)
+    monkeypatch.setattr(settings, "training_enabled", True)
+    monkeypatch.setattr(settings, "training_executor_token", "a" * 32)
+    monkeypatch.setattr(settings, "training_gpu_uuid", "GPU-test")
     monkeypatch.setattr(
-        initialization, "source_pin", AsyncMock(return_value=(pin, metrics))
+        settings,
+        "training_catalog_json",
+        {
+            "ultralytics": {
+                "version": "8.4.183",
+                "image_digest": "sha256:" + "1" * 64,
+                "base_models": {
+                    "yolo11n-seg": {"sha256": "2" * 64, "filename": "yolo11n-seg.pt"}
+                },
+            }
+        },
     )
-    monkeypatch.setattr(
-        training_runs,
-        "controlled_template",
-        lambda *_: {"framework_version": "8.4.183"},
-    )
-    read_storage = AsyncMock()
-    monkeypatch.setattr(initialization, "read_storage", read_storage)
+    project, version, DB, _, metrics, owner = source_fixture(monkeypatch)
+    db = DB()
+    pin, _ = await initialization.source_pin(db, project, version.id)
+    assert pin["framework_version"] == "8.4.177"
+    storage = db.storage_transport.client
+    storage.get_object.reset_mock()
     source = TrainingInitialization(**initialization.reference(pin))
     with pytest.raises(HTTPException, match="跨版本"):
-        await initialization.resolve(
-            DB(), project, source, "ultralytics", "yolo11n-seg"
-        )
-    read_storage.assert_not_awaited()
+        await initialization.resolve(db, project, source, "ultralytics", "yolo11n-seg")
+    storage.get_object.assert_called_once_with(Bucket=owner.bucket, Key=metrics["key"])
+    storage.head_object.assert_not_called()
     eligibility = await initialization.eligibility(
-        DB(), project, version.id, "ultralytics", "yolo11n-seg"
+        db, project, version.id, "ultralytics", "yolo11n-seg"
     )
     assert not eligibility["eligible"]
     assert any("跨版本" in reason for reason in eligibility["reasons"])
+    assert eligibility["pin"] == pin
+    storage.get_object.reset_mock()
     assert (
         await initialization.validate_accepted(
-            DB(), project, pin, "ultralytics", "yolo11n-seg"
+            db, project, pin, "ultralytics", "yolo11n-seg"
         )
         == pin
     )
+    storage.get_object.assert_any_call(Bucket=owner.bucket, Key=version.artifact["key"])
 
 
 @pytest.mark.parametrize(
@@ -299,10 +322,16 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
 async def test_segment_source_pin_resolves_the_new_family_policy_and_raw_report(
     monkeypatch, base_model
 ):
-    project, version, DB, report, metrics, _ = source_fixture(
+    project, version, DB, report, metrics, owner = source_fixture(
         monkeypatch, base_model=base_model, framework_version="8.4.183"
     )
-    pin, frozen_metrics = await initialization.source_pin(DB(), project, version.id)
+    db = DB()
+    pin, frozen_metrics = await initialization.source_pin(db, project, version.id)
+    db.storage_transport.client.get_object.assert_called_once_with(
+        Bucket=owner.bucket, Key=metrics["key"]
+    )
+    assert pin["model_version_id"] == str(version.id)
+    assert pin["framework_version"] == "8.4.183"
     assert pin["policy_digest"] == digest(policy_for_model(base_model, "8.4.183"))
     assert pin["model_family"] == model_spec("ultralytics", base_model).family
     assert pin["evaluation"]["report_digest"] == digest(report)
