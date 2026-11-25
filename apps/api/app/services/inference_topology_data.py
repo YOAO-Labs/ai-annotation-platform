@@ -30,7 +30,10 @@ from yoao_inference_contract.topology import (
 )
 from yoao_inference_contract.plugin import (
     PluginInstallationResponse,
+    PluginManifest,
+    PluginResourceBinding,
     PreparePluginInstallation,
+    RegisterDirectPluginRequest,
 )
 
 _SCHEMA = "yoao_inference_topology_v1"
@@ -439,6 +442,71 @@ class InferenceTopologyData:
         row = await self._plugin_scalar(
             _PREPARE_PLUGIN, {"intent": payload.model_dump_json()}
         )
+        response = PluginInstallationResponse.model_validate(_object(row))
+        await BackendTopologyCoordinator(self).ensure_singleton_pool(
+            response.registry_id
+        )
+        return response
+
+    async def prepare_direct_plugin_installation(
+        self,
+        installation_id: UUID,
+        payload: RegisterDirectPluginRequest,
+    ) -> PluginInstallationResponse:
+        from yoao_inference.topology import BackendTopologyCoordinator
+
+        normalized_url = payload.url.rstrip("/")
+        if not normalized_url:
+            raise ValueError("invalid plugin endpoint URL")
+        provisional_manifest = PluginManifest.model_validate(
+            {
+                "manifest_schema": "yoao-extension-manifest/v1",
+                "plugin_id": "pending.direct",
+                "version": "0",
+                "display_name": payload.display_name,
+                "description": payload.description,
+                "homepage": payload.homepage,
+                "publisher": payload.publisher or "direct",
+                "license": payload.license or "unspecified",
+                "protocol_version": "yoao-inference/v2",
+                "execution_mode": "direct",
+                "sdk_compatibility": None,
+                "entrypoint": None,
+                "capabilities": ["inference"],
+                "models": [
+                    {
+                        "id": "pending",
+                        "task": "detect",
+                        "is_interactive": False,
+                        "supported_prompts": ["none"],
+                        "supported_inputs": ["full_image"],
+                        "supported_geometric_outputs": ["bbox"],
+                    }
+                ],
+                "pools": {"default": {"cap": 1}},
+                "resource": {"device": "cpu", "memory_mb": None, "gpu_memory_mb": 0},
+                "asset_manifest_sha256": None,
+                "managed_model_compatibility": [],
+                "allowed_asset_sources": [],
+                "artifact": None,
+            }
+        )
+        resource = PluginResourceBinding(
+            gpu_resource_id=None,
+            physical_gpu_uuid=None,
+            logical_device="cpu",
+        )
+        intent = {
+            "installation_id": str(installation_id),
+            "name": payload.name,
+            "url": normalized_url,
+            "auth_token": payload.auth_token,
+            "manifest": provisional_manifest.model_dump(mode="json"),
+            "resource": resource.model_dump(mode="json"),
+            "execution_mode": "direct",
+            "source_tier": payload.source_tier,
+        }
+        row = await self._plugin_scalar(_PREPARE_PLUGIN, {"intent": _json(intent)})
         response = PluginInstallationResponse.model_validate(_object(row))
         await BackendTopologyCoordinator(self).ensure_singleton_pool(
             response.registry_id

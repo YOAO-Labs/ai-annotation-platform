@@ -176,6 +176,8 @@ class Settings(BaseSettings):
         "notification_channel_allow_insecure_http_hosts",
         "format_adapter_host_allowlist",
         "format_adapter_allow_insecure_http_hosts",
+        "inference_plugin_private_host_allowlist",
+        "inference_plugin_loopback_host_allowlist",
         mode="before",
     )
     @classmethod
@@ -290,6 +292,8 @@ class Settings(BaseSettings):
     format_adapter_encryption_key_file: str = ""
     format_adapter_host_allowlist: Annotated[list[str], NoDecode] = []
     format_adapter_allow_insecure_http_hosts: Annotated[list[str], NoDecode] = []
+    inference_plugin_private_host_allowlist: Annotated[list[str], NoDecode] = []
+    inference_plugin_loopback_host_allowlist: Annotated[list[str], NoDecode] = []
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
     identity_recovery_database_url: str = Field(default="", repr=False)

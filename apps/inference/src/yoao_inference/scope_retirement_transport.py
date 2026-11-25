@@ -10,6 +10,8 @@ from uuid import UUID
 
 import httpx
 
+from .host_guard import InferenceHostDenied, build_pinned_http_transport
+
 _MAX_BACKEND_RETIREMENT_BYTES = 65_536
 _TIMEOUT_SECONDS = 5.0
 _CONTEXT_FIELDS = frozenset(
@@ -187,6 +189,9 @@ async def execute_backend_scope_retirement(
                 timeout=httpx.Timeout(_TIMEOUT_SECONDS),
                 follow_redirects=False,
                 trust_env=False,
+                transport=build_pinned_http_transport(
+                    enforce_private_and_loopback=False
+                ),
             ) as client:
                 async with client.stream(
                     "POST",
@@ -202,7 +207,7 @@ async def execute_backend_scope_retirement(
                     raw_reply = await _read_reply(response)
     except BackendScopeRetirementUnavailable:
         raise
-    except (httpx.HTTPError, OSError, TimeoutError):
+    except (httpx.HTTPError, InferenceHostDenied, OSError, TimeoutError):
         raise BackendScopeRetirementUnavailable() from None
     try:
         return decode_backend_scope_retirement_reply(raw_reply)

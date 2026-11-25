@@ -6135,6 +6135,11 @@
             "title": "Is Interactive",
             "type": "boolean"
           },
+          "managed_evaluation": {
+            "default": false,
+            "title": "Managed Evaluation",
+            "type": "boolean"
+          },
           "managed_lifecycle": {
             "anyOf": [
               {
@@ -17258,6 +17263,137 @@
         "title": "DetectionTruth",
         "type": "object"
       },
+      "DirectPluginProbeResponse": {
+        "additionalProperties": false,
+        "description": "Read-only probe snapshot for an installed inference plugin.",
+        "properties": {
+          "boot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boot Id"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cpu",
+                  "cuda"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "execution_mode": {
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "title": "Installation Id",
+            "type": "string"
+          },
+          "matches_manifest": {
+            "title": "Matches Manifest",
+            "type": "boolean"
+          },
+          "mismatch_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mismatch Reason"
+          },
+          "observed_managed_evaluation": {
+            "default": false,
+            "title": "Observed Managed Evaluation",
+            "type": "boolean"
+          },
+          "observed_managed_model_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedModelCompatibility"
+            },
+            "title": "Observed Managed Model Compatibility",
+            "type": "array"
+          },
+          "observed_models": {
+            "items": {
+              "$ref": "#/components/schemas/PluginModelCapability"
+            },
+            "title": "Observed Models",
+            "type": "array"
+          },
+          "observed_pools": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PluginPoolTopology"
+            },
+            "title": "Observed Pools",
+            "type": "object"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "terminal_drain_supported": {
+            "default": false,
+            "title": "Terminal Drain Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "registry_id",
+          "installation_id",
+          "execution_mode",
+          "status",
+          "healthy",
+          "matches_manifest"
+        ],
+        "title": "DirectPluginProbeResponse",
+        "type": "object"
+      },
       "DirectoryEntry": {
         "properties": {
           "name": {
@@ -23767,6 +23903,108 @@
           }
         },
         "title": "ImportResult",
+        "type": "object"
+      },
+      "InferencePluginSummary": {
+        "additionalProperties": false,
+        "description": "Unified read-only projection shared across container and direct inference plugins.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device": {
+            "enum": [
+              "cpu",
+              "cuda"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "execution_mode": {
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "extension_point": {
+            "const": "inference",
+            "default": "inference",
+            "title": "Extension Point",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "locally_arbitrated_gpu": {
+            "title": "Locally Arbitrated Gpu",
+            "type": "boolean"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "version",
+          "source_tier",
+          "execution_mode",
+          "status",
+          "device",
+          "locally_arbitrated_gpu"
+        ],
+        "title": "InferencePluginSummary",
         "type": "object"
       },
       "InitializationArtifact": {
@@ -37039,12 +37277,18 @@
             ]
           },
           "receipt": {
-            "$ref": "#/components/schemas/PluginLaunchReceipt"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginLaunchReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "expected_revision",
-          "receipt"
+          "expected_revision"
         ],
         "title": "PluginActivateRequest",
         "type": "object"
@@ -37114,9 +37358,16 @@
             "type": "array"
           },
           "container_id": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Container Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
           },
           "descriptor": {
             "$ref": "#/components/schemas/PluginAssetDescriptor"
@@ -37137,9 +37388,16 @@
             "type": "integer"
           },
           "image_id": {
-            "pattern": "^sha256:[0-9a-f]{64}$",
-            "title": "Image Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id"
           },
           "inventory": {
             "items": {
@@ -37147,6 +37405,19 @@
             },
             "title": "Inventory",
             "type": "array"
+          },
+          "runtime_instance_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Instance Id"
           }
         },
         "required": [
@@ -37155,9 +37426,7 @@
           "descriptor",
           "descriptor_sha256",
           "approved",
-          "inventory",
-          "container_id",
-          "image_id"
+          "inventory"
         ],
         "title": "PluginAssetApprovalUpdate",
         "type": "object"
@@ -37166,9 +37435,16 @@
         "additionalProperties": false,
         "properties": {
           "artifact": {
-            "minLength": 1,
-            "title": "Artifact",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
           },
           "asset_manifest_sha256": {
             "pattern": "^[0-9a-f]{64}$",
@@ -37330,6 +37606,16 @@
             "format": "uuid",
             "title": "Registry Id",
             "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InferencePluginSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -37707,7 +37993,14 @@
             "$ref": "#/components/schemas/PluginInstallation"
           },
           "launch": {
-            "$ref": "#/components/schemas/PluginLaunchReceipt"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginLaunchReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "registry_id": {
             "format": "uuid",
@@ -37717,13 +38010,22 @@
           "safe_to_stop": {
             "title": "Safe To Stop",
             "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InferencePluginSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "registry_id",
           "installation",
-          "safe_to_stop",
-          "launch"
+          "safe_to_stop"
         ],
         "title": "PluginQuiesceResponse",
         "type": "object"
@@ -45813,6 +46115,136 @@
           "priority"
         ],
         "title": "ReferenceReplicaUpdate",
+        "type": "object"
+      },
+      "RegisterDirectPluginRequest": {
+        "additionalProperties": false,
+        "description": "Super-admin registration request for a D1 unarbitrated direct inference plugin.",
+        "properties": {
+          "approved_managed_evaluation": {
+            "default": false,
+            "title": "Approved Managed Evaluation",
+            "type": "boolean"
+          },
+          "approved_managed_model_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedModelCompatibility"
+            },
+            "title": "Approved Managed Model Compatibility",
+            "type": "array"
+          },
+          "asset_manifest_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Manifest Sha256"
+          },
+          "auth_token": {
+            "minLength": 32,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "installation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installation Id"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "auth_token"
+        ],
+        "title": "RegisterDirectPluginRequest",
         "type": "object"
       },
       "RegisterFormatAdapterRequest": {
@@ -72226,6 +72658,52 @@
         ]
       }
     },
+    "/api/v1/admin/ml-integrations/plugins/direct": {
+      "post": {
+        "operationId": "register_direct_api_v1_admin_ml_integrations_plugins_direct_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDirectPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Direct",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
     "/api/v1/admin/ml-integrations/plugins/installations": {
       "get": {
         "operationId": "list_installations_api_v1_admin_ml_integrations_plugins_installations_get",
@@ -72621,6 +73099,54 @@
           }
         ],
         "summary": "Disable",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe": {
+      "post": {
+        "operationId": "probe_installation_api_v1_admin_ml_integrations_plugins_installations__installation_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectPluginProbeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probe Installation",
         "tags": [
           "admin-plugin-installations"
         ]

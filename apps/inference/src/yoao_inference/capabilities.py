@@ -413,11 +413,28 @@ def extract_capabilities(
                 "message": "managed_model_compatibility declaration is invalid.",
             }
 
+    managed_evaluation = False
+    managed_evaluation_warning = None
+    if "managed_evaluation" in setup:
+        raw_eval = setup["managed_evaluation"]
+        if type(raw_eval) is bool:
+            managed_evaluation = raw_eval
+        else:
+            managed_evaluation_warning = {
+                "level": "warning",
+                "model_id": None,
+                "field": "managed_evaluation",
+                "value": "invalid",
+                "message": "managed_evaluation declaration must be a boolean.",
+            }
+
     warnings = _collect_warnings(models)
     if managed_lifecycle_warning is not None:
         warnings.append(managed_lifecycle_warning)
     if compatibility_warning is not None:
         warnings.append(compatibility_warning)
+    if managed_evaluation_warning is not None:
+        warnings.append(managed_evaluation_warning)
 
     caps: dict = {
         "version": setup.get("version"),
@@ -433,6 +450,7 @@ def extract_capabilities(
         "infra": infra,
         "warmup_endpoint": bool(setup.get("warmup_endpoint", False)),
         "managed_lifecycle": managed_lifecycle,
+        "managed_evaluation": managed_evaluation,
         "managed_model_compatibility": managed_compatibility,
         "models": models,
         "is_interactive": any(m["is_interactive"] for m in models),

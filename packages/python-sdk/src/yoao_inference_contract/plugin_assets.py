@@ -66,7 +66,7 @@ class PluginAssetDescriptor(BaseModel):
     schema_version: Literal[1]
     plugin_id: StrictStr = Field(min_length=1)
     plugin_version: StrictStr = Field(min_length=1)
-    artifact: StrictStr = Field(min_length=1)
+    artifact: StrictStr | None = Field(min_length=1)
     asset_manifest_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     selections: list[PluginAssetSelection] = Field(min_length=1)
 
@@ -120,11 +120,31 @@ class PluginAssetApprovalUpdate(BaseModel):
     descriptor_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     approved: list[PluginSelectionKey]
     inventory: list[PluginAsset]
-    container_id: str = Field(pattern=r"^[0-9a-f]{64}$")
-    image_id: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    container_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    image_id: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+    runtime_instance_id: StrictStr | None = Field(
+        default=None, min_length=1, max_length=128
+    )
 
     @model_validator(mode="after")
     def validate_update(self):
+        container_bound = (
+            self.container_id is not None
+            and self.image_id is not None
+            and self.descriptor.artifact is not None
+            and self.runtime_instance_id is None
+        )
+        direct_bound = (
+            self.runtime_instance_id is not None
+            and self.runtime_instance_id.strip() == self.runtime_instance_id
+            and self.container_id is None
+            and self.image_id is None
+            and self.descriptor.artifact is None
+        )
+        if not (container_bound or direct_bound):
+            raise ValueError(
+                "asset approval must bind either container launch identity or direct runtime_instance_id"
+            )
         if self.descriptor.sha256() != self.descriptor_sha256:
             raise ValueError("descriptor digest differs")
         selections = {
@@ -221,13 +241,34 @@ def resolve_plugin_selection(health_meta, context):
     return model["id"], variants
 
 
+def plugin_requires_asset_approval(extra_params) -> bool:
+    """Return False for non-plugin rows and direct plugins without an asset manifest."""
+    from collections.abc import Mapping
+    from .execution import thaw_json
+
+    if not isinstance(extra_params, Mapping) or "plugin" not in extra_params:
+        return False
+    plugin = thaw_json(extra_params["plugin"])
+    if not isinstance(plugin, Mapping):
+        return True
+    manifest = plugin.get("manifest")
+    if (
+        plugin.get("execution_mode") == "direct"
+        and isinstance(manifest, Mapping)
+        and manifest.get("execution_mode") == "direct"
+        and manifest.get("asset_manifest_sha256") is None
+    ):
+        return False
+    return True
+
+
 def plugin_asset_reason(extra_params, state, model_id, variants):
     """Evaluate one exact selection against current owner state; legacy backends pass."""
     from collections.abc import Mapping
     from pydantic import ValidationError
     from .execution import thaw_json
 
-    if not isinstance(extra_params, Mapping) or "plugin" not in extra_params:
+    if not plugin_requires_asset_approval(extra_params):
         return None
     try:
         decision = PluginAssetApprovalState.model_validate(thaw_json(state)).decision
@@ -235,17 +276,36 @@ def plugin_asset_reason(extra_params, state, model_id, variants):
             return "plugin_asset_unapproved"
         plugin = extra_params["plugin"]
         manifest = plugin["manifest"]
-        launch = extra_params["plugin_lifecycle"]["launch"]
         descriptor = decision.descriptor
+        is_direct = plugin.get("execution_mode") == "direct"
         if (
             descriptor.plugin_id != manifest["plugin_id"]
             or descriptor.plugin_version != manifest["version"]
-            or descriptor.artifact != manifest["artifact"]
+            or manifest.get("asset_manifest_sha256") is None
             or descriptor.asset_manifest_sha256 != manifest["asset_manifest_sha256"]
-            or decision.container_id != launch["container_id"]
-            or decision.image_id != launch["image_id"]
         ):
             return "plugin_asset_unavailable"
+        if is_direct:
+            activation = extra_params["plugin_lifecycle"]["activation"]
+            if (
+                descriptor.artifact is not None
+                or manifest.get("artifact") is not None
+                or decision.container_id is not None
+                or decision.image_id is not None
+                or not isinstance(activation.get("boot_id"), str)
+                or not activation["boot_id"]
+                or decision.runtime_instance_id != activation["boot_id"]
+            ):
+                return "plugin_asset_unavailable"
+        else:
+            launch = extra_params["plugin_lifecycle"]["launch"]
+            if (
+                descriptor.artifact != manifest["artifact"]
+                or decision.container_id != launch["container_id"]
+                or decision.image_id != launch["image_id"]
+                or decision.runtime_instance_id is not None
+            ):
+                return "plugin_asset_unavailable"
         if not isinstance(model_id, str) or not isinstance(variants, Mapping):
             return "plugin_asset_unapproved"
         selection = next(

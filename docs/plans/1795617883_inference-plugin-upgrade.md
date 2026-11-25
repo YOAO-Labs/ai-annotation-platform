@@ -98,5 +98,5 @@
 
 ## 5. 当前状态与待决事项
 
-- **当前状态**：已完成 **I0（ADR-0190 确认与双仓统一推理清单契约对齐）**，在 `YOAO-Labs/Plugin-SDK`（Python `yoao_plugin_sdk` 与 JS/TS `@yoao/plugin-sdk`）与主仓 `yoao-sdk`（`yoao_inference_contract.plugin`）同步落地 `yoao-extension-manifest/v1`（`extension_point = "inference"`）12 项推理能力词表（移除非法 `"train"`，对齐 `yoao_task_contract.Task`）、`execution_mode = "container" | "direct"`、`source_tier`、`display_name`/`description`/`homepage` 及双轨解析投影，同步刷新 OpenAPI 快照、SDK 操作目录与 Web 生成客户端并通过跨仓 JSON Schema 对等校验。
-- **下一步**：进入 **I1（前向 SQL 迁移 `bo0513` 与 D1 非容器直连档闭环）**。
+- **当前状态**：已完成 **I0（ADR-0190 确认与双仓统一推理清单契约对齐）** 与 **I1（前向 SQL 迁移 `bo0513` 与 D1 非容器直连档闭环）**。I1 在主仓落地 `bo0513` 前向函数升级（含 `prepare_plugin_installation`、`command_plugin_installation`、`authorize_plugin_routing_replacement`、`set_plugin_asset_approval`、`prediction_scope_reserve`、`prediction_test_scope_reserve`，不改动任何冻结历史 SQL）、Inference 自有异步 IP 固定出网守卫（`host_guard.py`，完整映射 `httpcore` 异常、放行白名单 IPv6 `::1` 并硬拦截 `0.0.0.0/8` 与元数据地址，并接入主传输、路由控制与 scope 退役通道）、D1 无资产清单放行与可选 `asset_manifest_sha256` 审批、本机受管 GPU UUID 大小写归一化与 `index:*` 失败关闭双层守卫、`managed_evaluation` 端到端闭环、`POST /api/v1/admin/ml-integrations/plugins/direct`（SAVEPOINT 探活失败自动回滚 + `cancel_prepared` 释放 URL 占位）与只读 `POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe`（拒绝退役实例探活）、统一只读投影 `summary` 及 `yoao plugins register-direct` / `probe` SDK 与 CLI 命令，并在隔离 PostgreSQL 16 上通过迁移往返校验（`fresh` + `forward`）与全量回归。
+- **下一步**：进入 **I2（清除全部 LibreYOLO 硬编码与抽离 `ContainerRuntimePort`）** 与 **I3 前端（Web 管理页直连插件支持）**（可在独立 git worktree 并行实施）。

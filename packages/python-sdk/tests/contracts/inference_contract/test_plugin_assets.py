@@ -191,3 +191,116 @@ def test_legacy_text_selects_only_the_advertised_output_model():
         None,
         {},
     )
+
+
+def test_direct_plugin_asset_approval_bypass_and_opt_in_manifest():
+    from yoao_inference_contract.plugin_assets import (
+        PluginAssetApprovalState,
+        PluginAssetApprovalUpdate,
+        PluginAssetDescriptor,
+        plugin_asset_reason,
+        plugin_requires_asset_approval,
+    )
+
+    direct_without_assets = {
+        "plugin": {
+            "execution_mode": "direct",
+            "manifest": {
+                "plugin_id": "direct.seg",
+                "version": "1.0",
+                "execution_mode": "direct",
+                "artifact": None,
+                "asset_manifest_sha256": None,
+            },
+        }
+    }
+    assert plugin_requires_asset_approval(direct_without_assets) is False
+    assert (
+        plugin_asset_reason(
+            direct_without_assets,
+            PluginAssetApprovalState(revision=0, decision=None).model_dump(mode="json"),
+            "seg",
+            {},
+        )
+        is None
+    )
+
+    container_plugin = {
+        "plugin": {
+            "execution_mode": "container",
+            "manifest": {
+                "plugin_id": "ctr.det",
+                "version": "1.0",
+                "execution_mode": "container",
+                "artifact": "example/det@sha256:" + "a" * 64,
+                "asset_manifest_sha256": "b" * 64,
+            },
+        }
+    }
+    assert plugin_requires_asset_approval(container_plugin) is True
+    assert (
+        plugin_asset_reason(
+            container_plugin,
+            PluginAssetApprovalState(revision=0, decision=None).model_dump(mode="json"),
+            "det",
+            {},
+        )
+        == "plugin_asset_unapproved"
+    )
+
+    direct_with_manifest = {
+        "plugin": {
+            "execution_mode": "direct",
+            "manifest": {
+                "plugin_id": "direct.managed",
+                "version": "1.0",
+                "execution_mode": "direct",
+                "artifact": None,
+                "asset_manifest_sha256": "c" * 64,
+            },
+        },
+        "plugin_lifecycle": {
+            "activation": {"boot_id": "direct-boot-42"},
+        },
+    }
+    assert plugin_requires_asset_approval(direct_with_manifest) is True
+    descriptor = PluginAssetDescriptor.model_validate(
+        {
+            "schema_version": 1,
+            "plugin_id": "direct.managed",
+            "plugin_version": "1.0",
+            "artifact": None,
+            "asset_manifest_sha256": "c" * 64,
+            "selections": [
+                {
+                    "model_id": "seg",
+                    "variants": {},
+                    "asset_free": True,
+                    "assets": [],
+                }
+            ],
+        }
+    )
+    decision = PluginAssetApprovalUpdate.model_validate(
+        {
+            "expected_revision": 0,
+            "expected_installation_revision": 2,
+            "descriptor": descriptor.model_dump(mode="json"),
+            "descriptor_sha256": descriptor.sha256(),
+            "approved": [{"model_id": "seg", "variants": {}}],
+            "inventory": [],
+            "runtime_instance_id": "direct-boot-42",
+        }
+    )
+    state = PluginAssetApprovalState(revision=1, decision=decision).model_dump(
+        mode="json"
+    )
+    assert plugin_asset_reason(direct_with_manifest, state, "seg", {}) is None
+
+    stale_boot = {
+        **direct_with_manifest,
+        "plugin_lifecycle": {"activation": {"boot_id": "direct-boot-99"}},
+    }
+    assert (
+        plugin_asset_reason(stale_boot, state, "seg", {}) == "plugin_asset_unavailable"
+    )

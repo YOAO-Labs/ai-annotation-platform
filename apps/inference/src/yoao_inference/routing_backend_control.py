@@ -23,6 +23,8 @@ from yoao_protocol_v2.routing import (
     decode_backend_route_control_reply,
 )
 
+from .host_guard import InferenceHostDenied, build_pinned_http_transport
+
 _CONTROL_CONTEXT_FIELDS = frozenset(
     {
         "control_id",
@@ -231,7 +233,9 @@ class BackendRoutingControl:
             "Accept-Encoding": "identity",
         }
         transport = (
-            self._transport_factory() if self._transport_factory is not None else None
+            self._transport_factory()
+            if self._transport_factory is not None
+            else build_pinned_http_transport(enforce_private_and_loopback=False)
         )
         try:
             async with asyncio.timeout(self.timeout_seconds):
@@ -259,7 +263,7 @@ class BackendRoutingControl:
                             raise BackendRoutingControlUnavailable()
         except (BackendRoutingControlUnavailable, asyncio.CancelledError):
             raise
-        except (httpx.HTTPError, OSError, TimeoutError):
+        except (httpx.HTTPError, InferenceHostDenied, OSError, TimeoutError):
             raise BackendRoutingControlUnavailable() from None
         try:
             reply = decode_backend_route_control_reply(_strict_reply_object(raw_reply))
@@ -283,7 +287,9 @@ class BackendRoutingControl:
             "Content-Type": "application/json",
         }
         transport = (
-            self._transport_factory() if self._transport_factory is not None else None
+            self._transport_factory()
+            if self._transport_factory is not None
+            else build_pinned_http_transport(enforce_private_and_loopback=False)
         )
         try:
             async with httpx.AsyncClient(
@@ -300,7 +306,7 @@ class BackendRoutingControl:
                         raise BackendRoutingControlUnavailable()
         except (BackendRoutingControlUnavailable, asyncio.CancelledError):
             raise
-        except (httpx.HTTPError, OSError, TimeoutError):
+        except (httpx.HTTPError, InferenceHostDenied, OSError, TimeoutError):
             raise BackendRoutingControlUnavailable() from None
 
         try:

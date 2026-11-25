@@ -565,9 +565,34 @@ def test_capability_driven_managed_evaluation_gate():
             }
         },
     )
+    plugin_without_eval_capability = SimpleNamespace(
+        extra_params={
+            "plugin": {
+                "manifest": {
+                    "capabilities": ["inference", "managed_models"],
+                    "managed_model_compatibility": [compat_entry],
+                }
+            }
+        },
+        health_meta={
+            "capabilities": {
+                "managed_evaluation": True,
+                "managed_model_compatibility": [compat_entry],
+            }
+        },
+    )
     plugin_approved_and_observed = SimpleNamespace(
         extra_params={
-            "plugin": {"manifest": {"managed_model_compatibility": [compat_entry]}}
+            "plugin": {
+                "manifest": {
+                    "capabilities": [
+                        "inference",
+                        "managed_models",
+                        "managed_evaluation",
+                    ],
+                    "managed_model_compatibility": [compat_entry],
+                }
+            }
         },
         health_meta={
             "capabilities": {
@@ -609,6 +634,12 @@ def test_capability_driven_managed_evaluation_gate():
     assert (
         training_adapters.supports_managed_evaluation(
             "custom_trainer", backend=plugin_self_reported_only
+        )
+        is False
+    )
+    assert (
+        training_adapters.supports_managed_evaluation(
+            "custom_trainer", backend=plugin_without_eval_capability
         )
         is False
     )

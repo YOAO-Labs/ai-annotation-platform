@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
@@ -547,6 +548,133 @@ def upgrade(
                 qualify=qualify,
                 qualification_options=qual_options,
             )
+    print_learning_result(result, json_output)
+
+
+@app.command("register-direct")
+def register_direct(
+    name: str = typer.Option(..., "--name", help="Registry display name"),
+    url: str = typer.Option(..., "--url", help="Reachable HTTP(S) base URL"),
+    token_file: Path | None = typer.Option(
+        None,
+        "--token-file",
+        help="Path to file containing the plugin bearer token (>=32 chars)",
+    ),
+    auth_token: str | None = typer.Option(
+        None,
+        "--auth-token",
+        envvar="YOAO_DIRECT_PLUGIN_TOKEN",
+        help="Plugin bearer token (>=32 chars); prefer --token-file or env var",
+    ),
+    source_tier: str = typer.Option(
+        "third_party",
+        "--source-tier",
+        help="Plugin governance tier: official or third_party",
+    ),
+    display_name: str | None = typer.Option(None, "--display-name"),
+    description: str | None = typer.Option(None, "--description"),
+    homepage: str | None = typer.Option(None, "--homepage"),
+    publisher: str | None = typer.Option(None, "--publisher"),
+    license_name: str | None = typer.Option(None, "--license"),
+    asset_manifest_sha256: str | None = typer.Option(
+        None,
+        "--asset-manifest-sha256",
+        help="Optional SHA-256 asset manifest digest to enforce asset approval",
+    ),
+    approved_compat_file: Path | None = typer.Option(
+        None,
+        "--approved-compat-file",
+        help="JSON array file of approved ManagedModelCompatibility objects",
+    ),
+    approved_managed_evaluation: bool = typer.Option(
+        False,
+        "--approve-managed-evaluation",
+        help="Approve managed evaluation when advertised by the plugin",
+    ),
+    installation_id: str | None = typer.Option(None, "--installation-id"),
+    yes: bool = typer.Option(False, "--yes", "-y"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Register, probe, and activate a D1 unarbitrated direct inference plugin."""
+    with cli_errors(json_output):
+        from uuid import UUID
+        from yoao_inference_contract.plugin import (
+            ManagedModelCompatibility,
+            RegisterDirectPluginRequest,
+        )
+
+        if token_file is not None and auth_token is not None:
+            raise SDKError("Pass either --token-file or --auth-token, not both")
+        if token_file is not None:
+            try:
+                resolved_token = token_file.read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeDecodeError) as exc:
+                raise SDKError(f"Unable to read --token-file: {exc}") from exc
+        elif auth_token is not None:
+            resolved_token = auth_token.strip()
+        else:
+            raise SDKError("Direct registration requires --token-file or --auth-token")
+        approved_compat: list[ManagedModelCompatibility] = []
+        if approved_compat_file is not None:
+            try:
+                raw_compat = json.loads(
+                    approved_compat_file.read_text(encoding="utf-8")
+                )
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise SDKError(
+                    f"Unable to parse --approved-compat-file: {exc}"
+                ) from exc
+            if not isinstance(raw_compat, list):
+                raise SDKError("--approved-compat-file must contain a JSON array")
+            approved_compat = [
+                ManagedModelCompatibility.model_validate(item) for item in raw_compat
+            ]
+        try:
+            parsed_installation_id = (
+                UUID(installation_id) if installation_id is not None else None
+            )
+        except ValueError as exc:
+            raise SDKError(f"Invalid --installation-id: {exc}") from exc
+        request = RegisterDirectPluginRequest(
+            installation_id=parsed_installation_id,
+            name=name,
+            url=url,
+            auth_token=resolved_token,
+            source_tier=source_tier,
+            display_name=display_name,
+            description=description,
+            homepage=homepage,
+            publisher=publisher,
+            license=license_name,
+            asset_manifest_sha256=asset_manifest_sha256,
+            approved_managed_model_compatibility=approved_compat,
+            approved_managed_evaluation=approved_managed_evaluation,
+        )
+        confirm_destructive(
+            "Register and activate this direct inference plugin?", yes, json_output
+        )
+        with get_client(json_output) as client:
+            result = client.plugins.register_direct(request)
+    print_learning_result(result, json_output)
+
+
+@app.command("probe")
+def probe(
+    installation_id: str = typer.Option(
+        ..., "--installation-id", help="Installed plugin installation UUID"
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Run a read-only live probe against an installed plugin."""
+    with cli_errors(json_output):
+        from uuid import UUID
+
+        try:
+            parsed_id = UUID(installation_id)
+        except ValueError as exc:
+            raise SDKError(f"Invalid --installation-id: {exc}") from exc
+        with get_client(json_output) as client:
+            result = client.plugins.probe(parsed_id)
     print_learning_result(result, json_output)
 
 

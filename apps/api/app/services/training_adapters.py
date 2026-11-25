@@ -112,7 +112,14 @@ def backend_supports_managed_evaluation(backend: Any, framework: str) -> bool:
     if plugin is not None:
         if not isinstance(plugin, dict) or not isinstance(plugin.get("manifest"), dict):
             return False
-        approved = plugin["manifest"].get("managed_model_compatibility")
+        manifest = plugin["manifest"]
+        approved_capabilities = manifest.get("capabilities")
+        if (
+            not isinstance(approved_capabilities, list)
+            or "managed_evaluation" not in approved_capabilities
+        ):
+            return False
+        approved = manifest.get("managed_model_compatibility")
         if not isinstance(approved, list):
             return False
         return any(

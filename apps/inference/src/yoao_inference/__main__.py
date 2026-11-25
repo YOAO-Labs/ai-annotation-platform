@@ -15,6 +15,7 @@ from .backend_probe_manager import BackendProbeManager
 from .backend_probe_postgres import BackendProbePostgresData
 from .health_observation_manager import BackendHealthObservationManager
 from .health_observation_postgres import BackendHealthObservationPostgresData
+from .host_guard import env_host_allowlists
 from .pipeline_manager import PipelineManager
 from .pipeline_postgres import PipelinePostgresData
 from .pipeline_server import PipelineHttpServer
@@ -73,6 +74,8 @@ def _boolean_setting(name: str, default: bool = False) -> bool:
 class _BackendOptions:
     ml_health_timeout: int
     ml_predict_timeout: int
+    inference_plugin_private_host_allowlist: tuple[str, ...] = ()
+    inference_plugin_loopback_host_allowlist: tuple[str, ...] = ()
 
 
 class _SystemClock:
@@ -278,9 +281,12 @@ async def run() -> None:
     max_concurrency = _integer_setting("INFERENCE_MAX_CONCURRENCY", 8, 1, 64)
     required_value = os.environ.get("INFERENCE_REQUIRED_CAPABILITIES", "")
     required = tuple(required_value.split(",")) if required_value else ()
+    private_allowlist, loopback_allowlist = env_host_allowlists()
     options = _BackendOptions(
         ml_health_timeout=int(os.environ.get("ML_HEALTH_TIMEOUT", "10")),
         ml_predict_timeout=int(os.environ.get("ML_PREDICT_TIMEOUT", "100")),
+        inference_plugin_private_host_allowlist=private_allowlist,
+        inference_plugin_loopback_host_allowlist=loopback_allowlist,
     )
     limits = CapabilityLimits(
         video_tracker_window_size_frames=int(

@@ -88,6 +88,16 @@ class _TrackedStream(httpx.AsyncByteStream):
             await self.attempt.finish(reason="early_response_close")
 
 
+def _attach_pinned_transport(
+    client: httpx.AsyncClient,
+    pinned_transport_factory: Callable[[], httpx.AsyncBaseTransport] | None,
+) -> None:
+    if pinned_transport_factory is None:
+        return
+    if isinstance(getattr(client, "_transport", None), httpx.AsyncHTTPTransport):
+        client._transport = pinned_transport_factory()
+
+
 class TrackedHttpClient:
     """Normal AsyncClient configuration, with one grant per actual HTTP send."""
 
@@ -97,6 +107,7 @@ class TrackedHttpClient:
         *,
         on_not_sent=None,
         on_send=None,
+        pinned_transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
         **kwargs,
     ):
         self.request_context = request_context
@@ -108,6 +119,8 @@ class TrackedHttpClient:
         hooks["request"] = [*hooks.get("request", []), self._before_request]
         hooks["response"] = [self._after_response, *hooks.get("response", [])]
         self.client = httpx.AsyncClient(event_hooks=hooks, **kwargs)
+        if "transport" not in kwargs:
+            _attach_pinned_transport(self.client, pinned_transport_factory)
 
     async def _before_request(self, request):
         attempt = None
@@ -166,10 +179,18 @@ def http_client(
     *,
     on_not_sent=None,
     on_send=None,
+    pinned_transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
     **kwargs,
 ):
     if request_context is None:
-        return httpx.AsyncClient(**kwargs)
+        client = httpx.AsyncClient(**kwargs)
+        if "transport" not in kwargs:
+            _attach_pinned_transport(client, pinned_transport_factory)
+        return client
     return TrackedHttpClient(
-        request_context, on_not_sent=on_not_sent, on_send=on_send, **kwargs
+        request_context,
+        on_not_sent=on_not_sent,
+        on_send=on_send,
+        pinned_transport_factory=pinned_transport_factory,
+        **kwargs,
     )

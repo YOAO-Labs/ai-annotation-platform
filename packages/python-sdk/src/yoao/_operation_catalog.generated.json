@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 787,
+  "operation_count": 789,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -31742,6 +31742,57 @@
       }
     },
     {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/direct",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/direct",
+      "operation_id": "register_direct_api_v1_admin_ml_integrations_plugins_direct_post",
+      "summary": "Register Direct",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.register_direct"
+      ],
+      "cli_aliases": [
+        "plugins.register-direct"
+      ],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterDirectPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "POST /api/v1/admin/ml-integrations/plugins/installations",
       "method": "POST",
       "path": "/api/v1/admin/ml-integrations/plugins/installations",
@@ -31965,6 +32016,58 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/PluginInstallationCommand"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe",
+      "operation_id": "probe_installation_api_v1_admin_ml_integrations_plugins_installations__installation_id__probe_post",
+      "summary": "Probe Installation",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.probe"
+      ],
+      "cli_aliases": [
+        "plugins.probe"
+      ],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectPluginProbeResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
             }
           }
         }
@@ -65286,6 +65389,35 @@
       "external_http": false
     },
     {
+      "name": "plugins.probe",
+      "module": "yoao.plugins",
+      "class": "PluginInstallations",
+      "method": "probe",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "DirectPluginProbeResponse",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.probe"
+      ]
+    },
+    {
       "name": "plugins.quiesce",
       "module": "yoao.plugins",
       "class": "PluginInstallations",
@@ -65319,6 +65451,35 @@
       ],
       "calls": [],
       "external_http": false
+    },
+    {
+      "name": "plugins.register_direct",
+      "module": "yoao.plugins",
+      "class": "PluginInstallations",
+      "method": "register_direct",
+      "parameters": [
+        {
+          "name": "request",
+          "kind": "positional_or_keyword",
+          "annotation": "RegisterDirectPluginRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResponse",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/direct"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/direct"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.register-direct"
+      ]
     },
     {
       "name": "plugins.retire",
@@ -95389,6 +95550,38 @@
       "confirmation": false
     },
     {
+      "path": "yoao plugins probe",
+      "alias": "plugins.probe",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "option",
+          "options": [
+            "--installation-id"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Installed plugin installation UUID"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "plugins.probe"
+      ],
+      "confirmation": false
+    },
+    {
       "path": "yoao plugins qualify",
       "alias": "plugins.qualify",
       "parameters": [
@@ -95472,6 +95665,193 @@
       ],
       "sdk_methods": [],
       "confirmation": false
+    },
+    {
+      "path": "yoao plugins register-direct",
+      "alias": "plugins.register-direct",
+      "parameters": [
+        {
+          "name": "name",
+          "kind": "option",
+          "options": [
+            "--name"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Registry display name"
+        },
+        {
+          "name": "url",
+          "kind": "option",
+          "options": [
+            "--url"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Reachable HTTP(S) base URL"
+        },
+        {
+          "name": "token_file",
+          "kind": "option",
+          "options": [
+            "--token-file"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Path to file containing the plugin bearer token (>=32 chars)"
+        },
+        {
+          "name": "auth_token",
+          "kind": "option",
+          "options": [
+            "--auth-token"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Plugin bearer token (>=32 chars); prefer --token-file or env var"
+        },
+        {
+          "name": "source_tier",
+          "kind": "option",
+          "options": [
+            "--source-tier"
+          ],
+          "required": false,
+          "default": "third_party",
+          "type": "str",
+          "description": "Plugin governance tier: official or third_party"
+        },
+        {
+          "name": "display_name",
+          "kind": "option",
+          "options": [
+            "--display-name"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "description",
+          "kind": "option",
+          "options": [
+            "--description"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "homepage",
+          "kind": "option",
+          "options": [
+            "--homepage"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "publisher",
+          "kind": "option",
+          "options": [
+            "--publisher"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "license_name",
+          "kind": "option",
+          "options": [
+            "--license"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "asset_manifest_sha256",
+          "kind": "option",
+          "options": [
+            "--asset-manifest-sha256"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Optional SHA-256 asset manifest digest to enforce asset approval"
+        },
+        {
+          "name": "approved_compat_file",
+          "kind": "option",
+          "options": [
+            "--approved-compat-file"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "JSON array file of approved ManagedModelCompatibility objects"
+        },
+        {
+          "name": "approved_managed_evaluation",
+          "kind": "option",
+          "options": [
+            "--approve-managed-evaluation"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Approve managed evaluation when advertised by the plugin"
+        },
+        {
+          "name": "installation_id",
+          "kind": "option",
+          "options": [
+            "--installation-id"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "plugins.register_direct"
+      ],
+      "confirmation": true
     },
     {
       "path": "yoao plugins restart",

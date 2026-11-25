@@ -471,3 +471,216 @@ def test_qualify_install_and_upgrade_cli_flows(monkeypatch, tmp_path):
     assert json.loads(upgrade_res.output)["installation"]["status"] == "active"
     assert new_core.events == ["qualify", "start", "activate"]
     assert old_core.result.installation.status == "active"
+
+
+def test_register_direct_and_probe_sdk_and_cli(
+    client, respx_mock, monkeypatch, tmp_path
+):
+    from yoao_inference_contract.plugin import RegisterDirectPluginRequest
+
+    token = "direct-secret-" + "k" * 32
+    inst_id = uuid4()
+    request = RegisterDirectPluginRequest(
+        installation_id=inst_id,
+        name="Direct Seg",
+        url="http://127.0.0.1:9200",
+        auth_token=token,
+        source_tier="official",
+    )
+    assert token not in repr(request)
+    respx_mock.post(f"{API}/admin/ml-integrations/plugins/direct").mock(
+        return_value=httpx.Response(422, json={"detail": {"input": token}})
+    )
+    with pytest.raises(ValidationError) as exc:
+        client.plugins.register_direct(request)
+    assert token not in str(exc.value)
+    assert token not in str(exc.value.detail)
+
+    response_payload = {
+        "registry_id": str(inst_id),
+        "installation": {
+            "installation_id": str(inst_id),
+            "manifest": {
+                "manifest_schema": "yoao-extension-manifest/v1",
+                "plugin_id": "direct.seg",
+                "version": "1.0.0",
+                "display_name": "Direct Seg",
+                "description": None,
+                "homepage": None,
+                "publisher": "direct",
+                "license": "unspecified",
+                "protocol_version": "yoao-inference/v2",
+                "execution_mode": "direct",
+                "sdk_compatibility": None,
+                "entrypoint": None,
+                "capabilities": ["inference", "segmentation"],
+                "models": [
+                    {
+                        "id": "seg",
+                        "task": "segment",
+                        "is_interactive": False,
+                        "supported_prompts": ["none"],
+                        "supported_inputs": ["full_image"],
+                        "supported_geometric_outputs": ["mask"],
+                    }
+                ],
+                "pools": {"default": {"cap": 1}},
+                "resource": {"device": "cpu", "memory_mb": None, "gpu_memory_mb": 0},
+                "asset_manifest_sha256": None,
+                "managed_model_compatibility": [],
+                "allowed_asset_sources": [],
+                "artifact": None,
+            },
+            "status": "active",
+            "revision": 2,
+            "resource": {
+                "gpu_resource_id": None,
+                "physical_gpu_uuid": None,
+                "logical_device": "cpu",
+            },
+            "execution_mode": "direct",
+            "source_tier": "official",
+        },
+    }
+    respx_mock.post(f"{API}/admin/ml-integrations/plugins/direct").mock(
+        return_value=httpx.Response(200, json=response_payload)
+    )
+    registered = client.plugins.register_direct(request)
+    assert registered.installation.status == "active"
+    assert registered.installation.execution_mode == "direct"
+    assert registered.summary is not None
+    assert registered.summary.extension_point == "inference"
+    assert registered.summary.source_tier == "official"
+
+    probe_payload = {
+        "registry_id": str(inst_id),
+        "installation_id": str(inst_id),
+        "execution_mode": "direct",
+        "status": "active",
+        "healthy": True,
+        "protocol_version": "2.0",
+        "boot_id": "boot-1",
+        "device": "cpu",
+        "observed_models": response_payload["installation"]["manifest"]["models"],
+        "observed_pools": {"default": {"cap": 1}},
+        "observed_managed_model_compatibility": [],
+        "observed_managed_evaluation": False,
+        "terminal_drain_supported": True,
+        "matches_manifest": True,
+        "mismatch_reason": None,
+    }
+    respx_mock.post(
+        f"{API}/admin/ml-integrations/plugins/installations/{inst_id}/probe"
+    ).mock(return_value=httpx.Response(200, json=probe_payload))
+    probed = client.plugins.probe(inst_id)
+    assert probed.healthy is True
+    assert probed.matches_manifest is True
+
+    token_file = tmp_path / "direct.token"
+    token_file.write_text(token + "\n", encoding="utf-8")
+
+    @contextmanager
+    def _cli_client(_json_output):
+        yield client
+
+    monkeypatch.setattr("yoao.cli.plugins.get_client", _cli_client)
+    cli_reg = CliRunner().invoke(
+        app,
+        [
+            "plugins",
+            "register-direct",
+            "--name",
+            "Direct Seg",
+            "--url",
+            "http://127.0.0.1:9200",
+            "--token-file",
+            str(token_file),
+            "--source-tier",
+            "official",
+            "--installation-id",
+            str(inst_id),
+            "--yes",
+            "--json",
+        ],
+    )
+    assert cli_reg.exit_code == 0, cli_reg.output
+    assert json.loads(cli_reg.output)["installation"]["execution_mode"] == "direct"
+
+    cli_probe = CliRunner().invoke(
+        app,
+        ["plugins", "probe", "--installation-id", str(inst_id), "--json"],
+    )
+    assert cli_probe.exit_code == 0, cli_probe.output
+    assert json.loads(cli_probe.output)["matches_manifest"] is True
+
+    bad_compat = tmp_path / "bad-compat.json"
+    bad_compat.write_text("{not-json", encoding="utf-8")
+    cli_bad_compat = CliRunner().invoke(
+        app,
+        [
+            "plugins",
+            "register-direct",
+            "--name",
+            "Direct Seg",
+            "--url",
+            "http://127.0.0.1:9200",
+            "--token-file",
+            str(token_file),
+            "--approved-compat-file",
+            str(bad_compat),
+            "--yes",
+            "--json",
+        ],
+    )
+    assert cli_bad_compat.exit_code == 1
+    assert isinstance(cli_bad_compat.exception, SystemExit)
+    assert "Unable to parse --approved-compat-file" in cli_bad_compat.output
+
+    cli_bad_uuid = CliRunner().invoke(
+        app,
+        [
+            "plugins",
+            "register-direct",
+            "--name",
+            "Direct Seg",
+            "--url",
+            "http://127.0.0.1:9200",
+            "--token-file",
+            str(token_file),
+            "--installation-id",
+            "not-a-uuid",
+            "--yes",
+            "--json",
+        ],
+    )
+    assert cli_bad_uuid.exit_code == 1
+    assert isinstance(cli_bad_uuid.exception, SystemExit)
+    assert "Invalid --installation-id" in cli_bad_uuid.output
+
+    short_secret = "my-short-secret-20ch"
+    cli_short_token = CliRunner().invoke(
+        app,
+        [
+            "plugins",
+            "register-direct",
+            "--name",
+            "Direct Seg",
+            "--url",
+            "http://127.0.0.1:9200",
+            "--auth-token",
+            short_secret,
+            "--yes",
+            "--json",
+        ],
+    )
+    assert cli_short_token.exit_code != 0
+    assert isinstance(cli_short_token.exception, SystemExit)
+    assert short_secret not in cli_short_token.output
+
+    cli_bad_probe = CliRunner().invoke(
+        app,
+        ["plugins", "probe", "--installation-id", "not-a-uuid", "--json"],
+    )
+    assert cli_bad_probe.exit_code == 1
+    assert isinstance(cli_bad_probe.exception, SystemExit)
+    assert "Invalid --installation-id" in cli_bad_probe.output

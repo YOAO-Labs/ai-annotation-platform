@@ -118,7 +118,7 @@ class _NoAuthConfiguration:
         self.auth_token = None
         self.gpu_resource_id = endpoint.gpu_resource_id
         self.vram_budget_mb = endpoint.vram_budget_mb
-        self.extra_params = None
+        self.extra_params = endpoint.extra_params
         self.health_meta = None
 
 
@@ -233,7 +233,10 @@ class BackendControlManager:
                     raise BackendEndpointUnavailable() from None
                 if (
                     installation.installation_id != request.registry_id
-                    or installation.manifest.resource.device != "cpu"
+                    or (
+                        installation.execution_mode != "direct"
+                        and installation.manifest.resource.device != "cpu"
+                    )
                     or installation.resource.gpu_resource_id is not None
                     or endpoint.gpu_resource_id is not None
                     or installation.status not in {"prepared", "disabled"}

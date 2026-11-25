@@ -32,6 +32,7 @@ from yoao_inference_contract.execution import (
 from yoao_inference_contract.plugin import plugin_is_active
 from yoao_inference_contract.plugin_assets import (
     plugin_asset_reason,
+    plugin_requires_asset_approval,
     resolve_plugin_selection,
 )
 
@@ -187,8 +188,7 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
                 raise ModelExecutionUnavailable()
             context = request.context or {}
             if (
-                isinstance(endpoint.extra_params, Mapping)
-                and "plugin" in endpoint.extra_params
+                plugin_requires_asset_approval(endpoint.extra_params)
                 and context.get("frozen_model_ref") is None
             ):
                 model_id, variants = resolve_plugin_selection(

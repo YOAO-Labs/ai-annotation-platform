@@ -938,9 +938,100 @@ class PluginLifecycleQualification(BaseModel):
         return self
 
 
+class RegisterDirectPluginRequest(BaseModel):
+    """Super-admin registration request for a D1 unarbitrated direct inference plugin."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    installation_id: UUID | None = None
+    name: StrictStr = Field(min_length=1, max_length=255)
+    url: StrictStr = Field(min_length=1, max_length=512)
+    auth_token: StrictStr = Field(min_length=32, repr=False)
+    source_tier: PluginSourceTier = "third_party"
+    display_name: StrictStr | None = None
+    description: StrictStr | None = None
+    homepage: StrictStr | None = None
+    publisher: StrictStr | None = None
+    license: StrictStr | None = None
+    asset_manifest_sha256: StrictStr | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
+    approved_managed_model_compatibility: list[ManagedModelCompatibility] = Field(
+        default_factory=list
+    )
+    approved_managed_evaluation: StrictBool = False
+
+    @field_validator("name")
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        return _validate_printable_text(value, max_length=255, label="name")
+
+    @field_validator("display_name")
+    @classmethod
+    def _validate_display_name(cls, value: str | None) -> str | None:
+        return _validate_display_text(value, max_length=64, label="display_name")
+
+    @field_validator("description")
+    @classmethod
+    def _validate_description(cls, value: str | None) -> str | None:
+        return _validate_display_text(value, max_length=280, label="description")
+
+    @field_validator("homepage")
+    @classmethod
+    def _validate_homepage(cls, value: str | None) -> str | None:
+        return validate_plugin_homepage(value)
+
+    @field_validator("publisher")
+    @classmethod
+    def _validate_publisher(cls, value: str | None) -> str | None:
+        return _validate_display_text(value, max_length=255, label="publisher")
+
+    @field_validator("license")
+    @classmethod
+    def _validate_license(cls, value: str | None) -> str | None:
+        return _validate_display_text(value, max_length=255, label="license")
+
+    @model_validator(mode="after")
+    def _validate_approvals(self) -> RegisterDirectPluginRequest:
+        keys = [
+            (item.framework, item.format, item.runtime_device)
+            for item in self.approved_managed_model_compatibility
+        ]
+        if len(keys) != len(set(keys)):
+            raise ValueError(
+                "approved_managed_model_compatibility must not contain duplicates"
+            )
+        if (
+            self.approved_managed_evaluation
+            and not self.approved_managed_model_compatibility
+        ):
+            raise ValueError(
+                "approved_managed_evaluation requires approved_managed_model_compatibility"
+            )
+        return self
+
+
 class PluginActivateRequest(PluginInstallationCommand):
-    receipt: PluginLaunchReceipt
+    receipt: PluginLaunchReceipt | None = None
     qualification: PluginLifecycleQualification | None = None
+
+
+class InferencePluginSummary(BaseModel):
+    """Unified read-only projection shared across container and direct inference plugins."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    extension_point: Literal["inference"] = "inference"
+    plugin_id: str
+    version: str
+    display_name: str | None = None
+    description: str | None = None
+    homepage: str | None = None
+    source_tier: PluginSourceTier
+    execution_mode: InferenceExecutionMode
+    status: Literal["prepared", "active", "disabled", "retired"]
+    device: Literal["cpu", "cuda"]
+    locally_arbitrated_gpu: bool
 
 
 class PluginInstallationResponse(BaseModel):
@@ -948,11 +1039,61 @@ class PluginInstallationResponse(BaseModel):
 
     registry_id: UUID
     installation: PluginInstallation
+    summary: InferencePluginSummary | None = None
+
+    @model_validator(mode="after")
+    def _populate_summary(self) -> PluginInstallationResponse:
+        inst = self.installation
+        expected = InferencePluginSummary(
+            extension_point="inference",
+            plugin_id=inst.manifest.plugin_id,
+            version=inst.manifest.version,
+            display_name=inst.manifest.display_name,
+            description=inst.manifest.description,
+            homepage=inst.manifest.homepage,
+            source_tier=inst.source_tier,
+            execution_mode=inst.execution_mode,
+            status=inst.status,
+            device=inst.manifest.resource.device,
+            locally_arbitrated_gpu=(
+                inst.resource.gpu_resource_id is not None
+                or (
+                    inst.execution_mode != "direct"
+                    and inst.manifest.resource.device == "cuda"
+                )
+            ),
+        )
+        self.summary = expected
+        return self
 
 
 class PluginQuiesceResponse(PluginInstallationResponse):
     safe_to_stop: bool
-    launch: PluginLaunchReceipt
+    launch: PluginLaunchReceipt | None = None
+
+
+class DirectPluginProbeResponse(BaseModel):
+    """Read-only probe snapshot for an installed inference plugin."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    registry_id: UUID
+    installation_id: UUID
+    execution_mode: InferenceExecutionMode
+    status: Literal["prepared", "active", "disabled", "retired"]
+    healthy: bool
+    protocol_version: str | None = None
+    boot_id: str | None = None
+    device: Literal["cpu", "cuda"] | None = None
+    observed_models: list[PluginModelCapability] = Field(default_factory=list)
+    observed_pools: dict[str, PluginPoolTopology] = Field(default_factory=dict)
+    observed_managed_model_compatibility: list[ManagedModelCompatibility] = Field(
+        default_factory=list
+    )
+    observed_managed_evaluation: bool = False
+    terminal_drain_supported: bool = False
+    matches_manifest: bool
+    mismatch_reason: str | None = None
 
 
 def has_reserved_plugin_metadata(extra_params: object) -> bool:

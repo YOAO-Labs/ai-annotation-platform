@@ -195,6 +195,7 @@ class BackendCapabilities(BaseModel):
     weights_version: str | None = None
     infra: str = "unknown"
     warmup_endpoint: bool = False
+    managed_evaluation: bool = False
     managed_lifecycle: ManagedLifecycleCapabilities | None = None
 
     @field_validator("managed_lifecycle", mode="before")

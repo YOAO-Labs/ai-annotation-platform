@@ -200,7 +200,7 @@ async def _request_validation_error_handler(
         "/api/v1/auth/reset-password",
         "/api/v1/auth/verify-email",
         "/api/v1/auth/register-open",
-    } or path.startswith("/api/v1/admin/ml-integrations/plugins/installations"):
+    } or path.startswith("/api/v1/admin/ml-integrations/plugins/"):
         return JSONResponse(
             status_code=422,
             content={
