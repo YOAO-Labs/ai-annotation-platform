@@ -563,37 +563,71 @@ async def test_sam_after_actual_get_cannot_publish_stale_result(
     ), batch.result_json
 
 
-@pytest.mark.parametrize(
-    "change",
-    ["result", "metadata", "ledger", "parent", "plan", "lock", "canonical", "bytes"],
-)
+async def _assert_candidate_rejected(client, w, headers, prediction_id, change):
+    url = f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}"
+    preview = await client.get(url + "/mask-content/0", headers=headers)
+    assert preview.status_code in {404, 409, 503}, (change, preview.text)
+    accepted = await client.post(url + "/accept", headers=headers)
+    assert accepted.status_code in {404, 409, 503}, (change, accepted.text)
+    async with w.factory() as db:
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(Annotation)
+                .where(Annotation.parent_prediction_id == prediction_id)
+            )
+            == 0
+        ), change
+
+
+async def test_candidate_preview_and_adoption_reject_tampered_records(
+    repair_world, httpx_client, super_admin
+):
+    w, headers = repair_world, auth(super_admin)
+    prediction_id = (await candidate(httpx_client, w, headers)).id
+    url = f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}"
+    async with w.factory() as db:
+        prediction = await db.scalar(
+            select(Prediction).where(Prediction.id == prediction_id)
+        )
+        meta = await db.scalar(
+            select(PredictionMeta).where(PredictionMeta.prediction_id == prediction_id)
+        )
+        batch = await db.get(MaskRepairBatch, w.batch_id)
+        ledger = deepcopy(batch.result_json)
+        ledger["candidates"]["0"]["candidate_records"] = {}
+        for row, field, tampered in (
+            (prediction, "result", [{**prediction.result[0], "score": 0.123}]),
+            (meta, "extra", {**meta.extra, "unowned": True}),
+            (batch, "result_json", ledger),
+            (batch, "plan_json", {**batch.plan_json, "changed": True}),
+        ):
+            original = getattr(row, field)
+            setattr(row, field, tampered)
+            await db.commit()
+            try:
+                await _assert_candidate_rejected(
+                    httpx_client, w, headers, prediction_id, field
+                )
+            finally:
+                setattr(row, field, original)
+                await db.commit()
+            restored = await httpx_client.get(url + "/mask-content/0", headers=headers)
+            assert restored.status_code == 200, (field, restored.text)
+            assert restored.json() == w.candidate, field
+    accepted = await httpx_client.post(url + "/accept", headers=headers)
+    assert accepted.status_code == 200, accepted.text
+    assert len(accepted.json()) == 1
+
+
+@pytest.mark.parametrize("change", ["parent", "lock", "canonical", "bytes"])
 async def test_candidate_preview_and_adoption_reject_tampered_provenance(
     repair_world, httpx_client, super_admin, change
 ):
     w, headers = repair_world, auth(super_admin)
     prediction = await candidate(httpx_client, w, headers)
     async with w.factory() as db:
-        if change == "result":
-            row = await db.scalar(
-                select(Prediction).where(Prediction.id == prediction.id)
-            )
-            row.result = [{**row.result[0], "score": 0.123}]
-        elif change == "metadata":
-            meta = await db.scalar(
-                select(PredictionMeta).where(
-                    PredictionMeta.prediction_id == prediction.id
-                )
-            )
-            meta.extra = {**meta.extra, "unowned": True}
-        elif change == "ledger":
-            row = await db.get(MaskRepairBatch, w.batch_id)
-            value = deepcopy(row.result_json)
-            value["candidates"]["0"]["candidate_records"] = {}
-            row.result_json = value
-        elif change == "plan":
-            row = await db.get(MaskRepairBatch, w.batch_id)
-            row.plan_json = {**row.plan_json, "changed": True}
-        elif change == "parent":
+        if change == "parent":
             (await db.get(Annotation, w.annotation_id)).attributes = {"changed": True}
         elif change == "lock":
             (await db.get(Annotation, w.annotation_id)).is_locked = True
@@ -604,20 +638,7 @@ async def test_candidate_preview_and_adoption_reject_tampered_provenance(
                 if w.blobs.objects[key] == canonical_rle_bytes(w.candidate):
                     w.blobs.objects[key] = b"corrupt"
         await db.commit()
-    url = f"/api/v1/tasks/{w.task_id}/predictions/{prediction.id}"
-    preview = await httpx_client.get(url + "/mask-content/0", headers=headers)
-    assert preview.status_code in {404, 409, 503}, preview.text
-    accepted = await httpx_client.post(url + "/accept", headers=headers)
-    assert accepted.status_code in {404, 409, 503}, accepted.text
-    async with w.factory() as db:
-        assert (
-            await db.scalar(
-                select(func.count())
-                .select_from(Annotation)
-                .where(Annotation.parent_prediction_id == prediction.id)
-            )
-            == 0
-        )
+    await _assert_candidate_rejected(httpx_client, w, headers, prediction.id, change)
 
 
 async def test_offline_candidate_rejection_has_no_source_io(
