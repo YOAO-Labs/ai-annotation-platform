@@ -302,9 +302,7 @@ async def test_both_managed_retry_entries_keep_failed_source_with_fresh_authorit
         return
     assert response.status_code == 202, response.text
     options = world.retry_dispatch.call_args.kwargs
-    retry_job = await world.db.get(
-        AsyncJob, uuid.UUID(options["kwargs"]["async_job_id"])
-    )
+    retry_job = await world.db.get(AsyncJob, uuid.UUID(options["kwargs"]["job_id"]))
     retry_proof = retry_job.payload["prediction_authority"]
     assert retry_proof["schema"] == 2
     assert retry_proof["tasks"][0]["original"] == binding["original"]

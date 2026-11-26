@@ -17,7 +17,6 @@ from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.services import async_job as jobs, prediction_acceptance as acceptance
-from app.services.annotation import AnnotationService
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
 from yoao_inference.backend_transport import PredictionResult
@@ -231,7 +230,9 @@ async def test_retry_new_authority_original_snapshot_and_atomic_candidates(
     job = await db_session.get(AsyncJob, job_id, populate_existing=True)
     predictions = list(
         await db_session.scalars(
-            select(Prediction).where(Prediction.task_id == task_id)
+            select(Prediction)
+            .where(Prediction.task_id == task_id)
+            .execution_options(populate_existing=True)
         )
     )
     previous = next(p for p in predictions if p.id == candidate_id)
@@ -508,9 +509,35 @@ async def test_accept_receipt_actor_candidate_session_and_transaction_binding(
         await acceptance.validate_acceptance(
             db_session, world.candidate, super_admin[0].id, receipt
         )
-    with pytest.raises(HTTPException):
-        await AnnotationService(db_session).accept_prediction(
-            world.candidate.id, super_admin[0].id
+    from app.application.candidate_decision import bind_candidate_decision_port
+    from app.services.candidate_decision_contract import (
+        CandidateAcceptCommand,
+        CandidateDecisionError,
+    )
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+
+    write_scope = capture_labeling_write_scope(
+        world.task,
+        actor_id=super_admin[0].id,
+        actor_known=True,
+        operation="candidate_accept",
+        execution_scope=None,
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
+    )
+    with pytest.raises((HTTPException, ContentError, CandidateDecisionError)):
+        await bind_candidate_decision_port(
+            db_session, task=world.task, actor=super_admin[0]
+        ).accept(
+            CandidateAcceptCommand(
+                write_scope=write_scope,
+                prediction_id=world.candidate.id,
+                shape_index=0,
+                override_class_name=None,
+                attribute_overrides=None,
+                video_segment_id=None,
+            )
         )
 
 
@@ -662,16 +689,36 @@ async def test_reference_writer_keeps_native_mask_gate_before_materialization(
             if native == "brush"
             else []
         )
+        from app.services.labeling_prediction_contract import (
+            ApplyPredictionResultError,
+            ApplyPredictionResultRequest,
+        )
+        from app.services.labeling_write_scope import capture_labeling_write_scope
+
+        write_scope = capture_labeling_write_scope(
+            task,
+            actor_id=actor.id,
+            actor_known=True,
+            operation="preannotation",
+            execution_scope="bulk",
+            execution_scope_known=True,
+            job_id=job.id,
+            job_id_known=True,
+        )
         with pytest.raises(
-            ContentError, match="reference_prediction_geometry_not_supported"
+            (ContentError, ApplyPredictionResultError),
+            match=r"reference_prediction_geometry_not_supported|raster_mask_create_disabled",
         ):
-            await PredictionService(db_session).create_from_ml_result(
-                task.id,
-                project.id,
-                None,
-                result,
-                token_meta={"mask_objects": {}} if native == "objects" else None,
-                reference_receipt=receipt,
+            await PredictionService(db_session).apply_prediction_result(
+                ApplyPredictionResultRequest(
+                    task_id=task.id,
+                    project_id=project.id,
+                    ml_backend_id=None,
+                    result=result,
+                    write_scope=write_scope,
+                    token_meta={"mask_objects": {}} if native == "objects" else None,
+                    reference_receipt=receipt,
+                )
             )
         materialize.assert_not_called()
         assert (

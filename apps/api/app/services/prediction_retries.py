@@ -44,6 +44,7 @@ __all__ = [
 class _CredentialRequestState:
     api_key_id: str | None
     api_key_scopes: tuple[str, ...] | None
+    identity_principal: object | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +60,7 @@ class _CredentialRequest:
             state=_CredentialRequestState(
                 api_key_id=credential.api_key_id,
                 api_key_scopes=credential.api_key_scopes,
+                identity_principal=credential.identity_principal,
             ),
             headers={"authorization": credential.authorization},
         )

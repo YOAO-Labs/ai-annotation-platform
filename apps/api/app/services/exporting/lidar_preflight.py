@@ -95,7 +95,7 @@ def _rotation_is_orthonormal(matrix: list[float]) -> bool:
 def _item_metadata(item) -> dict:
     """Read metadata from a frozen owner row or a published spatial item."""
     value = getattr(item, "metadata", None)
-    if value is None:
+    if not isinstance(value, dict):
         value = getattr(item, "metadata_", None)
     return value if isinstance(value, dict) else {}
 
@@ -295,7 +295,7 @@ class _RegisteredPreflight:
             calibration = (
                 SensorCalibration.model_validate(row.calibration)
                 if row is not None
-                else _metadata_calibration(item.metadata)
+                else _metadata_calibration(_item_metadata(item))
             )
             states[item.id] = SensorCalibrationState(
                 item.id,
@@ -1224,10 +1224,7 @@ async def _preflight_lidar_export(
             box_count = box_counts_by_task.get(task.id, 0)
             if box_count == 0:
                 continue
-            item_metadata = getattr(primary_item, "metadata", None) or getattr(
-                primary_item, "metadata_", None
-            )
-            raw_point_count = (item_metadata or {}).get("point_count")
+            raw_point_count = _item_metadata(primary_item).get("point_count")
             try:
                 metadata_point_count = max(int(raw_point_count), 0)
             except (TypeError, ValueError):
