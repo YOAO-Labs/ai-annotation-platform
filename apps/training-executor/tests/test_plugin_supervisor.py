@@ -1784,3 +1784,135 @@ def test_preview_supervisor_reconciles_orphan_preview_containers_and_local_mode(
         preview.client.close()
         training.lock.close()
         training.client.close()
+
+
+def test_sdk_error_during_container_reconcile_retains_lease_and_never_finishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from yoao.errors import SDKError
+
+    class FailingRuntime(InMemoryContainerRuntime):
+        def inspect_container(self, *, name=None, container_id=None):
+            raise SDKError("docker daemon unreachable")
+
+    supervisor = _make_plugin_supervisor(
+        tmp_path, device_kind="cpu", container_runtime=FailingRuntime()
+    )
+    supervisor.heartbeat = lambda journal, directory: None
+    published: list[dict[str, Any]] = []
+    supervisor.upload_and_finish = lambda journal, directory: (
+        published.append(copy.deepcopy(journal)) or True
+    )
+    journal = _make_plugin_journal(
+        supervisor,
+        execution_mode="container",
+        image=PINNED_IMAGE,
+        entrypoint=["python3", "/app/trainer.py"],
+        dataset_sha256="c" * 64,
+        requires_gpu=False,
+    )
+    journal["container_name"] = "yoao-trainer-fail-reconcile"
+    journal["spawn_intent"] = True
+    try:
+        with pytest.raises(LeaseRetainedError):
+            supervisor.execute(journal, recovery=True)
+        assert published == []
+    finally:
+        supervisor.client.close()
+
+
+def test_build_train_spec_propagates_configuration_identity_and_effective_values(
+    tmp_path: Path,
+) -> None:
+    supervisor = _make_plugin_supervisor(tmp_path, device_kind="cpu")
+    try:
+        schema_digest = "a" * 64
+        journal = _make_plugin_journal(
+            supervisor,
+            execution_mode="local_process",
+            entrypoint=[sys.executable, "/app/trainer.py"],
+            dataset_sha256="c" * 64,
+            requires_gpu=False,
+        )
+        journal["assignment"]["config"]["configuration"] = {
+            "identity": {
+                "schema_id": "dummy_cpu/detect/dummy",
+                "schema_digest": schema_digest,
+            },
+            "effective_values": {"epochs": 7, "custom_alpha": 0.25},
+        }
+        spec = supervisor._build_train_spec(
+            journal["assignment"],
+            journal["assignment"]["config"],
+            execution_mode="local_process",
+            input_dir=tmp_path / "input",
+            base_path=None,
+            resume_path=None,
+            initialization_path=None,
+        )
+        assert spec.schema_id == "dummy_cpu/detect/dummy"
+        assert spec.schema_digest == schema_digest
+        assert spec.parameters["epochs"] == 7
+        assert spec.parameters["custom_alpha"] == 0.25
+    finally:
+        supervisor.client.close()
+
+
+def test_plugin_runner_rejects_wrapper_entrypoints_and_unbounded_limits(
+    tmp_path: Path,
+) -> None:
+    for bad in (
+        ["/usr/bin/env", "sh", "-c", "id"],
+        ["busybox", "sh"],
+        ["python3", "--check-hash-based-pycs", "default", "-c", "print(1)"],
+        ["python3", "-uW", "ignore", "-c", "print(1)"],
+        ["node", "-e", "1"],
+    ):
+        with pytest.raises(InputMismatchError):
+            validate_plugin_entrypoint(bad)
+
+    with pytest.raises(InputMismatchError, match="pids_limit"):
+        build_train_container_spec(
+            resource_id="node/cpu-0",
+            attempt_id=str(uuid.uuid4()),
+            run_id=str(uuid.uuid4()),
+            plugin_id="dummy.cpu",
+            image=PINNED_IMAGE,
+            entrypoint=["python3", "/app/trainer.py"],
+            input_dir=tmp_path / "in",
+            output_dir=tmp_path / "out",
+            resource={"memory_mb": 512, "pids_limit": 999999},
+            requires_gpu=False,
+        )
+
+
+def test_plugin_failure_message_is_redacted_and_truncated(tmp_path: Path) -> None:
+    supervisor = _make_plugin_supervisor(tmp_path, device_kind="cpu")
+    try:
+        directory = tmp_path / "attempt"
+        output_dir = directory / "output"
+        output_dir.mkdir(parents=True)
+        secret_token = "super-secret-token-value-1234567890"
+        long_msg = f"boom {secret_token} " + ("x" * 1500)
+        atomic_write_json(
+            output_dir / "result.json",
+            TrainReceiptV1(
+                protocol_version=TRAINER_PROTOCOL_VERSION,
+                status="failed",
+                failure_code="native_exception",
+                failure_message=long_msg,
+            ),
+        )
+        journal: dict[str, Any] = {"outcome": "succeeded"}
+        supervisor._stage_plugin_receipt(
+            journal,
+            directory,
+            output_dir,
+            config_digest="b" * 64,
+            secrets=(secret_token,),
+        )
+        assert journal["outcome"] == "failed"
+        assert len(journal["error"]) <= 1000
+        assert secret_token not in journal["error"]
+    finally:
+        supervisor.client.close()

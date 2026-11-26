@@ -309,7 +309,10 @@ async def build_catalog_response(db, *, include_policy_digests: bool = False) ->
         )
     primary_id = resource_id()
     primary_lease = leases_by_id.get(primary_id)
-    if primary_lease is None:
+    primary_slot_online = any(
+        slot["resource_id"] == primary_id and slot["online"] for slot in resource_slots
+    )
+    if primary_lease is None or not primary_slot_online:
         online_slot = next((slot for slot in resource_slots if slot["online"]), None)
         if online_slot is not None:
             primary_lease = leases_by_id.get(online_slot["resource_id"])
@@ -546,6 +549,10 @@ async def _frozen_plugin_config(
             for candidate in configured_resource_slots()
             if (candidate["device_kind"] == "gpu" if requires_gpu else True)
         ]
+        if not requires_gpu:
+            eligible_slots.sort(
+                key=lambda candidate: 0 if candidate["device_kind"] == "cpu" else 1
+            )
         prepared_slot = next(
             (
                 candidate
@@ -623,10 +630,32 @@ async def _frozen_plugin_config(
             raise HTTPException(
                 status_code=422, detail="参数配置与当前训练器定义不匹配"
             )
+        fields_by_key = {
+            field["key"]: field for field in expected_schema["fields"] if "key" in field
+        }
+        for key, value in body.configuration.values.items():
+            field_spec = fields_by_key.get(key)
+            if field_spec is None:
+                raise HTTPException(
+                    status_code=422, detail=f"参数 {key} 不在当前训练器参数定义中"
+                )
+            if field_spec.get("editable") is False:
+                raise HTTPException(
+                    status_code=422, detail=f"参数 {key} 为只读字段，不允许覆盖"
+                )
+            declared_type = field_spec.get("type")
+            if declared_type == "integer" and type(value) is not int:
+                raise HTTPException(status_code=422, detail=f"参数 {key} 必须为整数")
+            if declared_type == "number" and (
+                isinstance(value, bool) or not isinstance(value, (int, float))
+            ):
+                raise HTTPException(status_code=422, detail=f"参数 {key} 必须为数值")
+            if declared_type == "boolean" and type(value) is not bool:
+                raise HTTPException(status_code=422, detail=f"参数 {key} 必须为布尔值")
+            if declared_type == "string" and type(value) is not str:
+                raise HTTPException(status_code=422, detail=f"参数 {key} 必须为字符串")
         effective_values = {
-            field["key"]: field.get("default")
-            for field in expected_schema["fields"]
-            if "key" in field
+            key: field.get("default") for key, field in fields_by_key.items()
         }
         effective_values.update(body.configuration.values)
         epochs_value = effective_values.get("epochs")
@@ -1217,13 +1246,48 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
     candidates = await data.gpu_queue(db)
     for run in candidates:
         config = run.config
-        if config["resource_id"] != body.resource_id or not runtime_compatible(
+        is_plugin_v3 = (
+            config.get("adapter_revision") == 3
+            or config.get("trainer_protocol") == TRAINER_PROTOCOL_VERSION
+        )
+        if is_plugin_v3:
+            plugin_cfg = config.get("trainer_plugin") or {}
+            if plugin_cfg.get("requires_gpu", True) and slot["device_kind"] != "gpu":
+                continue
+            if not runtime_compatible(config, body.runtime):
+                continue
+        elif config["resource_id"] != body.resource_id or not runtime_compatible(
             config, body.runtime
         ):
             continue
         attempt = await data.get_attempt(db, run.current_attempt_id)
         if attempt is None or attempt.run_id != run.id:
             raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
+        if is_plugin_v3 and db is not None and hasattr(db, "scalar"):
+            from app.services.trainer_plugins_data import TrainerPluginsPostgresData
+
+            plugin_cfg = config.get("trainer_plugin") or {}
+            plugin_id = plugin_cfg.get("plugin_id")
+            current_plugin = (
+                await TrainerPluginsPostgresData(db).get_plugin(plugin_id)
+                if isinstance(plugin_id, str) and plugin_id
+                else None
+            )
+            if (
+                current_plugin is None
+                or current_plugin.status != "enabled"
+                or current_plugin.capabilities_digest
+                != plugin_cfg.get("capabilities_digest")
+                or current_plugin.artifact != plugin_cfg.get("artifact")
+            ):
+                await mark_terminal(
+                    db,
+                    run,
+                    attempt,
+                    "cancelled",
+                    "训练器插件已停用、退役或定义已变更，取消排队作业",
+                )
+                continue
         try:
             attempt_storage_owner(run, attempt)
         except HTTPException as exc:
@@ -1518,8 +1582,10 @@ def verify_native_artifact(run, attempt, artifacts, *, transport=None):
 
 def verify_trainer_receipt_artifact(run, attempt, artifacts, *, transport=None):
     spec = artifacts.get("result.json")
-    if not spec:
-        raise ValueError("v3 success requires result.json trainer receipt")
+    if not spec or spec.get("role") != "config":
+        raise ValueError(
+            "v3 success requires result.json trainer receipt with role=config"
+        )
     from app.services.training_artifacts import read_json_artifact
 
     owner = attempt_storage_owner(run, attempt, spec["key"])
@@ -1527,16 +1593,35 @@ def verify_trainer_receipt_artifact(run, attempt, artifacts, *, transport=None):
     receipt = TrainReceiptV1.model_validate(raw)
     if receipt.status != "succeeded":
         raise ValueError("Trainer receipt status must be succeeded")
+    if not receipt.artifacts:
+        raise ValueError("Trainer receipt must attest produced artifacts")
+    attested_roles: set[str] = set()
     for item in receipt.artifacts:
         if item.role == "input_membership":
+            if item.filename != "input-membership.json":
+                raise ValueError(
+                    "input_membership artifact must be named input-membership.json"
+                )
             continue
+        if item.filename == "input-membership.json":
+            raise ValueError("input-membership.json must use role='input_membership'")
+        expected_role = "config" if item.role == "extra" else item.role
         uploaded = artifacts.get(item.filename)
         if (
             uploaded is None
+            or uploaded.get("role") != expected_role
             or uploaded.get("sha256") != item.sha256
             or uploaded.get("size_bytes") != item.size_bytes
         ):
             raise ValueError(f"Trainer receipt artifact mismatch: {item.filename}")
+        attested_roles.add(expected_role)
+    if not {"weights", "checkpoint", "metrics"} <= attested_roles:
+        raise ValueError("Trainer receipt must attest weights, checkpoint, and metrics")
+    if (
+        receipt.serving_compatibility is not None
+        and receipt.serving_compatibility.framework != run.config["framework"]
+    ):
+        raise ValueError("Trainer receipt serving_compatibility framework mismatch")
 
 
 def verify_input_artifact(run, attempt, artifacts, *, transport=None):

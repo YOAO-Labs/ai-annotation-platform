@@ -560,7 +560,14 @@ class PreviewSupervisor:
                 handle = self.process = launch_container_job(
                     container_runtime, container_spec, open_logs=False
                 )
+            except LeaseRetainedError:
+                raise
             except Exception:
+                reconcile_container_by_id_or_name(
+                    container_runtime,
+                    container_id=journal.get("container_id"),
+                    name=journal.get("container_name"),
+                )
                 self.process_exited = True
                 raise
             journal["container_id"] = handle.container_id
@@ -611,9 +618,13 @@ class PreviewSupervisor:
                 except Exception:
                     self.process_exited = True
                     raise
+                try:
+                    started_at = psutil.Process(handle.pid).create_time()
+                except psutil.NoSuchProcess:
+                    started_at = time.time()
                 journal["process"] = {
                     "pid": handle.pid,
-                    "started_at": psutil.Process(handle.pid).create_time(),
+                    "started_at": started_at,
                 }
                 self.save(journal)
                 while handle.poll() is None:

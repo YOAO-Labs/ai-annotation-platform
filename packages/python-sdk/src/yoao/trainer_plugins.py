@@ -6,6 +6,8 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
+from urllib.parse import quote
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from yoao._http import HttpTransport, _drop_none
@@ -76,6 +78,7 @@ class TrainerPlugins:
         return [TrainerPluginRecord.model_validate(item) for item in response.json()]
 
     def get(self, plugin_id: str) -> TrainerPluginRecord:
+        plugin_id = quote(plugin_id, safe="")
         response = self._http.request("GET", f"/admin/trainer-plugins/{plugin_id}")
         return TrainerPluginRecord.model_validate(response.json())
 
@@ -111,6 +114,7 @@ class TrainerPlugins:
         qualification_report_sha256: str,
         qualification_report: dict[str, Any],
     ) -> TrainerPluginRecord:
+        plugin_id = quote(plugin_id, safe="")
         response = self._http.request(
             "POST",
             f"/admin/trainer-plugins/{plugin_id}/qualify",
@@ -123,6 +127,7 @@ class TrainerPlugins:
         return TrainerPluginRecord.model_validate(response.json())
 
     def enable(self, plugin_id: str, *, expected_revision: int) -> TrainerPluginRecord:
+        plugin_id = quote(plugin_id, safe="")
         response = self._http.request(
             "POST",
             f"/admin/trainer-plugins/{plugin_id}/enable",
@@ -131,6 +136,7 @@ class TrainerPlugins:
         return TrainerPluginRecord.model_validate(response.json())
 
     def disable(self, plugin_id: str, *, expected_revision: int) -> TrainerPluginRecord:
+        plugin_id = quote(plugin_id, safe="")
         response = self._http.request(
             "POST",
             f"/admin/trainer-plugins/{plugin_id}/disable",
@@ -139,6 +145,7 @@ class TrainerPlugins:
         return TrainerPluginRecord.model_validate(response.json())
 
     def retire(self, plugin_id: str, *, expected_revision: int) -> TrainerPluginRecord:
+        plugin_id = quote(plugin_id, safe="")
         response = self._http.request(
             "POST",
             f"/admin/trainer-plugins/{plugin_id}/retire",

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-26
-- **Deciders:** 维护者已确认架构方向并完成 T0/T1；已按已采纳的 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 对齐双轨运行模式（`local_process` / `container`）与共享 `ContainerRuntimePort`（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
+- **Deciders:** 维护者已确认架构方向并完成 T0/T1/T2；已按已采纳的 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 对齐双轨运行模式（`local_process` / `container`）与共享 `ContainerRuntimePort`（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
 - **Supersedes:** —（沿用 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md) 单一写入 owner 原则、[ADR-0187](archive/0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 通用清单与安全边界、[ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 双轨运行器与只读插件投影口径，以及 [ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md) 发现不等于资格原则）
 
 ## Context
@@ -63,7 +63,7 @@
 原单镜像子进程通过继承 `/state/gpu-<sha24>.lock` 文件描述符和 `os.killpg` 防止 supervisor 崩溃后提前释放 GPU。容器运行时拉起的容器不会继承 supervisor 的文件描述符，也无法由 `os.killpg` 终止。为保证双轨同等强度的互斥与崩溃恢复，无 ML 依赖的 `training-supervisor` 必须执行四条硬规则：
 
 1. **先落盘后启动**：在调用 `ContainerRuntimePort` 启动容器或拉起 `local_process` 子进程组之前，必须将确定性作业身份（绑定 `gpu_resource_id` 与 `attempt_id` 的容器名/标签或进程组记录）和 `spawn_intent` 原子写入并 `fsync` 到 `/state/assignment.json`。
-2. **启动/恢复期先对账再申领**：supervisor 重启持有 `/state/gpu-<sha24>.lock` 后，在调用 `POST /claim` 之前必须通过 `ContainerRuntimePort`（T2 需在端口补齐按标签过滤的 `list_containers` 能力，或按确定性容器名对账）核查绑定该 `gpu_resource_id` 的受管容器（或在 `local_process` 下确认继承锁释放与残留进程组清理）；凡发现运行中容器，必须先执行强停并确认退出，再执行既有恢复或申领新作业。
+2. **启动/恢复期先对账再申领**：supervisor 重启持有 `/state/gpu-<sha24>.lock` 后，在调用 `POST /claim` 之前必须通过 `ContainerRuntimePort.list_containers` 按标签枚举绑定该 `gpu_resource_id` 的受管容器（或在 `local_process` 下确认继承锁释放与残留进程组清理）；凡发现运行中容器，必须先执行强停并确认退出，再执行既有恢复或申领新作业。
 3. **以真实退出状态作为租约释放前提**：停止、取消、撤权或 `ProcessBudget` 单调时钟预算到期时，`container` 档必须通过 `ContainerRuntimePort` 执行强停并复核 `inspect_container` 确认退出，只有确认完全退出后才向平台上报 `process_exited: True` 以释放 `TrainingResourceLease`；`local_process` 档继续使用子进程 `flock` 继承与 `os.killpg` 并确认子进程组全部退出。
 4. **保租约与撤权不退化**：心跳超时置 `lost` 仍保留 `TrainingResourceLease`；项目管理员权限或 API Key 作用域撤销在 admission、claim、heartbeat、finish、resume 五个节点持续复核。
 
@@ -108,4 +108,4 @@
 - T0 契约实现位置：
   - 平台侧：`packages/python-sdk/src/training_contract/trainer_plugin.py`、`packages/python-sdk/tests/contracts/training_contract/test_trainer_plugin.py`
   - 独立插件 SDK：`YOAO-Labs/Plugin-SDK` 仓内 `packages/python/src/yoao_plugin_sdk/trainer/__init__.py`、`packages/js/src/trainer.mjs`、`packages/js/src/index.d.ts`
-- T1（Learning Owner 边界与 `bo0512` SQL 泛化）与 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 推理插件升级均已完成验收；容器运行抽象已收口至共享 `ContainerRuntimePort`（`packages/python-sdk/src/yoao/container_runtime.py`，默认 `LocalDockerRuntime` 实现，Podman/OCI 可插拔），当前具备启动 **T2** 的全部前提。
+- T0–T2 与 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 推理插件升级均已完成验收：`yoao_learning_v1.trainer_plugins`（迁移 `bo0514`）、超管 API/SDK/CLI、多槽位资源模型、共享 `ContainerRuntimePort` 生命周期扩展及无 ML 依赖双轨 `training-supervisor` 已在隔离环境下通过真实 CPU 哑训练器端到端验收，当前具备启动 **T3** 的全部前提。

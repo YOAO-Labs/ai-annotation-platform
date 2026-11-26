@@ -30,6 +30,7 @@ from training_contract.observability import (
     PHASES,
     InputMismatchError,
     failure_receipt,
+    redact_text,
 )
 from training_contract.trainer_plugin import (
     TRAINER_PROTOCOL_VERSION,
@@ -656,11 +657,12 @@ class Supervisor:
                 return
             if receipt.status == "failed":
                 journal["outcome"] = "failed"
-                journal["error"] = (
+                journal["error"] = redact_text(
                     receipt.failure_message
                     or receipt.failure_code
-                    or "训练插件报告失败"
-                )
+                    or "训练插件报告失败",
+                    secrets,
+                )[:1000]
                 journal["failure"] = _project_plugin_failure(
                     receipt, config_digest, secrets
                 )
@@ -694,6 +696,13 @@ class Supervisor:
                         item.role == "input_membership"
                         or item.filename == "input-membership.json"
                     ):
+                        if (
+                            item.role != "input_membership"
+                            or item.filename != "input-membership.json"
+                        ):
+                            raise ValueError(
+                                "input-membership.json must be declared with role='input_membership'"
+                            )
                         immutable_copy(src, directory / "input-membership.json")
                         continue
                     if item.filename in _SUPERVISOR_OWNED_ARTIFACTS:
@@ -720,7 +729,9 @@ class Supervisor:
                 immutable_copy(receipt_path, directory / "result.json")
             except (ValueError, OSError) as exc:
                 journal["outcome"] = "failed"
-                journal["error"] = f"训练插件产物校验失败：{exc}"
+                journal["error"] = redact_text(f"训练插件产物校验失败：{exc}", secrets)[
+                    :1000
+                ]
                 journal["failure"] = failure_receipt(
                     "native_exception",
                     "execution",
@@ -819,9 +830,18 @@ class Supervisor:
         configuration = config.get("configuration")
         schema_id = config.get("schema_id")
         schema_digest = config.get("schema_digest")
-        if schema_id is None and isinstance(configuration, Mapping):
-            schema_id = configuration.get("schema_id")
-            schema_digest = configuration.get("schema_digest")
+        effective_parameters = dict(config.get("parameters") or {})
+        if isinstance(configuration, Mapping):
+            identity = configuration.get("identity")
+            if schema_id is None and isinstance(identity, Mapping):
+                schema_id = identity.get("schema_id")
+                schema_digest = identity.get("schema_digest")
+            if schema_id is None:
+                schema_id = configuration.get("schema_id")
+                schema_digest = configuration.get("schema_digest")
+            effective_values = configuration.get("effective_values")
+            if isinstance(effective_values, Mapping):
+                effective_parameters.update(effective_values)
         task = config.get("task")
         if task is None and isinstance(configuration, Mapping):
             identity = configuration.get("identity")
@@ -841,7 +861,7 @@ class Supervisor:
             classes_digest=str(classes_digest),
             schema_id=schema_id,
             schema_digest=schema_digest,
-            parameters=dict(config.get("parameters") or {}),
+            parameters=effective_parameters,
             base_weights_path=base_weights_path,
             resume_checkpoint_path=container_or_host(
                 resume_path, "/work/input/resume.pt"
@@ -869,8 +889,11 @@ class Supervisor:
                     raise ValueError(f"Plugin artifact changed locally: {item['name']}")
                 artifacts.append(dict(item))
                 seen_names.add(item["name"])
+            has_plugin_checkpoint = any(
+                item.get("role") == "checkpoint" for item in artifacts
+            )
             checkpoint = directory / "checkpoint.json"
-            if checkpoint.is_file():
+            if checkpoint.is_file() and not has_plugin_checkpoint:
                 cp = json.loads(checkpoint.read_text())
                 if cp["name"] not in seen_names:
                     artifacts.append(cp)
@@ -1324,12 +1347,16 @@ class Supervisor:
                 "container_name": handle.name,
             }
         else:
+            try:
+                started_at = psutil.Process(handle.pid).create_time()
+            except psutil.NoSuchProcess:
+                started_at = time.time()
             journal["process"] = {
                 "pid": handle.pid,
-                "started_at": psutil.Process(handle.pid).create_time(),
+                "started_at": started_at,
             }
             if observation:
-                observation.sampler.attach(handle.pid, journal["process"]["started_at"])
+                observation.sampler.attach(handle.pid, started_at)
         self.save(journal)
         while handle.poll() is None:
             if self.stop_training.is_set() or self.shutdown.is_set():
@@ -1726,6 +1753,21 @@ class Supervisor:
                     process = self.active_process
                 if process is not None:
                     self.terminate_process(process)
+                elif journal.get("execution_mode") == "container" and (
+                    journal.get("spawn_intent")
+                    or journal.get("container_id")
+                    or journal.get("container_name")
+                ):
+                    container_runtime = getattr(self, "container_runtime", None)
+                    if container_runtime is None:
+                        raise LeaseRetainedError(
+                            "Container runtime unavailable after spawn intent; retaining lease"
+                        ) from exc
+                    reconcile_container_by_id_or_name(
+                        container_runtime,
+                        container_id=journal.get("container_id"),
+                        name=journal.get("container_name"),
+                    )
                 if (
                     recovery
                     and journal.get("process")

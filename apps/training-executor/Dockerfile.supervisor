@@ -1,8 +1,12 @@
+FROM docker:27-cli AS docker-cli
+
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1 \
     TRAINING_SUPERVISOR_MODE=plugin
+
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
 WORKDIR /app
 COPY packages/python-sdk /packages/python-sdk

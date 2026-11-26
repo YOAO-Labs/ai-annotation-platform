@@ -3,13 +3,17 @@
 import uuid
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from app.schemas.training_run import FrameworkId, TrainingConfiguration, TrainingOrigin
+from app.schemas.training_run import (
+    BuiltinFrameworkId,
+    TrainingConfiguration,
+    TrainingOrigin,
+)
 from app.schemas.training_initialization import TrainingInitialization
 
 
 class TrainingConfigurationResolve(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    framework: FrameworkId
+    framework: BuiltinFrameworkId
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     configuration: TrainingConfiguration
     initialization: TrainingInitialization | None = None

@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.schemas.training_run import (
-    FrameworkId,
+    BuiltinFrameworkId,
     TrainingParameters,
     TrainingConfiguration,
     TrainingOrigin,
@@ -20,7 +20,7 @@ class LearningPolicySave(BaseModel):
     enabled: bool = False
     parent_id: uuid.UUID
     batch_id: uuid.UUID | None = None
-    framework: FrameworkId = "ultralytics"
+    framework: BuiltinFrameworkId = "ultralytics"
     base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None

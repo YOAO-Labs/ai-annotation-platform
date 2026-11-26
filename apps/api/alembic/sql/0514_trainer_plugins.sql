@@ -379,7 +379,7 @@ BEGIN
     IF v_row.status = 'retired' THEN
         RAISE EXCEPTION 'trainer_plugin_already_retired' USING ERRCODE = '22023';
     END IF;
-    IF v_target_status NOT IN ('enabled', 'disabled', 'retired') THEN
+    IF v_target_status IS NULL OR v_target_status NOT IN ('enabled', 'disabled', 'retired') THEN
         RAISE EXCEPTION 'invalid_target_status' USING ERRCODE = '22023';
     END IF;
     IF v_row.status = 'registered' AND v_target_status <> 'retired' THEN

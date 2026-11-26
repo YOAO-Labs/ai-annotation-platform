@@ -1,6 +1,6 @@
 # 训练器插件化架构与实施计划
 
-> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）、T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）及前置的 [ADR-0190（推理插件机制升级）](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 全部切片（I0–I3）均已完成验收，[ADR-0189](../adr/0189-trainer-extension-point.md) 已同步对齐 `local_process`/`container` 双轨与共享 `ContainerRuntimePort`，具备启动 T2 条件。
+> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）、T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）、前置 [ADR-0190（推理插件机制升级）](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 全部切片（I0–I3）及 **T2（`yoao_learning_v1.trainer_plugins` 注册表、资格门禁、多槽位模型与无 ML 依赖双轨 `training-supervisor`）** 均已完成并通过真实 CPU 哑训练器端到端实测验收，待维护者确认后启动 T3。
 >
 > 创建日期：2026-11-25。
 >
@@ -199,5 +199,12 @@
 - **当前状态**：
   - 已完成 **T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）**，在 `YOAO-Labs/Plugin-SDK` 与主仓 `yoao-sdk` 双向冻结 13 个协议模型与校验原语。
   - 已完成 **T1（Learning Owner 边界收口与前向 SQL 泛化）**：新增前向迁移 `bo0512`（`0512_trainer_extension_generalization.sql` / `.py`）泛化 7 个 Learning SQL 函数而不改动冻结历史文件 `0491`–`0493`（保持冻结 `schema 1–4` 与 Python 契约逐条对等，从 `schema >= 5` 起开放泛化插件契约）；移除 API Schema 与路由中的硬编码框架/桥接 `Literal`，切换至 `training_adapters` 能力检查与动态框架校验，并同步 OpenAPI 快照、SDK 操作目录与 Web 生成客户端（手动前端类型与 Python SDK 包装模型残留 `Literal` 留待 T2/T3 收敛）；收口 Learning 服务中的跨模块 `User`/`Project` ORM、`MLBackendService` 与私有 `MLBackendRouter._build_candidates`/`_router_mode` 直连并补齐 AST 边界守卫与真实 PostgreSQL 迁移测试。
-- **下一步（待维护者确认启动 T2）**：
-  - 前置推理插件机制升级（见已采纳的 [ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 与 [1795617883_inference-plugin-upgrade.md](1795617883_inference-plugin-upgrade.md)）已完成双轨实测与收口，[ADR-0189](../adr/0189-trainer-extension-point.md) 已同步采用双轨运行模式（`local_process` / `container`）与共享窄接口 `ContainerRuntimePort`；经维护者确认后即可进入 **T2（`yoao_learning_v1.trainer_plugins` 注册表与 `training-supervisor`）**。
+  - 已完成 **T2（`yoao_learning_v1.trainer_plugins` 注册表、多槽位资源模型、超管 API/SDK/CLI 与无 ML 依赖双轨 `training-supervisor`）**：
+    - 扩展 `yoao-sdk` 共享 `ContainerRuntimePort` / `LocalDockerRuntime`（补齐 `list_containers`、`kill_container`、`wait_container`、`remove_container`、`open_log_stream` 与 `exit_code` 解析）；
+    - 新增前向迁移 `bo0514`（`apps/api/alembic/sql/0514_trainer_plugins.sql` / `versions/0514_trainer_plugins.py`），建立私有 owner 表 `yoao_learning_v1.trainer_plugins`、发现不等于资格约束、活跃 `framework_id` 部分唯一索引、7 个 `SECURITY DEFINER` 函数与 `training_list_gpu_leases()`，同步更新运行时与 owner 授权脚本及模块装配清单；
+    - 提供 7 条超管 `/api/v1/admin/trainer-plugins*` 接口（含同事务审计日志）、Python SDK `client.trainer_plugins` 与 `yoao plugins trainer` CLI，并同步 OpenAPI 快照、`api-coverage.toml` 与操作目录；
+    - 解除单一 `training_gpu_uuid` 限制（新增 `training_gpu_uuids` 与 `training_cpu_slots` 多槽位资源模型，保留每张物理 GPU 单作业互斥租约），并在 `training_runs` 打通 `adapter_revision = 3`（`yoao-trainer/v1`）目录融合、入队冻结、申领期插件启用复核与 `result.json`（`TrainReceiptV1`）全量回读核验；
+    - 将 `apps/training-executor` 核心依赖剥离至无 ML 依赖（`yoao-sdk`、`httpx`、`psutil`），新增 `Dockerfile.supervisor` 与 `plugin_runner.py`，用纯 `nvidia-smi` 替代 `import torch` 探测，实现 `container`（`--network=none`、`--cap-drop ALL`、`no-new-privileges`、有界 `pids_limit`/`shm_size`、`:ro` 挂载、先落盘后启动与启动期孤儿容器回收）和 `local_process` 双轨监督及 CPU-only `PreviewSupervisor`；
+    - 在一次性隔离环境（Postgres 16 `bo0514` + 开启版本控制的 MinIO + 私有 Registry + FastAPI + 无 ML 依赖 `training-supervisor`）使用基于 `yoao-plugin-sdk[trainer]` 编写的真实 CPU 哑训练器完成全套 6 场景实测（最小权限 SQL 隔离、RBAC 与资格门禁、受管容器断网训练与产物全量回读、运行中取消与容器退出确认、模拟崩溃孤儿容器启动回收、`ProcessBudget` 单调时钟超时中止及 `local_process` 直跑与退役）。
+- **下一步（待维护者确认启动 T3）**：
+  - 经维护者确认后进入 **T3（官方参考训练器 `ultralytics` / `libreyolo` 拆仓至 `YOAO-Plugins` 并删除主仓旧静态实现）**，随后进入 **T4（真实单卡 GPU 端到端与模型回流资格验收，并转正归档 ADR-0189）**。

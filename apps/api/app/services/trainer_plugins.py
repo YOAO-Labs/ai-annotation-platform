@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import math
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -11,6 +12,7 @@ from training_contract.trainer_plugin import (
     TRAINER_PROTOCOL_VERSION,
     canonical_json_digest,
 )
+from yoao_inference_contract.plugin import validate_oci_digest_reference
 
 from app.schemas.trainer_plugin import (
     QualifyTrainerPluginRequest,
@@ -27,10 +29,43 @@ NUMERIC_HOST_RE = re.compile(
 )
 TRAINER_CAPABILITIES = frozenset({"train", "evaluate", "preview", "export_weights"})
 SHELL_EXECUTABLES = frozenset(
-    {"sh", "bash", "dash", "zsh", "ash", "cmd", "powershell", "pwsh", "ksh", "fish"}
+    {
+        "sh",
+        "bash",
+        "dash",
+        "zsh",
+        "ash",
+        "cmd",
+        "powershell",
+        "pwsh",
+        "ksh",
+        "fish",
+        "csh",
+        "tcsh",
+        "env",
+        "busybox",
+        "toybox",
+        "xargs",
+        "sudo",
+        "su",
+        "doas",
+        "nohup",
+        "timeout",
+        "setsid",
+    }
+)
+SAFE_PYTHON_FLAGS = frozenset({"-u", "-B", "-I", "-s", "-S", "-E", "-O", "-OO"})
+VALUE_PYTHON_FLAGS = frozenset({"-W", "-X"})
+FORBIDDEN_NODE_FLAGS = frozenset({"-e", "--eval", "-p", "--print"})
+ALLOWED_RESOURCE_KEYS = frozenset(
+    {"memory_mb", "cpus", "pids_limit", "shm_size_mb", "gpu_memory_mb", "device"}
 )
 MIN_MEMORY_MB = 16
 MAX_MEMORY_MB = 65536
+MIN_PIDS_LIMIT = 16
+MAX_PIDS_LIMIT = 4096
+MIN_SHM_SIZE_MB = 16
+MAX_SHM_SIZE_MB = 16384
 
 
 def _has_control_chars(value: str) -> bool:
@@ -128,21 +163,35 @@ def validate_entrypoint(entrypoint: Any) -> list[str]:
             break
     if not basename or basename in SHELL_EXECUTABLES:
         raise ValueError("entrypoint must not invoke a shell interpreter")
-    if basename.startswith("python"):
-        skip_next = False
-        for arg in entrypoint[1:]:
-            if skip_next:
-                skip_next = False
-                continue
+    if basename.startswith("python") or basename.startswith("pypy"):
+        args = entrypoint[1:]
+        idx = 0
+        while idx < len(args):
+            arg = args[idx]
             if arg == "--" or not arg.startswith("-"):
                 break
-            if arg == "-m" or (not arg.startswith("--") and arg.startswith("-m")):
+            if arg == "-m":
+                if idx + 1 >= len(args) or args[idx + 1].startswith("-"):
+                    raise ValueError("entrypoint python -m requires a module name")
                 break
-            if arg in {"-W", "-X"}:
-                skip_next = True
+            if arg in VALUE_PYTHON_FLAGS:
+                if idx + 1 >= len(args):
+                    raise ValueError(f"entrypoint option {arg} requires a value")
+                idx += 2
                 continue
-            if arg == "-c" or (not arg.startswith("--") and "c" in arg[1:]):
-                raise ValueError("entrypoint must not invoke python -c")
+            if arg in SAFE_PYTHON_FLAGS:
+                idx += 1
+                continue
+            raise ValueError(
+                "entrypoint must not invoke python -c or unsupported interpreter options"
+            )
+    elif basename in {"node", "nodejs"}:
+        for arg in entrypoint[1:]:
+            if arg == "--" or not arg.startswith("-"):
+                break
+            flag = arg.split("=", 1)[0]
+            if flag in FORBIDDEN_NODE_FLAGS:
+                raise ValueError("entrypoint must not invoke inline node evaluation")
     return list(entrypoint)
 
 
@@ -168,6 +217,9 @@ def validate_resource(resource: Any, *, execution_mode: str) -> dict[str, Any]:
         return {}
     if not isinstance(resource, dict):
         raise ValueError("resource must be an object")
+    unknown = set(resource) - ALLOWED_RESOURCE_KEYS
+    if unknown:
+        raise ValueError(f"unsupported resource keys: {sorted(unknown)}")
     memory_mb = resource.get("memory_mb")
     if execution_mode == "container":
         if type(memory_mb) is not int or not (
@@ -181,6 +233,34 @@ def validate_resource(resource: Any, *, execution_mode: str) -> dict[str, Any]:
             MIN_MEMORY_MB <= memory_mb <= MAX_MEMORY_MB
         ):
             raise ValueError("resource.memory_mb must be an integer in 16..65536")
+    if "cpus" in resource and resource["cpus"] is not None:
+        cpus = resource["cpus"]
+        if (
+            isinstance(cpus, bool)
+            or not isinstance(cpus, (int, float))
+            or not math.isfinite(cpus)
+            or not 0 < float(cpus) <= 256
+        ):
+            raise ValueError("resource.cpus must be a finite number in (0, 256]")
+    if "pids_limit" in resource and resource["pids_limit"] is not None:
+        pids_limit = resource["pids_limit"]
+        if type(pids_limit) is not int or not (
+            MIN_PIDS_LIMIT <= pids_limit <= MAX_PIDS_LIMIT
+        ):
+            raise ValueError("resource.pids_limit must be an integer in 16..4096")
+    if "shm_size_mb" in resource and resource["shm_size_mb"] is not None:
+        shm_size_mb = resource["shm_size_mb"]
+        if type(shm_size_mb) is not int or not (
+            MIN_SHM_SIZE_MB <= shm_size_mb <= MAX_SHM_SIZE_MB
+        ):
+            raise ValueError("resource.shm_size_mb must be an integer in 16..16384")
+    if "gpu_memory_mb" in resource and resource["gpu_memory_mb"] is not None:
+        gpu_memory_mb = resource["gpu_memory_mb"]
+        if type(gpu_memory_mb) is not int or not (0 <= gpu_memory_mb <= 1048576):
+            raise ValueError("resource.gpu_memory_mb must be an integer in 0..1048576")
+    if "device" in resource and resource["device"] is not None:
+        if resource["device"] not in {"cuda", "cpu", "auto"}:
+            raise ValueError("resource.device must be cuda, cpu, or auto")
     return dict(resource)
 
 
@@ -264,16 +344,24 @@ def validate_registration_payload(
         raise ValueError("manifest.extension.requires_gpu must be a boolean")
 
     raw_artifact = manifest.get("artifact")
+    if raw_artifact is not None:
+        raise ValueError(
+            "manifest must not pre-fill artifact; bind artifact during platform registration"
+        )
     if body.execution_mode == "container":
-        if body.artifact is None or not OCI_DIGEST_RE.fullmatch(body.artifact):
+        if body.artifact is None:
             raise ValueError(
                 "container execution_mode requires a digest-pinned artifact (@sha256:...)"
             )
-        if raw_artifact is not None and raw_artifact != body.artifact:
-            raise ValueError("manifest.artifact conflicts with request artifact")
+        try:
+            validate_oci_digest_reference(body.artifact)
+        except ValueError as exc:
+            raise ValueError(
+                "container execution_mode requires a valid digest-pinned OCI artifact (@sha256:...)"
+            ) from exc
         artifact: str | None = body.artifact
     else:
-        if body.artifact is not None or raw_artifact is not None:
+        if body.artifact is not None:
             raise ValueError("local_process execution_mode forbids artifact")
         artifact = None
 

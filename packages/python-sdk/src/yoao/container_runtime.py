@@ -758,12 +758,9 @@ class LocalDockerRuntime:
         if result.returncode:
             raise SDKError(f"Container runtime wait failed (exit {result.returncode})")
         lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-        if not lines:
-            raise SDKError("Container runtime did not return an exit code")
-        try:
-            return int(lines[-1])
-        except ValueError as exc:
-            raise SDKError("Container runtime returned an invalid exit code") from exc
+        if len(lines) != 1 or not re.fullmatch(r"-?[0-9]+", lines[0]):
+            raise SDKError("Container runtime returned an invalid exit code")
+        return int(lines[0])
 
     def remove_container(
         self,

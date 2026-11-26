@@ -25,6 +25,7 @@ from yoao.container_runtime import (
     DetachedContainerSpec,
     LocalDockerRuntime,
 )
+from yoao.errors import SDKError
 from yoao_inference_contract.plugin import validate_oci_digest_reference
 
 _EXECUTABLE_NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
@@ -43,8 +44,21 @@ _SHELL_EXECUTABLES = frozenset(
         "cmd.exe",
         "powershell",
         "pwsh",
+        "env",
+        "busybox",
+        "toybox",
+        "xargs",
+        "sudo",
+        "su",
+        "doas",
+        "nohup",
+        "timeout",
+        "setsid",
     }
 )
+_SAFE_PYTHON_FLAGS = frozenset({"-u", "-B", "-I", "-s", "-S", "-E", "-O", "-OO"})
+_VALUE_PYTHON_FLAGS = frozenset({"-W", "-X"})
+_FORBIDDEN_NODE_FLAGS = frozenset({"-e", "--eval", "-p", "--print"})
 _SAFE_LOCAL_ENV_KEYS = (
     "PATH",
     "HOME",
@@ -68,7 +82,11 @@ MIN_MEMORY_MB = 16
 MAX_MEMORY_MB = 65536
 DEFAULT_CPUS = 2.0
 DEFAULT_PIDS_LIMIT = 256
+MIN_PIDS_LIMIT = 16
+MAX_PIDS_LIMIT = 4096
 DEFAULT_SHM_SIZE_MB = 512
+MIN_SHM_SIZE_MB = 16
+MAX_SHM_SIZE_MB = 16384
 
 PREVIEW_MEMORY_MB = 16384
 PREVIEW_CPUS = 1.0
@@ -182,14 +200,42 @@ def validate_plugin_entrypoint(
         head_name = head.lower()
     if head_name in _SHELL_EXECUTABLES:
         raise InputMismatchError(
-            "Plugin entrypoint must not invoke a shell interpreter"
+            "Plugin entrypoint must not invoke a shell or wrapper interpreter"
         )
-    if head_name.startswith("python") and any(
-        arg == "-c"
-        or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:])
-        for arg in items[1:]
-    ):
-        raise InputMismatchError("Plugin entrypoint must not invoke python -c")
+    if head_name.startswith("python") or head_name.startswith("pypy"):
+        args = items[1:]
+        idx = 0
+        while idx < len(args):
+            arg = args[idx]
+            if arg == "--" or not arg.startswith("-"):
+                break
+            if arg == "-m":
+                if idx + 1 >= len(args) or args[idx + 1].startswith("-"):
+                    raise InputMismatchError(
+                        "Plugin entrypoint python -m requires a module name"
+                    )
+                break
+            if arg in _VALUE_PYTHON_FLAGS:
+                if idx + 1 >= len(args):
+                    raise InputMismatchError(
+                        f"Plugin entrypoint option {arg} requires a value"
+                    )
+                idx += 2
+                continue
+            if arg in _SAFE_PYTHON_FLAGS:
+                idx += 1
+                continue
+            raise InputMismatchError(
+                "Plugin entrypoint must not invoke python -c or unsupported interpreter options"
+            )
+    elif head_name in {"node", "nodejs"}:
+        for arg in items[1:]:
+            if arg == "--" or not arg.startswith("-"):
+                break
+            if arg.split("=", 1)[0] in _FORBIDDEN_NODE_FLAGS:
+                raise InputMismatchError(
+                    "Plugin entrypoint must not invoke inline node evaluation"
+                )
     return tuple(items)
 
 
@@ -358,11 +404,18 @@ def _bounded_cpus(resource: Mapping[str, Any] | None) -> float:
 
 
 def _bounded_positive_int(
-    resource: Mapping[str, Any] | None, key: str, default: int
+    resource: Mapping[str, Any] | None,
+    key: str,
+    default: int,
+    *,
+    minimum: int = 1,
+    maximum: int,
 ) -> int:
     raw = default if not resource else resource.get(key, default)
-    if type(raw) is not int or raw <= 0:
-        raise InputMismatchError(f"Plugin container {key} must be a positive integer")
+    if type(raw) is not int or not (minimum <= raw <= maximum):
+        raise InputMismatchError(
+            f"Plugin container {key} must be an integer in {minimum}..{maximum}"
+        )
     return raw
 
 
@@ -434,8 +487,20 @@ def build_train_container_spec(
             "--output",
             "/work/output",
         ),
-        pids_limit=_bounded_positive_int(resource, "pids_limit", DEFAULT_PIDS_LIMIT),
-        shm_size_mb=_bounded_positive_int(resource, "shm_size_mb", DEFAULT_SHM_SIZE_MB),
+        pids_limit=_bounded_positive_int(
+            resource,
+            "pids_limit",
+            DEFAULT_PIDS_LIMIT,
+            minimum=MIN_PIDS_LIMIT,
+            maximum=MAX_PIDS_LIMIT,
+        ),
+        shm_size_mb=_bounded_positive_int(
+            resource,
+            "shm_size_mb",
+            DEFAULT_SHM_SIZE_MB,
+            minimum=MIN_SHM_SIZE_MB,
+            maximum=MAX_SHM_SIZE_MB,
+        ),
     )
     spec.validate()
     return spec
@@ -501,7 +566,12 @@ def build_preview_container_spec(
 def _container_state_active(info: ContainerInspection | None) -> bool:
     return bool(
         info is not None
-        and (info.state.running or info.state.restarting or info.state.paused)
+        and (
+            info.state.running
+            or info.state.restarting
+            or info.state.paused
+            or info.state.dead
+        )
     )
 
 
@@ -513,21 +583,26 @@ def _stop_and_verify_container(
     kill_grace_seconds: float = 10.0,
     poll_interval_seconds: float = 0.2,
 ) -> ContainerInspection | None:
-    info = runtime.inspect_container(container_id=container_id)
-    if not _container_state_active(info):
-        return info
-    for sig, grace in (("TERM", term_grace_seconds), ("KILL", kill_grace_seconds)):
-        runtime.kill_container(container_id, signal=sig)
-        deadline = time.monotonic() + grace
-        while True:
-            info = runtime.inspect_container(container_id=container_id)
-            if not _container_state_active(info):
-                return info
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            time.sleep(min(poll_interval_seconds, remaining))
-    info = runtime.inspect_container(container_id=container_id)
+    try:
+        info = runtime.inspect_container(container_id=container_id)
+        if not _container_state_active(info):
+            return info
+        for sig, grace in (("TERM", term_grace_seconds), ("KILL", kill_grace_seconds)):
+            runtime.kill_container(container_id, signal=sig)
+            deadline = time.monotonic() + grace
+            while True:
+                info = runtime.inspect_container(container_id=container_id)
+                if not _container_state_active(info):
+                    return info
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(poll_interval_seconds, remaining))
+        info = runtime.inspect_container(container_id=container_id)
+    except SDKError as exc:
+        raise LeaseRetainedError(
+            "Unable to verify managed trainer container exit; lease must remain held"
+        ) from exc
     if _container_state_active(info):
         raise LeaseRetainedError(
             "Managed trainer container did not stop; lease must remain held"
@@ -550,7 +625,12 @@ def reconcile_orphan_containers(
     }
     if extra_labels:
         labels.update(extra_labels)
-    containers = runtime.list_containers(labels=labels)
+    try:
+        containers = runtime.list_containers(labels=labels)
+    except SDKError as exc:
+        raise LeaseRetainedError(
+            "Unable to enumerate managed trainer containers; lease must remain held"
+        ) from exc
     reaped: list[str] = []
     for item in containers:
         _stop_and_verify_container(
@@ -560,7 +640,12 @@ def reconcile_orphan_containers(
             kill_grace_seconds=kill_grace_seconds,
             poll_interval_seconds=poll_interval_seconds,
         )
-        runtime.remove_container(item.container_id, force=True)
+        try:
+            runtime.remove_container(item.container_id, force=True)
+        except SDKError as exc:
+            raise LeaseRetainedError(
+                "Unable to remove stopped trainer container; lease must remain held"
+            ) from exc
         reaped.append(item.container_id)
     return reaped
 
@@ -575,10 +660,15 @@ def reconcile_container_by_id_or_name(
     poll_interval_seconds: float = 0.2,
 ) -> bool:
     info: ContainerInspection | None = None
-    if container_id:
-        info = runtime.inspect_container(container_id=container_id)
-    if info is None and name:
-        info = runtime.inspect_container(name=name)
+    try:
+        if container_id:
+            info = runtime.inspect_container(container_id=container_id)
+        if info is None and name:
+            info = runtime.inspect_container(name=name)
+    except SDKError as exc:
+        raise LeaseRetainedError(
+            "Unable to inspect managed trainer container; lease must remain held"
+        ) from exc
     if info is None:
         return False
     _stop_and_verify_container(
@@ -588,7 +678,12 @@ def reconcile_container_by_id_or_name(
         kill_grace_seconds=kill_grace_seconds,
         poll_interval_seconds=poll_interval_seconds,
     )
-    runtime.remove_container(info.container_id, force=True)
+    try:
+        runtime.remove_container(info.container_id, force=True)
+    except SDKError as exc:
+        raise LeaseRetainedError(
+            "Unable to remove reconciled trainer container; lease must remain held"
+        ) from exc
     return True
 
 
@@ -748,25 +843,42 @@ class ContainerJobHandle:
 
     def wait(self, timeout: float | None = None) -> int:
         with self._lock:
-            info = self.runtime.inspect_container(container_id=self.container_id)
+            cid = self.container_id
+            already_removed = self._removed
+            cached = self._returncode
+        if already_removed and cached is not None:
+            return int(cached)
+        try:
+            info = self.runtime.inspect_container(container_id=cid)
+            waited_code: int | None = None
             if _container_state_active(info):
-                self._returncode = self.runtime.wait_container(
-                    self.container_id, timeout=timeout
-                )
+                waited_code = self.runtime.wait_container(cid, timeout=timeout)
+            after = self.runtime.inspect_container(container_id=cid)
+        except SDKError as exc:
+            raise LeaseRetainedError(
+                "Unable to confirm trainer container exit; lease must remain held"
+            ) from exc
+        if _container_state_active(after):
+            raise LeaseRetainedError(
+                "Managed trainer container is still running; lease must remain held"
+            )
+        with self._lock:
+            if after is not None:
+                self._returncode = after.state.exit_code
+            elif waited_code is not None:
+                self._returncode = waited_code
             elif info is not None:
                 self._returncode = info.state.exit_code
             elif self._returncode is None:
                 self._returncode = -1
-            after = self.runtime.inspect_container(container_id=self.container_id)
-            if _container_state_active(after):
-                raise LeaseRetainedError(
-                    "Managed trainer container is still running; lease must remain held"
-                )
-            if after is not None:
-                self._returncode = after.state.exit_code
             self._close_log_stream()
             if after is not None:
-                self._remove_once()
+                try:
+                    self._remove_once()
+                except SDKError as exc:
+                    raise LeaseRetainedError(
+                        "Unable to remove exited trainer container; lease must remain held"
+                    ) from exc
             else:
                 self._removed = True
             return int(self._returncode)
@@ -781,21 +893,22 @@ def launch_container_job(
     kill_grace_seconds: float = 10.0,
     poll_interval_seconds: float = 0.2,
 ) -> ContainerJobHandle:
-    container_id = runtime.run_detached(spec, start=True)
-    log_proc: subprocess.Popen[bytes] | None = None
-    if open_logs:
-        try:
+    container_id: str | None = None
+    try:
+        container_id = runtime.run_detached(spec, start=True)
+        log_proc: subprocess.Popen[bytes] | None = None
+        if open_logs:
             log_proc = runtime.open_log_stream(container_id)
-        except Exception:
-            _stop_and_verify_container(
-                runtime,
-                container_id,
-                term_grace_seconds=term_grace_seconds,
-                kill_grace_seconds=kill_grace_seconds,
-                poll_interval_seconds=poll_interval_seconds,
-            )
-            runtime.remove_container(container_id, force=True)
-            raise
+    except Exception:
+        reconcile_container_by_id_or_name(
+            runtime,
+            container_id=container_id,
+            name=spec.name,
+            term_grace_seconds=term_grace_seconds,
+            kill_grace_seconds=kill_grace_seconds,
+            poll_interval_seconds=poll_interval_seconds,
+        )
+        raise
     return ContainerJobHandle(
         runtime,
         container_id,

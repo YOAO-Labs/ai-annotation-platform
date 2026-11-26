@@ -32,6 +32,7 @@ from app.services import training_adapters as adapters
 from app.services import training_runs as runs_service
 from app.services.trainer_plugins import (
     entrypoint_digest,
+    validate_entrypoint,
     validate_qualification_report,
     validate_registration_payload,
 )
@@ -340,7 +341,7 @@ def test_validate_registration_payload_accepts_container_and_local_process():
         (
             {"extra_top": {"artifact": "ghcr.io/yoao/other@sha256:" + "b" * 64}},
             {"execution_mode": "container", "artifact": SAMPLE_ARTIFACT},
-            "conflicts",
+            "must not pre-fill artifact",
         ),
         (
             {},
@@ -350,7 +351,7 @@ def test_validate_registration_payload_accepts_container_and_local_process():
         (
             {"extra_top": {"artifact": SAMPLE_ARTIFACT}},
             {"execution_mode": "local_process"},
-            "forbids artifact",
+            "must not pre-fill artifact",
         ),
         (
             {"framework_id": "other_fw"},
@@ -585,6 +586,18 @@ def test_verify_trainer_receipt_artifact(monkeypatch):
                 "sha256": weights_sha,
                 "size_bytes": len(weights_bytes),
             },
+            "checkpoint-0001.pt": {
+                "role": "checkpoint",
+                "key": f"{prefix}attempts/{attempt_id}/checkpoint-0001.pt",
+                "sha256": weights_sha,
+                "size_bytes": len(weights_bytes),
+            },
+            "metrics.json": {
+                "role": "metrics",
+                "key": f"{prefix}attempts/{attempt_id}/metrics.json",
+                "sha256": weights_sha,
+                "size_bytes": len(weights_bytes),
+            },
         }
         return FakeTransport(), artifacts
 
@@ -595,6 +608,18 @@ def test_verify_trainer_receipt_artifact(monkeypatch):
             TrainArtifactV1(
                 role="weights",
                 filename="best.pt",
+                sha256=weights_sha,
+                size_bytes=len(weights_bytes),
+            ),
+            TrainArtifactV1(
+                role="checkpoint",
+                filename="checkpoint-0001.pt",
+                sha256=weights_sha,
+                size_bytes=len(weights_bytes),
+            ),
+            TrainArtifactV1(
+                role="metrics",
+                filename="metrics.json",
                 sha256=weights_sha,
                 size_bytes=len(weights_bytes),
             ),
@@ -1027,3 +1052,182 @@ async def test_enabled_cpu_plugin_catalog_preflight_and_claim(
         training_authority=authority,
     )
     assert second_claim is None
+
+
+@pytest.mark.parametrize(
+    "bad_entrypoint",
+    [
+        ["python3", "--check-hash-based-pycs", "default", "-c", "print(1)"],
+        ["python3", "-uW", "ignore", "-c", "print(1)"],
+        ["/usr/bin/env", "sh", "-c", "id"],
+        ["/usr/bin/env", "python3", "-c", "print(1)"],
+        ["busybox", "sh"],
+        ["node", "-e", "process.exit(0)"],
+    ],
+)
+def test_entrypoint_rejects_flag_and_wrapper_bypasses(bad_entrypoint):
+    with pytest.raises(ValueError):
+        validate_entrypoint(bad_entrypoint)
+
+
+def test_registration_rejects_prefilled_artifact_and_invalid_resource():
+    manifest = _manifest()
+    manifest["artifact"] = SAMPLE_ARTIFACT
+    with pytest.raises(ValueError, match="must not pre-fill artifact"):
+        validate_registration_payload(
+            RegisterTrainerPluginRequest(
+                manifest=manifest,
+                capabilities_snapshot=_capabilities(),
+                execution_mode="container",
+                artifact=SAMPLE_ARTIFACT,
+            )
+        )
+
+    bad_resource_manifest = _manifest()
+    bad_resource_manifest["resource"] = {"memory_mb": 1024, "pids_limit": 999999}
+    with pytest.raises(ValueError, match="pids_limit"):
+        validate_registration_payload(
+            RegisterTrainerPluginRequest(
+                manifest=bad_resource_manifest,
+                capabilities_snapshot=_capabilities(),
+                execution_mode="container",
+                artifact=SAMPLE_ARTIFACT,
+            )
+        )
+
+
+def test_verify_trainer_receipt_artifact_rejects_role_and_empty_tampering(monkeypatch):
+    from types import SimpleNamespace
+    from training_contract.trainer_plugin import (
+        ServingCompatibilityV1,
+        TrainArtifactV1,
+        TrainReceiptV1,
+    )
+
+    run = SimpleNamespace(
+        id=uuid.uuid4(),
+        config={"framework": "dummy_cpu"},
+        storage_ref={"kind": "builtin", "bucket": "b", "prefix": "p/"},
+    )
+    attempt = SimpleNamespace(id=uuid.uuid4())
+    owner = SimpleNamespace(bucket="b", prefix="p/")
+    monkeypatch.setattr(runs_service, "attempt_storage_owner", lambda *a, **k: owner)
+
+    def make_artifacts(result_role="config", weight_role="weights"):
+        return {
+            "result.json": {
+                "key": "p/result.json",
+                "role": result_role,
+                "sha256": "a" * 64,
+                "size_bytes": 10,
+            },
+            "best.bin": {
+                "key": "p/best.bin",
+                "role": weight_role,
+                "sha256": "b" * 64,
+                "size_bytes": 10,
+            },
+            "checkpoint-0001.bin": {
+                "key": "p/checkpoint-0001.bin",
+                "role": "checkpoint",
+                "sha256": "c" * 64,
+                "size_bytes": 10,
+            },
+            "metrics.json": {
+                "key": "p/metrics.json",
+                "role": "metrics",
+                "sha256": "d" * 64,
+                "size_bytes": 10,
+            },
+        }
+
+    with pytest.raises(ValueError, match="role=config"):
+        runs_service.verify_trainer_receipt_artifact(
+            run, attempt, make_artifacts(result_role="weights")
+        )
+
+    def stub_read(receipt_obj):
+        import app.services.training_artifacts as ta
+
+        monkeypatch.setattr(
+            ta,
+            "read_json_artifact",
+            lambda *a, **k: receipt_obj.model_dump(mode="json"),
+        )
+
+    stub_read(
+        TrainReceiptV1(
+            protocol_version=TRAINER_PROTOCOL_VERSION,
+            status="succeeded",
+            artifacts=[],
+        )
+    )
+    with pytest.raises(ValueError, match="attest produced artifacts"):
+        runs_service.verify_trainer_receipt_artifact(run, attempt, make_artifacts())
+
+    stub_read(
+        TrainReceiptV1(
+            protocol_version=TRAINER_PROTOCOL_VERSION,
+            status="succeeded",
+            artifacts=[
+                TrainArtifactV1(
+                    role="weights", filename="best.bin", sha256="b" * 64, size_bytes=10
+                ),
+                TrainArtifactV1(
+                    role="checkpoint",
+                    filename="checkpoint-0001.bin",
+                    sha256="c" * 64,
+                    size_bytes=10,
+                ),
+                TrainArtifactV1(
+                    role="metrics",
+                    filename="metrics.json",
+                    sha256="d" * 64,
+                    size_bytes=10,
+                ),
+                TrainArtifactV1(
+                    role="input_membership",
+                    filename="evil.bin",
+                    sha256="e" * 64,
+                    size_bytes=10,
+                ),
+            ],
+        )
+    )
+    with pytest.raises(ValueError, match="input-membership.json"):
+        runs_service.verify_trainer_receipt_artifact(run, attempt, make_artifacts())
+
+    stub_read(
+        TrainReceiptV1(
+            protocol_version=TRAINER_PROTOCOL_VERSION,
+            status="succeeded",
+            artifacts=[
+                TrainArtifactV1(
+                    role="weights", filename="best.bin", sha256="b" * 64, size_bytes=10
+                ),
+                TrainArtifactV1(
+                    role="checkpoint",
+                    filename="checkpoint-0001.bin",
+                    sha256="c" * 64,
+                    size_bytes=10,
+                ),
+                TrainArtifactV1(
+                    role="metrics",
+                    filename="metrics.json",
+                    sha256="d" * 64,
+                    size_bytes=10,
+                ),
+            ],
+            serving_compatibility=ServingCompatibilityV1(
+                framework="other_fw",
+                format="onnx",
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="serving_compatibility framework mismatch"):
+        runs_service.verify_trainer_receipt_artifact(run, attempt, make_artifacts())
+
+    with pytest.raises(ValueError, match="artifact mismatch"):
+        runs_service.verify_trainer_receipt_artifact(
+            run, attempt, make_artifacts(weight_role="config")
+        )
