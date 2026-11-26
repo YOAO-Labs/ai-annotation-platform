@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import Protocol
+from uuid import UUID
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -14,6 +15,41 @@ from yoao_assets_input_manifests import contract as c
 from yoao_assets_inputs import contract as inputs
 from app.config import settings
 from app.services.accepted_inputs import input_gateway
+
+
+async def is_sealed_reference_member(
+    db: AsyncSession,
+    *,
+    job_id: UUID,
+    actor_id: UUID,
+    project_id: UUID,
+    task_id: UUID,
+    selection_digest: str,
+    item_id: UUID,
+    file_path: str,
+    task_version: int,
+    task_source_generation: int,
+) -> bool:
+    member = await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.is_sealed_image_reference_member("
+            "CAST(:job AS uuid), CAST(:actor AS uuid), CAST(:project AS uuid), "
+            "CAST(:task AS uuid), :digest, CAST(:item AS uuid), :path, "
+            "CAST(:version AS integer), CAST(:generation AS bigint))"
+        ),
+        {
+            "job": job_id,
+            "actor": actor_id,
+            "project": project_id,
+            "task": task_id,
+            "digest": selection_digest,
+            "item": item_id,
+            "path": file_path,
+            "version": task_version,
+            "generation": task_source_generation,
+        },
+    )
+    return member is True
 
 
 class SqlAlchemyManifestDatabase:
@@ -150,7 +186,7 @@ class InputManifestGateway:
             )
             page = await self.page(page_request)
             for member in page.members:
-                if member.state in {"ready", "failed"}:
+                if member.is_terminal:
                     continue
                 if member.input is not None:
                     current = await self._record_input(member.input)

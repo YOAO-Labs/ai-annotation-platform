@@ -1254,6 +1254,15 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_assets_v1.import_saved_io_action(jsonb,text,jsonb,jsonb)",
         )
     },
+    **{
+        signature: "0511_image_reference_manifest_members.sql"
+        for signature in (
+            "yoao_assets_v1._image_manifest_reference_matches(jsonb,jsonb,jsonb)",
+            "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)",
+            "yoao_assets_v1.is_sealed_image_reference_member(uuid,uuid,uuid,uuid,text,uuid,text,integer,bigint)",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "yoao_audit_append_client"
 AUDIT_QUERY_ROLE = "yoao_audit_query_client"
@@ -1912,6 +1921,7 @@ CURRENT_NAMESPACE_SQL = (
     "0507_training_saved_io.sql",
     "0508_migration_saved_io.sql",
     "0509_import_saved_io.sql",
+    "0511_image_reference_manifest_members.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",

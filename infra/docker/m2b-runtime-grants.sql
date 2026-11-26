@@ -151,6 +151,7 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.invalidate_video_media(uuid,uuid,uuid,jsonb),
     yoao_assets_v1.is_fixture_original_source(text,text),
     yoao_assets_v1.is_fixture_spatial_dataset(uuid),
+    yoao_assets_v1.is_sealed_image_reference_member(uuid,uuid,uuid,uuid,text,uuid,text,integer,bigint),
     yoao_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer),
     yoao_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint),
     yoao_assets_v1.list_catalog_items(uuid,uuid,integer,bigint),

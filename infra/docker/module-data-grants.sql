@@ -1554,6 +1554,7 @@ GRANT EXECUTE ON FUNCTION
 GRANT EXECUTE ON FUNCTION yoao_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
+    yoao_jobs_v1.read_job_execution_snapshot(uuid),
     yoao_jobs_v1.project_accepted_image_input_manifest_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
     yoao_jobs_v1.accepted_image_input_manifest_job_consistency(uuid, uuid, uuid, uuid, jsonb, text)
     TO :"assets_owner";
@@ -1593,6 +1594,9 @@ GRANT EXECUTE ON FUNCTION
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_accepted_image_input(uuid, uuid, uuid)
     TO :"workflow_role", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.is_sealed_image_reference_member(
+    uuid, uuid, uuid, uuid, text, uuid, text, integer, bigint
+) TO :"workflow_role", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1._lock_accepted_image_input_receipt(uuid, uuid, uuid)
     TO :"labeling_owner";
