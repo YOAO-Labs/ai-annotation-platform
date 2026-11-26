@@ -174,25 +174,106 @@ async def _migrated_database(test_db_url, revision, *, template=None, before_dro
         await admin.dispose()
 
 
+DATABASE_BOUND_SECRET_TABLES: tuple[str, ...] = (
+    "public.mask_gc_write_permit_secrets",
+    "yoao_assets_v1.embedded_media_claim_key",
+    "yoao_assets_v1.storage_fault_observation_key",
+    "yoao_inference_backend_endpoint_v1.endpoint_secret",
+    "yoao_inference_backend_probe_v1.probe_secret",
+    "yoao_inference_health_observation_v1.observation_secret",
+)
+DATABASE_BOUND_AUTHORITY_TABLES: tuple[str, ...] = (
+    "yoao_inference_routing_v1.authority_secret",
+    "yoao_jobs_v1.video_execution_authority",
+)
+DATABASE_BOUND_REBIND_TABLES: frozenset[str] = frozenset(
+    (*DATABASE_BOUND_SECRET_TABLES, *DATABASE_BOUND_AUTHORITY_TABLES)
+)
+
+
+async def _rebind_case_database(engine):
+    """Rotate singleton secrets and rebind database-scoped identity and grants."""
+    async with engine.begin() as db:
+        for table in DATABASE_BOUND_SECRET_TABLES:
+            result = await db.execute(
+                text(
+                    f"UPDATE {table} "
+                    "SET secret = public.gen_random_bytes(32) "
+                    "WHERE singleton"
+                )
+            )
+            assert result.rowcount == 1, (table, result.rowcount)
+        routing = await db.execute(
+            text(
+                "UPDATE yoao_inference_routing_v1.authority_secret "
+                "SET secret = public.gen_random_bytes(32), "
+                "    realm_database_oid = database.oid, "
+                "    realm_database_name = pg_catalog.current_database() "
+                "FROM pg_catalog.pg_database AS database "
+                "WHERE singleton "
+                "  AND database.datname = pg_catalog.current_database()"
+            )
+        )
+        assert routing.rowcount == 1, routing.rowcount
+        execution = await db.execute(
+            text(
+                "UPDATE yoao_jobs_v1.video_execution_authority "
+                "SET secret = public.gen_random_bytes(32), "
+                "    database_oid = database.oid, "
+                "    database_name = pg_catalog.current_database(), "
+                "    cluster_identifier = control.system_identifier "
+                "FROM pg_catalog.pg_database AS database "
+                "CROSS JOIN pg_catalog.pg_control_system() AS control "
+                "WHERE singleton "
+                "  AND database.datname = pg_catalog.current_database()"
+            )
+        )
+        assert execution.rowcount == 1, execution.rowcount
+        await db.exec_driver_sql(
+            """
+            DO $rebind$
+            DECLARE
+                v_owner pg_catalog.name;
+            BEGIN
+                SELECT owner.rolname INTO STRICT v_owner
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_roles AS owner ON owner.oid = function.proowner
+                WHERE function.oid = 'yoao_insights_v1.clear_project_task_views(uuid)'::pg_catalog.regprocedure;
+                EXECUTE pg_catalog.format(
+                    'GRANT TEMPORARY ON DATABASE %I TO %I',
+                    pg_catalog.current_database(),
+                    v_owner
+                );
+            END;
+            $rebind$;
+            """
+        )
+
+
 @asynccontextmanager
 async def migrated_case_database(
     test_db_url, prefix: ManagedDatabaseIdentity, *, before_drop=None
 ):
-    """Initialize database-bound authorities in the case database."""
-    async with _migrated_database(
-        test_db_url, "head", template=prefix, before_drop=before_drop
-    ) as (_, engine, _):
-        yield engine
-
-
-_REVISION_BEFORE_FIRST_OWNER_SCHEMA = "0267"
+    """Clone the sealed head template and rebind database-bound authorities."""
+    admin = create_async_engine(test_db_url, poolclass=NullPool)
+    try:
+        async with _owned_database(admin, template=prefix, before_drop=before_drop) as (
+            engine,
+            _,
+        ):
+            await _rebind_case_database(engine)
+            yield engine
+    finally:
+        await admin.dispose()
 
 
 @asynccontextmanager
 async def managed_schema_prefix(test_db_url):
-    async with _migrated_database(
-        test_db_url, _REVISION_BEFORE_FIRST_OWNER_SCHEMA, template="template0"
-    ) as (admin, engine, identity):
+    async with _migrated_database(test_db_url, "head", template="template0") as (
+        admin,
+        engine,
+        identity,
+    ):
         name = engine.url.database
         async with admin.begin() as db:
             await db.exec_driver_sql(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS false')
