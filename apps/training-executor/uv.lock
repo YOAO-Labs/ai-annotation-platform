@@ -1585,14 +1585,18 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
+    { name = "psutil" },
+    { name = "yoao-sdk" },
+]
+
+[package.optional-dependencies]
+legacy-ml = [
     { name = "libreyolo" },
     { name = "pillow" },
-    { name = "psutil" },
     { name = "pyyaml" },
     { name = "torch" },
     { name = "torchvision" },
     { name = "ultralytics" },
-    { name = "yoao-sdk" },
 ]
 
 [package.dev-dependencies]
@@ -1605,15 +1609,16 @@ handoff = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = "==0.28.1" },
-    { name = "libreyolo", specifier = "==1.6.0" },
-    { name = "pillow", specifier = ">=11,<12" },
+    { name = "libreyolo", marker = "extra == 'legacy-ml'", specifier = "==1.6.0" },
+    { name = "pillow", marker = "extra == 'legacy-ml'", specifier = ">=11,<12" },
     { name = "psutil", specifier = "==7.0.0" },
-    { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "torch", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
-    { name = "torchvision", specifier = "==0.29.1", index = "https://download.pytorch.org/whl/cu132" },
-    { name = "ultralytics", specifier = "==8.4.183" },
+    { name = "pyyaml", marker = "extra == 'legacy-ml'", specifier = "==6.0.2" },
+    { name = "torch", marker = "extra == 'legacy-ml'", specifier = "==2.14.1", index = "https://download.pytorch.org/whl/cu132" },
+    { name = "torchvision", marker = "extra == 'legacy-ml'", specifier = "==0.29.1", index = "https://download.pytorch.org/whl/cu132" },
+    { name = "ultralytics", marker = "extra == 'legacy-ml'", specifier = "==8.4.183" },
     { name = "yoao-sdk", editable = "../../packages/python-sdk" },
 ]
+provides-extras = ["legacy-ml"]
 
 [package.metadata.requires-dev]
 handoff = [

@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 
 import pytest
+
+pytest.importorskip("PIL")
 from PIL import Image, ImageDraw
 from training_contract import definition, resolve
 from training_contract.catalog import digest

@@ -163,7 +163,7 @@ def test_final_summary_includes_last_native_progress_and_remains_immutable_durin
 
 
 def test_failure_classification_uses_exception_types_without_forcing_gpu_oom():
-    import torch
+    torch = pytest.importorskip("torch")
     from training_contract.observability import (
         InputMismatchError,
         NativeRuntimeMismatch,

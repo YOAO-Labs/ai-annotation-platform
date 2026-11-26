@@ -49,7 +49,9 @@ def atomic_bytes(path: Path, data: bytes) -> None:
     sync_directory(path.parent)
 
 
-def extract_dataset(archive: Path, destination: Path) -> Path:
+def extract_dataset_archive(
+    archive: Path, destination: Path, *, require_data_yaml: bool = True
+) -> Path:
     destination.mkdir(parents=True, exist_ok=False)
     total = 0
     with ZipFile(archive) as package:
@@ -80,10 +82,16 @@ def extract_dataset(archive: Path, destination: Path) -> Path:
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with package.open(entry) as source, target.open("xb") as output:
                     shutil.copyfileobj(source, output, length=1024 * 1024)
-    yaml_path = destination / "data.yaml"
-    if not yaml_path.is_file():
-        raise ValueError("Dataset is missing data.yaml")
-    return yaml_path.resolve()
+    if require_data_yaml:
+        yaml_path = destination / "data.yaml"
+        if not yaml_path.is_file():
+            raise ValueError("Dataset is missing data.yaml")
+        return yaml_path.resolve()
+    return destination.resolve()
+
+
+def extract_dataset(archive: Path, destination: Path) -> Path:
+    return extract_dataset_archive(archive, destination, require_data_yaml=True)
 
 
 def immutable_copy(source: Path, destination: Path) -> dict:

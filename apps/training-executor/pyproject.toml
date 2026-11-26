@@ -5,13 +5,17 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
   "yoao-sdk",
   "httpx==0.28.1",
+  "psutil==7.0.0",
+]
+
+[project.optional-dependencies]
+legacy-ml = [
   "ultralytics==8.4.183",
   "libreyolo==1.6.0",
   "torch==2.14.1",
   "torchvision==0.29.1",
   "pillow>=11,<12",
   "pyyaml==6.0.2",
-  "psutil==7.0.0",
 ]
 
 [dependency-groups]

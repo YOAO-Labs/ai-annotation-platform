@@ -15,6 +15,7 @@ from training_executor.worker import Supervisor
 
 @pytest.fixture
 def frozen(tmp_path):
+    pytest.importorskip("PIL")
     from PIL import Image
 
     samples = []

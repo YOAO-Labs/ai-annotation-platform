@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 
+pytest.importorskip("yaml")
 from training_contract.dataset import DatasetContractError
 from training_contract.lineage import SOURCE_LINEAGE_CONTRACT
 from training_executor.adapters import validate_dataset

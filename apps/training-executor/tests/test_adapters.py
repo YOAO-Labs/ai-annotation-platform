@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from types import SimpleNamespace
 import pytest
+
+pytest.importorskip("yaml")
 from training_executor.adapters import adapter_for, validate_dataset
 from training_executor.files import digest_file
 from training_executor.train import UltralyticsCheckpoints

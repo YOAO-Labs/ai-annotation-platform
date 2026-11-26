@@ -7,9 +7,11 @@ from training_contract.budget import receipt
 
 
 class ProcessBudget:
-    def __init__(self, budget, *, stop, live, on_deadline):
+    def __init__(self, budget, *, stop=None, live=None, on_deadline):
         self.budget = budget
-        self.stop_process = stop
+        self.stop_process = (
+            stop if stop is not None else (lambda process: process.stop())
+        )
         self.live = live
         self.on_deadline = on_deadline
         self.process = None
@@ -21,6 +23,11 @@ class ProcessBudget:
         self.lock = threading.RLock()
         self.done = threading.Event()
         self.thread = None
+
+    def _is_live(self):
+        if self.live is not None:
+            return self.live(self.process.pid)
+        return self.process.is_alive()
 
     def launch(self, factory):
         self.started = time.monotonic()
@@ -45,7 +52,7 @@ class ProcessBudget:
                     if self.finished is not None:
                         return
                     self.process.poll()
-                    if self.live(self.process.pid):
+                    if self._is_live():
                         if not self.deadline_triggered:
                             self.deadline_triggered = True
                             self.reason = "deadline"
@@ -60,7 +67,7 @@ class ProcessBudget:
         with self.lock:
             if self.finished is not None:
                 return
-            if self.live(self.process.pid):
+            if self._is_live():
                 raise RuntimeError("Native process group still owns its lease")
             self.process.wait()
             self.finished = time.monotonic()

@@ -4,17 +4,22 @@ from types import SimpleNamespace
 import gc
 import json
 
-import numpy as np
 import pytest
-import torch
-from ultralytics.cfg import get_cfg
-from ultralytics.nn.tasks import DetectionModel, SegmentationModel
 
 from training_contract.models import models_for_framework
 from training_contract.observability import InputMismatchError
-from training_executor.instance_rle import InstanceRLEDataset, semantic_target
 from training_executor.native_identity import validate_architecture
 from training_executor.train import UltralyticsCheckpoints, ultralytics_epoch_metrics
+
+np = pytest.importorskip("numpy")
+torch = pytest.importorskip("torch")
+get_cfg = pytest.importorskip("ultralytics.cfg").get_cfg
+_ultralytics_tasks = pytest.importorskip("ultralytics.nn.tasks")
+DetectionModel = _ultralytics_tasks.DetectionModel
+SegmentationModel = _ultralytics_tasks.SegmentationModel
+_instance_rle = pytest.importorskip("training_executor.instance_rle")
+InstanceRLEDataset = _instance_rle.InstanceRLEDataset
+semantic_target = _instance_rle.semantic_target
 
 
 @pytest.fixture(autouse=True)

@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import yaml
 
 from training_executor.worker import runtime_identity
 
@@ -68,7 +67,24 @@ def test_identity_rejects_mutable_or_invalid_reference(
 
 def test_compose_selects_the_same_digest_pinned_reference_it_advertises():
     root = Path(__file__).resolve().parents[3]
-    compose = yaml.safe_load((root / "docker-compose.training.yml").read_text())
+    text = (root / "docker-compose.training.yml").read_text()
+    try:
+        import yaml
+    except ModuleNotFoundError:
+        image = next(
+            line.split("image:", 1)[1].strip()
+            for line in text.splitlines()
+            if line.strip().startswith("image:")
+        )
+        reference = next(
+            line.split("TRAINING_IMAGE_REFERENCE:", 1)[1].strip()
+            for line in text.splitlines()
+            if line.strip().startswith("TRAINING_IMAGE_REFERENCE:")
+        )
+        assert "@${TRAINING_IMAGE_DIGEST" in image
+        assert reference == image
+        return
+    compose = yaml.safe_load(text)
     service = compose["services"]["training-executor"]
     assert "@${TRAINING_IMAGE_DIGEST" in service["image"]
     assert service["environment"]["TRAINING_IMAGE_REFERENCE"] == service["image"]

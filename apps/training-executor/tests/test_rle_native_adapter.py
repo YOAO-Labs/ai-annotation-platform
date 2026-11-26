@@ -4,6 +4,8 @@ from copy import deepcopy
 import json
 
 import pytest
+
+pytest.importorskip("yaml")
 from training_contract.catalog import digest
 from training_contract.dataset import instance_rle_evidence
 from training_executor.adapters import validate_instance_rle_sample

@@ -10,6 +10,8 @@ import pytest
 
 @pytest.mark.parametrize("label", ["shape", "形状"], ids=["ascii", "unicode"])
 def test_native_frozen_batch_and_offline_fonts(tmp_path, label):
+    pytest.importorskip("torch")
+    pytest.importorskip("ultralytics")
     readonly = {name: tmp_path / name for name in ("HOME", "XDG_CACHE_HOME")}
     for path in readonly.values():
         path.mkdir(mode=0o555)

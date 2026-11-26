@@ -356,6 +356,10 @@ class ProcessSampler:
         if values["rss_bytes"]["value"] is None:
             values["rss_bytes"] = measurement(reason=reason)
             values["cpu_cores"] = measurement(reason=reason)
+        if not self.gpu_uuid:
+            for key in ("gpu_utilization", "gpu_used_mib", "gpu_total_mib"):
+                values[key] = measurement(reason="device_unavailable")
+            return values
         try:
             result = subprocess.run(
                 [

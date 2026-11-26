@@ -9,12 +9,13 @@ from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
-import torch
 from training_contract.catalog import digest
 from training_contract.initialization import POLICY_DIGEST
 from training_contract.observability import InputMismatchError
 from training_executor.initialization import observation, prepare, validate_input
 from training_executor.worker import Supervisor
+
+torch = pytest.importorskip("torch")
 
 
 def source_pin(raw):
