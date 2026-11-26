@@ -28,11 +28,10 @@ repos:
         exclude: ^(\.agents/|\.claude/(settings\.local\.json$|skills/)|apps/web/src/api/generated/|apps/api/(openapi|capability-registry)\.snapshot\.json$|docs/(adr/archive/|changelogs/|plans/(archive/|_spike-results/)|benchmarks/|research/data/)|infra/grafana/dashboards/|ROADMAP/archive/|pnpm-lock\.yaml$|skills-lock\.json$|.*\.generated\..*$|.*golden.*\.json$)
 
       - id: eslint
-        name: eslint (apps/web)
-        entry: pnpm --filter web lint
+        name: eslint (apps/web staged)
+        entry: bash -c 'files=(); for f in "$@"; do files+=("${f#apps/web/}"); done; pnpm --filter web exec eslint -- "${files[@]}"' --
         language: system
         files: ^apps/web/.+\.(ts|tsx|js|jsx)$
-        pass_filenames: false
         stages: [pre-commit]
 
       - id: tsc-web
@@ -41,22 +40,23 @@ repos:
         language: system
         files: ^apps/web/.+\.(ts|tsx)$
         pass_filenames: false
+        stages: [pre-push]
 
       - id: regen-openapi-snapshot
-        name: Regenerate OpenAPI snapshot (apps/api)
-        entry: bash -c 'cd apps/api && uv run python ../../scripts/export_openapi.py && cd ../.. && git add apps/api/openapi.snapshot.json 2>/dev/null || true'
+        name: Check OpenAPI snapshot (apps/api)
+        entry: bash -c 'cd apps/api && uv run python ../../scripts/export_openapi.py --check'
         language: system
         files: ^(apps/api/app/(config\.py|(api|schemas)/.*\.py)|apps/_shared/protocol_v2/src/.*\.py|apps/(inference|workspace)/src/.*\.py)$
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
 
       - id: regen-capability-registry-snapshot
-        name: Regenerate capability registry snapshot (apps/api)
-        entry: bash -c 'cd apps/api && uv run python ../../scripts/export_capability_registry.py && cd ../.. && git add apps/api/capability-registry.snapshot.json 2>/dev/null || true'
+        name: Check capability registry snapshot (apps/api)
+        entry: bash -c 'cd apps/api && uv run python ../../scripts/export_capability_registry.py --check'
         language: system
         files: ^(apps/inference/src/yoao_inference/capability_registry\.py|apps/api/app/schemas/ml_capabilities\.py|apps/api/app/api/v1/ml_capabilities\.py)$
         pass_filenames: false
-        stages: [pre-commit]
+        stages: [pre-push]
 
       - id: doc-version-prefix
         name: Check docs for version-prefixed style (advisory)
