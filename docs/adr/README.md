@@ -239,13 +239,13 @@
 - [0158 — 视频窗口账本与会话重放](0158-video-window-journals-and-replay.md)
 - [0159 — Labeling 视频 worker 最终写入 owner](0159-independent-labeling-video-writer.md)
 
-- [0187](archive/0187-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
+- [0187](archive/0207-model-catalog-and-frozen-pipelines.md) — 模型目录独立投影，管线按阶段冻结并完整重试
 
-- [0188](archive/0188-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
+- [0188](archive/0208-task-scoped-native-instance-learning.md) — 实例分割采用原生掩码训练与按任务隔离的在线学习
 
-- [0189](archive/0189-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
+- [0189](archive/0209-versioned-yolo-identities-and-content-assets.md) — YOLO 家族按冻结运行时核验，权重按内容寻址并独立准备节点
 
-- [0190](archive/0190-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
+- [0190](archive/0210-dataset-content-and-location-identity.md) — 数据集内容身份与固定托管位置分离，旧键兼容回填不改业务快照
 
 - [0191](archive/0191-controlled-storage-registry.md) — 存储位置在受控部署根内动态注册并按节点验证
 

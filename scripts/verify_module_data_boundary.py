@@ -423,16 +423,16 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)": "0410_inference_managed_auth.sql",
     "yoao_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])": "0386_inference_repair_model_lock.sql",
     "yoao_inference_topology_v1.lock_plugin_registry(uuid)": "0393_plugin_registry_admission_fence.sql",
-    "yoao_inference_topology_v1.prepare_plugin_installation(text)": "0388_inference_plugin_installation.sql",
+    "yoao_inference_topology_v1.prepare_plugin_installation(text)": "0513_inference_plugin_direct_mode.sql",
     "yoao_inference_topology_v1.plugin_installation(uuid)": "0388_inference_plugin_installation.sql",
     "yoao_inference_topology_v1.plugin_installations()": "0388_inference_plugin_installation.sql",
     "yoao_inference_topology_v1.plugin_installation_evidence(uuid)": "0388_inference_plugin_installation.sql",
-    "yoao_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0412_plugin_tracker_retirement_order.sql",
-    "yoao_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0400_plugin_routing_replacement.sql",
+    "yoao_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0513_inference_plugin_direct_mode.sql",
+    "yoao_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0513_inference_plugin_direct_mode.sql",
     "yoao_inference_routing_v1._tracker_scopes_physically_retired(uuid)": "0412_plugin_tracker_retirement_order.sql",
     "yoao_inference_routing_v1._guard_disabled_plugin_tracker_scope()": "0412_plugin_tracker_retirement_order.sql",
     "yoao_inference_topology_v1.plugin_asset_approval(uuid)": "0403_plugin_asset_approval.sql",
-    "yoao_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0403_plugin_asset_approval.sql",
+    "yoao_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0513_inference_plugin_direct_mode.sql",
     "yoao_inference_topology_v1.create_manual_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
     "yoao_inference_topology_v1.patch_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
     "yoao_inference_topology_v1.delete_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
@@ -842,10 +842,15 @@ FUNCTION_BODY_ARTIFACTS = {
         )
     },
     **{
-        signature: "0434_prediction_execution_routing.sql"
+        signature: "0513_inference_plugin_direct_mode.sql"
         for signature in (
             "yoao_inference_routing_v1.prediction_scope_reserve(text)",
             "yoao_inference_routing_v1.prediction_test_scope_reserve(text)",
+        )
+    },
+    **{
+        signature: "0434_prediction_execution_routing.sql"
+        for signature in (
             "yoao_inference_routing_v1.guard_prediction_scope_insert()",
             "yoao_inference_routing_v1.guard_prediction_dispatch_start()",
             "yoao_inference_routing_v1.guard_prediction_managed_attempt()",
@@ -1923,6 +1928,7 @@ CURRENT_NAMESPACE_SQL = (
     "0508_migration_saved_io.sql",
     "0509_import_saved_io.sql",
     "0510_notification_target_visibility.sql",
+    "0513_inference_plugin_direct_mode.sql",
     "0516_image_reference_manifest_members.sql",
 )
 SQL_ARTIFACTS = (

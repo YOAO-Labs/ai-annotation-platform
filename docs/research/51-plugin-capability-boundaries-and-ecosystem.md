@@ -32,7 +32,7 @@
 - [Inference 运行边界](../../apps/inference/README.md)、[Assets Source 运行边界](../../apps/assets-source/README.md)、[Jobs 所有权](../../apps/jobs/README.md)。
 - [在线学习架构](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/training-datasets)、[存储位置与连接器](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/storage-connections)。
 - [API 静态装配](../../apps/api/app/api/v1/router.py)、[Celery 静态装配](../../apps/api/app/workers/celery_app.py)。
-- [格式适配器契约](../../apps/api/app/services/mask_formats/contracts.py)、[格式目录装配](../../apps/api/app/services/mask_formats/catalog.py)、[训练器分派](../../apps/training-executor/training_executor/adapters.py)。
+- [格式适配器契约](../../apps/api/app/services/mask_formats/contracts.py)、[格式目录装配](../../apps/api/app/services/mask_formats/catalog.py)、[训练器插件运行器](../../apps/training-executor/training_executor/plugin_runner.py)。
 
 本轮通过现有 API Python 环境实际加载格式目录与共享训练合同，结果为：22 个格式条目；训练框架目录为 `ultralytics`、`libreyolo`；`MaskFormatAdapter.preflight_import` 的参数仍包含 `AsyncSession` 和 `Project`。这证明已有运行中的适配接缝，不证明存在第三方插件安装、安全隔离或生命周期管理。
 

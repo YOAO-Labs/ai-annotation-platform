@@ -167,7 +167,10 @@ function WarehouseCard({
                                 aria-label={`${model.id} · ${capability}`}
                                 className="inline-flex items-center gap-1 rounded bg-muted pl-1.5 text-2xs"
                               >
-                                <span className="break-all font-mono" title={model.filename}>
+                                <span
+                                  className="break-all font-mono"
+                                  title={model.filename ?? undefined}
+                                >
                                   {model.model_size ?? model.id}
                                 </span>
                                 {mixedCapabilities && (
