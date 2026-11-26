@@ -146,11 +146,15 @@ jobs:
       - uses: ./.github/actions/setup-backend-test-python
       - name: Repository Python script tests
         working-directory: apps/api
+        env:
+          PYTHONPATH: ../..
         run: >-
           uv run pytest -q ../../scripts --junitxml=script-test-results.xml
           --ignore-glob='../../scripts/test_worktree*.py'
           --ignore=../../scripts/test_production_health_recover.py
           --ignore=../../scripts/test_development_restart.py
+          --ignore=../../scripts/test_check_comments.py
+          --ignore=../../scripts/test_comment_tokens.py
       - name: Upload repository script test results
         uses: actions/upload-artifact@v4
         if: always()

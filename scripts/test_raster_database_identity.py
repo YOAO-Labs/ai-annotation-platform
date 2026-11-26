@@ -1,5 +1,7 @@
 """Raster database deletion checks original OID and Redis under the owner lock."""
 
+from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -19,6 +21,8 @@ class Result:
 
 
 class Connection:
+    invalidated = False
+
     def __init__(self, case):
         self.case = case
 
@@ -56,10 +60,12 @@ class RasterDatabaseIdentityTests(unittest.IsolatedAsyncioTestCase):
         self.replacement = False
         self.row = {"oid": 123, "owner": "owned", "sessions": 0}
         self.backend = resources.LocalResources.__new__(resources.LocalResources)
+        self.backend.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
         self.backend.resources = {
             "database": "owned_db",
             "owner": "owned",
             "redis_name": "owned-redis",
+            "mode": "e2e",
         }
         self.backend.url = SimpleNamespace(set=lambda **_kwargs: "fake-url")
 

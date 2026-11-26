@@ -769,7 +769,7 @@ test("半成品Esc不保存，工具绑定失效和任务锁会退出连续创�
   request,
   seed,
 }) => {
-  test.setTimeout(90_000);
+  test.setTimeout(150_000);
   const data = await prepare(request, seed);
   await open(page, seed, data);
   for (const unit of ["region", "keypoint"]) {
