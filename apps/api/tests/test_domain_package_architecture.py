@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import subprocess
+from collections.abc import Iterator
 from dataclasses import dataclass
 from importlib.util import resolve_name
 from pathlib import Path
@@ -95,6 +96,8 @@ REMOVED_MODULES = (
     "app.services.ml_routing.capability",
     *_SPATIAL_RETIRED_MODULES,
 )
+_LEGACY_FACADES = frozenset(CURRENT_COMPAT_FACADES + REMOVED_MODULES)
+_LEGACY_FACADE_PREFIXES = tuple(f"{facade}." for facade in _LEGACY_FACADES)
 
 _LEGACY_CALL_REFERENCE_ALLOWLIST: dict[tuple[str, str, str], str] = {}
 _LEGACY_CALL_SCAN_EXEMPT_FILES = {
@@ -638,6 +641,25 @@ def _module_path(rel_source: Path) -> str:
     return ".".join(parts)
 
 
+def _import_names(
+    node: ast.Import | ast.ImportFrom, current_module: str
+) -> Iterator[str]:
+    if isinstance(node, ast.Import):
+        for alias in node.names:
+            yield alias.name
+        return
+
+    module = node.module or ""
+    if node.level:
+        package = current_module.rpartition(".")[0]
+        module = resolve_name("." * node.level + module, package)
+    if module:
+        yield module
+        for alias in node.names:
+            if alias.name != "*":
+                yield f"{module}.{alias.name}"
+
+
 def _collect_imports(tree: ast.AST, current_module: str) -> list[tuple[str, bool]]:
     """Return ``(dotted_module_or_name, is_local)`` for every import in the module.
 
@@ -658,22 +680,11 @@ def _collect_imports(tree: ast.AST, current_module: str) -> list[tuple[str, bool
         visit_AsyncFunctionDef = visit_FunctionDef
 
         def visit_Import(self, node):  # noqa: N802
-            out.extend((alias.name, self._depth > 0) for alias in node.names)
+            out.extend(
+                (name, self._depth > 0) for name in _import_names(node, current_module)
+            )
 
-        def visit_ImportFrom(self, node):  # noqa: N802
-            if node.level:
-                package = current_module.rpartition(".")[0]
-                relative = "." * node.level + (node.module or "")
-                module = resolve_name(relative, package)
-            else:
-                module = node.module or ""
-            if module:
-                out.append((module, self._depth > 0))
-                out.extend(
-                    (f"{module}.{alias.name}", self._depth > 0)
-                    for alias in node.names
-                    if alias.name != "*"
-                )
+        visit_ImportFrom = visit_Import
 
     _Visitor().visit(tree)
     return out
@@ -688,15 +699,8 @@ def _call_name(node: ast.expr) -> str:
     return "<dynamic>"
 
 
-def _matching_legacy_facade(reference: str) -> str | None:
-    return next(
-        (
-            facade
-            for facade in (*CURRENT_COMPAT_FACADES, *REMOVED_MODULES)
-            if reference == facade or reference.startswith(facade + ".")
-        ),
-        None,
-    )
+def _is_legacy_reference(reference: str) -> bool:
+    return reference in _LEGACY_FACADES or reference.startswith(_LEGACY_FACADE_PREFIXES)
 
 
 def _legacy_references(
@@ -704,23 +708,32 @@ def _legacy_references(
     current_module: str,
 ) -> list[tuple[int, str, str]]:
     """Return ``(line, reference kind, legacy path)`` from one Python AST."""
-    references: list[tuple[int, str, str]] = []
-    for imported, _local in _collect_imports(tree, current_module):
-        facade = _matching_legacy_facade(imported)
-        if facade is not None:
-            references.append((0, "import", imported))
-
+    imports: list[ast.Import | ast.ImportFrom] = []
+    calls: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            imports.append(node)
         if not isinstance(node, ast.Call):
             continue
-        call_name = _call_name(node.func)
-        values = [*node.args, *(keyword.value for keyword in node.keywords)]
+        values = node.args
+        if node.keywords:
+            values = [*values, *(keyword.value for keyword in node.keywords)]
         for value in values:
             if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
                 continue
-            facade = _matching_legacy_facade(value.value)
-            if facade is not None:
-                references.append((node.lineno, f"call:{call_name}", value.value))
+            if _is_legacy_reference(value.value):
+                calls.append(
+                    (node.lineno, f"call:{_call_name(node.func)}", value.value)
+                )
+
+    imports.sort(key=lambda node: (node.lineno, node.col_offset))
+    references = [
+        (0, "import", name)
+        for node in imports
+        for name in _import_names(node, current_module)
+        if _is_legacy_reference(name)
+    ]
+    references.extend(calls)
     return references
 
 
@@ -1138,25 +1151,25 @@ def test_legacy_reference_guard_detects_import_and_string_forms() -> None:
     """Synthetic negatives prevent the repo-wide guard from becoming inert."""
     tree = ast.parse(
         """
-import app.services.export
-from app.services import export_cache
+def load():
+    from . import export_cache as cache
+import app.services.\N{FULLWIDTH LATIN SMALL LETTER E}xport as exporter
 from app.services.export_video import build_mot_gt
+from app.services.gpu_arbiter_store import *
+import app.services.exporting
 importlib.import_module("app.services.data_manager")
-mock.patch("app.services.task_views.TaskViewService")
+mock.patch(target="app.services." "task_views.TaskViewService")
 """
     )
-    references = {
-        (kind, reference)
-        for _line, kind, reference in _legacy_references(tree, "app.consumer")
-    }
-    assert ("import", "app.services.export") in references
-    assert ("import", "app.services.export_cache") in references
-    assert ("import", "app.services.export_video") in references
-    assert ("call:importlib.import_module", "app.services.data_manager") in references
-    assert (
-        "call:mock.patch",
-        "app.services.task_views.TaskViewService",
-    ) in references
+    assert _legacy_references(tree, "app.services.__init__") == [
+        (0, "import", "app.services.export_cache"),
+        (0, "import", "app.services.export"),
+        (0, "import", "app.services.export_video"),
+        (0, "import", "app.services.export_video.build_mot_gt"),
+        (0, "import", "app.services.gpu_arbiter_store"),
+        (8, "call:importlib.import_module", "app.services.data_manager"),
+        (9, "call:mock.patch", "app.services.task_views.TaskViewService"),
+    ]
 
 
 def test_relative_and_package_imports_are_resolved_for_guards() -> None:
