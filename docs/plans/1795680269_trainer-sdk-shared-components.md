@@ -1,6 +1,6 @@
 # Trainer SDK shared components implementation plan
 
-- **Status.** Completed locally on active branches (remote push, `YOAO_SDK_MANIFEST` publication, optional version bump, and RTX 3090 container rebuild smoke remain maintainer-gated).
+- **Status.** Completed and verified across all 4 repositories (published `Plugin-SDK` release, remote CI, and RTX 3090 single-GPU OCI smoke passed; all temporary containers and images retired).
 - **Release milestone.** Not yet determined.
 - **Target repositories.** `YOAO-Labs/Plugin-SDK`, `YOAO-Labs/YOAO-Plugins`, and `YOAO-Labs/YOAO-Docs`.
 - **Platform repository impact.** Plan tracking only. `YOAO-Labs/ai-annotation-platform` requires zero runtime changes because `yoao-trainer/v1` and `POLICY_DIGEST` stay byte-identical.
@@ -297,17 +297,26 @@ All baselines below were measured directly on the clean repository heads (`Plugi
 
 ## Outcome
 
-- Landed commits (local branches, unpushed):
-  - `YOAO-Labs/Plugin-SDK` (`main`): `bfb0e91` (`PR-1` P0 modules), `6ff7a88` (`PR-2` P1 dataset, validation, CLI driver), `152f7f1` (`PR-3` `yoao-plugin trainer check` and CPU example template), `bbab0f1` (audit hardening across 6 P1 and 3 P2 findings), `958b8ad` (`PR-7` bilingual README updates). Reproducible wheel SHA-256 for `958b8ad`: `50667c6e0c6c118fbb7155d096870bc477c6b1621641fb9b3695fda9f476490c` (`yoao-plugin-sdk==0.1.0`, zero added runtime dependencies).
-  - `YOAO-Labs/YOAO-Plugins` (`main`): `e25a000` (`PR-4` LibreYOLO migration, 2704 to 1907 source lines, `-797` lines, 65 passed), `f977175` + `30ec0b3` (`PR-5` Ultralytics migration + audit preview pre-read bound fix, 5609 to 4838 source lines, `-771` lines, 43 passed), `d841e6d` (`PR-6` `plugin-trainer.yml` CI enforcement, `0.816 s` Ultralytics and `0.808 s` LibreYOLO check times), plus final `PLUGIN_SDK_SHA256` sync to `958b8ad`.
+- Landed and pushed commits:
+  - `YOAO-Labs/Plugin-SDK` (`main`): `bfb0e91` (`PR-1` P0 modules), `6ff7a88` (`PR-2` P1 dataset, validation, CLI driver), `152f7f1` (`PR-3` `yoao-plugin trainer check` and CPU example template), `bbab0f1` (audit hardening across 6 P1 and 3 P2 findings), `958b8ad` (`PR-7` bilingual README updates), `43fb6ce` (unconditional process-group cleanup in `check.py` for 2-core CI runners). Published release `python-sdk-958b8ade47d7` (built from `958b8ad`, `yoao-plugin-sdk==0.1.0`, zero added runtime dependencies; wheel SHA-256 `50667c6e0c6c118fbb7155d096870bc477c6b1621641fb9b3695fda9f476490c`; manifest SHA-256 `cb1d9b88e7eebf5fa1ff67ea79c1a2c067a7309fb4b30c6808dfcf81002a18ec`).
+  - `YOAO-Labs/YOAO-Plugins` (`main`): `e25a000` (`PR-4` LibreYOLO migration, 2704 to 1907 source lines, `-797` lines, 65 passed), `f977175` + `30ec0b3` (`PR-5` Ultralytics migration + audit preview pre-read bound fix, 5609 to 4838 source lines, `-771` lines, 43 passed), `d841e6d` (`PR-6` `plugin-trainer.yml` CI enforcement, `0.816 s` Ultralytics and `0.808 s` LibreYOLO check times), `e0e8a27` (synced `PLUGIN_SDK_SHA256` and staged wheel to `python-sdk-958b8ade47d7`). Configured repository variables `YOAO_SDK_MANIFEST` and `YOAO_SDK_MANIFEST_SHA256`.
   - `YOAO-Labs/YOAO-Docs` (`main`): `05fe97d` (`dev/how-to/trainer-plugins.md`, `.vitepress/navigation/dev.ts`, and cross-link in `dev/concepts/training-datasets.md`; 249 frontmatter, 250 readability, and 257 dead-link checks passed; verbatim walkthrough verified live across all 7 checks).
-  - `YOAO-Labs/ai-annotation-platform` (`plugin/plugin-opt`): plan document and outcome closure only (zero platform runtime changes; JSON Schema parity across all 13 `yoao-trainer/v1` models and `POLICY_DIGEST` `1ad70c6b02157e1b4c33646027309a72e73aaa5eba693e7a5fe52ce8f9bb71b4` verified unchanged).
+  - `YOAO-Labs/ai-annotation-platform` (`dev`): plan document and outcome closure only (zero platform runtime changes; JSON Schema parity across all 13 `yoao-trainer/v1` models and `POLICY_DIGEST` `1ad70c6b02157e1b4c33646027309a72e73aaa5eba693e7a5fe52ce8f9bb71b4` verified unchanged).
+- Verification evidence:
+  - Remote CI:
+    - `YOAO-Labs/Plugin-SDK` run `45802186018` (`43fb6ce`): `Python SDK core matrix` (3.10/3.11/3.12), `Python SDK mask utilities matrix` (3.10/3.11/3.12), and `JS SDK Node 20` all passed (pre-existing out-of-scope failure remains on `Python SDK inference and contract artifacts` due to unset `CONTRACT_MANIFEST_URL` repo variable).
+    - `YOAO-Labs/YOAO-Plugins` run `45801200418` (`e0e8a27`): `Plugin trainer acceptance` passed both `LibreYOLO Python 3.12 CPU` (15 s) and `Ultralytics Python 3.12 CPU` (26 s).
+    - `YOAO-Labs/YOAO-Docs` run `45801069988` (`05fe97d`): `Docs pages` build and deploy passed (pre-existing out-of-scope failure remains on `Docs validation` for `api/guides/_routes.generated.md` drift).
+  - Rebuilt OCI RTX 3090 single-GPU smoke (`NVIDIA GeForce RTX 3090`, GPU 1 `GPU-ac5e7f45-7a36-c3f8-1f65-a54f28bfcd31`, ephemeral Postgres/Redis/MinIO/Registry/FastAPI/ML-free `training-supervisor`, 5/5 scenarios passed):
+    1. Registry qualification gate (`422` before qualification) + enablement of both rebuilt trainer plugins + ML-free supervisor online.
+    2. Ultralytics `yolo11n` detect GPU training (`19.1 s`), container isolation (`user=10001:10001`, `network_mode=none`, `cap_drop=ALL`, `no-new-privileges`, `pids_limit=256`, read-only `/work/input` & `/models`), `input-membership.json`, and model registration.
+    3. Ultralytics `yolo11n-seg` instance-RLE (`aap-instance-rle-1`) GPU training (`20.17 s`) and model registration.
+    4. Ultralytics container-enforced CPU-only augmentation `preview` (`4.78 s`, `gpu_device_ids=[]`, `cuda_initialized=false`, `761` PNG bytes, GPU idle after preview).
+    5. LibreYOLO `libreyolo9t` GPU training (`65.57 s`), cancel after epoch 2, `weights_only=True` `POST /resume`, `libreyolo-native-state-dict-1.0` model return, and model registration.
+  - All temporary containers and `yoao-sdk-smoke/*` images retired after evidence capture; GPU 1 confirmed idle (`20 MiB`, `0 %`).
 - Release milestone: Not yet determined.
 - User documentation: No end-user UI or workflow change.
 - Developer documentation: `YOAO-Labs/YOAO-Docs:dev/how-to/trainer-plugins.md`, `YOAO-Labs/Plugin-SDK:README.md`, `YOAO-Labs/Plugin-SDK:README.zh-CN.md`, `YOAO-Labs/Plugin-SDK:packages/python/README.md`, `YOAO-Labs/Plugin-SDK:packages/python/README.zh-CN.md`.
 - ADR: Extends existing [ADR-0189](../adr/archive/0189-trainer-extension-point.md) without changing wire protocol or dependency boundaries.
 - CHANGELOG: Not applicable in `ai-annotation-platform` (zero core platform runtime change).
-- Remaining work:
-  1. Maintainer confirms whether to keep `yoao-plugin-sdk` at `0.1.0` or bump its version before publishing the `Plugin-SDK` wheel manifest and updating `YOAO-Plugins` repository variables `YOAO_SDK_MANIFEST` and `YOAO_SDK_MANIFEST_SHA256`.
-  2. Push commits across `Plugin-SDK`, `YOAO-Plugins`, `YOAO-Docs`, and `ai-annotation-platform` once approved.
-  3. Rebuild both trainer OCI images on a GPU host with CUDA 13.2 base image access and run a 1-epoch RTX 3090 smoke check (`libreyolo` detect train + cancel + resume + `input-membership.json`; `ultralytics` detect + `aap-instance-rle` segment + CPU-only `preview`) against `training-supervisor`.
+- Remaining work: None for this plan. Follow-up if desired: publish a new `Plugin-SDK` release tag from `43fb6ce` when ready to ship the `check.py` CI process-group cleanup in the release wheel (runtime trainer modules are byte-identical to `python-sdk-958b8ade47d7`).
