@@ -71,6 +71,218 @@ jobs:
       shard-index: 3
       shard-count: 4
 
+  backend-migration-checks:
+    name: Backend migration and schema checks
+    needs: plugin-sdk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: annotation_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    env:
+      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
+      TEST_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
+      SECRET_KEY: ci-test-secret
+      E2E_SEED_ENABLED: "true"
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Configure PostgreSQL client tools
+        run: |
+          pg_bin=/usr/lib/postgresql/16/bin
+          if [ ! -x "$pg_bin/pg_dump" ] || [ ! -x "$pg_bin/pg_restore" ]; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client-16
+          fi
+          echo "$pg_bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/setup-backend-test-python
+      - name: alembic upgrade head
+        working-directory: apps/api
+        run: uv run alembic upgrade head
+      - name: Migration validation (Beta fresh / forward)
+        working-directory: apps/api
+        env:
+          AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
+          MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
+        run: uv run python ../../scripts/validate_migrations.py
+      - name: Migration policy pure tests
+        working-directory: apps/api
+        run: uv run python ../../scripts/test_alembic_migration_policy.py
+      - name: OpenAPI snapshot drift check
+        working-directory: apps/api
+        run: uv run python ../../scripts/export_openapi.py --check
+
+  backend-script-tests:
+    name: Backend repository script tests
+    needs: plugin-sdk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      SECRET_KEY: ci-test-secret
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-backend-test-python
+      - name: Repository Python script tests
+        working-directory: apps/api
+        run: >-
+          uv run pytest -q ../../scripts --junitxml=script-test-results.xml
+          --ignore-glob='../../scripts/test_worktree*.py'
+          --ignore=../../scripts/test_production_health_recover.py
+          --ignore=../../scripts/test_development_restart.py
+      - name: Upload repository script test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-script-test-results
+          path: apps/api/script-test-results.xml
+          retention-days: 7
+
+  backend-module-data-reclamation:
+    name: Backend module data reclamation acceptance
+    needs: plugin-sdk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      SECRET_KEY: ci-test-secret
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      BACKEND_MINIO_PROJECT: reclaim-minio-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-backend-test-python
+      - uses: ./.github/actions/start-test-minio
+        with:
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - uses: ./.github/actions/prepare-module-data-tests
+        with:
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - name: Verify managed-original reclamation on disposable databases
+        run: |
+          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+            --reclamation-only --output reclamation-results/acceptance.json
+      - name: Upload reclamation acceptance results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-reclamation-results
+          path: |
+            reclamation-results/**/*.junit.xml
+            reclamation-results/acceptance.json
+          retention-days: 7
+      - name: Retire reclamation object store
+        if: always()
+        run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
+
+  backend-module-data-m2b:
+    name: Backend module data ordinary login acceptance
+    needs: plugin-sdk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      SECRET_KEY: ci-test-secret
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      BACKEND_MINIO_PROJECT: m2b-minio-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-backend-test-python
+      - uses: ./.github/actions/start-test-minio
+        with:
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - uses: ./.github/actions/prepare-module-data-tests
+        with:
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - name: Verify M2b ordinary LOGINs and replay on a disposable database
+        run: |
+          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+            --workspace-consumer-profile default \
+            --test-file tests/test_m2b_private_access_live.py::test_default_login_cannot_directly_use_private_relations \
+            --test-file tests/test_m2b_runtime_acl_replay.py \
+            --test-file tests/test_jobs_ordinary_ledger_live.py \
+            --output m2b-results/acceptance.json
+      - name: Upload M2b acceptance results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-m2b-results
+          path: |
+            m2b-results/acceptance.junit.xml
+            m2b-results/acceptance.json
+          retention-days: 7
+      - name: Retire M2b object store
+        if: always()
+        run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
+
+  backend-gpu-membership:
+    name: Backend GPU membership activation
+    needs: plugin-sdk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      GPU_MEMBERSHIP_TEST: tests/test_gpu_membership_activation.py
+      SECRET_KEY: ci-test-secret
+      MINIO_ENDPOINT: localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      BACKEND_MINIO_PROJECT: gpu-membership-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: ./.github/actions/setup-backend-test-python
+      - uses: ./.github/actions/start-test-minio
+        with:
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - uses: ./.github/actions/prepare-module-data-tests
+        with:
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
+      - name: Verify GPU membership with the native process role
+        run: >-
+          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py
+          --test-file "$GPU_MEMBERSHIP_TEST" --output gpu-results/acceptance.json
+      - name: Upload GPU membership results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-gpu-membership-results
+          path: gpu-results/acceptance.junit.xml
+          if-no-files-found: error
+          retention-days: 7
+      - name: Retire GPU membership object store
+        if: always()
+        run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
+
   worktree-tests:
     name: Backend worktree and maintenance tests
     needs: plugin-sdk
@@ -203,6 +415,11 @@ jobs:
       - backend-tests-shard-one
       - backend-tests-shard-two
       - backend-tests-shard-three
+      - backend-migration-checks
+      - backend-script-tests
+      - backend-module-data-reclamation
+      - backend-module-data-m2b
+      - backend-gpu-membership
     if: always()
     steps:
       - name: Verify backend results for the planned scope
@@ -214,9 +431,14 @@ jobs:
           SHARD_ONE_RESULT: ${{ needs.backend-tests-shard-one.result }}
           SHARD_TWO_RESULT: ${{ needs.backend-tests-shard-two.result }}
           SHARD_THREE_RESULT: ${{ needs.backend-tests-shard-three.result }}
+          MIGRATION_RESULT: ${{ needs.backend-migration-checks.result }}
+          SCRIPT_TESTS_RESULT: ${{ needs.backend-script-tests.result }}
+          RECLAMATION_RESULT: ${{ needs.backend-module-data-reclamation.result }}
+          M2B_RESULT: ${{ needs.backend-module-data-m2b.result }}
+          GPU_MEMBERSHIP_RESULT: ${{ needs.backend-gpu-membership.result }}
         run: |
           test "$PLAN_RESULT" = success
-          for result in "$WORKTREE_RESULT" "$SHARD_ZERO_RESULT" "$SHARD_ONE_RESULT" "$SHARD_TWO_RESULT" "$SHARD_THREE_RESULT"; do
+          for result in "$WORKTREE_RESULT" "$SHARD_ZERO_RESULT" "$SHARD_ONE_RESULT" "$SHARD_TWO_RESULT" "$SHARD_THREE_RESULT" "$MIGRATION_RESULT" "$SCRIPT_TESTS_RESULT" "$RECLAMATION_RESULT" "$M2B_RESULT" "$GPU_MEMBERSHIP_RESULT"; do
             if [ "$result" != "$EXPECTED" ]; then
               echo "::error::Expected backend test result $EXPECTED; got $result"
               exit 1

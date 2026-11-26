@@ -7,6 +7,8 @@
 - 默认按 sha256(key) 的前八个字节取模。提供 ``--shard-plan`` 时，只覆盖
   历史计划中明确分配的模块。其他模块仍按相同的哈希分区。
 - 两种方式都不依赖 PYTHONHASHSEED、收集顺序或本次选集，分片内保持原顺序。
+- 通过 ``pytest_ignore_collect`` 在收集前跳过其他分片模块，避免无谓导入；
+  ``pytest_collection_modifyitems`` 保留为兜底过滤。
 
 两个参数要么都不给（不分片，行为完全不变），要么同时给出。范围非法时抛
 ``pytest.UsageError``（exit code 4），在任何测试执行前失败；分片为空时不做任何
@@ -127,21 +129,57 @@ def _selection_from_config(config: pytest.Config) -> ShardSelection | None:
     )
 
 
-def pytest_configure(config: pytest.Config) -> None:
-    selection = _selection_from_config(config)
-    if config.getoption("shard_plan") is not None and selection is None:
-        raise pytest.UsageError(
-            "--shard-plan 需要同时提供 --shard-index 和 --shard-count"
+def _shard_state(
+    config: pytest.Config,
+) -> tuple[ShardSelection | None, dict[str, int], Path]:
+    state = getattr(config, "_yoao_shard_state", None)
+    if state is None:
+        selection = _selection_from_config(config)
+        path = config.getoption("shard_plan")
+        if path is not None and selection is None:
+            raise pytest.UsageError(
+                "--shard-plan 需要同时提供 --shard-index 和 --shard-count"
+            )
+        assigned = (
+            _read_plan(path, selection.count)
+            if path is not None and selection is not None
+            else {}
         )
+        state = (selection, assigned, Path(config.rootpath).resolve())
+        config._yoao_shard_state = state
+    return state
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    _shard_state(config)
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    selection, assigned, rootpath = _shard_state(config)
+    if selection is None or selection.count == 1:
+        return None
+    path = Path(collection_path)
+    name = path.name
+    if (
+        path.suffix != ".py"
+        or name in {"conftest.py", "__init__.py"}
+        or not (name.startswith("test_") or name.endswith("_test.py"))
+        or not path.is_file()
+    ):
+        return None
+    try:
+        module = path.resolve().relative_to(rootpath).as_posix()
+    except ValueError:
+        return None
+    bucket = assigned.get(module)
+    if bucket is None:
+        bucket = shard_index_for_nodeid(module, selection.count)
+    return True if bucket != selection.index else None
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
-    selection = _selection_from_config(config)
-    if selection is None:
-        return
-    path = config.getoption("shard_plan")
-    assigned = _read_plan(path, selection.count) if path is not None else None
-    if selection.count == 1:
+    selection, assigned, _ = _shard_state(config)
+    if selection is None or selection.count == 1:
         return
     kept, deselected = partition_items(items, selection, assigned)
     if deselected:

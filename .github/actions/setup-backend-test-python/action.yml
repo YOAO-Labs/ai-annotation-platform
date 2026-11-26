@@ -9,6 +9,13 @@ runs:
     - name: Install uv
       shell: bash
       run: pip install uv
+    - name: Cache uv downloads
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: backend-api-uv-${{ runner.os }}-${{ hashFiles('apps/api/uv.lock', 'apps/api/pyproject.toml') }}
+        restore-keys: |
+          backend-api-uv-${{ runner.os }}-
     - uses: actions/download-artifact@v4
       with:
         name: plugin-sdk-runtime

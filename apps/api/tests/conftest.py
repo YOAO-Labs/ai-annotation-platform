@@ -69,6 +69,10 @@ def pytest_configure(config):
     pytest_sharding.pytest_configure(config)
 
 
+def pytest_ignore_collect(collection_path, config):
+    return pytest_sharding.pytest_ignore_collect(collection_path, config)
+
+
 def pytest_collection_modifyitems(config, items):
     pytest_sharding.pytest_collection_modifyitems(config, items)
 

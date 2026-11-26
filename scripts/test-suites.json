@@ -85,7 +85,7 @@
     {
       "paths": ["scripts"],
       "owner": "repository Python scripts and runtime tooling",
-      "selection_source": "ci-full.yml worktree-tests; backend-test.yml shard 0 for remaining scripts",
+      "selection_source": "ci-full.yml worktree-tests and backend-script-tests",
       "resources": "API test environment and script-specific dependencies",
       "skip_policy": "explicit prerequisites; no plugin native qualification"
     },

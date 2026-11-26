@@ -60,25 +60,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Install video fixture tools
-        run: |
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          fi
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
-          fi
-          ffmpeg -version
-          ffprobe -version
-      - name: Configure PostgreSQL client tools
+      - name: Install backend test system tools
         run: |
           pg_bin=/usr/lib/postgresql/16/bin
+          packages=()
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            packages+=(ffmpeg)
+          fi
           if [ ! -x "$pg_bin/pg_dump" ] || [ ! -x "$pg_bin/pg_restore" ]; then
+            packages+=(postgresql-client-16)
+          fi
+          if [ "${#packages[@]}" -gt 0 ]; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends postgresql-client-16
+            sudo apt-get install -y --no-install-recommends "${packages[@]}"
           fi
           echo "$pg_bin" >> "$GITHUB_PATH"
+          ffmpeg -version
+          ffprobe -version
           "$pg_bin/pg_dump" --version
           "$pg_bin/pg_restore" --version
       - uses: ./.github/actions/setup-backend-test-python
@@ -91,17 +92,6 @@ jobs:
       - name: alembic upgrade head
         working-directory: apps/api
         run: uv run alembic upgrade head
-      - name: Migration validation (Beta fresh / forward)
-        if: inputs.shard-index == 0
-        working-directory: apps/api
-        env:
-          AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
-          MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: uv run python ../../scripts/validate_migrations.py
-      - name: OpenAPI snapshot drift check
-        if: inputs.shard-index == 0
-        working-directory: apps/api
-        run: uv run python ../../scripts/export_openapi.py --check
       - name: Run API test shard
         working-directory: apps/api
         run: >-
@@ -109,81 +99,13 @@ jobs:
           --ignore="$GPU_MEMBERSHIP_TEST"
           --shard-index ${{ inputs.shard-index }} --shard-count ${{ inputs.shard-count }}
           ${{ inputs.shard-count == 4 && '--shard-plan tests/ci-shard-plan.json' || '' }}
-      - uses: ./.github/actions/prepare-module-data-tests
-        if: inputs.shard-index == 0
-        with:
-          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
-      - name: Verify managed-original reclamation on disposable databases
-        if: inputs.shard-index == 0
-        run: |
-          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-            --reclamation-only --output reclamation-results/acceptance.json
-      - name: Verify M2b ordinary LOGINs and replay on a disposable database
-        if: inputs.shard-index == 0
-        run: |
-          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-            --workspace-consumer-profile default \
-            --test-file tests/test_m2b_private_access_live.py::test_default_login_cannot_directly_use_private_relations \
-            --test-file tests/test_m2b_runtime_acl_replay.py \
-            --test-file tests/test_jobs_ordinary_ledger_live.py \
-            --output m2b-results/acceptance.json
-      - name: Migration policy pure tests
-        working-directory: apps/api
-        run: uv run python ../../scripts/test_alembic_migration_policy.py
-      - name: Repository Python script tests
-        if: inputs.shard-index == 0
-        working-directory: apps/api
-        run: >-
-          uv run pytest -q ../../scripts --junitxml=script-test-results.xml
-          --ignore-glob='../../scripts/test_worktree*.py'
-          --ignore=../../scripts/test_production_health_recover.py
-          --ignore=../../scripts/test_development_restart.py
       - name: Upload backend test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-test-results-${{ inputs.shard-index }}
-          path: |
-            apps/api/pytest-results.xml
-            apps/api/script-test-results.xml
-            reclamation-results/**/*.junit.xml
-            reclamation-results/acceptance.json
-            m2b-results/acceptance.junit.xml
-            m2b-results/acceptance.json
+          path: apps/api/pytest-results.xml
           retention-days: 7
       - name: Retire backend object store
-        if: always()
-        run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
-
-  gpu-membership:
-    name: Backend GPU membership activation
-    if: inputs.shard-index == 0
-    runs-on: ubuntu-24.04
-    env:
-      BACKEND_MINIO_PROJECT: gpu-membership-${{ github.run_id }}-${{ github.run_attempt }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - uses: ./.github/actions/setup-backend-test-python
-      - uses: ./.github/actions/start-test-minio
-        with:
-          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
-      - uses: ./.github/actions/prepare-module-data-tests
-        with:
-          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
-      - name: Verify GPU membership with the native process role
-        run: >-
-          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py
-          --test-file "$GPU_MEMBERSHIP_TEST" --output gpu-results/acceptance.json
-      - name: Upload GPU membership results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: backend-gpu-membership-results
-          path: gpu-results/acceptance.junit.xml
-          if-no-files-found: error
-          retention-days: 7
-      - name: Retire GPU membership object store
         if: always()
         run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes

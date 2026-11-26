@@ -186,9 +186,8 @@ def test_real_pytest_shards_are_disjoint_and_cover_every_test(mini_suite: Path) 
         assert result.returncode == 0, (
             f"shard {index} failed:\n{result.stdout}\n{result.stderr}"
         )
-        assert "deselected" in result.stdout
         passed = len(_passed_nodeids(result))
-        assert f"{MINI_TOTAL - passed} deselected" in result.stdout
+        assert 0 < passed < MINI_TOTAL
 
     selected: set[str] = set()
     for result in runs:
@@ -217,6 +216,20 @@ def test_real_pytest_shards_are_disjoint_and_cover_every_test(mini_suite: Path) 
     original = _passed_nodeids(runs[0])
     assert original.isdisjoint(moved)
     assert _passed_nodeids(planned) == original | moved
+
+
+def test_real_pytest_skips_importing_other_shards(mini_suite: Path) -> None:
+    other_shard = pytest_sharding.shard_index_for_nodeid("test_shard_00.py", 3)
+    run_shard = (other_shard + 1) % 3
+    (mini_suite / "test_shard_00.py").write_text(
+        'raise RuntimeError("other shard must not be imported")\n',
+        encoding="utf-8",
+    )
+    result = _run_sharded_pytest(
+        mini_suite, "--shard-index", str(run_shard), "--shard-count", "3"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _passed_nodeids(result) != set()
 
 
 def test_real_pytest_shard_is_stable_across_python_hash_seeds(mini_suite: Path) -> None:
