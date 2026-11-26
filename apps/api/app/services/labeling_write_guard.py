@@ -260,12 +260,31 @@ async def _assert_execution_current(
         raise _conflict("prediction_execution_scope_mismatch")
     manifest_protocol = payload.get("accepted_input_manifest_protocol")
     if manifest_protocol == "aap-assets-input-manifest/v1" and task_id is not None:
-        if (
-            accepted_input_job_id != job.id
-            or scope.job_id != job.id
-            or scope.accepted_input_id is None
-        ):
+        if accepted_input_job_id != job.id or scope.job_id != job.id:
             raise _conflict("prediction_input_manifest_origin_mismatch")
+        if scope.accepted_input_id is None:
+            from app.services.accepted_input_manifests import is_sealed_reference_member
+            from app.services.prediction_references import frozen_reference_task
+
+            digest = payload.get("accepted_input_manifest_digest")
+            if (
+                payload.get("accepted_input_manifest_id") != str(job.id)
+                or not isinstance(digest, str)
+                or not frozen_reference_task(payload, task_id)
+                or not await is_sealed_reference_member(
+                    db,
+                    job_id=job.id,
+                    actor_id=scope.actor_id,
+                    project_id=scope.project_id,
+                    task_id=task_id,
+                    selection_digest=digest,
+                    item_id=scope.source_dataset_item_id,
+                    file_path=scope.source_file_path,
+                    task_version=scope.task_version,
+                    task_source_generation=scope.task_source_generation,
+                )
+            ):
+                raise _conflict("prediction_input_manifest_origin_mismatch")
     elif accepted_input_job_id is not None:
         raise _conflict("prediction_input_manifest_origin_mismatch")
     video_protocol = payload.get("accepted_video_inputs_protocol")
@@ -331,9 +350,7 @@ async def lock_labeling_write(
     if scope.operation not in operations:
         raise _conflict("labeling_write_scope_mismatch")
     if accepted_input_job_id is not None and (
-        scope.operation != "preannotation"
-        or scope.job_id != accepted_input_job_id
-        or scope.accepted_input_id is None
+        scope.operation != "preannotation" or scope.job_id != accepted_input_job_id
     ):
         raise _conflict("prediction_input_manifest_origin_mismatch")
     if accepted_video_input is not None and (

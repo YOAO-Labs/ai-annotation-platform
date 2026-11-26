@@ -12,29 +12,31 @@ from urllib.request import urlopen
 import httpx
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from yoao_inference.backend_transport import PredictionResult
+from yoao_inference_contract.execution import ModelTaskResult
 from app.config import settings
+from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.services import (
     prediction_inputs,
-    raster_mask_objects,
     raster_mask_storage as masks,
+    trained_models,
 )
 from app.services.storage import storage_service
-from tests.inference_execution_test_ports import (
-    PredictionClientExecutionPort,
-    run_batch_request,
-)
+from tests.inference_execution_test_ports import PredictionClientExecutionPort
 from tests.prediction_input_live_assertions import ensure_versioned_import_bucket
-from tests.test_dataset_content import content_world as content_world, headers
-from tests.test_dataset_references import reference_world as reference_world
+from tests.test_dataset_content import headers
 from tests.test_prediction_inputs import input_world as input_world
-from tests.test_prediction_jobs_worker import _passthrough_engine_and_factory
+from tests.test_prediction_reference_delivery import (
+    committed_reference_delivery as committed_reference_delivery,
+    frame_publication_login as frame_publication_login,
+    image_executor_logins as image_executor_logins,
+    managed_worker_world as managed_worker_world,
+    run_dispatched,
+)
 from tests.test_reference_background_native import (
     enqueue,
-    native_world as native_world,
+    committed_native_worker as committed_native_worker,
     response_for,
 )
 
@@ -43,11 +45,10 @@ _INPUT_STORAGE = prediction_inputs.make_storage
 
 
 async def test_http_minio_native_reference_generation_content_and_acceptance(
-    native_world, httpx_client, super_admin, monkeypatch
+    committed_native_worker, monkeypatch
 ):
-    w = native_world
+    w, httpx_client, super_admin = committed_native_worker
     await ensure_versioned_import_bucket()
-    monkeypatch.setattr(raster_mask_objects, "async_sessionmaker", async_sessionmaker)
     monkeypatch.setattr(masks, "store_coco_rle", _STORE)
     monkeypatch.setattr(masks, "load_coco_rle", _LOAD)
     monkeypatch.setattr(prediction_inputs, "make_storage", _INPUT_STORAGE)
@@ -123,39 +124,33 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
                     )
                     response.raise_for_status()
                     data = response.json()
-                return [
-                    PredictionResult(
-                        task_id=item["task"],
-                        result=item["result"],
-                        meta=item.get("meta"),
-                        score=item.get("score"),
-                        inference_time_ms=item.get("inference_time_ms"),
-                    )
-                    for item in data["results"]
-                ]
+                return trained_models.validate_and_map_results(
+                    tuple(
+                        ModelTaskResult(
+                            task_id=item["task"],
+                            result=item["result"],
+                            meta=item.get("meta"),
+                            score=item.get("score"),
+                            inference_time_ms=item.get("inference_time_ms"),
+                        )
+                        for item in data["results"]
+                    ),
+                    w.ref,
+                )
 
+        pool_id = await w.db.scalar(
+            select(ProjectMLBackendPool.pool_id).where(
+                ProjectMLBackendPool.project_id == project_id
+            )
+        )
         monkeypatch.setattr(
             "app.application.preannotation_execution._model_execution_port",
-            lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
+            lambda *_args, **_kwargs: PredictionClientExecutionPort(
+                Client(), instance_id=w.backend.id, pool_id=pool_id
+            ),
         )
         job, dispatch = await enqueue(w, httpx_client, super_admin, monkeypatch)
-        engine, factory = _passthrough_engine_and_factory(w.db)
-        monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", engine)
-        monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", factory)
-        monkeypatch.setattr(
-            "app.services.prediction_progress.publish_progress",
-            lambda *a, **kw: None,
-        )
-        args = dispatch.call_args.kwargs["args"]
-        kwargs = dict(dispatch.call_args.kwargs["kwargs"])
-        await run_batch_request(
-            project_id=args[0],
-            ml_backend_id=args[1],
-            task_ids=args[2],
-            **kwargs,
-            celery_task_id=str(job.id),
-            worker_node_id="worker:content@test",
-        )
+        await run_dispatched(dispatch)
         await w.db.refresh(job)
         failures = list(
             await w.db.scalars(

@@ -246,10 +246,16 @@ async def _apply_ready_result(
     *,
     request,
     manifest_backed,
-    reference_owner=None,
+    reference_job=None,
 ):
     from copy import deepcopy
     from app.services.labeling_write_guard import lock_labeling_write
+
+    reference_owner = (
+        reference_job
+        if reference_job is not None and member.task_id in reference_job.reference_tasks
+        else None
+    )
 
     values = dict(
         ordinal=member.ordinal,
@@ -288,6 +294,9 @@ async def _apply_ready_result(
                     )
                     for w, native in zip(writes, native_receipts, strict=True)
                 )
+            elif reference_job is not None and reference_job.reference_tasks:
+                await reference_job.lock_key()
+                await reference_job.authorize(db)
             partial = result.context.get("pipeline_partial") is True
             member_overwrite = (
                 not partial
@@ -625,7 +634,7 @@ async def run_durable_batch(
                 requests,
                 manifest_backed=manifest_backed,
                 request=request,
-                reference_owner=reference_owner,
+                reference_job=reference_job,
             )
             if not applied:
                 cancelled = True

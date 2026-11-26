@@ -32,13 +32,18 @@ from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers import predictions_retry as retry, tasks as worker
 from tests.inference_execution_test_ports import (
     PredictionClientExecutionPort,
-    run_batch_request,
     run_client_task_pipeline,
 )
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_prediction_inputs import input_world as input_world
-from tests.test_prediction_jobs_worker import _passthrough_engine_and_factory
+from tests.test_prediction_reference_delivery import (
+    committed_reference_delivery as committed_reference_delivery,
+    frame_publication_login as frame_publication_login,
+    image_executor_logins as image_executor_logins,
+    managed_worker_world as managed_worker_world,
+    run_dispatched,
+)
 from tests.test_trained_models import ready_deployment, seed_source
 
 
@@ -214,6 +219,18 @@ def test_crop_lineage_requires_a_finite_image_transform(transform):
 
 @pytest.fixture
 async def native_world(db_session, reference_world, input_world, monkeypatch):
+    return await _native_world(db_session, reference_world, input_world, monkeypatch)
+
+
+@pytest.fixture
+async def committed_native_worker(
+    committed_reference_delivery, input_world, monkeypatch
+):
+    db, client, world, admin = committed_reference_delivery
+    return await _native_world(db, world, input_world, monkeypatch), client, admin
+
+
+async def _native_world(db_session, reference_world, input_world, monkeypatch):
     _, project, task, content = reference_world
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
@@ -700,9 +717,9 @@ async def test_pruned_root_retains_original_noncontiguous_instance_index(
 
 @pytest.mark.parametrize("scope", ["bulk", "workbench"])
 async def test_api_to_batch_worker_persists_qualified_native_reference(
-    native_world, httpx_client, super_admin, monkeypatch, scope
+    committed_native_worker, monkeypatch, scope
 ):
-    w = native_world
+    w, httpx_client, super_admin = committed_native_worker
     job, dispatch = await enqueue(
         w, httpx_client, super_admin, monkeypatch, scope=scope
     )
@@ -729,22 +746,7 @@ async def test_api_to_batch_worker_persists_qualified_native_reference(
             Client(), instance_id=w.backend.id, pool_id=pool_id
         ),
     )
-    engine, factory = _passthrough_engine_and_factory(w.db)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", engine)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", factory)
-    monkeypatch.setattr(
-        "app.services.prediction_progress.publish_progress", lambda *a, **kw: None
-    )
-    args = dispatch.call_args.kwargs["args"]
-    kwargs = dict(dispatch.call_args.kwargs["kwargs"])
-    await run_batch_request(
-        project_id=args[0],
-        ml_backend_id=args[1],
-        task_ids=args[2],
-        **kwargs,
-        celery_task_id=str(job.id),
-        worker_node_id="worker:content@test",
-    )
+    await run_dispatched(dispatch)
     await w.db.refresh(job)
     failures = list(
         await w.db.scalars(

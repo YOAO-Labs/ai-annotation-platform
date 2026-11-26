@@ -1169,6 +1169,17 @@ async def run_preannotation(
                 raise ValueError("preannotation async Job scope is unavailable")
             if job.status not in {"pending", "running"}:
                 return
+            if (
+                request.execution_unit in {"frame", "video", "scene"}
+                and job.execution_snapshot_id is not None
+            ):
+                from app.services.prediction_execution import load_snapshot
+
+                snapshot, _ = await load_snapshot(
+                    db, job.execution_snapshot_id, job.project_id
+                )
+                if request.execution_unit != snapshot["execution_unit"]:
+                    raise ValueError("Queued execution unit differs from the snapshot")
 
         if request.execution_unit in {"frame", "video", "scene"}:
             await execute()

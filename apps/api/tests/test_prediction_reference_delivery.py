@@ -62,7 +62,6 @@ from tests.test_prediction_commit_boundary import (
     retained_image_storage as retained_image_storage,
 )
 from tests.test_prediction_inputs import input_world as input_world
-from tests.test_prediction_jobs_worker import _passthrough_engine_and_factory
 
 
 async def backend_for(db, project):
@@ -219,7 +218,7 @@ def delivered_image(storage, payload):
         for stages in (False, True)
         for scope in ("bulk", "workbench")
     ]
-    + [("revoke_key", False, "workbench")],
+    + [("revoke_key", False, "workbench"), ("video_result", False, "bulk")],
 )
 async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
     committed_reference_delivery,
@@ -313,6 +312,12 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
                     for t in tasks
                 ]
             shape = rectangle()
+            if mutation == "video_result":
+                shape = {
+                    "type": "video_track_bbox",
+                    "geometry": {"type": "video_track_bbox", "keyframes": []},
+                    "class_name": "car",
+                }
             if tasks[0].get("prompts"):
                 shape["parent_box_idx"] = 0
             if not stages:
@@ -321,7 +326,9 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
                 original.write_bytes(b"replaced")
             return [
                 PredictionResult(
-                    task_id=tasks[0]["id"], result=[shape], meta={"total_cost": 0.25}
+                    task_id=tasks[0]["id"],
+                    result=[shape],
+                    meta={"total_cost": 0.25, "mask_objects": None},
                 )
             ]
 
@@ -412,7 +419,7 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
             .execution_options(populate_existing=True)
         )
     ).one()
-    if mutation in {"version", "source", "cancel", "revoke_key"}:
+    if mutation in {"version", "source", "cancel", "revoke_key", "video_result"}:
         expected = "cancelled" if mutation == "cancel" else "failed"
         assert job.status == expected, failures
         assert job.result["success_count"] == 0
@@ -889,12 +896,20 @@ async def test_dispatch_authority_failure_cannot_degrade_into_partial(mode):
         image.close()
 
 
-async def test_reference_frame_execution_cannot_reach_legacy_cleanup(
-    db_session, httpx_client, reference_world, super_admin, monkeypatch
+async def test_reference_job_rejects_nonimage_delivery_before_cleanup(
+    committed_reference_delivery, monkeypatch
 ):
+    db_session, httpx_client, reference_world, super_admin = (
+        committed_reference_delivery
+    )
     _, project, task, _ = reference_world
     job, backend, _, dispatch = await enqueue(
-        db_session, httpx_client, reference_world, super_admin, monkeypatch
+        db_session,
+        httpx_client,
+        reference_world,
+        super_admin,
+        monkeypatch,
+        scope="workbench",
     )
     stages = [{**pipeline(backend)[0], "source": {"execution_unit": "frame"}}]
     dispatch.reset_mock()
@@ -914,22 +929,21 @@ async def test_reference_frame_execution_cannot_reach_legacy_cleanup(
 
     cleanup = Mock(side_effect=AssertionError("reference reached legacy cleanup"))
     monkeypatch.setattr(BatchService, "clean_task_predictions", cleanup)
-    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", fake_engine)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", fake_factory)
-    with pytest.raises(
-        ValueError, match="^frame execution requires a retained video manifest$"
-    ):
-        await run_preannotation(
-            BatchPredictionRequest(
-                project_id=str(project.id),
-                ml_backend_id=str(backend.id),
-                task_ids=[str(task.id)],
-                user_id=str(super_admin[0].id),
-                async_job_id=str(job.id),
-                predict_mode="overwrite",
-                execution_unit="frame",
-            ),
-            execution_id=str(job.id),
-        )
+    for unit in ("frame", "video", "scene"):
+        with pytest.raises(ValueError, match="Queued execution unit differs"):
+            await run_preannotation(
+                BatchPredictionRequest(
+                    project_id=str(project.id),
+                    ml_backend_id=str(backend.id),
+                    task_ids=[str(task.id)],
+                    user_id=str(super_admin[0].id),
+                    async_job_id=str(job.id),
+                    predict_mode="overwrite",
+                    execution_unit=unit,
+                ),
+                execution_id=str(job.id),
+                worker_node_id="worker:content@test",
+            )
+        await db_session.refresh(job)
+        assert job.status == "pending"
     cleanup.assert_not_called()

@@ -43,6 +43,15 @@ _STABLE_EXTRA = (
 )
 
 
+def require_reference_vectors(shapes):
+    from app.services.prediction import to_internal_shape
+
+    for shape in shapes:
+        geometry = to_internal_shape(deepcopy(shape)).get("geometry")
+        if not isinstance(geometry, dict) or geometry.get("type") not in _VECTOR_TYPES:
+            raise ContentError("reference_prediction_geometry_not_supported")
+
+
 def has_native_payload(write):
     return (
         (write.get("token_meta") or {}).get("mask_objects") is not None
@@ -324,7 +333,13 @@ async def _lock_model(db, project_id, ref, selected):
 
 async def qualify_results(owner, task, anchor, writes):
     """Preflight the complete group before any result can materialize an object."""
-    if anchor is None or not any(has_native_payload(write) for write in writes):
+    if anchor is None:
+        return [None] * len(writes)
+    native = [has_native_payload(write) for write in writes]
+    for write, is_native in zip(writes, native, strict=True):
+        if not is_native:
+            require_reference_vectors(write["result"])
+    if not any(native):
         return [None] * len(writes)
     from app.services.prediction_references import validate_receipt
 
@@ -341,7 +356,7 @@ async def qualify_results(owner, task, anchor, writes):
     ref = owner.bindings[task.id]["reference"]
     qualified = []
     for index, write in enumerate(writes):
-        if not has_native_payload(write):
+        if not native[index]:
             qualified.append(None)
             continue
         extra, meta = write.get("pipeline_extra") or {}, write.get("token_meta") or {}

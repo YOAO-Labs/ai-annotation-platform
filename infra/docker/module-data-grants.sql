@@ -1596,7 +1596,7 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_accepted_image_input(uuid, uuid, u
     TO :"workflow_role", :"labeling_owner";
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.is_sealed_image_reference_member(
     uuid, uuid, uuid, uuid, text, uuid, text, integer, bigint
-) TO :"workflow_role", :"labeling_owner";
+) TO :"workflow_role", :"labeling_owner", :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1._lock_accepted_image_input_receipt(uuid, uuid, uuid)
     TO :"labeling_owner";

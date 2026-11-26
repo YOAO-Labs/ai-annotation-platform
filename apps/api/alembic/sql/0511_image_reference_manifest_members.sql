@@ -123,8 +123,6 @@ BEGIN
         p_job_id, p_actor_id, p_project_id, NULL, p_selection, NULL, true
     );
     IF v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_reply; END IF;
-    -- Only the active Job locked above supplies bindings. The selector and the
-    -- caller cannot assert that an opaque path is a registered reference.
     SELECT job.payload -> 'prediction_authority' INTO v_authority
     FROM yoao_jobs_v1.read_job(p_job_id) AS job;
     IF v_authority @> pg_catalog.jsonb_build_object(
