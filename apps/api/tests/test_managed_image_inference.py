@@ -224,6 +224,7 @@ async def test_both_endpoints_read_saved_original_and_retire_exact_versions(
 ):
     world = managed_world
     for count, entry in enumerate(("interactive", "test"), start=1):
+        read_before = len(world.inputs.read_versions)
         signed_before = len(world.inputs.signed_versions)
         response = await call(httpx_client, world, auth(super_admin), entry)
         assert response.status_code == 200, (entry, response.text)
@@ -234,7 +235,10 @@ async def test_both_endpoints_read_saved_original_and_retire_exact_versions(
             world.member.source.object_key,
         ), entry
         assert len(world.inputs.signed_versions) > signed_before, entry
-        assert world.inputs.read_versions == world.inputs.signed_versions, entry
+        assert (
+            world.inputs.read_versions[read_before:]
+            == world.inputs.signed_versions[signed_before:]
+        ), entry
         await clean(world, monkeypatch)
 
 
