@@ -9,13 +9,15 @@ import uuid
 
 from botocore.config import Config
 import pytest
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
-from app.db.models.image_pyramid import ImagePyramidOutput
+from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidOutput
 from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.user import User
 from app.db.models.video_derivative import VideoDerivativeOutput
 from app.services import (
     export_media_retirement,
@@ -29,10 +31,10 @@ from app.services import storage, storage_access, storage_usage_accounting as us
 from app.services import video_derivative_objects as videos, video_derivative_storage
 from app.services.content_snapshot import ContentError
 from app.db.models.storage_usage import StorageUsageMutation as Mutation
+from app.services.dataset_assets import ensure_legacy_bindings
 from tests import test_export_media_bundle_models as bundle_models
 from tests.test_image_pyramid_storage import reference as pyramid_ref
 from tests.test_key_removal_accounting import MarkerProvider
-from tests.test_media_cache_targets import media_db as media_db
 from tests.test_video_derivative_storage import reference as video_ref
 
 KINDS = ("pyramid", "video", "zip", "zip_linked")
@@ -40,23 +42,12 @@ RAW = b"new"
 
 
 @pytest.fixture
-async def owners_db(media_db):
-    for table in (
-        "image_pyramid_assets",
-        "image_pyramid_generations",
-        "video_frame_cache",
-        "video_chunks",
-        "export_artifacts",
-        "export_outputs",
-        "export_media_bundles",
-        "async_jobs",
-        "storage_usage_mutations",
-    ):
-        await media_db.execute(
-            text(f"CREATE TABLE {table} (LIKE public.{table} INCLUDING ALL)")
-        )
-    await media_db.commit()
-    return media_db
+async def owners_db(managed_database):
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            yield db
 
 
 class Objects(MarkerProvider):
@@ -71,18 +62,57 @@ class Objects(MarkerProvider):
             raise self.close_failure
 
 
+async def _owned_media_item(db, file_type):
+    suffix = uuid.uuid4().hex[:12]
+    owner = User(
+        id=uuid.uuid4(),
+        email="owner-" + suffix + "@example.test",
+        name="owner-" + suffix,
+        password_hash="x",
+    )
+    db.add(owner)
+    await db.flush()
+    dataset = Dataset(
+        id=uuid.uuid4(),
+        display_id="DS-" + suffix,
+        name="removal-" + suffix,
+        data_type=file_type,
+        created_by=owner.id,
+    )
+    db.add(dataset)
+    await db.flush()
+    item = DatasetItem(
+        id=uuid.uuid4(),
+        dataset_id=dataset.id,
+        file_name="sample." + ("mp4" if file_type == "video" else "png"),
+        file_path="removal/" + suffix,
+        file_type=file_type,
+    )
+    db.add(item)
+    await db.flush()
+    return item
+
+
 async def allocate_case(db, kind, *, count=1):
     identifier, old = uuid.uuid4(), export_outputs.now() - timedelta(days=10)
     bucket = storage.storage_service.media_cache_bucket
     bundle = None
     if kind == "pyramid":
+        item = await _owned_media_item(db, "image")
+        asset = ImagePyramidAsset(
+            id=uuid.uuid4(),
+            dataset_item_id=item.id,
+            profile_version="v1-" + uuid.uuid4().hex[:8],
+        )
+        db.add(asset)
+        await db.flush()
         row = ImagePyramidOutput(
             id=identifier,
-            asset_id=uuid.uuid4(),
+            asset_id=asset.id,
             generation=1,
             lease_token=uuid.uuid4(),
             storage_ref=pyramid_ref(identifier, bucket=bucket),
-            state="retiring",
+            state="building",
             created_at=old,
             updated_at=old,
         )
@@ -90,15 +120,16 @@ async def allocate_case(db, kind, *, count=1):
         extra = image_pyramid_storage.resolve(row).key("manifest.json")
         producer, purpose = "image_pyramid_removals", "media_cache"
     elif kind == "video":
+        item = await _owned_media_item(db, "video")
         row = VideoDerivativeOutput(
             id=identifier,
-            dataset_item_id=uuid.uuid4(),
+            dataset_item_id=item.id,
             kind="metadata",
             spec={},
             original_ref={},
             auth_ref={},
             storage_ref=video_ref(identifier, bucket=bucket),
-            state="retiring",
+            state="building",
             created_at=old,
             updated_at=old,
         )
@@ -145,6 +176,14 @@ async def allocate_case(db, kind, *, count=1):
             db.add(bundle)
             row.media_bundle_id = bundle.id
     db.add(row)
+    if kind in {"pyramid", "video"}:
+        await db.flush()
+        model = ImagePyramidOutput if kind == "pyramid" else VideoDerivativeOutput
+        await db.execute(
+            update(model)
+            .where(model.id == identifier)
+            .values(state="retiring", updated_at=old)
+        )
     await db.commit()
     return SimpleNamespace(
         db=db,
@@ -291,17 +330,33 @@ async def test_later_guard_or_business_rejection_keeps_confirmed_marker(
     owners_db, monkeypatch, kind
 ):
     case = await install(owners_db, kind, monkeypatch)
-    original = owners_db.scalar
-    model = type(case.row)
+    if kind == "pyramid":
+        original = pyramids.data.finish_retirement
 
-    async def guarded(statement, *args, **kwargs):
-        if case.client.closed and any(
-            d.get("entity") is model for d in statement.column_descriptions
-        ):
-            return None
-        return await original(statement, *args, **kwargs)
+        async def reject_pyramid(*args, **kwargs):
+            if case.client.closed:
+                return False
+            return await original(*args, **kwargs)
 
-    monkeypatch.setattr(owners_db, "scalar", guarded)
+        monkeypatch.setattr(pyramids.data, "finish_retirement", reject_pyramid)
+    elif kind == "video":
+        original = videos._sweeping
+
+        async def reject_video(*args, **kwargs):
+            if case.client.closed:
+                videos.reject()
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(videos, "_sweeping", reject_video)
+    else:
+        original = export_outputs._cleanup_locked
+
+        async def reject_export(*args, **kwargs):
+            if case.client.closed:
+                return None, None
+            return await original(*args, **kwargs)
+
+        monkeypatch.setattr(export_outputs, "_cleanup_locked", reject_export)
     assert await execute(case) == 0
     (fact,) = await facts(case)
     assert fact.state == "confirmed" and fact.current_delta_bytes == -3

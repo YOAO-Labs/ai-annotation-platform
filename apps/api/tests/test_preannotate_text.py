@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 import uuid
 from pathlib import Path
 
@@ -25,6 +26,7 @@ from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.services import jobs_dispatch
 from tests.conftest import create_registry_with_pool
 from tests.test_managed_prediction_requests import managed_task
 
@@ -78,18 +80,19 @@ async def _seed(
     await db.flush()
 
     for i in range(3):
-        db.add(
-            Task(
-                id=uuid.uuid4(),
-                project_id=proj.id,
-                batch_id=batch.id,
-                display_id=f"T-{suffix}-{i}",
-                file_name=f"img{i}.jpg",
-                file_path=f"items/{suffix}-{i}.jpg",
-                file_type="image",
-                status="pending",
-            )
+        task = Task(
+            id=uuid.uuid4(),
+            project_id=proj.id,
+            batch_id=batch.id,
+            display_id=f"T-{suffix}-{i}",
+            file_name=f"img{i}.jpg",
+            file_path=f"items/{suffix}-{i}.jpg",
+            file_type="image",
+            status="pending",
         )
+        db.add(task)
+        await db.flush()
+        await managed_task(db, proj, SimpleNamespace(id=owner_id), task=task)
     await db.commit()
     return proj, backend, batch
 
@@ -105,9 +108,15 @@ def _mock_celery(monkeypatch):
         assert request.async_job_id is not None
         return request.async_job_id
 
+    async def publish_prepared_dispatch(_db, _lease, *, publish):
+        return publish()
+
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
     monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        jobs_dispatch, "publish_prepared_dispatch", publish_prepared_dispatch
+    )
     return captured
 
 

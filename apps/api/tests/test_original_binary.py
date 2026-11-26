@@ -57,86 +57,72 @@ RAW = b"opaque original\x00\xff"
 
 
 @pytest.fixture
-async def world(original_db, original_client, test_engine, monkeypatch):
-    db = original_db
-    async with test_engine.connect() as connection:
-        template = await connection.scalar(text("SELECT current_schema()"))
-    schema = await db.scalar(text("SELECT current_schema()"))
-    for table in (
-        "users",
-        "api_keys",
-        "projects",
-        "project_members",
-        "task_batches",
-        "datasets",
-    ):
-        await db.execute(
-            text(
-                f'CREATE TABLE "{schema}"."{table}" (LIKE "{template}"."{table}" INCLUDING ALL)'
+async def world(managed_database, original_client, monkeypatch):
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await ensure_legacy_bindings(db)
+            users = [
+                User(
+                    id=uuid.uuid4(),
+                    email=uuid.uuid4().hex + "@example.test",
+                    name="Binary",
+                    password_hash="unused",
+                    role=role,
+                    is_active=True,
+                )
+                for role in ("project_admin", "employee", "employee")
+            ]
+            db.add_all(users)
+            await db.flush()
+            manager, actor, stranger = users
+            project = await create_project(db, owner_id=manager.id)
+            dataset = Dataset(
+                id=uuid.uuid4(),
+                display_id="bin-" + uuid.uuid4().hex[:12],
+                name="Binary originals",
+                created_by=manager.id,
             )
-        )
-    users = [
-        User(
-            id=uuid.uuid4(),
-            email=uuid.uuid4().hex + "@example.test",
-            name="Binary",
-            password_hash="unused",
-            role=role,
-            is_active=True,
-        )
-        for role in ("project_admin", "employee", "employee")
-    ]
-    db.add_all(users)
-    await db.flush()
-    manager, actor, stranger = users
-    project = await create_project(db, owner_id=manager.id)
-    dataset = Dataset(
-        id=uuid.uuid4(),
-        display_id="bin-" + uuid.uuid4().hex[:12],
-        name="Binary originals",
-        created_by=manager.id,
-    )
-    member = ProjectMember(project_id=project.id, user_id=actor.id, role="annotator")
-    db.add_all([dataset, member])
-    await db.commit()
-    provider = Provider()
-    provider.meta.endpoint_url = (
-        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
-    )
-    monkeypatch.setattr(reader, "create_client", lambda **_: provider)
-    monkeypatch.setattr(
-        token_blacklist, "is_blacklisted", AsyncMock(return_value=False)
-    )
-    monkeypatch.setattr(
-        token_blacklist, "get_user_generation", AsyncMock(return_value=0)
-    )
-    value = SimpleNamespace(
-        db=db,
-        client=original_client,
-        provider=provider,
-        manager=manager,
-        actor=actor,
-        stranger=stranger,
-        project=project,
-        dataset=dataset,
-        member=member,
-        stages=[],
-    )
-    capture = protocol.capture_download
+            member = ProjectMember(
+                project_id=project.id, user_id=actor.id, role="annotator"
+            )
+            db.add_all([dataset, member])
+            await db.commit()
+            provider = Provider()
+            provider.meta.endpoint_url = f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+            monkeypatch.setattr(reader, "create_client", lambda **_: provider)
+            monkeypatch.setattr(
+                token_blacklist, "is_blacklisted", AsyncMock(return_value=False)
+            )
+            monkeypatch.setattr(
+                token_blacklist, "get_user_generation", AsyncMock(return_value=0)
+            )
+            value = SimpleNamespace(
+                db=db,
+                client=original_client,
+                provider=provider,
+                manager=manager,
+                actor=actor,
+                stranger=stranger,
+                project=project,
+                dataset=dataset,
+                member=member,
+                stages=[],
+            )
+            capture = protocol.capture_download
 
-    async def recorded(spec):
-        stage = await capture(spec)
-        value.stages.append(stage)
-        return stage
+            async def recorded(spec):
+                stage = await capture(spec)
+                value.stages.append(stage)
+                return stage
 
-    monkeypatch.setattr(protocol, "capture_download", recorded)
-    try:
-        yield value
-    finally:
-        for stage in value.stages:
-            stage.close()
-        await db.rollback()
-        assert all(body.closed for body in provider.bodies)
+            monkeypatch.setattr(protocol, "capture_download", recorded)
+            try:
+                yield value
+            finally:
+                for stage in value.stages:
+                    stage.close()
+                await db.rollback()
+                assert all(body.closed for body in provider.bodies)
 
 
 def _principal(actor, *, token, key_id=None, scopes=None):
@@ -266,9 +252,12 @@ async def standalone(world, data, file_type):
     await world.db.commit()
     world.client.store(allocation["staging_bucket"], allocation["staging_key"], data)
     created = await creation.complete_direct(world.db, allocation)
-    await task_originals.publish(world.db, task, allocation, created)
+    await task_originals.publish(
+        world.db, task, allocation, created, actor_id=world.manager.id
+    )
     task.status = "pending"
     await world.db.commit()
+    await world.db.refresh(task)
     world.provider.raw = world.provider.actual = data
     return task
 

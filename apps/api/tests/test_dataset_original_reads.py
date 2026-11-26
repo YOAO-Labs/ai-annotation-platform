@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
 
 from app.db.models.dataset_asset import DatasetAssetLocation, StorageLocation
 from app.db.models.storage_connection import StorageConnection
@@ -17,54 +16,20 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindin
 from app.services.managed_s3_target import Target
 from tests.test_managed_original_reader import Provider
 from tests.test_original_sources import dataset_rows
+from tests.test_task_originals import current_original_session
 
 
 @pytest.fixture
-async def saved_db(test_engine, monkeypatch):
-    schema = "dataset_reads_" + uuid.uuid4().hex
-    tables = (
-        "storage_connections",
-        "storage_locations",
-        "storage_bindings",
-        "storage_maintenance_gates",
-        "storage_operations",
-        "storage_migration_read_publications",
-        "storage_migration_read_routes",
-        "dataset_items",
-        "dataset_assets",
-        "dataset_asset_locations",
-        "dataset_auxiliary_originals",
-        "tasks",
-        "task_dataset_item_links",
-        "managed_original_retirements",
-    )
-    async with test_engine.begin() as connection:
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        source = await connection.scalar(text("SELECT current_schema()"))
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" '
-                    f'(LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
+async def saved_db(managed_database, monkeypatch):
     monkeypatch.setattr(
         "app.services.connector_guard.get_allowlist",
         AsyncMock(return_value=["objects.example.test"]),
     )
-    try:
-        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+    async with managed_database() as engine:
+        async with current_original_session(engine) as db:
             await ensure_legacy_bindings(db)
             await db.commit()
             yield db
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 async def saved_item(db):
@@ -84,6 +49,7 @@ async def saved_item(db):
         revision=2,
     )
     db.add(connection)
+    await db.flush()
     location = StorageLocation(
         id=uuid.uuid4(),
         name="saved-B-" + uuid.uuid4().hex,
@@ -106,10 +72,21 @@ async def saved_item(db):
     )
     key = target.key_prefix + "originals/" + uuid.uuid4().hex
     item.file_path = task.file_path = key
-    replica.location_id = location.id
-    replica.bucket = target.bucket
-    replica.object_key = key
-    replica.storage_ref = dataset_storage.make_ref(target, 2, key)
+    verified_at = replica.verified_at
+    await db.delete(replica)
+    await db.flush()
+    replica = DatasetAssetLocation(
+        asset_id=asset.id,
+        location_id=location.id,
+        bucket=target.bucket,
+        object_key=key,
+        role="managed_original",
+        reference_state="present",
+        etag="historical-etag",
+        verified_at=verified_at,
+        storage_ref=dataset_storage.make_ref(target, 2, key),
+    )
+    db.add(replica)
     await db.commit()
     return item, asset, replica, task, location, connection
 

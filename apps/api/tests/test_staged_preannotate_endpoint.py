@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -18,7 +19,9 @@ from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
+from app.services import jobs_dispatch
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_prediction_requests import managed_task
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -82,6 +85,8 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
         status="pending",
     )
     db.add(t)
+    await db.flush()
+    await managed_task(db, proj, SimpleNamespace(id=owner_id), task=t)
     await db.commit()
     return proj, detect, classify, batch
 
@@ -96,9 +101,15 @@ def _mock_celery(monkeypatch):
         captured["soft_time_limit"] = soft_time_limit
         return "fake-job-uuid"
 
+    async def publish_prepared_dispatch(_db, _lease, *, publish):
+        return publish()
+
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
     monkeypatch.setattr(CeleryBatchPredictionDispatcher, "dispatch", fake_dispatch)
+    monkeypatch.setattr(
+        jobs_dispatch, "publish_prepared_dispatch", publish_prepared_dispatch
+    )
     return captured
 
 

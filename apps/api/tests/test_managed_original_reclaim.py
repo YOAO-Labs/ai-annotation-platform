@@ -12,10 +12,9 @@ import pytest
 from fastapi import Request
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.db.base import Base
 from app.db.models.async_job import AsyncJob
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.managed_original_reclaim import (
@@ -57,37 +56,8 @@ from tests.test_managed_original_reclamation import (
 
 
 @pytest.fixture
-async def reclaim_db(test_engine):
-    schema = "reclaim_test_" + uuid.uuid4().hex
-    excluded = {
-        "alembic_version",
-        "managed_original_reclaim_attempts",
-        "managed_original_reclaim_claims",
-        "managed_original_reference_reconciliation",
-    }
-    async with test_engine.begin() as connection:
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        names = await connection.scalars(
-            text("SELECT tablename FROM pg_tables WHERE schemaname=current_schema()")
-        )
-        for name in list(names):
-            if name not in excluded and name in Base.metadata.tables:
-                await connection.execute(
-                    text(
-                        f'CREATE TABLE "{schema}"."{name}" (LIKE public."{name}" INCLUDING ALL)'
-                    )
-                )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    try:
-        async with engine.begin() as connection:
-            await connection.run_sync(
-                lambda sync: migration(
-                    sync, "0260_managed_original_reclaim.py"
-                ).upgrade()
-            )
+async def reclaim_db(managed_database):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             actor = await create_user(
@@ -95,10 +65,6 @@ async def reclaim_db(test_engine):
             )
             await db.commit()
             yield db, actor
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 async def seed(db, *, size=12, version="immutable-version-1", real=False):
@@ -276,6 +242,7 @@ async def test_exact_task_redispatch_and_gate_change_never_acquire(reclaim_db):
     await db.commit()
     assert await service.claim(db, job.id, row.task_id) is None
     await db.commit()
+    row = await db.get(Attempt, row.id, populate_existing=True)
     assert row.status == "failed" and row.operation_id is None
 
 
@@ -313,7 +280,7 @@ async def test_intent_late_ack_and_absence_survive_revocation_and_cancellation(
     await permit._settle()
     await service.publish(db, job.id, row.task_id, cancelled=True, settled=True)
     await db.commit()
-    await db.refresh(row)
+    row = await db.get(Attempt, row.id, populate_existing=True)
     assert (
         row.status == "completed"
         and row.outcome == "deleted"
@@ -339,7 +306,7 @@ async def test_intent_commit_then_callback_reply_failure_keeps_permanent_tombsto
         settled=True,
     )
     await db.commit()
-    await db.refresh(row)
+    row = await db.get(Attempt, row.id, populate_existing=True)
     claim = await db.scalar(select(Claim))
     assert row.status == "unknown" and claim.state == "tombstone"
     retry, retry_job, _ = await start(db, actor, anchor, retry=row.id)
@@ -358,7 +325,7 @@ async def test_unsettled_operation_has_no_ttl_retry_or_resume(reclaim_db):
         db, job.id, row.task_id, error_code="reclaim_failed", settled=False
     )
     await db.commit()
-    await db.refresh(row)
+    row = await db.get(Attempt, row.id, populate_existing=True)
     preview = await service.preview(
         db,
         anchor.id,
@@ -708,7 +675,7 @@ async def test_authority_change_before_delete_preserves_read_fact_and_no_intent(
         db, job.id, row.task_id, error_code="reclaim_authority_changed", settled=True
     )
     await db.commit()
-    await db.refresh(row)
+    row = await db.get(Attempt, row.id, populate_existing=True)
     assert row.read_verified and row.delete_intent_at is None
     assert (await db.scalar(select(Claim))).state == "released"
 
@@ -972,6 +939,7 @@ async def test_cancel_running_before_permit_is_atomic_against_future_acquisition
     await db.commit()
     with pytest.raises(Exception):
         await service.acquire(db, row.id, row.task_id)
+    row = await db.get(Attempt, row.id, populate_existing=True)
     assert (
         row.status == "cancelled"
         and (await db.scalar(select(Claim))).state == "released"
@@ -1024,7 +992,7 @@ async def test_job_retention_only_unlinks_job_and_preserves_terminal_claim_histo
 
     await db.execute(delete(AsyncJob).where(AsyncJob.id == job_id))
     await db.commit()
-    await db.refresh(row)
+    row = await db.get(Attempt, attempt_id, populate_existing=True)
     assert (
         row.id == attempt_id and row.async_job_id is None and row.status == "cancelled"
     )

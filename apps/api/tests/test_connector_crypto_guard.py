@@ -91,7 +91,7 @@ def test_normalize_allowlist_rejects_invalid_entries(entry):
 
 
 def test_normalize_allowlist_rejects_more_than_256_entries():
-    with pytest.raises(cg.ConnectorAllowlistInvalid, match="最多 256 条"):
+    with pytest.raises(cg.ConnectorAllowlistInvalid, match="too many entries"):
         cg.normalize_allowlist([f"host-{index}.example.com" for index in range(257)])
 
 
@@ -161,21 +161,21 @@ def test_private_ip_allowed_only_via_cidr_entry():
 
 
 def test_dns_rebinding_to_internal_denied(monkeypatch):
-    def fake_getaddrinfo(host, *a, **k):
-        import socket as s
+    import socket as s
 
+    def fake_getaddrinfo(host, *a, **k):
         return [(s.AF_INET, s.SOCK_STREAM, s.IPPROTO_TCP, "", ("10.1.2.3", 0))]
 
-    monkeypatch.setattr(cg.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(s, "getaddrinfo", fake_getaddrinfo)
     with pytest.raises(cg.ConnectorHostDenied):
         cg.assert_host_allowed("evil.example.com", ["evil.example.com"])
 
 
 def test_domain_suffix_entry_matches_subdomain(monkeypatch):
-    def fake_getaddrinfo(host, *a, **k):
-        import socket as s
+    import socket as s
 
+    def fake_getaddrinfo(host, *a, **k):
         return [(s.AF_INET, s.SOCK_STREAM, s.IPPROTO_TCP, "", ("8.8.8.8", 0))]
 
-    monkeypatch.setattr(cg.socket, "getaddrinfo", fake_getaddrinfo)
+    monkeypatch.setattr(s, "getaddrinfo", fake_getaddrinfo)
     cg.assert_host_allowed("oss-cn-hangzhou.aliyuncs.com", [".aliyuncs.com"])

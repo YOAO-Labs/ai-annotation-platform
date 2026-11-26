@@ -75,7 +75,9 @@ async def test_non_image_secondary_delivers_existing_crop_inside_lease(
     await db_session.flush()
     annotation = await _mk_box(db_session, task.id, actor.id)
     image = Image.new("RGB", (200, 200))
-    monkeypatch.setattr("app.workers.tasks._load_task_image", lambda _: image)
+    monkeypatch.setattr(
+        "app.services.prediction_context.load_task_image", lambda _: image
+    )
     _patch_predict(monkeypatch, [])
     marker, captured = object(), {}
 
@@ -115,7 +117,6 @@ async def test_non_image_secondary_delivers_existing_crop_inside_lease(
         prompt=None,
         class_filter=None,
         pad=0.08,
-        user_id=actor.id,
     )
     assert captured["closed"] and captured["owner_kind"] == "secondary_inference"
     assert "source_ref" not in captured and captured["task_id"] == task.id

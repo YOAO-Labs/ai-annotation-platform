@@ -26,49 +26,22 @@ from app.services.mask_formats.contracts import canonical_digest
 from app.services.video_track_quality import _snapshot
 from app.services.video_canonical import VideoBoundaryUnreconciledError
 from tests.factory import build_tool_bindings
-from tests.test_lidar_export_inputs import input_db as input_db
+from tests.test_lidar_export_inputs import (
+    lidar_database as lidar_database,
+    lidar_input_db as lidar_input_db,
+)
 from tests.test_original_sources import add_link
 
 
 @pytest.fixture
-async def video_db(input_db, test_engine):
-    """Extend the already-owned random schema; never select a database URL."""
-    db = input_db
-    schema = await db.scalar(text("SELECT current_schema()"))
-    assert (
-        schema.startswith("lidar_input_test_")
-        and schema.removeprefix("lidar_input_test_").isalnum()
-    )
-    async with test_engine.connect() as connection:
-        source = await connection.scalar(text("SELECT current_schema()"))
-    quoted_source = '"' + source.replace('"', '""') + '"'
-    for table in ("video_segments", "video_track_quality_runs"):
-        await db.execute(
-            text(
-                f'CREATE TABLE "{schema}"."{table}" (LIKE {quoted_source}."{table}" INCLUDING ALL)'
-            )
-        )
-    for child, column, parent in (
-        ("tasks", "project_id", "projects"),
-        ("tasks", "dataset_item_id", "dataset_items"),
-        ("dataset_items", "dataset_id", "datasets"),
-        ("video_segments", "dataset_item_id", "dataset_items"),
-        ("video_track_quality_runs", "task_id", "tasks"),
-        ("video_track_quality_runs", "left_segment_id", "video_segments"),
-        ("video_track_quality_runs", "right_segment_id", "video_segments"),
-        ("predictions", "task_id", "tasks"),
-    ):
-        await db.execute(
-            text(
-                f'ALTER TABLE "{schema}"."{child}" ADD FOREIGN KEY ("{column}") REFERENCES "{schema}"."{parent}" (id)'
-            )
-        )
-    await db.commit()
-    yield db
+async def video_db(lidar_input_db):
+    """Use the module-owned migrated database with real public schema bindings."""
+    yield lidar_input_db
 
 
 async def setup(db, *, collaboration=False, primary=False):
     """Return (project,item,asset,replica,task,annotation), with real SQL owners."""
+    owner_id = db.info.get("lidar_input_owner_id") or uuid.uuid4()
     project = Project(
         id=uuid.uuid4(),
         display_id="video-" + uuid.uuid4().hex[:14],
@@ -76,7 +49,7 @@ async def setup(db, *, collaboration=False, primary=False):
         type_key="video-track",
         type_label="Video",
         data_type="video",
-        owner_id=uuid.uuid4(),
+        owner_id=owner_id,
         video_sampling={"mode": "step", "frame_step": 3},
         video_collaboration={
             "enabled": collaboration,
