@@ -11,7 +11,7 @@ import time
 import os
 import uuid
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import DBAPIError
@@ -30,7 +30,7 @@ from app.services import video_derivative_originals as originals
 from app.services import video_derivatives as core
 from app.services import video_frame_service as service
 from app.workers.media import generate_video_derivatives
-from tests.factory import make_user_dict
+from tests.factory import admitted_request, make_user_dict
 from tests.video_derivative_fixtures import (
     owned_metadata,
     owned_output,
@@ -139,12 +139,7 @@ async def committed_video(test_engine, monkeypatch):
             await db.flush()
             generation = await owned_metadata(db, item)
             token = create_access_token(str(actor.id), actor.role)
-            request = Request(
-                {
-                    "type": "http",
-                    "headers": [(b"authorization", f"Bearer {token}".encode())],
-                }
-            )
+            request = admitted_request(actor, token=token)
             state.authority = await originals.authorize(db, task_id, actor, request)
             state.generation_id = generation.id
             await db.commit()

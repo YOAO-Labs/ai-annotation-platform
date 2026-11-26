@@ -11,7 +11,7 @@ import json
 from types import SimpleNamespace
 import uuid
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 import pytest
 from sqlalchemy import select, update
 
@@ -35,7 +35,7 @@ from app.services import video_frame_service as service
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
 from app.services.storage import storage_service
-from tests.factory import create_api_key
+from tests.factory import admitted_request, create_api_key
 
 
 def _headers(actor):
@@ -43,9 +43,7 @@ def _headers(actor):
 
 
 def _request(actor):
-    return Request(
-        {"type": "http", "headers": [(b"authorization", f"Bearer {actor[1]}".encode())]}
-    )
+    return admitted_request(actor[0], token=actor[1])
 
 
 @pytest.fixture
@@ -121,16 +119,20 @@ async def world(db_session, super_admin, annotator, monkeypatch):
             return b"image-bytes"
         return f"https://saved-owner.test/{output.id}/{relative}" if relative else None
 
-    def dispatch(ids):
+    async def prepare_dispatch(db, ids, *, delivery_id=None):
+        return list(ids)
+
+    async def publish_dispatch(prepared):
         assert not db_session.in_transaction()
-        if ids:
-            dispatched.append(list(ids))
+        if prepared:
+            dispatched.append(list(prepared))
 
     def no_raw_signature(*args, **kwargs):
         pytest.fail("raw video/cache keys must never be signed")
 
     monkeypatch.setattr(core, "verified", verified)
-    monkeypatch.setattr(core, "dispatch", dispatch)
+    monkeypatch.setattr(core, "prepare_dispatch", prepare_dispatch)
+    monkeypatch.setattr(core, "publish_dispatch", publish_dispatch)
     monkeypatch.setattr(storage_service, "generate_download_url", no_raw_signature)
     monkeypatch.setattr(service.SystemSettingsService, "get", _no_warmup)
     return SimpleNamespace(

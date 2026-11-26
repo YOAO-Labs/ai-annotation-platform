@@ -10,7 +10,6 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from starlette.requests import Request
 
 from app.core import token_blacklist
 from app.core.security import create_access_token
@@ -22,7 +21,7 @@ from app.services import managed_original_reclamation, managed_original_retentio
 from app.services import original_binary, original_sources, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from tests.factory import create_project, create_task, create_user
+from tests.factory import admitted_request, create_project, create_task, create_user
 from tests.storage_migration_isolation import native_reclaim_db as native_reclaim_db
 from tests.storage_migration_isolation import native_reclaim_only
 from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
@@ -97,6 +96,21 @@ async def test_restricted_original_wait_and_permission_recheck(
         item.file_path,
         actor.id,
     )
+    actor_snapshot = type(
+        "_ActorSnapshot",
+        (),
+        {
+            "id": actor.id,
+            "name": actor.name,
+            "email": actor.email,
+            "role": actor.role,
+            "is_active": actor.is_active,
+        },
+    )()
+    task_id = task.id
+    item_id = item.id
+    item_file_path = item.file_path
+    asset_id = asset.id
     await owner.commit()
     runtime = create_async_engine(
         _legacy_runtime_url(test_engine), hide_parameters=True
@@ -120,12 +134,12 @@ async def test_restricted_original_wait_and_permission_recheck(
             backend = await db.scalar(text("SELECT pg_backend_pid()"))
             await owner.execute(
                 select(DatasetItem.id)
-                .where(DatasetItem.id == item.id)
+                .where(DatasetItem.id == item_id)
                 .with_for_update()
             )
             reading = asyncio.create_task(
                 original_sources.resolve_task(
-                    db, task.id, lock=True, wait_for_item=True
+                    db, task_id, lock=True, wait_for_item=True
                 )
             )
             try:
@@ -139,22 +153,22 @@ async def test_restricted_original_wait_and_permission_recheck(
                 await owner.commit()
                 source = await reading
             assert (source.content_id, source.sha256, source.object_key) == (
-                asset.id,
+                asset_id,
                 digest,
-                item.file_path,
+                item_file_path,
             )
             await db.rollback()
 
             await owner.execute(
                 select(DatasetItem.id)
-                .where(DatasetItem.id == item.id)
+                .where(DatasetItem.id == item_id)
                 .with_for_update()
             )
             await db.execute(text("SET LOCAL lock_timeout = '25ms'"))
             try:
                 with pytest.raises(ContentError) as busy:
                     await original_sources.resolve_task(
-                        db, task.id, lock=True, wait_for_item=True
+                        db, task_id, lock=True, wait_for_item=True
                     )
                 assert busy.value.code == "storage_original_busy"
                 assert await db.scalar(text("SHOW lock_timeout")) == "25ms"
@@ -162,19 +176,16 @@ async def test_restricted_original_wait_and_permission_recheck(
                 await owner.rollback()
                 await db.rollback()
 
-            token = create_access_token(str(actor.id), actor.role, timedelta(minutes=5))
-            request = Request(
-                {
-                    "type": "http",
-                    "headers": [(b"authorization", f"Bearer {token}".encode())],
-                }
+            token = create_access_token(
+                str(actor_snapshot.id), actor_snapshot.role, timedelta(minutes=5)
             )
+            request = admitted_request(actor_snapshot, token=token)
             context = await original_binary.authorize_original(
                 db,
-                original_binary.Resource(kind="task", task_id=task.id),
-                actor,
+                original_binary.Resource(kind="task", task_id=task_id),
+                actor_snapshot,
                 request=request,
-                expected_content_id=asset.id,
+                expected_content_id=asset_id,
                 expected_sha256=digest,
             )
             acquire = storage_access.acquire
@@ -199,7 +210,7 @@ async def test_restricted_original_wait_and_permission_recheck(
                 await owner.scalar(
                     select(StorageOperation.id).where(
                         StorageOperation.purpose
-                        == f"dataset_original_read_{asset.id.hex}"
+                        == f"dataset_original_read_{asset_id.hex}"
                     )
                 )
                 is None

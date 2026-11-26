@@ -37,7 +37,7 @@ from app.services.content_snapshot import ContentError
 from yoao_inference_contract.backend_control import BackendControlSetupResult
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from tests.inference_execution_test_ports import FakeModelExecutionPort
-from tests.factory import create_project
+from tests.factory import admitted_request, create_project
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
     attach_managed,
@@ -738,10 +738,7 @@ async def test_native_private_receipt_cannot_leave_its_actual_transaction(
         db_session,
         task,
         actor,
-        SimpleNamespace(
-            state=SimpleNamespace(api_key_id=None),
-            headers={"authorization": "Bearer " + super_admin[1]},
-        ),
+        admitted_request(actor, token=super_admin[1]),
         data,
     )
     await validate_native_receipt(

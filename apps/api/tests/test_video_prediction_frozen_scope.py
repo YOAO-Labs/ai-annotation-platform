@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 import hashlib
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 import uuid
 
 import pytest
@@ -28,7 +29,7 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import register_item_asset
 from app.services.prediction_execution import create_snapshot
 from tests.conftest import create_registry_with_pool
-from tests.factory import create_project, create_task
+from tests.factory import admitted_request, create_project, create_task
 from tests.inference_execution_test_ports import run_batch_request
 
 pytestmark = pytest.mark.asyncio
@@ -139,10 +140,7 @@ async def freeze(world, *, proof=True, unit="video"):
             world.db,
             world.project,
             world.actor,
-            SimpleNamespace(
-                state=SimpleNamespace(api_key_id=None, api_key_scopes=None),
-                headers={"authorization": "Bearer " + token},
-            ),
+            admitted_request(world.actor, token=token),
             world.tasks,
             snapshot,
             scope="bulk",
@@ -159,6 +157,7 @@ async def freeze(world, *, proof=True, unit="video"):
         payload={
             "scope": {"task_ids": ids},
             "task_ids": ids,
+            "execution_scope": "bulk",
             **({"video_prediction_authority": frozen} if frozen is not None else {}),
         },
     )
@@ -205,7 +204,9 @@ async def run_selection(world, monkeypatch, job, *, mutate=None):
 
     monkeypatch.setattr(world.db, "execute", observe)
     monkeypatch.setattr(
-        sa_async, "create_async_engine", lambda *a, **kw: SimpleNamespace()
+        sa_async,
+        "create_async_engine",
+        lambda *a, **kw: SimpleNamespace(dispose=AsyncMock()),
     )
     monkeypatch.setattr(sa_async, "async_sessionmaker", lambda *a, **kw: session)
     monkeypatch.setattr("app.services.prediction_progress.publish_progress", progress)

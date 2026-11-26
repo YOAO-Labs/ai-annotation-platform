@@ -21,7 +21,7 @@ from app.services.dataset_assets import (
 )
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_location import register_connection
-from tests.test_storage_locations_api import headers
+from tests.test_storage_locations_api import headers, stub_saved_binding_probe
 from tests.test_storage_maintenance_impact import key_headers
 
 BASE = "/api/v1/storage-locations/bindings/annotations"
@@ -79,7 +79,7 @@ async def world(db_session, super_admin, monkeypatch, test_engine):
             "list_versions": True,
         }
 
-    monkeypatch.setattr(controller(), "probe_target", probe)
+    stub_saved_binding_probe(monkeypatch, controller(), probe)
     await db.commit()
     target_id = target.id
     yield db, connection, target, calls
@@ -366,10 +366,10 @@ async def test_probe_phase_rejects_revision_change_before_publishing_review(
 ):
     db, connection, target, calls = world
 
-    async def raced(_db, _location, _purpose, probe, captured_target, **_kwargs):
+    async def raced(_db, _location, _purpose, probe, *args, **_kwargs):
         connection.revision += 1
         await db.flush()
-        return probe(captured_target)
+        return probe(*args)
 
     monkeypatch.setattr(controller().storage_access, "run", raced)
     response = await httpx_client.post(

@@ -9,7 +9,6 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, select
-from starlette.requests import Request
 
 from app.core.security import create_access_token, decode_access_token, hash_password
 from app.db.models.api_key import ApiKey
@@ -19,7 +18,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import comment_attachment_authority as authority
 from app.services import guide_asset_uploads as uploads, storage_access
-from tests.factory import create_membership, create_user
+from tests.factory import admitted_request, create_membership, create_user
 from tests.test_comment_attachment_uploads import bearer
 from tests.test_guide_assets import (
     content,
@@ -336,12 +335,7 @@ async def test_cancelled_read_keeps_real_permit_until_body_really_closes(
             closed.set()
 
     objects.body_factory = Body
-    request = Request(
-        {
-            "type": "http",
-            "headers": [(b"authorization", ("Bearer " + project_admin[1]).encode())],
-        }
-    )
+    request = admitted_request(project_admin[0], token=project_admin[1])
     task = asyncio.create_task(
         uploads.read(db_session, project_admin[0], request, project_id, value["key"])
     )

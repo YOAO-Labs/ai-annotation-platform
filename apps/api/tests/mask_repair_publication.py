@@ -27,11 +27,8 @@ async def _publication_login(test_engine):
 
 
 @asynccontextmanager
-async def published_repair_database(test_engine, monkeypatch, managed_database):
-    async with (
-        _publication_login(test_engine) as (role, password),
-        managed_database() as engine,
-    ):
+async def bind_publication_login(engine, monkeypatch):
+    async with _publication_login(engine) as (role, password):
         database = engine.dialect.identifier_preparer.quote_identifier(
             engine.url.database
         )
@@ -40,9 +37,17 @@ async def published_repair_database(test_engine, monkeypatch, managed_database):
             for name, arguments in sorted(PUBLICATION_FUNCTIONS)
         )
         async with engine.begin() as owner:
-            await owner.exec_driver_sql(
-                f"REVOKE TEMP ON DATABASE {database} FROM PUBLIC"
+            had_public_temp = bool(
+                (
+                    await owner.exec_driver_sql(
+                        "SELECT has_database_privilege('public', current_database(), 'TEMP')"
+                    )
+                ).scalar()
             )
+            if had_public_temp:
+                await owner.exec_driver_sql(
+                    f"REVOKE TEMP ON DATABASE {database} FROM PUBLIC"
+                )
             await owner.exec_driver_sql(
                 f"GRANT CONNECT ON DATABASE {database} TO {role}"
             )
@@ -55,7 +60,30 @@ async def published_repair_database(test_engine, monkeypatch, managed_database):
         await _verify_login(dsn, PUBLICATION_FUNCTIONS)
         monkeypatch.setattr(settings, "jobs_publication_database_url", dsn)
         monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
-        yield engine
+        try:
+            yield dsn
+        finally:
+            async with engine.begin() as owner:
+                await owner.exec_driver_sql(
+                    f"REVOKE EXECUTE ON FUNCTION {functions} FROM {role}"
+                )
+                await owner.exec_driver_sql(
+                    f"REVOKE USAGE ON SCHEMA yoao_jobs_v1 FROM {role}"
+                )
+                await owner.exec_driver_sql(
+                    f"REVOKE CONNECT ON DATABASE {database} FROM {role}"
+                )
+                if had_public_temp:
+                    await owner.exec_driver_sql(
+                        f"GRANT TEMP ON DATABASE {database} TO PUBLIC"
+                    )
+
+
+@asynccontextmanager
+async def published_repair_database(test_engine, monkeypatch, managed_database):
+    async with managed_database() as engine:
+        async with bind_publication_login(engine, monkeypatch):
+            yield engine
 
 
 @pytest.fixture

@@ -11,7 +11,6 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from starlette.requests import Request
 
 from app.config import settings
 from app.db.models.storage_maintenance import StorageOperation
@@ -31,6 +30,7 @@ from app.services.raster_mask_storage import (
     canonical_rle_bytes,
 )
 from tests import live_provider_guard
+from tests.factory import admitted_request
 from tests.test_bug_attachment_accounting import Provider
 from tests.test_comment_polish import _seed_project_with_annotation
 from tests.test_conditional_write_accounting import (
@@ -57,17 +57,17 @@ async def caller(db_session, super_admin):
         token=super_admin[1],
         factory=factory,
         previous=previous,
-        request=Request(
-            {
-                "type": "http",
+        request=admitted_request(
+            super_admin[0],
+            token=super_admin[1],
+            scope={
                 "method": "POST",
                 "scheme": "http",
                 "path": "/test-upload",
                 "query_string": b"",
                 "server": ("test", 80),
                 "client": ("127.0.0.1", 12345),
-                "headers": [(b"authorization", ("Bearer " + super_admin[1]).encode())],
-            }
+            },
         ),
         project_id=project.id,
         annotation_id=annotation.id,

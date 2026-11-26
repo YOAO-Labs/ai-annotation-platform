@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from app.config import settings
 from app.core import security
@@ -216,7 +216,9 @@ async def test_registered_drain_is_explicit_cas_and_close_restores_only_after_ze
         Transition(action="close", expected_revision=2),
     )
     assert closing.state == "closing" and closing.registered_operations == 1
-    assert (await db_session.get(Gate, LEGACY_LOCATION_ID)).state == "stopped"
+    assert (
+        await db_session.get(Gate, LEGACY_LOCATION_ID, populate_existing=True)
+    ).state == "stopped"
     with pytest.raises(HTTPException):
         await windows.source_revision(db_session, value.window_id, prepared.source)
     await db_session.delete(operation)
@@ -275,7 +277,12 @@ async def test_window_open_retains_original_parent_and_physical_identity_guards(
     if problem == "unprepared":
         prepared.baseline_sha256 = None
     elif problem == "active":
-        (await copies.last(db_session, prepared)).status = "running"
+        last_attempt = await copies.last(db_session, prepared)
+        await db_session.execute(
+            update(Attempt)
+            .where(Attempt.id == last_attempt.id)
+            .values(status="running")
+        )
     elif problem == "permit":
         operation = StorageOperation(
             location_id=LEGACY_LOCATION_ID,
@@ -285,7 +292,12 @@ async def test_window_open_retains_original_parent_and_physical_identity_guards(
         )
         db_session.add(operation)
         await db_session.flush()
-        (await copies.last(db_session, prepared)).source_operation_id = operation.id
+        last_attempt = await copies.last(db_session, prepared)
+        await db_session.execute(
+            update(Attempt)
+            .where(Attempt.id == last_attempt.id)
+            .values(source_operation_id=operation.id)
+        )
     elif problem == "successor":
         db_session.add(
             Copy(

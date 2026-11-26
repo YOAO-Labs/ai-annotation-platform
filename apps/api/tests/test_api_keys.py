@@ -271,6 +271,7 @@ async def test_actor_routes_resolve_identity_principal_once(
     from app.db.models.user import User
     from app.deps import get_db, get_identity_gateway
     from app.api.v1.api_keys import get_api_key_management
+    from yoao_identity.actor_contract import ActorContext
     from yoao_identity.contract import Principal
     from yoao_identity.key_contract import decode_key_reply
     from tests.factory import make_user_dict
@@ -317,6 +318,16 @@ async def test_actor_routes_resolve_identity_principal_once(
                     expires_at=None,
                 )
                 return self.principal
+
+            async def actor_context(self, principal, *, db=None):
+                return ActorContext(
+                    id=principal.actor_id,
+                    name=principal.name,
+                    email=principal.email,
+                    role=principal.role,
+                    is_active=True,
+                    weekly_target_default=None,
+                )
 
             def uses_caller_session(self, _db):
                 return False

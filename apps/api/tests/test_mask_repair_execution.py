@@ -27,14 +27,12 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from starlette.requests import Request
 
 from app.application.mask_repair_execution import (
     run_mask_repair,
     run_mask_repair_rollback,
 )
 from app.config import settings
-from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.audit_log import AuditLog
@@ -69,7 +67,7 @@ from app.services.ml_interaction_proxy import prepare_interactive_context
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.reference_bindings import task_binding
 from app.workers.celery_app import celery_app
-from tests.factory import create_user
+from tests.factory import admitted_request, create_user
 from tests.inference_execution_test_ports import FakeModelExecutionPort
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_mask_repair_m5 import _seed_repair_issue
@@ -82,11 +80,7 @@ _WORKER_NODE = "worker:repair-control@test"
 
 def _http_request(actor):
     """A real admitted bearer request for the exact actor credential facts."""
-    role = getattr(actor.role, "value", actor.role)
-    token = create_access_token(str(actor.id), role)
-    return Request(
-        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
-    )
+    return admitted_request(actor)
 
 
 class _UnitRepairReceipt:
@@ -791,11 +785,13 @@ async def test_cancel_is_durable_when_revoke_fails(repair_world, monkeypatch, st
 
     monkeypatch.setattr(celery_app.control, "revoke", unavailable)
     async with world.factory() as db:
+        owner = await db.get(User, world.owner_id)
         cancellation = get_job_cancellation_port(
             db=db, execution_control=get_job_execution_control()
         )
         response = await cancel_async_job(
             job_id=world.job_id,
+            request=_http_request(owner),
             db=db,
             actor_id=world.owner_id,
             cancellation=cancellation,
@@ -1186,19 +1182,7 @@ async def test_deterministic_shards_follow_only_committed_versions(
         db.add(issue)
         await db.flush()
         actor = await db.get(User, world.owner_id)
-        request = Request(
-            {
-                "type": "http",
-                "headers": [
-                    (
-                        b"authorization",
-                        (
-                            "Bearer " + create_access_token(str(actor.id), actor.role)
-                        ).encode(),
-                    )
-                ],
-            }
-        )
+        request = _http_request(actor)
         response = await create_repair_plan(
             db,
             project=await db.get(Project, world.project_id),

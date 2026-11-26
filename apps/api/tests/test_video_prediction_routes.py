@@ -48,9 +48,9 @@ from tests.conftest import create_registry_with_pool
 from tests.factory import create_batch, create_membership, create_project, create_task
 from tests.managed_image_inference_fixtures import (
     db_session as db_session,
-    input_world as input_world,
     sync_world as sync_world,
 )
+from tests.mask_repair_publication import input_world as input_world
 from tests.inference_execution_test_ports import (
     FakeModelExecutionPort,
     run_batch_request,
