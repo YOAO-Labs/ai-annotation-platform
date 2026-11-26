@@ -12,9 +12,15 @@ import pytest
 from fastapi import HTTPException
 from PIL import Image
 from sqlalchemy import select
-from training_contract import definition
-from training_contract.catalog import supported_identities
-from training_contract.preview import POLICY, POLICY_DIGEST, closed_mosaic
+from training_contract.preview import POLICY, POLICY_DIGEST
+from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
+
+from tests.trainer_plugin_fixtures import (
+    DEFAULT_TEST_BASE_ASSET_SHAS,
+    ULTRALYTICS_VERSION,
+    closed_mosaic,
+    ultralytics_schema,
+)
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
@@ -43,13 +49,15 @@ def claim_body(**changes):
         claim_id=uuid.uuid4(),
         resource_id="test/augmentation-preview/cpu-0",
         runtime={
-            "executor_protocol": 2,
-            "supported_configs": supported_identities(),
+            "executor_protocol": 3,
+            "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+            "execution_modes": ["container", "local_process"],
+            "base_asset_sha256": list(DEFAULT_TEST_BASE_ASSET_SHAS),
             "preview_protocol": 1,
             "preview_policy_digest": POLICY_DIGEST,
             "image_digest": IMAGE,
             "gpu_uuid": GPU,
-            "frameworks": {"ultralytics": "8.4.177"},
+            "frameworks": {"ultralytics": ULTRALYTICS_VERSION},
         },
     )
     return body.model_copy(update=changes)
@@ -77,7 +85,7 @@ async def preview(db, client, owner, *, boxes=1, create=True):
         )
         is None
     )
-    schema = definition("ultralytics", "yolo11n")
+    schema = ultralytics_schema("yolo11n")
     body = dict(
         dataset_id=str(dataset.id),
         framework="ultralytics",
@@ -143,9 +151,9 @@ def evidence(row, objects, *, change=None):
         source_pool=frozen["sources"],
         pool_summary=frozen["pool_summary"],
         runtime=dict(
-            framework_version="8.4.177",
+            framework_version=ULTRALYTICS_VERSION,
             image_digest=IMAGE,
-            adapter_revision=2,
+            adapter_revision=3,
             pipeline_sha256="f" * 64,
             cuda_initialized=False,
         ),
@@ -202,7 +210,7 @@ async def test_idle_recovery_after_upgrade_preserves_lease_until_fresh_claim(
 ):
     row, *_ = await preview(db_session, httpx_client, super_admin)
     lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
-    old_runtime = {**claim_body().runtime, "image_digest": "sha256:" + "0" * 64}
+    old_runtime = {**claim_body().runtime, "preview_policy_digest": "0" * 64}
     old_claim = claim_body(runtime=old_runtime, recover_only=True)
     lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at = (
         old_claim.executor_id,
@@ -326,7 +334,10 @@ async def test_create_is_frozen_idempotent_scoped_and_blocks_dataset_delete(
             f"/api/v1/projects/{other.id}/training-previews/{row.id}", headers=headers
         )
     ).status_code == 404
-    assert not (await db_session.scalars(select(TrainingResourceLease))).all()
+    assert all(
+        lease.attempt_id is None
+        for lease in (await db_session.scalars(select(TrainingResourceLease))).all()
+    )
 
 
 async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
@@ -917,7 +928,7 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
         await service.claim(
             seed, claim_body(), training_authority=bind_training_authority(seed)
         )
-        schema = definition("ultralytics", "yolo11n")
+        schema = ultralytics_schema("yolo11n")
         body = TrainingPreviewCreate(
             dataset_id=dataset.id,
             framework="ultralytics",

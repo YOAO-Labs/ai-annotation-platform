@@ -655,11 +655,20 @@ def check_trial_runtime(version, deployment, receipt):
     pinned = (deployment.trial or {}).get("inference_runtime")
     live = (receipt or {}).get("inference_runtime")
     if pinned is None and isinstance(live, Mapping):
+        expected_qual = expected_receipt(version).get("runtime_qualification")
+        live_qual = live.get("qualification")
         if (
             live.get("framework") == version.framework
             and live.get("version") == version.framework_version
-            and isinstance(live.get("qualification"), Mapping)
-            and live["qualification"].get("device") == "cpu"
+            and isinstance(live_qual, Mapping)
+            and live_qual.get("device") == "cpu"
+            and (
+                expected_qual is None
+                or (
+                    isinstance(expected_qual, Mapping)
+                    and dict(live_qual) == dict(expected_qual)
+                )
+            )
         ):
             pinned = dict(live)
     if pinned != live:
@@ -671,6 +680,12 @@ def check_trial_runtime(version, deployment, receipt):
 def check_install_runtime(version, deployment, receipt):
     runtime = receipt.get("inference_runtime")
     pinned = (deployment.trial or {}).get("inference_runtime")
+    if (
+        runtime is None
+        and not deployment.receipt
+        and expected_receipt(version).get("artifact_format") is not None
+    ):
+        raise HTTPException(status_code=409, detail="安装回执缺少推理运行时身份")
     if pinned is not None and runtime != pinned:
         raise PinnedRuntimeConflict("已固定运行时不可原地更改，请使用新部署")
     if deployment.receipt and pinned is None and runtime is not None:

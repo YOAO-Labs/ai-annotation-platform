@@ -317,20 +317,19 @@ def test_checkpoint_probe_does_not_guess_another_storage_owner(owned, invalid):
 
 
 def test_native_configuration_observation_uses_saved_owner(owned, monkeypatch):
-    proof = {"qualified": True}
-    raw = json.dumps(
-        {
-            "config_digest": owned.run.config_digest,
-            "runtime_options": {"resume": False},
-            "observed": {},
-            "verification": proof,
-        }
-    ).encode()
-    receipt = artifact(owned, "native-config.json", "config", raw)
-    monkeypatch.setattr(runs, "verify_native", lambda *args: proof)
-    runs.verify_native_artifact(
-        owned.run, owned.attempt, {"native-config.json": receipt}
+    from tests.trainer_plugin_fixtures import build_v3_receipt
+
+    artifacts = {
+        "best.pt": artifact(owned, "best.pt", "weights", b"weights"),
+        "checkpoint.pt": artifact(owned, "checkpoint.pt", "checkpoint", b"ckpt"),
+        "metrics.json": artifact(owned, "metrics.json", "metrics", b"{}"),
+    }
+    raw, _ = build_v3_receipt(
+        artifacts, framework=owned.run.config.get("framework", "ultralytics")
     )
+    receipt = artifact(owned, "result.json", "config", raw)
+    artifacts["result.json"] = receipt
+    runs.verify_trainer_receipt_artifact(owned.run, owned.attempt, artifacts)
     assert owned.client.calls == [("get", owned.bucket, receipt["key"])]
 
 
@@ -658,7 +657,9 @@ async def test_unknown_active_claim_replay_retains_its_gpu_lease(owned, monkeypa
     async def get(model, identifier):
         return owned.run if model is TrainingRun else owned.attempt
 
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
+    monkeypatch.setattr(
+        runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
+    )
     monkeypatch.setattr(runs, "resource_id", lambda: "owned-gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
     monkeypatch.setattr(runs, "observe_lost", AsyncMock())
@@ -686,7 +687,9 @@ async def test_unpinned_queued_run_cannot_acquire_gpu(
         boot_id=uuid.uuid4(),
         recover_only=False,
     )
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
+    monkeypatch.setattr(
+        runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
+    )
     monkeypatch.setattr(runs, "resource_id", lambda: "owned-gpu")
     monkeypatch.setattr(runs, "runtime_compatible", lambda *args: True)
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))

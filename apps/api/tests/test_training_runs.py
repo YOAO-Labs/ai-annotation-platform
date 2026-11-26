@@ -18,7 +18,6 @@ from app.db.models.training_run import (
     TrainingRun,
 )
 from app.schemas.training_run import (
-    ExecutorClaim,
     ExecutorFinish,
     ExecutorHeartbeat,
     ExecutorRecovery,
@@ -37,7 +36,11 @@ IMAGE = "sha256:" + "1" * 64
 
 
 @pytest.fixture
-def training_config(monkeypatch):
+async def training_config(db_session, monkeypatch):
+    from tests.trainer_plugin_fixtures import (
+        ULTRALYTICS_VERSION,
+        seed_enabled_trainer_plugin,
+    )
     from tests.training_consumer_fixtures import mock_legacy_transport
 
     mock_legacy_transport(monkeypatch)
@@ -45,19 +48,28 @@ def training_config(monkeypatch):
     monkeypatch.setattr(settings, "training_executor_token", TOKEN)
     monkeypatch.setattr(settings, "training_gpu_uuid", GPU)
     monkeypatch.setattr(settings, "training_node_id", "test")
-    monkeypatch.setattr(
-        settings,
-        "training_catalog_json",
-        {
-            "ultralytics": {
-                "version": "8.4.177",
-                "image_digest": IMAGE,
-                "base_models": {
-                    "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"}
-                },
-            }
+    await seed_enabled_trainer_plugin(
+        db_session,
+        framework_id="ultralytics",
+        framework_version=ULTRALYTICS_VERSION,
+        image_digest=IMAGE,
+        base_models={
+            "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"},
+            "yolo11n-seg": {
+                "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+                "filename": "yolo11n-seg.pt",
+            },
         },
     )
+    await db_session.merge(
+        TrainingResourceLease(
+            resource_id="test/" + GPU,
+            executor_id="owned-executor",
+            last_seen_at=service.now(),
+            runtime=executor_claim().runtime,
+        )
+    )
+    await db_session.flush()
     monkeypatch.setattr(
         service,
         "internal_download",
@@ -74,7 +86,7 @@ async def ready_dataset(db, owner):
         request_digest="a" * 64,
         snapshot_digest="b" * 64,
         name="Frozen",
-        snapshot={},
+        snapshot={"schema": 1},
         status="pending",
         manifest={
             "schema": 1,
@@ -120,16 +132,12 @@ async def create_run(client, owner_token, project, dataset, **extra):
 
 
 def executor_claim():
-    return ExecutorClaim(
-        executor_id="owned-executor",
-        boot_id=uuid.uuid4(),
-        claim_id=uuid.uuid4(),
+    from tests.trainer_plugin_fixtures import plugin_executor_claim
+
+    return plugin_executor_claim(
         resource_id="test/" + GPU,
-        runtime={
-            "image_digest": IMAGE,
-            "gpu_uuid": GPU,
-            "frameworks": {"ultralytics": "8.4.177"},
-        },
+        gpu_uuid=GPU,
+        image_digest=IMAGE,
     )
 
 
@@ -155,11 +163,13 @@ async def claimed_run(db, client, owner_token, project, dataset):
 async def test_manager_creation_is_frozen_idempotent_and_blocks_dataset_deletion(
     db_session, super_admin, httpx_client, training_config, monkeypatch
 ):
+    from tests.trainer_plugin_fixtures import disable_trainer_plugin
+
     owner, token = super_admin
     project, dataset = await ready_dataset(db_session, owner)
     data, payload = await create_run(httpx_client, token, project, dataset)
     path = f"/api/v1/projects/{project.id}/training-runs"
-    monkeypatch.setattr(settings, "training_catalog_json", {})
+    await disable_trainer_plugin(db_session, "yoao.trainer.ultralytics")
     repeated = await httpx_client.post(
         path, headers={"Authorization": f"Bearer {token}"}, json=payload
     )
@@ -197,15 +207,20 @@ async def test_stale_preflight_rejects_admission_without_persisting_a_run(
         json=payload,
     )
     assert preflight.status_code == 200
+    from tests.trainer_plugin_fixtures import (
+        retire_trainer_plugin,
+        seed_enabled_trainer_plugin,
+    )
+
     payload["preflight_digest"] = preflight.json()["config_digest"]
-    changed_catalog = {
-        **settings.training_catalog_json,
-        "ultralytics": {
-            **settings.training_catalog_json["ultralytics"],
-            "image_digest": "sha256:" + "4" * 64,
-        },
-    }
-    monkeypatch.setattr(settings, "training_catalog_json", changed_catalog)
+    await retire_trainer_plugin(db_session, "yoao.trainer.ultralytics")
+    await seed_enabled_trainer_plugin(
+        db_session,
+        framework_id="ultralytics",
+        plugin_id="yoao.trainer.ultralytics.v2",
+        image_digest="sha256:" + "4" * 64,
+        base_models={"yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"}},
+    )
 
     rejected = await httpx_client.post(
         f"/api/v1/projects/{project.id}/training-runs",
@@ -628,6 +643,7 @@ async def test_project_busy_is_retryable_and_not_revocation(
     assignment = await service.claim(
         db_session, claim, training_authority=bind_training_authority(db_session)
     )
+    await db_session.refresh(run)
     monkeypatch.setattr(service, "authority", busy)
     with pytest.raises(HTTPException) as error:
         await service.heartbeat(
@@ -791,18 +807,20 @@ def test_real_artifact_stream_digest_and_partial_delete_errors(monkeypatch):
 async def test_libreyolo_catalog_freezes_native_options_and_return_capability(
     db_session, super_admin, httpx_client, training_config, monkeypatch
 ):
+    from tests.trainer_plugin_fixtures import (
+        disable_trainer_plugin,
+        seed_enabled_trainer_plugin,
+    )
+
     owner, token = super_admin
     project, dataset = await ready_dataset(db_session, owner)
-    catalog = dict(settings.training_catalog_json)
-    catalog["libreyolo"] = {
-        "version": "1.6.0",
-        "image_digest": IMAGE,
-        "base_models": {
-            "LibreYOLO9t": {"sha256": "3" * 64, "filename": "LibreYOLO9t.pt"}
-        },
-    }
-    monkeypatch.setattr(settings, "training_catalog_json", catalog)
-    options = adapters.catalog()["items"]
+    await seed_enabled_trainer_plugin(
+        db_session,
+        framework_id="libreyolo",
+        image_digest=IMAGE,
+        base_models={"libreyolo9t": {"sha256": "3" * 64, "filename": "LibreYOLO9t.pt"}},
+    )
+    options = (await adapters.resolve_catalog(db_session))["items"]
     libre = next(x for x in options if x["framework"] == "libreyolo")
     assert (
         libre["capabilities"]["model_registration"] is True
@@ -814,16 +832,15 @@ async def test_libreyolo_catalog_freezes_native_options_and_return_capability(
         project,
         dataset,
         framework="libreyolo",
-        base_model="LibreYOLO9t",
+        base_model="libreyolo9t",
     )
     assert run["config"]["framework_version"] == "1.6.0"
-    assert run["config"]["fixed_options"]["device"] == "cuda:0"
-    assert run["config"]["fixed_options"]["eval_interval"] == 1
+    assert run["config"]["adapter_revision"] == 3
     assert run["config"]["base_model"]["sha256"] == "3" * 64
-    monkeypatch.setattr(
-        settings, "training_catalog_json", {"ultralytics": catalog["ultralytics"]}
-    )
-    assert [x["framework"] for x in adapters.catalog()["items"]] == ["ultralytics"]
+    await disable_trainer_plugin(db_session, "yoao.trainer.libreyolo")
+    assert [
+        x["framework"] for x in (await adapters.resolve_catalog(db_session))["items"]
+    ] == ["ultralytics"]
     retained = await httpx_client.get(
         f"/api/v1/projects/{project.id}/training-runs/{run['id']}",
         headers={"Authorization": "Bearer " + token},
@@ -836,4 +853,8 @@ async def test_libreyolo_catalog_freezes_native_options_and_return_capability(
     assert (
         retained.json()["registration_eligibility"]["qualification"]["model_size"]
         == "t"
+    )
+    assert (
+        retained.json()["registration_eligibility"]["qualification"]["model_family"]
+        == "yolo9"
     )

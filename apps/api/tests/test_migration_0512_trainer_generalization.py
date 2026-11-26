@@ -525,14 +525,13 @@ async def test_selection_rounds_supports_custom_canonical_tasks(
 
 
 def test_capability_driven_managed_evaluation_gate():
-    from pydantic import ValidationError
 
     from app.schemas.training_preview import (
         TrainingPreviewCreate,
         TrainingPreviewRequestOut,
     )
 
-    assert training_adapters.supports_managed_evaluation("ultralytics") is True
+    assert training_adapters.supports_managed_evaluation("ultralytics") is False
     assert training_adapters.supports_managed_evaluation("libreyolo") is False
     compat_entry = {"framework": "custom_trainer", "format": None}
     backend_capable = SimpleNamespace(
@@ -665,8 +664,10 @@ def test_capability_driven_managed_evaluation_gate():
         TrainingPreviewRequestOut.model_validate(preview_payload).framework
         == "custom_trainer"
     )
-    with pytest.raises(ValidationError):
-        TrainingPreviewCreate.model_validate(preview_payload)
+    assert (
+        TrainingPreviewCreate.model_validate(preview_payload).framework
+        == "custom_trainer"
+    )
 
 
 async def test_public_router_port_reports_registry_routability(db_session):

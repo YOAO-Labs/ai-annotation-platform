@@ -104,9 +104,12 @@ async def run(
 async def test_run_filters_precede_count_and_stable_pagination(
     db_session, super_admin, httpx_client, monkeypatch
 ):
+    from unittest.mock import AsyncMock
     from app.services import training_adapters
 
-    monkeypatch.setattr(training_adapters, "catalog", lambda: {"enabled": False})
+    monkeypatch.setattr(
+        training_adapters, "resolve_catalog", AsyncMock(return_value={"enabled": False})
+    )
     owner, token = super_admin
     project = await create_project(db_session, owner_id=owner.id)
     dataset = await version(db_session, project)
@@ -162,6 +165,9 @@ async def test_run_filters_precede_count_and_stable_pagination(
     failed.status = "failed"
     foreign = await create_project(db_session, owner_id=owner.id)
     await run(db_session, foreign, await version(db_session, foreign))
+    from tests.trainer_plugin_fixtures import seed_enabled_trainer_plugin
+
+    await seed_enabled_trainer_plugin(db_session, framework_id="ultralytics")
     await db_session.flush()
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/training-runs",
@@ -322,6 +328,9 @@ async def test_model_filters_precede_count_pagination_and_archive_selection(
             note="Archive candidate",
         )
     )
+    from tests.trainer_plugin_fixtures import seed_enabled_trainer_plugin
+
+    await seed_enabled_trainer_plugin(db_session, framework_id="ultralytics")
     await db_session.flush()
     base = f"/api/v1/projects/{project.id}/trained-models"
     params = {

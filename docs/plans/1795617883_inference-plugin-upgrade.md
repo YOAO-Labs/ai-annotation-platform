@@ -77,7 +77,7 @@
   1. 在 `apps/web` 模型市场 / 推理集成管理页中补齐直连推理插件（`direct`）注册弹窗（URL、Token、来源层级、能力探测预览与受控模型兼容性/受控评估勾选确认）、插件列表展示（展示 `display_name`、`source_tier`、`execution_mode`、`status`）、只读探活、启用/停用与安全退役操作；既有容器档记录保持完整展示与生命周期操作兼容。
   2. 在一次性测试库与真实本机进程环境下，用不依赖 Docker 的本地 `venv` 推理插件（基于 `yoao-plugin-sdk`，通过显式本地回环白名单）+ 容器推理插件跑通完整端到端验收（注册 -> 探活 -> 项目启用 -> 推理调用 -> 停用 -> 退役），使用 `agent-browser` 核验前端交互与持久状态。
   3. 同步更新 `CHANGELOG.md`、`YOAO-Labs/YOAO-Docs` 管理与开发指南、更新 [ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 状态，并在本计划末尾补写 `## Outcome`。
-  4. 按 ADR-0190 已验证的双轨口径修订 [ADR-0189](../adr/0189-trainer-extension-point.md)（支持 `execution_mode = "local_process" | "container"` 与共享 `ContainerRuntimePort`），无缝转入训练器插件化 **T2**。
+  4. 按 ADR-0190 已验证的双轨口径修订 [ADR-0189](../adr/archive/0189-trainer-extension-point.md)（支持 `execution_mode = "local_process" | "container"` 与共享 `ContainerRuntimePort`），无缝转入训练器插件化 **T2**。
 
 ### I4（可选独立切片）：D2 本机受管 CUDA GPU 直连档
 
@@ -98,7 +98,7 @@
 
 ## 5. 当前状态与待决事项
 
-- **当前状态**：**I0–I3 已全部完成并通过真实双轨与 `agent-browser` 端到端验收**。[ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 已转正并归档至 `docs/adr/archive/`，[ADR-0189](../adr/0189-trainer-extension-point.md) 已按双轨与共享 `ContainerRuntimePort` 口径完成对齐。
+- **当前状态**：**I0–I3 已全部完成并通过真实双轨与 `agent-browser` 端到端验收**。[ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 已转正并归档至 `docs/adr/archive/`，[ADR-0189](../adr/archive/0189-trainer-extension-point.md) 已按双轨与共享 `ContainerRuntimePort` 口径完成对齐。
 - **后续可选切片**：I4（D2 本机受管 CUDA GPU 非容器直连档）保留为按需排期的独立切片；当前可直接进入训练器插件化 **T2**。
 
 ## 6. Outcome

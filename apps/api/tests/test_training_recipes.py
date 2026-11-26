@@ -6,7 +6,6 @@ import uuid
 from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, select
-from app.config import settings
 from app.db.models.learning_policy import LearningPolicy
 from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
 from app.db.models.training_run import TrainingRun
@@ -255,9 +254,18 @@ async def test_sources_pin_identity_and_modified_runs_keep_execution_digest(
         headers=headers(token),
     )
     assert rejected.status_code == 409
-    changed = copy.deepcopy(settings.training_catalog_json)
-    changed["ultralytics"]["base_models"]["yolo11n"]["sha256"] = "f" * 64
-    monkeypatch.setattr(settings, "training_catalog_json", changed)
+    from tests.trainer_plugin_fixtures import (
+        retire_trainer_plugin,
+        seed_enabled_trainer_plugin,
+    )
+
+    await retire_trainer_plugin(db_session, "yoao.trainer.ultralytics")
+    await seed_enabled_trainer_plugin(
+        db_session,
+        framework_id="ultralytics",
+        plugin_id="yoao.trainer.ultralytics.changed_asset",
+        base_models={"yolo11n": {"sha256": "f" * 64, "filename": "yolo11n.pt"}},
+    )
     detail = await httpx_client.get(f"{path}/{recipe['id']}", headers=headers(token))
     assert detail.json()["compatible"] is False
     assert (
@@ -325,7 +333,7 @@ async def test_policy_pins_revision_and_archive_does_not_break_edits_or_executio
     policy = await db_session.scalar(
         select(LearningPolicy).where(LearningPolicy.project_id == project.id)
     )
-    assert claims.policy_template_current(policy)
+    assert await claims.policy_template_current(db_session, policy)
     updated = {**recipe_body(), "expected_head_revision": 1}
     updated["configuration"]["configuration"]["values"]["mosaic"] = 0.1
     second = await httpx_client.post(
@@ -348,7 +356,7 @@ async def test_policy_pins_revision_and_archive_does_not_break_edits_or_executio
     assert edited.json()["config"]["configuration"] == pinned["configuration"]
     assert edited.json()["config"]["origin"] == pinned["origin"]
     await db_session.refresh(policy)
-    assert claims.policy_template_current(policy)
+    assert await claims.policy_template_current(db_session, policy)
     adoption = {
         **body,
         "expected_revision": 2,

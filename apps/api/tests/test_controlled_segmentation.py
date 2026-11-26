@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
-from training_contract.model_return import SEGMENTATION_RUNTIME, segmentation_identity
+from tests.trainer_plugin_fixtures import SEGMENTATION_RUNTIME, segmentation_identity
 
 from yoao_inference.execution_context import build_predict_context
 from app.services import trained_models
@@ -143,7 +143,7 @@ def test_reject_misaligned_or_unqualified_masks(fault):
 
 @pytest.mark.parametrize("trained", ["8.4.177", "8.4.183"])
 def test_segmentation_metadata_uses_pinned_inference_not_training_runtime(trained):
-    from training_contract.inference_runtime import inference_runtime
+    from tests.trainer_plugin_fixtures import inference_runtime
     from app.services.controlled_segmentation import runtime_for_reference
 
     result, ref, _pixels = example()

@@ -11,7 +11,7 @@ from fastapi import HTTPException
 import pytest
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from sqlalchemy import delete, select
-from training_contract.model_return import segmentation_identity
+from tests.trainer_plugin_fixtures import segmentation_identity
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob

@@ -172,11 +172,19 @@ async def test_libre_registration_retains_native_gaps_and_immutable_runtime_qual
 ):
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
+    from tests.trainer_plugin_fixtures import libreyolo_plugin_capabilities
+
+    libre_caps = libreyolo_plugin_capabilities().model_dump(mode="json")
     run.config = {
         **run.config,
         "framework": "libreyolo",
         "framework_version": "1.6.0",
-        "base_model": {"id": "LibreYOLO9t"},
+        "base_model": {"id": "LibreYOLO9t", "family": "libreyolo9"},
+        "trainer_plugin": {
+            "plugin_id": "yoao.trainer.libreyolo",
+            "capabilities": ["train", "evaluate", "export_weights"],
+            "serving_compatibility": libre_caps["serving_compatibility"],
+        },
     }
     monkeypatch.setattr(
         service,

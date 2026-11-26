@@ -291,15 +291,12 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
         previews.training, "frozen_config", AsyncMock(return_value=row.spec["config"])
     )
     monkeypatch.setattr(previews, "validate_request", Mock())
-    monkeypatch.setattr(previews, "native_values", lambda _: row.spec["native_values"])
     monkeypatch.setattr(
         previews,
         "select_sources",
         lambda *_: (row.spec["sources"], row.spec["pool_summary"]),
     )
-    monkeypatch.setattr(
-        previews, "capabilities", AsyncMock(return_value={"online": True})
-    )
+    monkeypatch.setattr(previews, "_capabilities", lambda _lease: {"online": True})
     monkeypatch.setattr(previews.training, "runtime_compatible", lambda *_: True)
     monkeypatch.setattr(previews.jobs, "create_job", job)
     project, user = (

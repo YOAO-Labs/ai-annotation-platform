@@ -12,8 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from training_contract.catalog import supported_identities
-from training_contract.initialization import POLICY_DIGEST
+from tests.trainer_plugin_fixtures import POLICY_DIGEST, build_v3_receipt
 
 from app.db.models.learning_policy import LearningPolicy
 from app.db.models.model_decision import ModelDecision
@@ -189,8 +188,6 @@ async def create(client, token, project, payload):
 def claim():
     value = executor_claim()
     value.runtime.update(
-        executor_protocol=2,
-        supported_configs=supported_identities(),
         torch="2.14.1+cu132",
         torchvision="0.29.1+cu132",
         python="3.12.3",
@@ -542,7 +539,6 @@ async def test_success_receipt_must_prove_fresh_loading(
         "config_digest": run.config_digest,
         "observed": observed,
         "runtime_options": options,
-        "verification": runs.verify_native(run.config, observed, options),
         "evidence": {"initialization": evidence},
     }
 
@@ -564,6 +560,14 @@ async def test_success_receipt_must_prove_fresh_loading(
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "size_bytes": len(raw),
             }
+        result_raw, result_spec = build_v3_receipt(
+            values, framework=run.config["framework"]
+        )
+        result_key = (
+            f"projects/{project.id}/runs/{run.id}/attempts/{attempt.id}/result.json"
+        )
+        objects[run.storage_ref["bucket"], result_key] = result_raw, attempt.id
+        values["result.json"] = result_spec
         attempt.upload_inventory = values
 
     completion = ExecutorFinish(

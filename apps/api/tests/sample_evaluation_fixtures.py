@@ -173,6 +173,17 @@ async def seed(db, owner, objects, *, count=2):
     db.add(model)
     await db.flush()
     backend, deployment = await ready_deployment(db, project, model)
+    backend.health_meta = {
+        **(backend.health_meta or {}),
+        "capabilities": {
+            **((backend.health_meta or {}).get("capabilities") or {}),
+            "managed_evaluation": True,
+            "managed_model_compatibility": [
+                {"framework": "ultralytics", "format": None}
+            ],
+        },
+    }
+    await db.flush()
     ref = trained_models.frozen_reference(model, deployment)
     qualified = profile()
     body = SampleEvaluationCreate(

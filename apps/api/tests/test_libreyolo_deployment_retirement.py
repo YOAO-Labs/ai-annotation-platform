@@ -4,7 +4,7 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from training_contract.inference_runtime import inference_runtime
+from tests.trainer_plugin_fixtures import inference_runtime
 
 import pytest
 from fastapi import HTTPException
@@ -36,11 +36,19 @@ async def test_retirement_blocks_live_release_secondary_stage_and_retry(
 ):
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
+    from tests.trainer_plugin_fixtures import libreyolo_plugin_capabilities
+
+    libre_caps = libreyolo_plugin_capabilities().model_dump(mode="json")
     run.config = {
         **run.config,
         "framework": "libreyolo",
         "framework_version": "1.6.0",
-        "base_model": {"id": "LibreYOLO9t"},
+        "base_model": {"id": "LibreYOLO9t", "family": "libreyolo9"},
+        "trainer_plugin": {
+            "plugin_id": "yoao.trainer.libreyolo",
+            "capabilities": ["train", "evaluate", "export_weights"],
+            "serving_compatibility": libre_caps["serving_compatibility"],
+        },
     }
     monkeypatch.setattr(
         trained_models,
@@ -84,6 +92,7 @@ async def test_retirement_blocks_live_release_secondary_stage_and_retry(
     await trained_models.retire_deployment(
         db_session, project.id, version.id, deployment.id, terminal=False
     )
+    await db_session.refresh(deployment)
     with pytest.raises(HTTPException):
         await trained_models.resolve_reference(
             db_session,
@@ -168,6 +177,7 @@ async def test_retirement_blocks_live_release_secondary_stage_and_retry(
     await trained_models.retire_deployment(
         db_session, project.id, version.id, deployment.id, terminal=True
     )
+    await db_session.refresh(deployment)
     assert deployment.status == "retired"
     assert deployment.receipt == old_receipt and deployment.trial == old_trial
     assert release.snapshot == {"retained": True}
@@ -184,11 +194,19 @@ async def test_publish_rejects_qualified_but_different_live_runtime(
 
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
+    from tests.trainer_plugin_fixtures import libreyolo_plugin_capabilities
+
+    libre_caps = libreyolo_plugin_capabilities().model_dump(mode="json")
     run.config = {
         **run.config,
         "framework": "libreyolo",
         "framework_version": "1.6.0",
-        "base_model": {"id": "LibreYOLO9t"},
+        "base_model": {"id": "LibreYOLO9t", "family": "libreyolo9"},
+        "trainer_plugin": {
+            "plugin_id": "yoao.trainer.libreyolo",
+            "capabilities": ["train", "evaluate", "export_weights"],
+            "serving_compatibility": libre_caps["serving_compatibility"],
+        },
     }
     monkeypatch.setattr(
         trained_models,

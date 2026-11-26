@@ -1913,3 +1913,88 @@ def test_plugin_failure_message_is_redacted_and_truncated(tmp_path: Path) -> Non
         assert secret_token not in journal["error"]
     finally:
         supervisor.client.close()
+
+
+def test_stage_committed_checkpoint_validates_and_stages_on_cancelled(
+    tmp_path: Path,
+) -> None:
+    supervisor = _make_plugin_supervisor(tmp_path, device_kind="cpu")
+    try:
+        directory = tmp_path / "attempt-ok"
+        output_dir = directory / "output"
+        output_dir.mkdir(parents=True)
+        ckpt_path = output_dir / "checkpoint-0002.pt"
+        ckpt_path.write_bytes(b"checkpoint-payload")
+        ckpt_sha = digest_file(ckpt_path)
+        atomic_write_json(
+            output_dir / "checkpoint.json",
+            {
+                "name": "checkpoint-0002.pt",
+                "epoch": 2,
+                "sha256": ckpt_sha,
+                "size_bytes": ckpt_path.stat().st_size,
+            },
+        )
+        atomic_write_json(
+            output_dir / "result.json",
+            TrainReceiptV1(
+                protocol_version=TRAINER_PROTOCOL_VERSION,
+                status="cancelled",
+            ),
+        )
+        journal: dict[str, Any] = {"outcome": "cancelled"}
+        supervisor._stage_plugin_receipt(
+            journal,
+            directory,
+            output_dir,
+            config_digest="c" * 64,
+            secrets=(),
+        )
+        staged_pointer = json.loads((directory / "checkpoint.json").read_text())
+        assert staged_pointer["name"] == "checkpoint-0002.pt"
+        assert staged_pointer["role"] == "checkpoint"
+        assert staged_pointer["epoch"] == 2
+        assert staged_pointer["sha256"] == ckpt_sha
+        assert (directory / "checkpoint-0002.pt").read_bytes() == b"checkpoint-payload"
+
+        for case_idx, (bad_name, bad_size, bad_sha, make_symlink) in enumerate(
+            [
+                ("checkpoint-0001.a/foo", 10, ckpt_sha, False),
+                ("checkpoint-0001.pt ", 10, ckpt_sha, False),
+                ("checkpoint-0001.pt", 2 * 1024 * 1024 * 1024 + 1, ckpt_sha, False),
+                ("checkpoint-0001.pt", ckpt_path.stat().st_size, "0" * 64, False),
+                ("checkpoint-0001.pt", ckpt_path.stat().st_size, ckpt_sha, True),
+            ]
+        ):
+            bad_dir = tmp_path / f"attempt-bad-{case_idx}"
+            bad_out = bad_dir / "output"
+            bad_out.mkdir(parents=True)
+            if make_symlink:
+                (bad_out / "checkpoint-0001.pt").symlink_to(ckpt_path)
+            else:
+                target = bad_out / "checkpoint-0001.pt"
+                target.write_bytes(b"checkpoint-payload")
+                nested = bad_out / "checkpoint-0001.a"
+                nested.mkdir(exist_ok=True)
+                (nested / "foo").write_bytes(b"0123456789")
+            atomic_write_json(
+                bad_out / "checkpoint.json",
+                {
+                    "name": bad_name,
+                    "epoch": 1,
+                    "sha256": bad_sha,
+                    "size_bytes": bad_size,
+                },
+            )
+            supervisor._stage_committed_checkpoint(bad_out, bad_dir)
+            assert not (bad_dir / "checkpoint.json").exists()
+
+        sym_dir = tmp_path / "attempt-sym-pointer"
+        sym_out = sym_dir / "output"
+        sym_out.mkdir(parents=True)
+        (sym_out / "checkpoint-0002.pt").write_bytes(b"checkpoint-payload")
+        (sym_out / "checkpoint.json").symlink_to(output_dir / "checkpoint.json")
+        supervisor._stage_committed_checkpoint(sym_out, sym_dir)
+        assert not (sym_dir / "checkpoint.json").exists()
+    finally:
+        supervisor.client.close()

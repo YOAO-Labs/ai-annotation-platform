@@ -51,7 +51,7 @@
 
 ### Changed
 
-- 完成官方训练器插件化拆仓（T3）：将原内建 `ultralytics`（8.4.183）与 `libreyolo`（1.6.0）官方参考训练器提取至独立插件仓库 `YOAO-Plugins`（`plugins/trainer/ultralytics/` 与 `plugins/trainer/libreyolo/`，统一以非 root `USER 10001:10001` 运行并输出完整 `yoao-trainer/v1` 能力与推理回流兼容矩阵）；平台 API、训练监督器、`yoao-sdk` 与 Compose 配置全面切到 `yoao_learning_v1.trainer_plugins` 数据驱动校验与 `yoao-trainer/v1` 协议，并同步刷新 OpenAPI 快照与 SDK 操作目录。
+- 完成官方训练器插件化拆仓与单卡 GPU 端到端资格验收（T3–T4）：将原内建 `ultralytics`（8.4.183）与 `libreyolo`（1.6.0）官方参考训练器提取至独立插件仓库 `YOAO-Plugins`（`plugins/trainer/ultralytics/` 与 `plugins/trainer/libreyolo/`，统一以非 root `USER 10001:10001` 运行并输出完整 `yoao-trainer/v1` 能力与推理回流兼容矩阵）；平台 API、训练监督器、`yoao-sdk`、遗留在线学习测试套件与 Compose 配置全面切到 `yoao_learning_v1.trainer_plugins` 数据驱动校验与 `yoao-trainer/v1` 协议，并在真实单卡 GPU 隔离环境中通过检测、RLE 实例分割、CPU-only 增强预览、运行中取消、预算超时、崩溃孤儿回收、LibreYOLO 断点续训以及向真实 `yolo-backend` / `libreyolo-plugin` 的模型回流、CAS 发布与两阶段退役全链路验收（ADR-0189 转正归档）。
 - 将平台主仓库根目录遗留的 6 个官方推理插件 Compose 叠加文件（`docker-compose.ml*.yml`）迁移收口至独立插件仓库 `YOAO-Plugins`（`plugins/inference/<plugin>/docker-compose.yml`，并将 `yolo_checkpoints` 命名卷合并进 `yolo/docker-compose.yml`）；同步从内建模块装配清单与 `scripts/development-restart.py` 中移除这些文件（叠加插件 Compose 启动时仅指定目标插件服务，避免重建平台 Celery worker），宿主机维护脚本 `scripts/ml-backend-runner.py` 改为通过显式 `--plugins-root` 绑定官方插件仓库。
 - 清除推理插件安装观察器与部署器中的全部 LibreYOLO 特例硬编码，改为框架无关的受控模型兼容回退与资格版本校验，将容器档资产准备收口至通用 OCI 标签 `io.yoao.plugin.prepare-assets-command`，并在 `yoao-sdk` 中抽离后端无关的 `ContainerRuntimePort` 窄接口（默认本地 Docker CLI 实现，为训练器插件化 T2 复用铺路）。
 - 将平台内部 5 个独立便携契约包（`yoao-task-contract`、`yoao-lifecycle-contract`、`yoao-inference-contract`、`yoao-protocol-v2`、`yoao-training-contract`）合并收编至单一 `yoao-sdk` 发行包（`packages/python-sdk`，支持 Python `>=3.10`，原有顶层导入路径保持不变），并通过可选 `yoao-sdk[protocol]` 提供 FastAPI／cryptography／PyJWT 协议运行时依赖；`apps/api`、`apps/inference`、`apps/workspace`、`apps/training-executor`、`scripts/build-plugin-contracts.py` 与 `scripts/test-sdk-distributions.py` 同步切换至单一 `yoao-sdk`。
@@ -100,6 +100,8 @@
 
 ### Fixed
 
+- 修复 `training-supervisor` 在训练器插件尝试被取消或失败时未将已原子提交的检查点（`checkpoint.json` 与 `checkpoint-NNNN.pt`）纳入上传清单的问题，使 `POST /resume` 可在完整校验非符号链接、路径边界与 SHA-256 后从最近检查点安全续训。
+- 修复受控自训模型安装与试跑核验中按特定框架特判缺失 `inference_runtime` 及旧回退分支漏检 `runtime_qualification` 漂移的问题，统一改为按模型产物格式与实际运行资格字典精确校验；同步补齐实例分割训练预检的显式配置要求与原生增强预览边界拒绝非检测任务的校验。
 - 已有预测月分区的开发库可以原地升级，不会因分区月份与新装环境不同被拒绝；触发器定义异常仍会阻止迁移。日常 worker 可沿用原有 S3 端点和浏览器下载地址，不必改写存储记录。
 - `pnpm dev:web` 在启动 Vite 前按需生成 API 类型和能力词表。全新 checkout 或切换快照后不再需要先手动运行 `pnpm codegen` 才能打开相关页面。
 - 新安装无需先访问存储管理页即可上传首个数据集原件；补齐内建用途时不会改动已有绑定。

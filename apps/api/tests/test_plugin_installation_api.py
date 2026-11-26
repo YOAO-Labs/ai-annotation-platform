@@ -298,7 +298,7 @@ async def test_multi_model_cpu_admission_requires_exact_approved_capabilities_an
 
 
 async def test_libreyolo_cpu_admission_keeps_runtime_and_fallback_pins():
-    from training_contract.model_return import LIBRE_FORMAT, LIBRE_RUNTIME
+    from tests.trainer_plugin_fixtures import LIBRE_FORMAT, LIBRE_RUNTIME
 
     for plugin_id, framework, fmt, runtime_info in (
         ("libreyolo", "libreyolo", LIBRE_FORMAT, dict(LIBRE_RUNTIME)),
@@ -714,7 +714,7 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkey
     from yoao_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
     from yoao_lifecycle_contract import memory_cycle_evidence
     from yoao_inference_contract.plugin import PluginLifecycleQualification
-    from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
+    from tests.trainer_plugin_fixtures import LIBRE_CUDA_RUNTIME
 
     original, receipt, challenge, health, setup = observation()
     model = original.model_dump(mode="json")

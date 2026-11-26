@@ -180,7 +180,7 @@ async def test_missing_changed_active_or_busy_never_pins(
             await db_session.get(TrainingAttempt, run.current_attempt_id)
         ).status = "uploading"
     elif change == "lease":
-        db_session.add(
+        await db_session.merge(
             TrainingResourceLease(
                 resource_id=run.config["resource_id"], attempt_id=run.current_attempt_id
             )

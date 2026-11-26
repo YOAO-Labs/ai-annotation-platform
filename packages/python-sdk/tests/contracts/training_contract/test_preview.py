@@ -58,3 +58,24 @@ def test_preview_rejects_plugins_without_preview_capability_or_oversized_multisc
         validate_request(plugin_config(capabilities=["train"]), 1, 1, 1)
     with pytest.raises(ValueError, match="尺寸上限"):
         validate_request(plugin_config(imgsz=2048, multi_scale=0.5), 1, 1, 1)
+
+
+def test_preview_rejects_non_detection_or_invalid_task():
+    legacy = plugin_config()
+    legacy["task"] = "image-detection"
+    validate_request(legacy, 1, 1, 1)
+
+    seg_top = plugin_config()
+    seg_top["task"] = "segment"
+    with pytest.raises(ValueError, match="图片检测"):
+        validate_request(seg_top, 1, 1, 1)
+
+    seg_nested = plugin_config()
+    seg_nested["configuration"]["identity"] = {"task": "segment"}
+    with pytest.raises(ValueError, match="图片检测"):
+        validate_request(seg_nested, 1, 1, 1)
+
+    bad_task = plugin_config()
+    bad_task["task"] = {"invalid": True}
+    with pytest.raises(ValueError, match="图片检测"):
+        validate_request(bad_task, 1, 1, 1)

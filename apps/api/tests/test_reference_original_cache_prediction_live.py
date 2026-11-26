@@ -21,7 +21,7 @@ import httpx
 import pytest
 from redis import Redis
 from sqlalchemy import delete, select
-from training_contract.model_return import segmentation_identity
+from tests.trainer_plugin_fixtures import segmentation_identity
 
 from app.config import settings
 from app.core.security import create_access_token

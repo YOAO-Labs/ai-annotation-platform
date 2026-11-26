@@ -3,11 +3,11 @@
 - **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** 维护者确认并验收通过 I0–I3 真实双轨（无 Docker 本机 `venv` 直连档 + OCI 容器档）与 `agent-browser` 端到端联调
-- **Supersedes:** —（演进 [ADR-0180](../0180-installable-inference-plugins.md)，对齐 [ADR-0187](0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 跨扩展清单分层、双轨接入与来源层级边界，并为 [ADR-0189](../0189-trainer-extension-point.md) 共享运行器抽象铺路）
+- **Supersedes:** —（演进 [ADR-0180](../0180-installable-inference-plugins.md)，对齐 [ADR-0187](0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 跨扩展清单分层、双轨接入与来源层级边界，并为 [ADR-0189](0189-trainer-extension-point.md) 共享运行器抽象铺路）
 
 ## Context
 
-[ADR-0180](../0180-installable-inference-plugins.md) 以 LibreYOLO 检测插件为首个样本，建立了 Inference 领域 owner 的插件安装身份、GPU 仲裁与路由替换围栏。随后平台又按 [ADR-0187](0187-notification-channel-extension-point.md) 与 [ADR-0189](../0189-trainer-extension-point.md) 落地了通知渠道、格式适配器与训练器契约，并把对外插件开发包统一至独立仓库 `YOAO-Labs/Plugin-SDK`。对照升级前的代码基线，推理插件机制暴露出四处制约生态扩展与日常使用的结构性耦合：
+[ADR-0180](../0180-installable-inference-plugins.md) 以 LibreYOLO 检测插件为首个样本，建立了 Inference 领域 owner 的插件安装身份、GPU 仲裁与路由替换围栏。随后平台又按 [ADR-0187](0187-notification-channel-extension-point.md) 与 [ADR-0189](0189-trainer-extension-point.md) 落地了通知渠道、格式适配器与训练器契约，并把对外插件开发包统一至独立仓库 `YOAO-Labs/Plugin-SDK`。对照升级前的代码基线，推理插件机制暴露出四处制约生态扩展与日常使用的结构性耦合：
 
 1. **托管安装强绑定 Docker 容器与 OCI 摘要，非容器推理服务无法获得一等插件治理**：
    - `packages/python-sdk/src/yoao_inference_contract/plugin.py` 将 `PluginManifest.artifact` 锁死为 `@sha256:...` OCI 引用，将 `PluginLaunchReceipt.container_id` 锁死为 64 位小写十六进制 Docker 容器 ID；`packages/python-sdk/src/yoao_inference_contract/gpu.py`、`plugin_assets.py` 以及 SQL 迁移 `apps/api/alembic/sql/0412_plugin_tracker_retirement_order.sql`、`0400_plugin_routing_replacement.sql`、`0399_plugin_terminal_hold.sql` 均按 `^[0-9a-f]{64}$` 校验 `container_id`。
@@ -126,7 +126,7 @@
 
 ### 4. 与训练器扩展点（ADR-0189）拉齐跨扩展口径
 
-推理插件（ADR-0190）与训练器插件（[ADR-0189](../0189-trainer-extension-point.md)）在训练器 T2 前已对齐三项跨扩展约定：
+推理插件（ADR-0190）与训练器插件（[ADR-0189](0189-trainer-extension-point.md)）在训练器 T2 前已对齐三项跨扩展约定：
 
 - **统一双轨运行**：均原生支持非容器运行（推理 `direct`、训练器 `local_process`）与受管容器运行（`container`），API 进程永不接触 Docker socket、永不 `import` 第三方插件代码。
 - **共享窄容器抽象**：在 `yoao-sdk` 内部沉淀极窄 `ContainerRuntimePort`（`packages/python-sdk/src/yoao/container_runtime.py`，默认 `LocalDockerRuntime` 实现，预留 Podman/OCI 接入点），供推理 `yoao plugins` CLI 与训练器 `training-supervisor` 复用。
@@ -156,4 +156,4 @@
 ## Notes
 
 - 实施计划与完整验收留痕见 [推理插件机制升级实施计划](../../plans/1795617883_inference-plugin-upgrade.md)（I0–I3 均已实施并通过真实双轨端到端与 `agent-browser` 验收；I4 作为可选后续切片保留）。
-- 已按本 ADR 的双轨与共享运行器口径同步修订 [ADR-0189](../0189-trainer-extension-point.md)，准备转入训练器插件化 **T2**。
+- 已按本 ADR 的双轨与共享运行器口径同步修订 [ADR-0189](0189-trainer-extension-point.md)，准备转入训练器插件化 **T2**。

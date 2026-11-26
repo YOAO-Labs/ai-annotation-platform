@@ -66,7 +66,8 @@ from .plugin_runner import (
 _UNSET = object()
 _IMAGE_REFERENCE_RE = re.compile(r"[^@\s]+@(sha256:[0-9a-f]{64})")
 _CPU_SLOT_RE = re.compile(r"^[0-9]{1,6}$")
-_CHECKPOINT_EPOCH_RE = re.compile(r"^checkpoint-([0-9]{1,4})\.[^.]+$")
+_CHECKPOINT_EPOCH_RE = re.compile(r"^checkpoint-([0-9]{1,4})\.[a-zA-Z0-9_-]{1,32}$")
+_MAX_CHECKPOINT_BYTES = 2 * 1024 * 1024 * 1024
 _VALID_EVENT_PHASES = frozenset({"preparing", "training", "evaluating", "uploading"})
 _SUPERVISOR_OWNED_ARTIFACTS = frozenset(
     {"manifest.json", "train.log", "observability.json", "config.json", "result.json"}
@@ -591,10 +592,12 @@ class Supervisor:
                     receipt, config_digest, secrets
                 )
                 immutable_copy(receipt_path, directory / "result.json")
+                self._stage_committed_checkpoint(output_dir, directory)
                 return
             if receipt.status == "cancelled":
                 journal["outcome"] = "cancelled"
                 immutable_copy(receipt_path, directory / "result.json")
+                self._stage_committed_checkpoint(output_dir, directory)
                 return
             resolved_output = output_dir.resolve()
             staged: list[dict[str, Any]] = []
@@ -688,6 +691,51 @@ class Supervisor:
                     )
             except (ValueError, OSError):
                 pass
+        self._stage_committed_checkpoint(output_dir, directory)
+
+    @staticmethod
+    def _stage_committed_checkpoint(output_dir: Path, directory: Path) -> None:
+        pointer_path = output_dir / "checkpoint.json"
+        if (
+            pointer_path.is_symlink()
+            or not pointer_path.is_file()
+            or pointer_path.stat().st_size > 64 * 1024
+        ):
+            return
+        try:
+            pointer = json.loads(pointer_path.read_text())
+            if not isinstance(pointer, dict):
+                return
+            name = pointer.get("name")
+            epoch = pointer.get("epoch")
+            sha256 = pointer.get("sha256")
+            size_bytes = pointer.get("size_bytes")
+            if (
+                not isinstance(name, str)
+                or _CHECKPOINT_EPOCH_RE.fullmatch(name) is None
+                or type(epoch) is not int
+                or not 1 <= epoch <= 1000
+                or not isinstance(sha256, str)
+                or len(sha256) != 64
+                or type(size_bytes) is not int
+                or not 0 < size_bytes <= _MAX_CHECKPOINT_BYTES
+            ):
+                return
+            src = output_dir / name
+            resolved_output = output_dir.resolve()
+            if (
+                src.is_symlink()
+                or not src.is_file()
+                or not src.resolve().is_relative_to(resolved_output)
+                or src.stat().st_size != size_bytes
+                or digest_file(src) != sha256
+            ):
+                return
+            copied = immutable_copy(src, directory / name)
+            copied.update(role="checkpoint", epoch=epoch)
+            atomic_json(directory / "checkpoint.json", copied)
+        except (ValueError, OSError):
+            return
 
     def _build_train_spec(
         self,

@@ -11,9 +11,9 @@ import uuid
 
 import pytest
 
-from training_contract.catalog import digest
 from training_contract.dataset import SEGMENTATION_CONTRACT
-from training_contract.initialization import SEGMENTATION_POLICY_DIGEST
+from training_contract.trainer_plugin import canonical_json_digest as digest
+from tests.trainer_plugin_fixtures import SEGMENTATION_POLICY_DIGEST
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
 from app.db.models.trained_model import TrainedModelVersion
@@ -224,8 +224,22 @@ def test_segment_pin_freezes_raw_and_registered_evidence_independently(monkeypat
         "app.services.training_runs.verify_artifact", lambda *args, **kwargs: None
     )
     service.verify_storage(pin, metrics, owner=owner, full=True)
-    assert not service.compatible_pin(pin, "ultralytics", "yolo11n-seg", ["shape"])
-    assert service.compatible_pin(pin, "ultralytics", "yolo11n", ["shape"])
+    assert not service.compatible_pin(
+        pin,
+        "ultralytics",
+        "yolo11n-seg",
+        ["shape"],
+        framework_version=pin["framework_version"],
+        expected_task="segment",
+    )
+    assert service.compatible_pin(
+        pin,
+        "ultralytics",
+        "yolo11n",
+        ["shape"],
+        framework_version=pin["framework_version"],
+        expected_task="detect",
+    )
 
 
 def test_normalized_metric_drift_and_report_tampering_are_rejected(monkeypatch):

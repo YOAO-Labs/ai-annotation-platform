@@ -8,14 +8,14 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from training_contract.catalog import digest
 from training_contract.initialization import (
-    POLICY_DIGEST,
     PIN_KEYS,
     artifact_root,
-    compatible_runtime,
+    saved_prefix_compatible,
     validate_pin,
 )
+from training_contract.trainer_plugin import canonical_json_digest as digest
+from tests.trainer_plugin_fixtures import POLICY_DIGEST
 
 from app.db.models.training_run import TrainingRun
 from app.services import training_runs as runs
@@ -135,7 +135,7 @@ def test_only_rooted_source_requires_explicit_integer_address_capability(
     if capability is not None:
         runtime["training_saved_prefix_schema"] = capability
     expected = not rooted or type(capability) is int and capability >= 2
-    assert compatible_runtime(config_for(pin), runtime) is expected
+    assert saved_prefix_compatible(config_for(pin), runtime) is expected
     assert runs.input_runtime_compatible(config_for(pin), runtime) is expected
     assert runs.input_runtime_compatible(
         {**config_for(pin), "initialization": None}, runtime
@@ -174,7 +174,9 @@ async def test_exact_claim_recovery_retains_lease_until_root_capability_matches(
             )
         )
     )
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
+    monkeypatch.setattr(
+        runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
+    )
     monkeypatch.setattr(runs, "resource_id", lambda: "gpu")
     monkeypatch.setattr(runs.settings, "training_gpu_uuid", "gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
@@ -211,7 +213,9 @@ async def test_new_claim_skips_rooted_source_for_old_executor_without_owning_att
         scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [run])),
         get=AsyncMock(),
     )
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
+    monkeypatch.setattr(
+        runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
+    )
     monkeypatch.setattr(runs, "resource_id", lambda: "gpu")
     monkeypatch.setattr(runs.settings, "training_gpu_uuid", "gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))

@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from training_contract.catalog import digest
+from training_contract.trainer_plugin import canonical_json_digest as digest
 from training_contract.input_membership import (
     POLICY_DIGEST,
     compact_members,

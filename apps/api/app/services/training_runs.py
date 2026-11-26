@@ -428,6 +428,10 @@ async def _frozen_plugin_config(
     parameters = body.parameters.model_dump()
     configuration_block = None
     fixed_opts: dict = {}
+    if dataset_task == SEGMENTATION and body.configuration is None:
+        raise HTTPException(
+            status_code=422, detail="实例分割训练需要提交完整的参数配置"
+        )
     if body.configuration is not None:
         expected_schema = plugin_parameter_schema_payload(
             plugin,
@@ -490,7 +494,11 @@ async def _frozen_plugin_config(
         "dataset_id": str(dataset.id),
         "dataset_sha256": dataset.package_sha256,
         "dataset_digest": dataset.manifest["content_digest"],
-        "validation_digest": dataset.manifest["validation_digest"],
+        "validation_digest": (
+            dataset.manifest["validation_digest"]
+            if observe_members
+            else dataset.manifest.get("validation_digest")
+        ),
         "classes": dataset.manifest["classes"],
         "parameters": parameters,
         "resource_id": slot["resource_id"],

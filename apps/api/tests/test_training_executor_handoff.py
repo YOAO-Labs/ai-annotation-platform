@@ -333,7 +333,6 @@ async def training_handoff_api(test_db_url: str, test_engine, tmp_path: Path):
         TRAINING_EXECUTOR_TOKEN=_TOKEN,
         TRAINING_NODE_ID=f"handoff-{uuid.uuid4().hex[:12]}",
         TRAINING_GPU_UUID=_GPU,
-        TRAINING_CATALOG_JSON=json.dumps(_CATALOG),
         TRAINING_HEARTBEAT_TIMEOUT_SECONDS="30",
         MINIO_ENDPOINT=settings.minio_endpoint,
         MINIO_ACCESS_KEY=settings.minio_access_key,

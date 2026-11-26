@@ -1,5 +1,6 @@
 """CPU-only trainer preview bounds and digest contract without ML framework imports."""
 
+from .dataset import DETECTION, config_task
 from .trainer_plugin import canonical_json_digest as digest
 
 PREVIEW_REVISION = 1
@@ -56,6 +57,12 @@ def input_digest(spec):
 def validate_request(config, seed, epoch, count):
     if not isinstance(config, dict):
         raise ValueError("预览训练配置无效")
+    try:
+        resolved_task = config_task(config)
+    except (AttributeError, TypeError, ValueError):
+        raise ValueError("原生增强预览当前仅支持图片检测") from None
+    if resolved_task != DETECTION:
+        raise ValueError("原生增强预览当前仅支持图片检测")
     plugin = config.get("trainer_plugin")
     if isinstance(plugin, dict) and "preview" not in (plugin.get("capabilities") or []):
         raise ValueError("当前训练器插件未声明增强预览能力")
