@@ -8,14 +8,14 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from training_contract.catalog import digest
 from training_contract.initialization import (
-    POLICY_DIGEST,
     PIN_KEYS,
     artifact_root,
-    compatible_runtime,
+    saved_prefix_compatible,
     validate_pin,
 )
+from training_contract.trainer_plugin import canonical_json_digest as digest
+from tests.trainer_plugin_fixtures import POLICY_DIGEST
 
 from app.services import training_runs as runs
 
@@ -134,7 +134,7 @@ def test_only_rooted_source_requires_explicit_integer_address_capability(
     if capability is not None:
         runtime["training_saved_prefix_schema"] = capability
     expected = not rooted or type(capability) is int and capability >= 2
-    assert compatible_runtime(config_for(pin), runtime) is expected
+    assert saved_prefix_compatible(config_for(pin), runtime) is expected
     assert runs.input_runtime_compatible(config_for(pin), runtime) is expected
     assert runs.input_runtime_compatible(
         {**config_for(pin), "initialization": None}, runtime
@@ -167,7 +167,15 @@ async def test_exact_claim_recovery_retains_lease_until_root_capability_matches(
     run = SimpleNamespace(config=config_for(pin))
     lease = SimpleNamespace(attempt_id=attempt.id)
     db = SimpleNamespace()
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
+    monkeypatch.setattr(runs, "training_executor_configured", lambda: True)
+    monkeypatch.setattr(
+        runs,
+        "configured_resource_slots",
+        lambda: [{"resource_id": "gpu", "device_kind": "gpu", "gpu_uuid": "gpu"}],
+    )
+    monkeypatch.setattr(
+        runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
+    )
     monkeypatch.setattr(runs, "resource_id", lambda: "gpu")
     monkeypatch.setattr(runs.settings, "training_gpu_uuid", "gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
@@ -209,7 +217,15 @@ async def test_new_claim_skips_rooted_source_for_old_executor_without_owning_att
     lease = SimpleNamespace(attempt_id=None)
     get_attempt = AsyncMock()
     db = SimpleNamespace()
-    monkeypatch.setattr(runs, "catalog", lambda: {"enabled": True})
+    monkeypatch.setattr(runs, "training_executor_configured", lambda: True)
+    monkeypatch.setattr(
+        runs,
+        "configured_resource_slots",
+        lambda: [{"resource_id": "gpu", "device_kind": "gpu", "gpu_uuid": "gpu"}],
+    )
+    monkeypatch.setattr(
+        runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
+    )
     monkeypatch.setattr(runs, "resource_id", lambda: "gpu")
     monkeypatch.setattr(runs.settings, "training_gpu_uuid", "gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
@@ -296,14 +312,8 @@ def test_executor_advertises_saved_prefix_protocol_without_model_or_gpu_executio
     )
     monkeypatch.setenv("TRAINING_MODELS_DIR", str(tmp_path))
     monkeypatch.setattr(
-        worker.subprocess, "check_output", lambda *args, **kwargs: "GPU-controlled\n"
+        worker, "_probe_nvidia_gpu", lambda gpu_uuid: ("controlled GPU", "560.0")
     )
-    monkeypatch.setattr(
-        worker.importlib.metadata,
-        "version",
-        lambda name: "8.4.177" if name == "ultralytics" else "controlled",
-    )
-    runtime = worker.runtime_identity()
+    runtime = worker.runtime_identity(container_runtime_available=True)
     assert runtime["training_saved_prefix_schema"] == 2
-    assert runtime["executor_protocol"] == 2
-    assert runtime["initialization_policy_digest"] == POLICY_DIGEST
+    assert runtime["executor_protocol"] == 3

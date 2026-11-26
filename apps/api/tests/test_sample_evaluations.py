@@ -504,7 +504,7 @@ async def test_qualification_separates_training_and_inference_and_bounds_protoco
 ):
     from app.services import managed_inference, trained_models
     from app.services import inference_backend_control
-    from training_contract.inference_runtime import inference_runtime
+    from tests.trainer_plugin_fixtures import inference_runtime
 
     world = await seed(db_session, super_admin[0], objects)
     ref = {
@@ -546,7 +546,7 @@ async def test_qualification_separates_training_and_inference_and_bounds_protoco
 
 def test_runtime_metadata_is_pinned_and_legacy_wire_shape_is_preserved():
     from app.services import trained_models
-    from training_contract.inference_runtime import inference_runtime
+    from tests.trainer_plugin_fixtures import inference_runtime
 
     ref = {
         "model_version_id": str(uuid.uuid4()),

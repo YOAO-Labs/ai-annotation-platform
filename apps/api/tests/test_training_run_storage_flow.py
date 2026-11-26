@@ -432,20 +432,20 @@ def test_checkpoint_probe_does_not_guess_another_storage_owner(owned, invalid):
 
 
 def test_native_configuration_observation_uses_saved_owner(owned, monkeypatch):
-    proof = {"qualified": True}
-    raw = json.dumps(
-        {
-            "config_digest": owned.run.config_digest,
-            "runtime_options": {"resume": False},
-            "observed": {},
-            "verification": proof,
-        }
-    ).encode()
-    receipt = artifact(owned, "native-config.json", "config", raw)
-    monkeypatch.setattr(runs, "verify_native", lambda *args: proof)
-    runs.verify_native_artifact(
-        owned.run, owned.attempt, {"native-config.json": receipt}
+    from tests.trainer_plugin_fixtures import build_v3_receipt
+
+    owned.run.config.setdefault("framework", "ultralytics")
+    artifacts = {
+        "best.pt": artifact(owned, "best.pt", "weights", b"weights"),
+        "checkpoint.pt": artifact(owned, "checkpoint.pt", "checkpoint", b"ckpt"),
+        "metrics.json": artifact(owned, "metrics.json", "metrics", b"{}"),
+    }
+    raw, _ = build_v3_receipt(
+        artifacts, framework=owned.run.config.get("framework", "ultralytics")
     )
+    receipt = artifact(owned, "result.json", "config", raw)
+    artifacts["result.json"] = receipt
+    runs.verify_trainer_receipt_artifact(owned.run, owned.attempt, artifacts)
     assert owned.client.calls == [("get", owned.bucket, receipt["key"])]
 
 

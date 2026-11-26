@@ -145,7 +145,7 @@ def _backend_app(registry_id, token, *, entered=None, release=None):
         registry_id=registry_id,
         environ={
             "ROUTE_CONTROL_TOKEN": token,
-            "AAP_ROUTE_ALLOW_LEGACY_EXECUTION": "0",
+            "ROUTE_ALLOW_LEGACY_EXECUTION": "0",
         },
     )
     return app, controller, calls

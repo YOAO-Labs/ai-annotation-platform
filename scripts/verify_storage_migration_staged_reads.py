@@ -57,7 +57,8 @@ async def saved_facts(db, value):
 
 async def seed_staged(input_path, output_path):
     from sqlalchemy import text
-    from training_contract.models import ULTRALYTICS_VERSION
+
+    ULTRALYTICS_VERSION = "8.4.183"
     from app.db.models.mask_format_upload import MaskFormatUpload
     from app.db.models.project import Project
     from app.db.models.task import Task

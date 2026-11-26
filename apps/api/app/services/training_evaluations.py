@@ -154,7 +154,10 @@ def parse_evaluation(report, run, attempt, metrics, weights, offset, limit):
             if (
                 options.get("data_contract") != INSTANCE_RLE_CONTRACT
                 or d["evaluator"]["implementation"]
-                != "training_executor.instance_rle.InstanceRLEValidator"
+                not in {
+                    "training_executor.instance_rle.InstanceRLEValidator",
+                    "yoao_trainer_ultralytics.instance_rle.InstanceRLEValidator",
+                }
                 or options.get("workers") != 0
                 or options.get("rect") is not False
                 or consumer.get("bridge") != INSTANCE_RLE_CONTRACT["bridge"]

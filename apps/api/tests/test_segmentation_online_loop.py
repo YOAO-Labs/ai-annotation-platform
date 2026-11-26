@@ -22,18 +22,18 @@ from PIL import Image
 import pytest
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from sqlalchemy import select
-from training_contract import definition
 from training_contract.dataset import (
     INSTANCE_RLE_CONTRACT,
     INSTANCE_RLE_LIMITS,
     SEGMENTATION_CONTRACT,
 )
-from training_contract.initialization import (
-    PIN_KEYS,
+from training_contract.initialization import PIN_KEYS
+from tests.trainer_plugin_fixtures import (
     POLICY_DIGEST,
     SEGMENTATION_POLICY_DIGEST,
+    SEGMENTATION_RUNTIME,
+    ultralytics_schema,
 )
-from training_contract.model_return import SEGMENTATION_RUNTIME
 
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem
@@ -82,7 +82,7 @@ def auth(token):
 
 
 def configuration():
-    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
+    schema = ultralytics_schema("yolo11n-seg")
     return {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],
@@ -189,12 +189,6 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
     monkeypatch.setattr(dataset_worker, "notify_job_terminal", AsyncMock())
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
-    catalog = copy.deepcopy(settings.training_catalog_json)
-    catalog["ultralytics"]["base_models"]["yolo11n-seg"] = {
-        "filename": "yolo11n-seg.pt",
-        "sha256": "9" * 64,
-    }
-    monkeypatch.setattr(settings, "training_catalog_json", catalog)
     try:
         yield SimpleNamespace(values=values, put=put)
     finally:

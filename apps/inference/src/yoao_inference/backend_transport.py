@@ -35,6 +35,12 @@ from yoao_protocol_v2.lifecycle import (
     parse_managed_unload_response_json,
 )
 from .capabilities import resolve_model_task
+from .host_guard import (
+    build_pinned_http_transport,
+    env_host_allowlists,
+    is_direct_plugin_extra_params,
+    parse_allowlist_env,
+)
 from .request_tracking import GPU_UNLOAD_ROUTE_EXTENSION, RequestContext, http_client
 
 _DEFAULT_MAX_CONCURRENCY = 4
@@ -269,11 +275,43 @@ class BackendTransport:
             extra.get("max_concurrency", _DEFAULT_MAX_CONCURRENCY)
         )
 
+    def _pinned_transport(self) -> httpx.AsyncBaseTransport:
+        enforce_direct = is_direct_plugin_extra_params(self._extra_params)
+        if enforce_direct:
+            opt_private = getattr(
+                self.options, "inference_plugin_private_host_allowlist", None
+            )
+            opt_loopback = getattr(
+                self.options, "inference_plugin_loopback_host_allowlist", None
+            )
+            if opt_private is None or opt_loopback is None:
+                env_private, env_loopback = env_host_allowlists()
+            else:
+                env_private, env_loopback = (), ()
+            private_allowlist = (
+                parse_allowlist_env(opt_private)
+                if opt_private is not None
+                else env_private
+            )
+            loopback_allowlist = (
+                parse_allowlist_env(opt_loopback)
+                if opt_loopback is not None
+                else env_loopback
+            )
+        else:
+            private_allowlist, loopback_allowlist = (), ()
+        return build_pinned_http_transport(
+            private_host_allowlist=private_allowlist,
+            loopback_host_allowlist=loopback_allowlist,
+            enforce_private_and_loopback=enforce_direct,
+        )
+
     def _http_client(self, *, dispatch_grant=None, **kwargs):
         return http_client(
             self._request_context,
             trust_env=False,
             follow_redirects=False,
+            pinned_transport_factory=self._pinned_transport,
             on_not_sent=(lambda: dispatch_grant.report_not_sent())
             if dispatch_grant is not None
             else None,

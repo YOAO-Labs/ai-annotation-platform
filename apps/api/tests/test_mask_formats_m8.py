@@ -22,6 +22,7 @@ from app.db.models.task import Task
 from app.services.exporting.packaging import build_export_zip
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import StagedObject
+from app.services.mask_formats.runtime import format_host
 from app.services.mask_formats.image_codecs import (
     compress_coco_rle,
     normalize_coco_segmentation_rle,
@@ -160,9 +161,10 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     path = tmp_path / "coco-frames.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     adapter = registry.get("coco-frames-seg")
+    host, project_ctx = format_host(db_session, project)
     plan = await adapter.preflight_import(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=_staged(path, "coco-frames"),
         mapping={},
         options={"frame_base": 1},
@@ -180,8 +182,8 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     )
 
     result = await adapter.execute_import_item(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=_staged(path, "coco-frames"),
         plan=plan,
         item_index=0,
@@ -208,8 +210,8 @@ async def test_coco_frames_import_preserves_track_frame_outside_and_occlusion(
     lost_path = tmp_path / "coco-no-tracks.json"
     lost_path.write_text(json.dumps(payload), encoding="utf-8")
     lost = await adapter.preflight_import(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=_staged(lost_path, "coco-no-tracks"),
         mapping={},
         options={"frame_base": 1},
@@ -256,9 +258,10 @@ async def test_coco_frames_import_does_not_mark_unsampled_frames_outside(
     path = tmp_path / "sampled-coco-frames.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
     adapter = registry.get("coco-frames-seg")
+    host, project_ctx = format_host(db_session, project)
     plan = await adapter.preflight_import(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=_staged(path, "sampled-coco-frames"),
         mapping={},
         options={"frame_base": 0},
@@ -276,8 +279,8 @@ async def test_coco_frames_import_does_not_mark_unsampled_frames_outside(
         )
     )
     await adapter.execute_import_item(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=_staged(path, "sampled-coco-frames"),
         plan=plan,
         item_index=0,
@@ -330,9 +333,10 @@ async def test_coco_frames_reports_non_contiguous_external_frame_mapping(
     }
     path = tmp_path / "non-contiguous-coco-frames.json"
     path.write_text(json.dumps(payload), encoding="utf-8")
+    host, project_ctx = format_host(db_session, project)
     plan = await registry.get("coco-frames-seg").preflight_import(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         staged=_staged(path, "non-contiguous-coco-frames"),
         mapping={},
         options={"frame_base": 1},
@@ -478,6 +482,7 @@ async def test_video_mask_package_consumers_and_all_import_preflights(
 
         staged = _staged(Path(zip_path), "video-package")
         plans = {}
+        host, project_ctx = format_host(db_session, project)
         for format_id, options in (
             ("coco-frames-seg", {"frame_base": 1}),
             ("davis", {}),
@@ -485,8 +490,8 @@ async def test_video_mask_package_consumers_and_all_import_preflights(
             ("mots", {"frame_base": 1}),
         ):
             plans[format_id] = await registry.get(format_id).preflight_import(
-                db_session,
-                project=project,
+                host,
+                project=project_ctx,
                 staged=staged,
                 mapping={},
                 options=options,
@@ -547,17 +552,18 @@ async def test_davis_preflight_requires_explicit_overlap_winner(
         AsyncMock(return_value=rle),
     )
     adapter = registry.get("davis")
+    host, project_ctx = format_host(db_session, project)
     video_json = await registry.get("video_json").preflight_export(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         scope={"project_id": str(project.id)},
         options={},
     )
     assert video_json.loss_class == "lossy"
     assert {row.code for row in video_json.losses} == {"nonportable_media_reference"}
     blocked = await adapter.preflight_export(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         scope={"project_id": str(project.id)},
         options={"video_overlap_policy": "error"},
     )
@@ -566,8 +572,8 @@ async def test_davis_preflight_requires_explicit_overlap_winner(
     assert {row.code for row in blocked.warnings} >= {"overlap_policy_required"}
 
     allowed = await adapter.preflight_export(
-        db_session,
-        project=project,
+        host,
+        project=project_ctx,
         scope={"project_id": str(project.id)},
         options={"video_overlap_policy": "z_order"},
     )

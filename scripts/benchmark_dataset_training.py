@@ -36,7 +36,9 @@ LABEL = b"0 0.30000000 0.25000000 0.40000000 0.30000000\n"
 
 def fingerprints():
     files = subprocess.check_output(
-        ["git", "ls-files", "apps/api/app", "apps/_shared"], cwd=ROOT, text=True
+        ["git", "ls-files", "apps/api/app", "apps/_shared", "packages/python-sdk/src"],
+        cwd=ROOT,
+        text=True,
     ).splitlines()
     files += [
         "scripts/" + name

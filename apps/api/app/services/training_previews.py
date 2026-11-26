@@ -20,11 +20,10 @@ from training_contract.preview import (
     LIMITS,
     POLICY,
     POLICY_DIGEST,
-    closed_mosaic,
     input_digest,
-    native_values,
     validate_request,
 )
+from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
 
 from app.config import settings
 from app.schemas.training_preview import TrainingPreviewOut, TrainingPreviewReport
@@ -55,19 +54,40 @@ def resource_id():
     return settings.training_node_id + "/augmentation-preview/cpu-0"
 
 
-def qualified_runtime(runtime):
-    catalog = adapters.catalog()
-    template = next(
-        (item for item in catalog["items"] if item["framework"] == "ultralytics"), None
+def _effective_values(config):
+    return dict(
+        (config.get("configuration") or {}).get("effective_values")
+        or config.get("parameters")
+        or {}
     )
+
+
+def _mosaic_closed(config, epoch):
+    values = _effective_values(config)
+    close = values.get("close_mosaic", 0)
+    epochs = values.get("epochs", (config.get("parameters") or {}).get("epochs", 1))
+    return bool(type(close) is int and close > 0 and epoch > epochs - close)
+
+
+def _preview_runtime_config(config):
+    plugin = config.get("trainer_plugin")
+    if isinstance(plugin, dict):
+        return {**config, "trainer_plugin": {**plugin, "requires_gpu": False}}
+    return config
+
+
+def qualified_runtime(runtime):
+    protocols = runtime.get("trainer_protocols", [])
+    modes = runtime.get("execution_modes", [])
     return bool(
-        catalog["enabled"]
-        and template
+        adapters.training_executor_configured()
+        and runtime.get("executor_protocol") == 3
         and runtime.get("preview_protocol") == 1
         and runtime.get("preview_policy_digest") == POLICY_DIGEST
-        and runtime.get("image_digest") == template["image_digest"]
-        and runtime.get("gpu_uuid") == settings.training_gpu_uuid
-        and runtime.get("frameworks", {}).get("ultralytics") == template["version"]
+        and isinstance(protocols, list)
+        and TRAINER_PROTOCOL_VERSION in protocols
+        and isinstance(modes, list)
+        and bool(modes)
     )
 
 
@@ -229,14 +249,16 @@ async def create(db, project, user, body, api_key_id):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     lease = await data.get_lease(db, resource_id())
     caps = _capabilities(lease)
-    if not caps["online"] or not training.runtime_compatible(config, lease.runtime):
+    if not caps["online"] or not training.runtime_compatible(
+        _preview_runtime_config(config), lease.runtime
+    ):
         raise HTTPException(
             status_code=409, detail=caps["reason"] or "预览镜像与当前训练配置不一致"
         )
     spec = dict(
         config=config,
         config_digest=content_digest(config),
-        native_values=native_values(config),
+        native_values=_effective_values(config),
         dataset_snapshot_digest=version.snapshot_digest,
         policy_digest=POLICY_DIGEST,
         seed=body.seed,
@@ -244,6 +266,11 @@ async def create(db, project, user, body, api_key_id):
         count=body.count,
         sources=sources,
         pool_summary=summary,
+        **(
+            {"trainer_plugin": config["trainer_plugin"]}
+            if config.get("trainer_plugin")
+            else {}
+        ),
     )
     preview = await data.create_preview(
         db,
@@ -435,7 +462,9 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
         if preview.expires_at <= now():
             await terminal(db, preview, "cancelled", "原生预览排队期间已过期")
             continue
-        if not training.runtime_compatible(preview.spec["config"], body.runtime):
+        if not training.runtime_compatible(
+            _preview_runtime_config(preview.spec["config"]), body.runtime
+        ):
             continue
         try:
             storage_owner(preview)
@@ -657,12 +686,15 @@ def validate_report(preview, artifacts, raw):
     """Validate native report semantics against frozen inputs without storage I/O."""
     report = TrainingPreviewReport.model_validate(raw)
     frozen = preview.spec
+    mosaic_closed = _mosaic_closed(frozen["config"], frozen["epoch"])
     expected_transforms = {
         key: frozen["native_values"][key]
         for key in ("mosaic", "mixup", "cutmix", "copy_paste")
+        if key in frozen["native_values"]
     }
-    if closed_mosaic(frozen["config"], frozen["epoch"]):
+    if mosaic_closed:
         expected_transforms = {key: 0.0 for key in expected_transforms}
+    expected_image = frozen["config"].get("image_digest")
     if (
         report.preview_id != preview.id
         or report.input_digest != preview.input_digest
@@ -671,7 +703,7 @@ def validate_report(preview, artifacts, raw):
         or report.policy != POLICY
         or report.seed != frozen["seed"]
         or report.epoch != frozen["epoch"]
-        or report.mosaic_closed != closed_mosaic(frozen["config"], frozen["epoch"])
+        or report.mosaic_closed != mosaic_closed
         or content_digest(report.native_parameters)
         != content_digest(frozen["native_values"])
         or content_digest(report.transform_parameters)
@@ -682,9 +714,10 @@ def validate_report(preview, artifacts, raw):
         or len(report.outputs) != frozen["count"]
         or report.runtime.get("framework_version")
         != frozen["config"]["framework_version"]
-        or report.runtime.get("image_digest") != frozen["config"]["image_digest"]
-        or report.runtime.get("adapter_revision")
-        != frozen["config"]["adapter_revision"]
+        or (
+            expected_image is not None
+            and report.runtime.get("image_digest") != expected_image
+        )
         or not isinstance(report.runtime.get("pipeline_sha256"), str)
         or len(report.runtime["pipeline_sha256"]) != 64
         or report.runtime.get("cuda_initialized") is not False

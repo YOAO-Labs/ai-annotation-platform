@@ -11,9 +11,15 @@ import pytest
 from fastapi import HTTPException
 from PIL import Image
 from sqlalchemy import select
-from training_contract import definition
-from training_contract.catalog import supported_identities
-from training_contract.preview import POLICY, POLICY_DIGEST, closed_mosaic
+from training_contract.preview import POLICY, POLICY_DIGEST
+from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
+
+from tests.trainer_plugin_fixtures import (
+    DEFAULT_TEST_BASE_ASSET_SHAS,
+    ULTRALYTICS_VERSION,
+    closed_mosaic,
+    ultralytics_schema,
+)
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.training_preview import TrainingPreview, TrainingPreviewResourceLease
@@ -29,7 +35,6 @@ from tests.test_training_runs import (
     GPU,
     IMAGE,
     TOKEN,
-    TRAINER_VERSION,
     ready_dataset,
     training_config as training_config,
 )
@@ -43,13 +48,15 @@ def claim_body(**changes):
         claim_id=uuid.uuid4(),
         resource_id="test/augmentation-preview/cpu-0",
         runtime={
-            "executor_protocol": 2,
-            "supported_configs": supported_identities(),
+            "executor_protocol": 3,
+            "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+            "execution_modes": ["container", "local_process"],
+            "base_asset_sha256": list(DEFAULT_TEST_BASE_ASSET_SHAS),
             "preview_protocol": 1,
             "preview_policy_digest": POLICY_DIGEST,
             "image_digest": IMAGE,
             "gpu_uuid": GPU,
-            "frameworks": {"ultralytics": TRAINER_VERSION},
+            "frameworks": {"ultralytics": ULTRALYTICS_VERSION},
         },
     )
     return body.model_copy(update=changes)
@@ -84,7 +91,7 @@ async def preview(db, client, owner, *, boxes=1, create=True):
         )
         is None
     )
-    schema = definition("ultralytics", "yolo11n", version=TRAINER_VERSION)
+    schema = ultralytics_schema("yolo11n")
     body = dict(
         dataset_id=str(dataset.id),
         framework="ultralytics",
@@ -140,6 +147,7 @@ def evidence(row, objects, *, change=None):
     transforms = {
         key: frozen["native_values"][key]
         for key in ("mosaic", "mixup", "cutmix", "copy_paste")
+        if key in frozen["native_values"]
     }
     if closed_mosaic(frozen["config"], frozen["epoch"]):
         transforms = {key: 0.0 for key in transforms}
@@ -158,9 +166,9 @@ def evidence(row, objects, *, change=None):
         source_pool=frozen["sources"],
         pool_summary=frozen["pool_summary"],
         runtime=dict(
-            framework_version=TRAINER_VERSION,
+            framework_version=ULTRALYTICS_VERSION,
             image_digest=IMAGE,
-            adapter_revision=2,
+            adapter_revision=3,
             pipeline_sha256="f" * 64,
             cuda_initialized=False,
         ),
@@ -218,7 +226,7 @@ async def test_idle_recovery_after_upgrade_preserves_lease_until_fresh_claim(
 ):
     row, *_ = await preview(db_session, httpx_client, super_admin)
     lease = await db_session.get(TrainingPreviewResourceLease, service.resource_id())
-    old_runtime = {**claim_body().runtime, "image_digest": "sha256:" + "0" * 64}
+    old_runtime = {**claim_body().runtime, "preview_policy_digest": "0" * 64}
     old_claim = claim_body(runtime=old_runtime, recover_only=True)
     lease.executor_id, lease.boot_id, lease.runtime, lease.last_seen_at = (
         old_claim.executor_id,
@@ -342,7 +350,10 @@ async def test_create_is_frozen_idempotent_scoped_and_blocks_dataset_delete(
             f"/api/v1/projects/{other.id}/training-previews/{row.id}", headers=headers
         )
     ).status_code == 404
-    assert not (await db_session.scalars(select(TrainingResourceLease))).all()
+    assert all(
+        lease.attempt_id is None
+        for lease in (await db_session.scalars(select(TrainingResourceLease))).all()
+    )
 
 
 async def test_claim_replay_fences_lost_boot_and_keeps_cpu_until_exit(
@@ -894,24 +905,69 @@ async def test_api_key_scopes_and_revocation_are_rechecked_during_execution(
 
 async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
     test_engine,
-    training_config,
     monkeypatch,
 ):
     import asyncio
     import threading
 
-    from sqlalchemy import delete
+    from sqlalchemy import delete, text
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
+    from app.config import settings
     from app.db.models.async_job import AsyncJob
     from app.db.models.project import Project
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.user import User
     from app.schemas.training_preview import TrainingPreviewCreate
+    from app.services import training_runs as training_service
     from tests.factory import create_user
+    from tests.trainer_plugin_fixtures import seed_enabled_trainer_plugin
+    from tests.training_consumer_fixtures import mock_legacy_transport
+    from tests.test_training_runs import executor_claim
+
+    mock_legacy_transport(monkeypatch)
+    monkeypatch.setattr(settings, "training_enabled", True)
+    monkeypatch.setattr(settings, "training_executor_token", TOKEN)
+    monkeypatch.setattr(settings, "training_gpu_uuid", GPU)
+    monkeypatch.setattr(settings, "training_node_id", "test")
+    monkeypatch.setattr(
+        training_service,
+        "internal_download",
+        lambda bucket, key, **kw: f"https://internal.test/{bucket}/{key}",
+    )
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    seeded_plugin = False
     async with maker() as seed:
+        existing_plugin = await seed.scalar(
+            text(
+                "SELECT plugin_id FROM yoao_learning_v1.trainer_plugins "
+                "WHERE plugin_id = 'yoao.trainer.ultralytics'"
+            )
+        )
+        if existing_plugin is None:
+            await seed_enabled_trainer_plugin(
+                seed,
+                framework_id="ultralytics",
+                framework_version=ULTRALYTICS_VERSION,
+                image_digest=IMAGE,
+                base_models={
+                    "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"},
+                    "yolo11n-seg": {
+                        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+                        "filename": "yolo11n-seg.pt",
+                    },
+                },
+            )
+            seeded_plugin = True
+        await seed.merge(
+            TrainingResourceLease(
+                resource_id="test/" + GPU,
+                executor_id="owned-executor",
+                last_seen_at=service.now(),
+                runtime=executor_claim().runtime,
+            )
+        )
         owner = await create_user(
             seed,
             "super_admin",
@@ -924,7 +980,7 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
         await service.claim(
             seed, claim_body(), training_authority=bind_training_authority(seed)
         )
-        schema = definition("ultralytics", "yolo11n", version=TRAINER_VERSION)
+        schema = ultralytics_schema("yolo11n")
         body = TrainingPreviewCreate(
             dataset_id=dataset.id,
             framework="ultralytics",
@@ -1003,4 +1059,16 @@ async def test_slow_expired_storage_cleanup_does_not_block_active_cpu_heartbeat(
             )
             await db.execute(delete(Project).where(Project.id == project.id))
             await db.execute(delete(User).where(User.id == owner.id))
+            await db.execute(
+                delete(TrainingResourceLease).where(
+                    TrainingResourceLease.resource_id == "test/" + GPU
+                )
+            )
+            if seeded_plugin:
+                await db.execute(
+                    text(
+                        "DELETE FROM yoao_learning_v1.trainer_plugins "
+                        "WHERE plugin_id = 'yoao.trainer.ultralytics'"
+                    )
+                )
             await db.commit()

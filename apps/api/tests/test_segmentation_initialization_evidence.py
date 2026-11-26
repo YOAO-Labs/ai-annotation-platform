@@ -13,10 +13,11 @@ import uuid
 import pytest
 from sqlalchemy import Select
 
-from training_contract.catalog import digest
 from training_contract.dataset import SEGMENTATION_CONTRACT
-from training_contract.initialization import SEGMENTATION_POLICY_DIGEST
-from training_contract.models import model_spec
+from training_contract.trainer_plugin import canonical_json_digest as digest
+from tests.trainer_plugin_fixtures import (
+    _parse_ultralytics_model,
+)
 from app.services import training_dataset_storage as owners
 from app.services import training_initialization as service
 from app.services import training_run_storage as run_owners
@@ -59,7 +60,7 @@ def source_fixture(
     project_id, run_id, attempt_id, dataset_id = (uuid.uuid4() for _ in range(4))
     classes = ["shape"]
     now = datetime.now(UTC)
-    task = model_spec("ultralytics", base_model).task
+    family, _, task, _ = _parse_ultralytics_model(base_model)
     segmentation = task == "segment"
     report_task = "instance-segmentation" if segmentation else "detection"
     manifest = dict(SEGMENTATION_CONTRACT) if segmentation else {}
@@ -68,7 +69,7 @@ def source_fixture(
         "task": task,
         "framework": "ultralytics",
         "framework_version": framework_version,
-        "base_model": {"id": base_model},
+        "base_model": {"id": base_model, "family": family},
         **({"data_contract": dict(SEGMENTATION_CONTRACT)} if segmentation else {}),
         "classes": classes,
         "dataset_id": str(dataset_id),
@@ -319,7 +320,15 @@ def source_fixture(
 def test_segment_pin_freezes_raw_and_registered_evidence_independently(monkeypatch):
     project, version, DB, report, metrics, owner = source_fixture(monkeypatch)
     pin, frozen_metrics = asyncio.run(service.source_pin(DB(), project, version.id))
-    assert pin["policy_digest"] == SEGMENTATION_POLICY_DIGEST
+    assert pin["policy_digest"] == digest(
+        {
+            "framework": "ultralytics",
+            "framework_version": "8.4.177",
+            "task": "segment",
+            "model_family": "yolo11",
+            "base_model": "yolo11n-seg",
+        }
+    )
     assert pin["evaluation"]["report_digest"] == digest(report)
     assert pin["evaluation"]["normalized_model_digest"] == digest(version.evaluation)
     assert (
@@ -330,8 +339,22 @@ def test_segment_pin_freezes_raw_and_registered_evidence_independently(monkeypat
     service.verify_storage(
         pin, metrics, owner=owner, full=True, transport=DB.storage_transport
     )
-    assert not service.compatible_pin(pin, "ultralytics", "yolo11n-seg", ["shape"])
-    assert service.compatible_pin(pin, "ultralytics", "yolo11n", ["shape"])
+    assert not service.compatible_pin(
+        pin,
+        "ultralytics",
+        "yolo11n-seg",
+        ["shape"],
+        framework_version=pin["framework_version"],
+        expected_task="segment",
+    )
+    assert service.compatible_pin(
+        pin,
+        "ultralytics",
+        "yolo11n",
+        ["shape"],
+        framework_version=pin["framework_version"],
+        expected_task="detect",
+    )
 
 
 def test_normalized_metric_drift_and_report_tampering_are_rejected(monkeypatch):

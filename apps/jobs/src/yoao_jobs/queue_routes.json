@@ -129,6 +129,9 @@
     "app.workers.ml_health.repair_gpu_arbiter_resources": {
       "queue": "gpu.control"
     },
+    "app.workers.notification_channel_delivery.relay_notification_channel_deliveries": {
+      "queue": "default"
+    },
     "app.workers.notification_delivery.relay_identity_notifications": {
       "queue": "default"
     },

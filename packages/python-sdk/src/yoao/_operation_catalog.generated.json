@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 768,
+  "operation_count": 796,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -1891,6 +1891,55 @@
       "responses": {
         "204": {
           "description": "Successful Response"
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "DELETE /api/v1/notification-channels/{channel_id}/binding",
+      "method": "DELETE",
+      "path": "/api/v1/notification-channels/{channel_id}/binding",
+      "operation_id": "delete_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_delete",
+      "summary": "Delete User Notification Channel Binding",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.delete_channel_binding"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteChannelBindingOut"
+              }
+            }
+          }
         },
         "422": {
           "description": "Validation Error",
@@ -3245,6 +3294,107 @@
       }
     },
     {
+      "name": "GET /api/v1/admin/format-adapters",
+      "method": "GET",
+      "path": "/api/v1/admin/format-adapters",
+      "operation_id": "list_format_adapter_plugins_api_v1_admin_format_adapters_get",
+      "summary": "List Format Adapter Plugins",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "include_retired",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Include Retired",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Response List Format Adapter Plugins Api V1 Admin Format Adapters Get",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
+    },
+    {
+      "name": "GET /api/v1/admin/format-adapters/{format_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/format-adapters/{format_id}",
+      "operation_id": "get_format_adapter_plugin_api_v1_admin_format_adapters__format_id__get",
+      "summary": "Get Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
+    },
+    {
       "name": "GET /api/v1/admin/ml-backend-operations/jobs/{job_id}",
       "method": "GET",
       "path": "/api/v1/admin/ml-backend-operations/jobs/{job_id}",
@@ -3889,6 +4039,105 @@
       }
     },
     {
+      "name": "GET /api/v1/admin/notification-channels",
+      "method": "GET",
+      "path": "/api/v1/admin/notification-channels",
+      "operation_id": "list_admin_notification_channels_api_v1_admin_notification_channels_get",
+      "summary": "List Admin Notification Channels",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.list_admin_channels"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "include_retired",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Include Retired",
+            "type": "boolean",
+            "default": false
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminListOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/notification-channels/{channel_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/notification-channels/{channel_id}",
+      "operation_id": "get_admin_notification_channel_api_v1_admin_notification_channels__channel_id__get",
+      "summary": "Get Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.get_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "GET /api/v1/admin/preannotate-queue",
       "method": "GET",
       "path": "/api/v1/admin/preannotate-queue",
@@ -4078,6 +4327,136 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SystemHealthResponse"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/trainer-plugins",
+      "method": "GET",
+      "path": "/api/v1/admin/trainer-plugins",
+      "operation_id": "list_trainer_plugins_api_v1_admin_trainer_plugins_get",
+      "summary": "List Trainer Plugins",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.list"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.list"
+      ],
+      "parameters": [
+        {
+          "name": "include_retired",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Include Retired",
+            "type": "boolean",
+            "default": false
+          }
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Status",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "registered",
+                  "qualified",
+                  "enabled",
+                  "disabled",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Response List Trainer Plugins Api V1 Admin Trainer Plugins Get",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/trainer-plugins/{plugin_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}",
+      "operation_id": "get_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__get",
+      "summary": "Get Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.get"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.get"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
               }
             }
           }
@@ -11838,6 +12217,35 @@
       "reason": "not-implemented"
     },
     {
+      "name": "GET /api/v1/notification-channels",
+      "method": "GET",
+      "path": "/api/v1/notification-channels",
+      "operation_id": "list_user_notification_channels_api_v1_notification_channels_get",
+      "summary": "List User Notification Channels",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.list_channels"
+      ],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserNotificationChannelListOut"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "GET /api/v1/notification-preferences",
       "method": "GET",
       "path": "/api/v1/notification-preferences",
@@ -17883,10 +18291,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "ultralytics",
-                  "libreyolo"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
@@ -19937,10 +20342,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "ultralytics",
-                  "libreyolo"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
@@ -20111,10 +20513,7 @@
           "schema": {
             "title": "Framework",
             "type": "string",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ]
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
           }
         },
         {
@@ -20125,7 +20524,7 @@
             "title": "Base Model",
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 128
           }
         },
         {
@@ -20204,10 +20603,7 @@
           "schema": {
             "title": "Framework",
             "type": "string",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ]
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
           }
         },
         {
@@ -20218,7 +20614,7 @@
             "title": "Base Model",
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 128
           }
         }
       ],
@@ -26779,10 +27175,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "enum": [
-                  "ultralytics",
-                  "libreyolo"
-                ]
+                "pattern": "^[a-z][a-z0-9_-]{0,63}$"
               },
               {
                 "type": "null"
@@ -28582,6 +28975,65 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/ServicePoolPatchRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "PATCH /api/v1/admin/notification-channels/{channel_id}",
+      "method": "PATCH",
+      "path": "/api/v1/admin/notification-channels/{channel_id}",
+      "operation_id": "update_admin_notification_channel_api_v1_admin_notification_channels__channel_id__patch",
+      "summary": "Update Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.update_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelUpdateIn"
             }
           }
         }
@@ -31003,6 +31455,276 @@
       }
     },
     {
+      "name": "POST /api/v1/admin/format-adapters",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters",
+      "operation_id": "register_format_adapter_plugin_api_v1_admin_format_adapters_post",
+      "summary": "Register Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "201": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/activate",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/activate",
+      "operation_id": "activate_format_adapter_plugin_api_v1_admin_format_adapters__format_id__activate_post",
+      "summary": "Activate Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/disable",
+      "operation_id": "disable_format_adapter_plugin_api_v1_admin_format_adapters__format_id__disable_post",
+      "summary": "Disable Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/probe",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/probe",
+      "operation_id": "probe_format_adapter_plugin_api_v1_admin_format_adapters__format_id__probe_post",
+      "summary": "Probe Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterProbeResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented"
+    },
+    {
+      "name": "POST /api/v1/admin/format-adapters/{format_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/format-adapters/{format_id}/retire",
+      "operation_id": "retire_format_adapter_plugin_api_v1_admin_format_adapters__format_id__retire_post",
+      "summary": "Retire Format Adapter Plugin",
+      "description": null,
+      "tags": [
+        "format-adapters"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "format_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Format Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "POST /api/v1/admin/ml-backend-operations/jobs",
       "method": "POST",
       "path": "/api/v1/admin/ml-backend-operations/jobs",
@@ -31144,6 +31866,57 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/SmokeTestRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/direct",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/direct",
+      "operation_id": "register_direct_api_v1_admin_ml_integrations_plugins_direct_post",
+      "summary": "Register Direct",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.register_direct"
+      ],
+      "cli_aliases": [
+        "plugins.register-direct"
+      ],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginInstallationResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterDirectPluginRequest"
             }
           }
         }
@@ -31373,6 +32146,58 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/PluginInstallationCommand"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe",
+      "method": "POST",
+      "path": "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe",
+      "operation_id": "probe_installation_api_v1_admin_ml_integrations_plugins_installations__installation_id__probe_post",
+      "summary": "Probe Installation",
+      "description": null,
+      "tags": [
+        "admin-plugin-installations"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "plugins.probe"
+      ],
+      "cli_aliases": [
+        "plugins.probe"
+      ],
+      "parameters": [
+        {
+          "name": "installation_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Installation Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DirectPluginProbeResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
             }
           }
         }
@@ -31966,6 +32791,281 @@
       }
     },
     {
+      "name": "POST /api/v1/admin/notification-channels",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels",
+      "operation_id": "register_admin_notification_channel_api_v1_admin_notification_channels_post",
+      "summary": "Register Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.register_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "201": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelRegisterIn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/disable",
+      "operation_id": "disable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__disable_post",
+      "summary": "Disable Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.disable_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/enable",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/enable",
+      "operation_id": "enable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__enable_post",
+      "summary": "Enable Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.enable_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/probe",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/probe",
+      "operation_id": "probe_admin_notification_channel_api_v1_admin_notification_channels__channel_id__probe_post",
+      "summary": "Probe Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.probe_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelProbeOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/notification-channels/{channel_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/notification-channels/{channel_id}/retire",
+      "operation_id": "retire_admin_notification_channel_api_v1_admin_notification_channels__channel_id__retire_post",
+      "summary": "Retire Admin Notification Channel",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.retire_admin_channel"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelAdminOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "POST /api/v1/admin/preannotate-queue/bulk-clear",
       "method": "POST",
       "path": "/api/v1/admin/preannotate-queue/bulk-clear",
@@ -32011,6 +33111,301 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/BulkClearRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins",
+      "operation_id": "register_trainer_plugin_api_v1_admin_trainer_plugins_post",
+      "summary": "Register Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.register"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.register"
+      ],
+      "parameters": [],
+      "responses": {
+        "201": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/disable",
+      "operation_id": "disable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__disable_post",
+      "summary": "Disable Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.disable"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.disable"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/enable",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/enable",
+      "operation_id": "enable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__enable_post",
+      "summary": "Enable Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.enable"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.enable"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/qualify",
+      "operation_id": "qualify_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__qualify_post",
+      "summary": "Qualify Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.qualify"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.qualify"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QualifyTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/retire",
+      "operation_id": "retire_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__retire_post",
+      "summary": "Retire Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.retire"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.retire"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
             }
           }
         }
@@ -37121,6 +38516,55 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ApiKeyCreated"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/notification-channels/{channel_id}/verify-address",
+      "method": "POST",
+      "path": "/api/v1/notification-channels/{channel_id}/verify-address",
+      "operation_id": "verify_user_notification_channel_address_api_v1_notification_channels__channel_id__verify_address_post",
+      "summary": "Verify User Notification Channel Address",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.verify_channel_address"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyChannelAddressOut"
               }
             }
           }
@@ -51594,6 +53038,65 @@
       }
     },
     {
+      "name": "PUT /api/v1/notification-channels/{channel_id}/binding",
+      "method": "PUT",
+      "path": "/api/v1/notification-channels/{channel_id}/binding",
+      "operation_id": "upsert_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_put",
+      "summary": "Upsert User Notification Channel Binding",
+      "description": null,
+      "tags": [
+        "notification-channels"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "notifications.upsert_channel_binding"
+      ],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "channel_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserNotificationChannelBindingOut"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/UserChannelBindingUpsertIn"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "PUT /api/v1/notification-preferences",
       "method": "PUT",
       "path": "/api/v1/notification-preferences",
@@ -63320,6 +64823,124 @@
       ]
     },
     {
+      "name": "notifications.delete_channel_binding",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "delete_channel_binding",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "DeleteChannelBindingResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "DELETE /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "api_operations": [
+        "DELETE /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.disable_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "disable_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/disable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/disable"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.enable_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "enable_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/enable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/enable"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.get_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "get_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
       "name": "notifications.list",
       "module": "yoao.notifications",
       "class": "Notifications",
@@ -63367,6 +64988,50 @@
       "cli_aliases": [
         "notifications.list"
       ]
+    },
+    {
+      "name": "notifications.list_admin_channels",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "list_admin_channels",
+      "parameters": [
+        {
+          "name": "include_retired",
+          "kind": "keyword_only",
+          "annotation": "bool",
+          "required": false,
+          "default": false
+        }
+      ],
+      "return_type": "NotificationChannelAdminList",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/notification-channels"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/notification-channels"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.list_channels",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "list_channels",
+      "parameters": [],
+      "return_type": "UserNotificationChannelList",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/notification-channels"
+      ],
+      "api_operations": [
+        "GET /api/v1/notification-channels"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "notifications.mark_all_read",
@@ -63449,6 +65114,91 @@
       ]
     },
     {
+      "name": "notifications.probe_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "probe_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelProbeResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/probe"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/probe"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.register_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "register_admin_channel",
+      "parameters": [
+        {
+          "name": "channel",
+          "kind": "positional_or_keyword",
+          "annotation": "NotificationChannelRegisterRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.retire_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "retire_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/retire"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/notification-channels/{channel_id}/retire"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
       "name": "notifications.unread_count",
       "module": "yoao.notifications",
       "class": "Notifications",
@@ -63468,6 +65218,39 @@
       "cli_aliases": [
         "notifications.unread-count"
       ]
+    },
+    {
+      "name": "notifications.update_admin_channel",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "update_admin_channel",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "update",
+          "kind": "positional_or_keyword",
+          "annotation": "NotificationChannelUpdateRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "NotificationChannelAdmin",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "PATCH /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "api_operations": [
+        "PATCH /api/v1/admin/notification-channels/{channel_id}"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "notifications.update_preference",
@@ -63500,6 +65283,65 @@
       "cli_aliases": [
         "notifications.update-preference"
       ]
+    },
+    {
+      "name": "notifications.upsert_channel_binding",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "upsert_channel_binding",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "binding",
+          "kind": "positional_or_keyword",
+          "annotation": "UserChannelBindingUpsertRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "UserNotificationChannelBinding",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "PUT /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "api_operations": [
+        "PUT /api/v1/notification-channels/{channel_id}/binding"
+      ],
+      "calls": [],
+      "external_http": false
+    },
+    {
+      "name": "notifications.verify_channel_address",
+      "module": "yoao.notifications",
+      "class": "Notifications",
+      "method": "verify_channel_address",
+      "parameters": [
+        {
+          "name": "channel_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "VerifyChannelAddressResult",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/notification-channels/{channel_id}/verify-address"
+      ],
+      "api_operations": [
+        "POST /api/v1/notification-channels/{channel_id}/verify-address"
+      ],
+      "calls": [],
+      "external_http": false
     },
     {
       "name": "pipelines.apply",
@@ -63972,6 +65814,35 @@
       "external_http": false
     },
     {
+      "name": "plugins.probe",
+      "module": "yoao.plugins",
+      "class": "PluginInstallations",
+      "method": "probe",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str | UUID",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "DirectPluginProbeResponse",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.probe"
+      ]
+    },
+    {
       "name": "plugins.quiesce",
       "module": "yoao.plugins",
       "class": "PluginInstallations",
@@ -64005,6 +65876,35 @@
       ],
       "calls": [],
       "external_http": false
+    },
+    {
+      "name": "plugins.register_direct",
+      "module": "yoao.plugins",
+      "class": "PluginInstallations",
+      "method": "register_direct",
+      "parameters": [
+        {
+          "name": "request",
+          "kind": "positional_or_keyword",
+          "annotation": "RegisterDirectPluginRequest",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "PluginInstallationResponse",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/direct"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/ml-integrations/plugins/direct"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.register-direct"
+      ]
     },
     {
       "name": "plugins.retire",
@@ -71212,6 +73112,286 @@
       ]
     },
     {
+      "name": "trainer_plugins.disable",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "disable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/disable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/disable"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.disable"
+      ]
+    },
+    {
+      "name": "trainer_plugins.enable",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "enable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/enable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/enable"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.enable"
+      ]
+    },
+    {
+      "name": "trainer_plugins.get",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "get",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/trainer-plugins/{plugin_id}"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/trainer-plugins/{plugin_id}"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.get"
+      ]
+    },
+    {
+      "name": "trainer_plugins.list",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "list",
+      "parameters": [
+        {
+          "name": "include_retired",
+          "kind": "keyword_only",
+          "annotation": "bool",
+          "required": false,
+          "default": false
+        },
+        {
+          "name": "status",
+          "kind": "keyword_only",
+          "annotation": "TrainerPluginStatus | None",
+          "required": false,
+          "default": null
+        }
+      ],
+      "return_type": "list[TrainerPluginRecord]",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/trainer-plugins"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/trainer-plugins"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.list"
+      ]
+    },
+    {
+      "name": "trainer_plugins.qualify",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "qualify",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "qualification_report_sha256",
+          "kind": "keyword_only",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "qualification_report",
+          "kind": "keyword_only",
+          "annotation": "dict[str, Any]",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.qualify"
+      ]
+    },
+    {
+      "name": "trainer_plugins.register",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "register",
+      "parameters": [
+        {
+          "name": "manifest",
+          "kind": "positional_or_keyword",
+          "annotation": "dict[str, Any]",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "capabilities_snapshot",
+          "kind": "positional_or_keyword",
+          "annotation": "dict[str, Any] | TrainerCapabilitiesV1",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "execution_mode",
+          "kind": "keyword_only",
+          "annotation": "TrainerExecutionMode",
+          "required": false,
+          "default": "container"
+        },
+        {
+          "name": "source_tier",
+          "kind": "keyword_only",
+          "annotation": "TrainerSourceTier",
+          "required": false,
+          "default": "third_party"
+        },
+        {
+          "name": "artifact",
+          "kind": "keyword_only",
+          "annotation": "str | None",
+          "required": false,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.register"
+      ]
+    },
+    {
+      "name": "trainer_plugins.retire",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "retire",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/retire"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/retire"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.retire"
+      ]
+    },
+    {
       "name": "training.catalog",
       "module": "yoao.training",
       "class": "Training",
@@ -71298,7 +73478,7 @@
         {
           "name": "framework",
           "kind": "positional_or_keyword",
-          "annotation": "Literal['ultralytics', 'libreyolo'] | None",
+          "annotation": "str | None",
           "required": false,
           "default": null
         },
@@ -72941,7 +75121,7 @@
         {
           "name": "framework",
           "kind": "positional_or_keyword",
-          "annotation": "Literal['ultralytics', 'libreyolo']",
+          "annotation": "str",
           "required": true,
           "default": null
         },
@@ -73107,7 +75287,7 @@
         {
           "name": "framework",
           "kind": "positional_or_keyword",
-          "annotation": "Literal['ultralytics', 'libreyolo']",
+          "annotation": "str",
           "required": true,
           "default": null
         },
@@ -93669,6 +95849,36 @@
       "confirmation": true
     },
     {
+      "path": "yoao plugins inspect-image",
+      "alias": "plugins.inspect-image",
+      "parameters": [
+        {
+          "name": "image",
+          "kind": "option",
+          "options": [
+            "--image"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Digest-pinned local plugin image reference"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": false
+    },
+    {
       "path": "yoao plugins install",
       "alias": "plugins.install",
       "parameters": [
@@ -93693,6 +95903,61 @@
           "default": null,
           "type": "Path | None",
           "description": "Admin-approved GPU lifecycle report JSON"
+        },
+        {
+          "name": "qualify",
+          "kind": "option",
+          "options": [
+            "--qualify"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Generate and verify GPU lifecycle qualification using the image's OCI command"
+        },
+        {
+          "name": "fixture",
+          "kind": "option",
+          "options": [
+            "--fixture"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host fixture file for --qualify"
+        },
+        {
+          "name": "asset_dir",
+          "kind": "option",
+          "options": [
+            "--asset-dir"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host asset directory for --qualify"
+        },
+        {
+          "name": "model_approval_ref",
+          "kind": "option",
+          "options": [
+            "--model-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for model weights during --qualify"
+        },
+        {
+          "name": "fixture_approval_ref",
+          "kind": "option",
+          "options": [
+            "--fixture-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for fixture during --qualify"
         },
         {
           "name": "yes",
@@ -93795,10 +96060,131 @@
           "options": [
             "--config"
           ],
-          "required": true,
+          "required": false,
           "default": null,
-          "type": "Path",
+          "type": "Path | None",
           "description": "Approved deployment JSON file"
+        },
+        {
+          "name": "image",
+          "kind": "option",
+          "options": [
+            "--image"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Digest-pinned local plugin image reference"
+        },
+        {
+          "name": "name",
+          "kind": "option",
+          "options": [
+            "--name"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Registry display name for this installation"
+        },
+        {
+          "name": "url",
+          "kind": "option",
+          "options": [
+            "--url"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Plugin HTTP(S) endpoint URL reachable by core"
+        },
+        {
+          "name": "network",
+          "kind": "option",
+          "options": [
+            "--network"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Explicit non-host Docker network"
+        },
+        {
+          "name": "host_port",
+          "kind": "option",
+          "options": [
+            "--host-port"
+          ],
+          "required": false,
+          "default": null,
+          "type": "int | None",
+          "description": "Host port mapped to the plugin container"
+        },
+        {
+          "name": "container_port",
+          "kind": "option",
+          "options": [
+            "--container-port"
+          ],
+          "required": false,
+          "default": null,
+          "type": "int | None",
+          "description": "Container port (defaults from entrypoint --port or 8000)"
+        },
+        {
+          "name": "cpus",
+          "kind": "option",
+          "options": [
+            "--cpus"
+          ],
+          "required": false,
+          "default": null,
+          "type": "float | None",
+          "description": "CPU quota for the plugin container"
+        },
+        {
+          "name": "image_host",
+          "kind": "option",
+          "options": [
+            "--image-host"
+          ],
+          "required": false,
+          "default": null,
+          "type": "list[str] | None",
+          "description": "Approved image fetch hostname (repeatable)"
+        },
+        {
+          "name": "gpu_resource_id",
+          "kind": "option",
+          "options": [
+            "--gpu-resource-id"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Core GPU resource identifier"
+        },
+        {
+          "name": "physical_gpu_uuid",
+          "kind": "option",
+          "options": [
+            "--physical-gpu-uuid"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Physical NVIDIA GPU UUID"
+        },
+        {
+          "name": "gpu_verify_keyring",
+          "kind": "option",
+          "options": [
+            "--gpu-verify-keyring"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "JSON file mapping key_id to Ed25519 public key"
         },
         {
           "name": "state_dir",
@@ -93810,6 +96196,18 @@
           "default": null,
           "type": "Path",
           "description": "Private per-installation state directory"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Approve manifest resolved from OCI image label"
         },
         {
           "name": "json_output",
@@ -93824,7 +96222,7 @@
         }
       ],
       "sdk_methods": [],
-      "confirmation": false
+      "confirmation": true
     },
     {
       "path": "yoao plugins prepare-assets",
@@ -93855,6 +96253,310 @@
       ],
       "sdk_methods": [],
       "confirmation": false
+    },
+    {
+      "path": "yoao plugins probe",
+      "alias": "plugins.probe",
+      "parameters": [
+        {
+          "name": "installation_id",
+          "kind": "option",
+          "options": [
+            "--installation-id"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Installed plugin installation UUID"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "plugins.probe"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins qualify",
+      "alias": "plugins.qualify",
+      "parameters": [
+        {
+          "name": "state_dir",
+          "kind": "option",
+          "options": [
+            "--state-dir"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Private per-installation state directory"
+        },
+        {
+          "name": "fixture",
+          "kind": "option",
+          "options": [
+            "--fixture"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host fixture file mounted read-only"
+        },
+        {
+          "name": "asset_dir",
+          "kind": "option",
+          "options": [
+            "--asset-dir"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host asset directory mounted read-only"
+        },
+        {
+          "name": "model_approval_ref",
+          "kind": "option",
+          "options": [
+            "--model-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for model weights"
+        },
+        {
+          "name": "fixture_approval_ref",
+          "kind": "option",
+          "options": [
+            "--fixture-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for fixture"
+        },
+        {
+          "name": "out",
+          "kind": "option",
+          "options": [
+            "--out"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Write verified report to this path without updating state-dir"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins register-direct",
+      "alias": "plugins.register-direct",
+      "parameters": [
+        {
+          "name": "name",
+          "kind": "option",
+          "options": [
+            "--name"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Registry display name"
+        },
+        {
+          "name": "url",
+          "kind": "option",
+          "options": [
+            "--url"
+          ],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Reachable HTTP(S) base URL"
+        },
+        {
+          "name": "token_file",
+          "kind": "option",
+          "options": [
+            "--token-file"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Path to file containing the plugin bearer token (>=32 chars)"
+        },
+        {
+          "name": "auth_token",
+          "kind": "option",
+          "options": [
+            "--auth-token"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Plugin bearer token (>=32 chars); prefer --token-file or env var"
+        },
+        {
+          "name": "source_tier",
+          "kind": "option",
+          "options": [
+            "--source-tier"
+          ],
+          "required": false,
+          "default": "third_party",
+          "type": "str",
+          "description": "Plugin governance tier: official or third_party"
+        },
+        {
+          "name": "display_name",
+          "kind": "option",
+          "options": [
+            "--display-name"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "description",
+          "kind": "option",
+          "options": [
+            "--description"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "homepage",
+          "kind": "option",
+          "options": [
+            "--homepage"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "publisher",
+          "kind": "option",
+          "options": [
+            "--publisher"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "license_name",
+          "kind": "option",
+          "options": [
+            "--license"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "asset_manifest_sha256",
+          "kind": "option",
+          "options": [
+            "--asset-manifest-sha256"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Optional SHA-256 asset manifest digest to enforce asset approval"
+        },
+        {
+          "name": "approved_compat_file",
+          "kind": "option",
+          "options": [
+            "--approved-compat-file"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "JSON array file of approved ManagedModelCompatibility objects"
+        },
+        {
+          "name": "approved_managed_evaluation",
+          "kind": "option",
+          "options": [
+            "--approve-managed-evaluation"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Approve managed evaluation when advertised by the plugin"
+        },
+        {
+          "name": "installation_id",
+          "kind": "option",
+          "options": [
+            "--installation-id"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": null
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "plugins.register_direct"
+      ],
+      "confirmation": true
     },
     {
       "path": "yoao plugins restart",
@@ -93927,6 +96629,377 @@
       ],
       "sdk_methods": [],
       "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer disable",
+      "alias": "plugins.trainer.disable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Enabled trainer plugin_id"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Confirm disabling this trainer plugin"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.disable"
+      ],
+      "confirmation": true
+    },
+    {
+      "path": "yoao plugins trainer enable",
+      "alias": "plugins.trainer.enable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Qualified or disabled trainer plugin_id"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Confirm enabling this trainer plugin"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.enable"
+      ],
+      "confirmation": true
+    },
+    {
+      "path": "yoao plugins trainer get",
+      "alias": "plugins.trainer.get",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Registered trainer plugin_id"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.get"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer list",
+      "alias": "plugins.trainer.list",
+      "parameters": [
+        {
+          "name": "include_retired",
+          "kind": "option",
+          "options": [
+            "--include-retired"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Include retired trainer plugins"
+        },
+        {
+          "name": "status",
+          "kind": "option",
+          "options": [
+            "--status"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Filter by lifecycle status (registered|qualified|enabled|disabled|retired)"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.list"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer qualify",
+      "alias": "plugins.trainer.qualify",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Registered trainer plugin_id"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "report",
+          "kind": "option",
+          "options": [
+            "--report"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Path to trainer qualification report JSON file"
+        },
+        {
+          "name": "report_sha256",
+          "kind": "option",
+          "options": [
+            "--report-sha256"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Optional canonical SHA-256 digest of the qualification report"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.qualify"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer register",
+      "alias": "plugins.trainer.register",
+      "parameters": [
+        {
+          "name": "manifest",
+          "kind": "option",
+          "options": [
+            "--manifest"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Path to yoao-extension-manifest/v1 JSON file"
+        },
+        {
+          "name": "capabilities",
+          "kind": "option",
+          "options": [
+            "--capabilities"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Path to TrainerCapabilitiesV1 JSON file"
+        },
+        {
+          "name": "execution_mode",
+          "kind": "option",
+          "options": [
+            "--execution-mode"
+          ],
+          "required": false,
+          "default": "container",
+          "type": "str",
+          "description": "Execution mode (container or local_process)"
+        },
+        {
+          "name": "source_tier",
+          "kind": "option",
+          "options": [
+            "--source-tier"
+          ],
+          "required": false,
+          "default": "third_party",
+          "type": "str",
+          "description": "Authoritative source tier (official or third_party)"
+        },
+        {
+          "name": "artifact",
+          "kind": "option",
+          "options": [
+            "--artifact"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Digest-pinned OCI image reference (required for container mode)"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.register"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer retire",
+      "alias": "plugins.trainer.retire",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Trainer plugin_id to retire"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Confirm permanently retiring this trainer plugin"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.retire"
+      ],
+      "confirmation": true
     },
     {
       "path": "yoao plugins uninstall",
@@ -94006,6 +97079,61 @@
           "default": null,
           "type": "Path | None",
           "description": "Admin-approved GPU lifecycle report JSON"
+        },
+        {
+          "name": "qualify",
+          "kind": "option",
+          "options": [
+            "--qualify"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Generate and verify GPU lifecycle qualification using the image's OCI command"
+        },
+        {
+          "name": "fixture",
+          "kind": "option",
+          "options": [
+            "--fixture"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host fixture file for --qualify"
+        },
+        {
+          "name": "asset_dir",
+          "kind": "option",
+          "options": [
+            "--asset-dir"
+          ],
+          "required": false,
+          "default": null,
+          "type": "Path | None",
+          "description": "Optional host asset directory for --qualify"
+        },
+        {
+          "name": "model_approval_ref",
+          "kind": "option",
+          "options": [
+            "--model-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for model weights during --qualify"
+        },
+        {
+          "name": "fixture_approval_ref",
+          "kind": "option",
+          "options": [
+            "--fixture-approval-ref"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Approval reference for fixture during --qualify"
         },
         {
           "name": "yes",

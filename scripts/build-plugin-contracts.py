@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Build portable contract wheels and source distributions from a committed revision.
+"""Build the unified yoao-sdk wheel and sdist from a committed revision.
 
-Only first-party contracts are exported. Model catalogs and weights, the API
-SDK and third-party dependency wheels are not included.
+Exports the first-party yoao-sdk distribution (API client, CLI, and portable
+task / lifecycle / inference / protocol-v2 / training contracts). Model catalogs,
+weights, and third-party dependency wheels are not included.
 """
 
 from __future__ import annotations
@@ -20,18 +21,11 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PACKAGES = (
-    "apps/_shared/task_contract",
-    "apps/_shared/lifecycle_contract",
-    "apps/_shared/inference_contract",
-    "apps/_shared/protocol_v2",
-    "apps/_shared/training_contract",
-)
+PACKAGES = ("packages/python-sdk",)
 BUILDERS = {
     "build": "1.3.0",
     "setuptools": "80.9.0",
     "wheel": "0.45.1",
-    "hatchling": "1.27.0",
 }
 
 

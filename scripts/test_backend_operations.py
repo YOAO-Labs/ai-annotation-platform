@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
+PLUGINS_ROOT = ROOT / ".test-yoao-plugins"
 sys.path.insert(0, str(ROOT / "apps/api"))
 from app.services.backend_operations import JobStore, OperationConflict, TargetChanged  # noqa: E402
 
@@ -33,10 +34,10 @@ class FakeRunner(runner_module.Runner):
             "maintenance-test",
             [
                 ROOT / "docker-compose.yml",
-                ROOT / "docker-compose.ml.yml",
-                ROOT / "docker-compose.ml-yolo.yml",
+                PLUGINS_ROOT / "plugins/inference/yolo/docker-compose.yml",
             ],
             store,
+            plugins_root=PLUGINS_ROOT,
         )
         self.commands = []
         self.failure = None
@@ -386,6 +387,117 @@ class QueueTests(unittest.TestCase):
             self.store.read(f"{job['id']}.json").get("requires_inspection")
         )
         self.assertFalse(any("stop" in c for c in self.runner.commands))
+
+    def test_runner_rejects_missing_or_unlisted_plugin_compose_files(self):
+        with self.assertRaises(ValueError):
+            runner_module.Runner(
+                ROOT,
+                "maintenance-test",
+                [ROOT / "docker-compose.yml"],
+                self.store,
+                plugins_root=PLUGINS_ROOT,
+            )
+        with self.assertRaises(ValueError):
+            runner_module.Runner(
+                ROOT,
+                "maintenance-test",
+                [
+                    ROOT / "docker-compose.yml",
+                    PLUGINS_ROOT / "plugins/inference/unlisted/docker-compose.yml",
+                ],
+                self.store,
+                plugins_root=PLUGINS_ROOT,
+            )
+        with self.assertRaises(ValueError):
+            runner_module.Runner(
+                ROOT,
+                "maintenance-test",
+                [
+                    ROOT / "docker-compose.yml",
+                    PLUGINS_ROOT / "plugins/inference/yolo/../../../docker-compose.yml",
+                ],
+                self.store,
+                plugins_root=PLUGINS_ROOT,
+            )
+        with self.assertRaises(ValueError):
+            runner_module.Runner(
+                ROOT,
+                "maintenance-test",
+                [
+                    ROOT / "docker-compose.yml",
+                    PLUGINS_ROOT / "plugins/inference/yolo/docker-compose.yml",
+                ],
+                self.store,
+                plugins_root="",
+            )
+
+    def test_runner_rejects_symlink_escape_and_invalid_cli_paths(self):
+        with tempfile.TemporaryDirectory() as raw_tmp:
+            tmp = Path(raw_tmp)
+            fake_plugins = tmp / "yoao-plugins"
+            yolo_dir = fake_plugins / "plugins" / "inference" / "yolo"
+            yolo_dir.mkdir(parents=True)
+            outside_compose = tmp / "outside-compose.yml"
+            outside_compose.write_text("services: {}\n", encoding="utf-8")
+            escaped_compose = yolo_dir / "docker-compose.yml"
+            escaped_compose.symlink_to(outside_compose)
+            with self.assertRaises(ValueError):
+                runner_module.Runner(
+                    ROOT,
+                    "maintenance-test",
+                    [ROOT / "docker-compose.yml", escaped_compose],
+                    self.store,
+                    plugins_root=fake_plugins,
+                )
+
+            base_argv = [
+                "ml-backend-runner.py",
+                "--root",
+                str(ROOT),
+                "--project",
+                "maintenance-test",
+                "--operations-dir",
+                str(tmp / "ops"),
+            ]
+            invalid_cases = [
+                [
+                    *base_argv,
+                    "--plugins-root",
+                    "",
+                    "--compose-file",
+                    str(ROOT / "docker-compose.yml"),
+                ],
+                [
+                    *base_argv,
+                    "--plugins-root",
+                    str(tmp / "does-not-exist"),
+                    "--compose-file",
+                    str(ROOT / "docker-compose.yml"),
+                ],
+                [
+                    *base_argv,
+                    "--plugins-root",
+                    str(fake_plugins),
+                    "--compose-file",
+                    str(ROOT / "docker-compose.yml"),
+                    "--compose-file",
+                    str(fake_plugins / "plugins/inference/sam3/docker-compose.yml"),
+                ],
+                [
+                    *base_argv,
+                    "--plugins-root",
+                    str(fake_plugins),
+                    "--compose-file",
+                    str(ROOT / "docker-compose.yml"),
+                    "--compose-file",
+                    str(escaped_compose),
+                ],
+            ]
+            for argv in invalid_cases:
+                with patch.object(sys, "argv", argv):
+                    with self.assertRaises(SystemExit) as ctx:
+                        runner_module.main()
+                    self.assertEqual(ctx.exception.code, 2)
 
 
 class APITests(unittest.IsolatedAsyncioTestCase):

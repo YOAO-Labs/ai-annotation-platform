@@ -73,20 +73,7 @@ def main(reports: Path) -> int:
         def run(*args, cwd=work):
             subprocess.run(args, cwd=cwd, env=env, check=True)
 
-        for source in (
-            SDK,
-            *(
-                SHARED / p
-                for p in (
-                    "task_contract",
-                    "lifecycle_contract",
-                    "inference_contract",
-                    "protocol_v2",
-                    "training_contract",
-                )
-            ),
-        ):
-            run("uv", "build", "--python", sys.executable, "--out-dir", dist, source)
+        run("uv", "build", "--python", sys.executable, "--out-dir", dist, SDK)
         with (reports / "distributions.sha256").open("w") as sums:
             for artifact in sorted((*dist.glob("*.whl"), *dist.glob("*.tar.gz"))):
                 with artifact.open("rb") as blob:
@@ -128,6 +115,7 @@ import json, subprocess, sys
 from importlib.resources import files
 from pathlib import Path
 from yoao import describe_operation
+import yoao_task_contract, yoao_lifecycle_contract, training_contract, yoao_inference_contract
 assert describe_operation('training_runs.create')['name'] == 'POST /api/v1/projects/{project_id}/training-runs'
 assert files('yoao').joinpath('AGENT_GUIDE.md').is_file()
 cli = Path(sys.executable).with_name('yoao')
@@ -139,9 +127,15 @@ assert result.returncode == 1 and json.loads(result.stderr)['kind'] == 'dependen
             *install,
             "--reinstall-package",
             "yoao-sdk",
-            f"{sdk_wheel}[test,plugins]",
-            *dist.glob("*_contract-*.whl"),
-            *dist.glob("yoao_protocol_v2-*.whl"),
+            f"{sdk_wheel}[test,plugins,protocol]",
+        )
+        run(
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            python,
+            "--no-deps",
             "--find-links",
             ROOT / ".artifacts/python/plugin-sdk",
             "--requirements",
@@ -159,18 +153,6 @@ assert result.returncode == 1 and json.loads(result.stderr)['kind'] == 'dependen
             ("sdk-repository", SDK, REPOSITORY_ONLY),
             ("sdk-installed", sdk, ("tests",)),
         ]
-        for name, files in (
-            (
-                "yoao_inference_contract",
-                (
-                    "tests/test_preannotate_contract.py",
-                    "tests/test_preannotate_legacy.py",
-                ),
-            ),
-            ("yoao_protocol_v2", ("tests/test_schemas.py",)),
-            ("yoao_training_contract", ("tests/test_contract.py",)),
-        ):
-            suites.append((name, unpack_tests(dist, name, work), files))
 
         collection = reports / "sdk-collection.txt"
         with collection.open("w") as output:

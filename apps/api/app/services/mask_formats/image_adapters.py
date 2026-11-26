@@ -7,19 +7,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
-from app.db.models.dataset import DatasetItem
-from app.db.models.annotation import Annotation
-from app.db.models.project import Project
-from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan, MaskFormatPlanItem
-from app.services.annotations_import import import_native_json_annotations
-from app.services.labeling_core_read_relations import annotation_row
 from app.services.mask_formats.contracts import (
+    FormatHostPort,
+    FormatProjectContext,
     MaskFormatDescriptor,
+    ResolvedTaskInfo,
     StagedObject,
     canonical_digest,
 )
@@ -33,9 +27,7 @@ from app.services.mask_formats.image_codecs import (
 )
 from app.services.mask_formats.image_export import indexed_overlap_summary
 from yoao_assets_source.archive import ArchiveLimits, SafeZipArchive
-from yoao_workspace.configuration_policy import lookup_classes_for_tool_unit
 from app.services.raster_mask_storage import build_rle_reference
-from app.services.task_matcher import resolve_task, resolve_task_by_file_stem
 from app.utils.raster_mask_rle import coco_rle_area, validate_coco_rle
 
 from .adapters import LegacyPackagingAdapter
@@ -56,7 +48,7 @@ class ParsedImageItem:
     width: int
     height: int
     masks: list[ParsedMask]
-    task: Task | None = None
+    task: ResolvedTaskInfo | None = None
     losses: list[str] = field(default_factory=list)
     warnings: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
 
@@ -78,29 +70,10 @@ def _mapped_label(raw: str, mapping: dict[str, Any]) -> str:
     return str(mapped).strip()
 
 
-def _project_mask_classes(project: Project) -> set[str]:
-    return lookup_classes_for_tool_unit(project.tool_bindings or {}, "region")
-
-
-async def _task_dimensions(
-    db: AsyncSession, task: Task | None
-) -> tuple[int, int] | None:
-    if task is None or task.dataset_item_id is None:
+def _task_dimensions(task: ResolvedTaskInfo | None) -> tuple[int, int] | None:
+    if task is None or not task.width or not task.height:
         return None
-    item = await db.get(DatasetItem, task.dataset_item_id)
-    if item is None or not item.width or not item.height:
-        return None
-    return int(item.width), int(item.height)
-
-
-async def _resolve_image_task(
-    db: AsyncSession, project_id: uuid.UUID, media_path: str
-) -> Task | None:
-    task = await resolve_task(db, project_id, {"file_path": media_path})
-    if task is not None:
-        return task
-    task, _reason = await resolve_task_by_file_stem(db, project_id, media_path)
-    return task
+    return int(task.width), int(task.height)
 
 
 def _item_identity(item: ParsedImageItem) -> str:
@@ -142,8 +115,8 @@ def _read_archive_json(archive: SafeZipArchive, path: str) -> Any:
 
 
 async def _parse_coco(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     _options: dict[str, Any],
@@ -175,7 +148,7 @@ async def _parse_coco(
             or height <= 0
         ):
             raise ValueError("COCO image width / height must be positive integers")
-        task = await _resolve_image_task(db, project.id, media_path)
+        task = await host.resolve_image_task(media_path)
         masks: list[ParsedMask] = []
         for annotation in annotations.get(image["id"], []):
             raw_label = categories.get(annotation.get("category_id"))
@@ -208,8 +181,8 @@ async def _parse_coco(
 
 
 async def _parse_label_studio(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     options: dict[str, Any],
@@ -225,7 +198,7 @@ async def _parse_label_studio(
             continue
         data = task_row.get("data") if isinstance(task_row.get("data"), dict) else {}
         media_path = str(data.get(data_key) or "").strip()
-        platform_task = await _resolve_image_task(db, project.id, media_path)
+        platform_task = await host.resolve_image_task(media_path)
         containers = task_row.get("annotations") or task_row.get("predictions") or []
         results: list[dict[str, Any]] = []
         for container in containers:
@@ -292,7 +265,7 @@ async def _parse_label_studio(
                 )
             )
         if not width or not height:
-            dims = await _task_dimensions(db, platform_task)
+            dims = _task_dimensions(platform_task)
             if dims:
                 width, height = dims
         items.append(
@@ -315,8 +288,8 @@ def _manifest_items(raw: Any, expected_format: str) -> list[dict[str, Any]]:
 
 
 async def _parse_png_archive(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     _options: dict[str, Any],
@@ -351,7 +324,7 @@ async def _parse_png_archive(
                 or height <= 0
             ):
                 raise ValueError("manifest dimensions must be positive integers")
-            task = await _resolve_image_task(db, project.id, media_path)
+            task = await host.resolve_image_task(media_path)
             masks: list[ParsedMask] = []
             shared_png: bytes | None = None
             shared_sha256: str | None = None
@@ -454,8 +427,8 @@ def _yolo_classes(archive: SafeZipArchive) -> list[str]:
 
 
 async def _parse_yolo(
-    db: AsyncSession,
-    project: Project,
+    host: FormatHostPort,
+    project: FormatProjectContext,
     staged: StagedObject,
     mapping: dict[str, Any],
     _options: dict[str, Any],
@@ -475,8 +448,8 @@ async def _parse_yolo(
         )
         items: list[ParsedImageItem] = []
         for label_path in label_paths:
-            task, _reason = await resolve_task_by_file_stem(db, project.id, label_path)
-            dims = await _task_dimensions(db, task)
+            task = await host.resolve_image_task(label_path, stem_only=True)
+            dims = _task_dimensions(task)
             if dims is None:
                 width = height = 0
             else:
@@ -540,28 +513,28 @@ class ImageMaskImportAdapter:
 
     async def _items(
         self,
-        db: AsyncSession,
-        project: Project,
+        host: FormatHostPort,
+        project: FormatProjectContext,
         staged: StagedObject,
         mapping: dict[str, Any],
         options: dict[str, Any],
     ) -> list[ParsedImageItem]:
-        items = await self._parser(db, project, staged, mapping, options)
+        items = await self._parser(host, project, staged, mapping, options)
         if len(items) > 100_000:
             raise ValueError("resource_budget_exceeded:max_import_items")
         return items
 
     async def preflight_import(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         staged: StagedObject,
         mapping: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
-        items = await self._items(db, project, staged, mapping, options)
-        allowed_classes = _project_mask_classes(project)
+        items = await self._items(host, project, staged, mapping, options)
+        allowed_classes = project.allowed_region_classes
         unknown_labels: set[str] = set()
         size_conflicts: list[dict[str, Any]] = []
         plan_items: list[MaskFormatPlanItem] = []
@@ -571,7 +544,7 @@ class ImageMaskImportAdapter:
             task = item.task
             if task is None:
                 skips.append(_code("task_not_found", media_path=item.media_path))
-            dimensions = await _task_dimensions(db, task)
+            dimensions = _task_dimensions(task)
             if task is not None and dimensions is None:
                 skips.append(
                     _code("image_size_mismatch", reason="task dimensions unavailable")
@@ -609,7 +582,7 @@ class ImageMaskImportAdapter:
             plan_items.append(
                 MaskFormatPlanItem(
                     item_id=_item_identity(item),
-                    task_id=task.id if task else None,
+                    task_id=task.task_id if task else None,
                     media_path=item.media_path,
                     source_index=index,
                     loss_class=loss_class,
@@ -661,9 +634,9 @@ class ImageMaskImportAdapter:
 
     async def execute_import_item(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         staged: StagedObject,
         plan: MaskFormatPlan,
         item_index: int,
@@ -679,13 +652,13 @@ class ImageMaskImportAdapter:
                 if plan_item.skips
                 else "not_selected",
             }
-        items = await self._items(db, project, staged, mapping, options)
+        items = await self._items(host, project, staged, mapping, options)
         if plan_item.source_index is None or plan_item.source_index >= len(items):
             raise ValueError("format_plan_source_index_conflict")
         item = items[plan_item.source_index]
         if _item_identity(item) != plan_item.item_id:
             raise ValueError("format_plan_item_digest_conflict")
-        if item.task is None or item.task.id != plan_item.task_id:
+        if item.task is None or item.task.task_id != plan_item.task_id:
             raise ValueError("format_plan_task_conflict")
         mask_objects: dict[str, dict[str, Any]] = {}
         annotations: list[dict[str, Any]] = []
@@ -718,33 +691,30 @@ class ImageMaskImportAdapter:
                 }
             ],
         }
-        result = await import_native_json_annotations(
-            db,
-            project.id,
+        result = await host.commit_native_json(
             json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(),
             operator_user_id=operator_user_id,
             overwrite=bool(options.get("overwrite")),
-            dry_run=False,
         )
         if result.errors or result.skipped:
             raise ValueError("format_execute_diverged_from_preflight")
         return {
             "status": "committed",
-            "task_id": str(item.task.id),
+            "task_id": str(item.task.task_id),
             "imported": result.imported,
             "skipped": 0,
         }
 
     async def preflight_export(
         self,
-        db: AsyncSession,
+        host: FormatHostPort,
         *,
-        project: Project,
+        project: FormatProjectContext,
         scope: dict[str, Any],
         options: dict[str, Any],
     ) -> MaskFormatPlan:
         base = await LegacyPackagingAdapter(self.descriptor).preflight_export(
-            db, project=project, scope=scope, options=options
+            host, project=project, scope=scope, options=options
         )
         if self.descriptor.format_id != "indexed-png":
             return base
@@ -753,26 +723,7 @@ class ImageMaskImportAdapter:
         if overlap_policy not in {"error", "z_order", "larger_area", "smaller_area"}:
             raise ValueError("invalid indexed PNG overlap policy")
         task_ids = [item.task_id for item in base.items if item.task_id is not None]
-        grouped: dict[uuid.UUID, list[Annotation]] = {}
-        if task_ids:
-            rows = (
-                (
-                    await db.execute(
-                        select(annotation_row)
-                        .where(
-                            annotation_row.task_id.in_(task_ids),
-                            annotation_row.is_active.is_(True),
-                            annotation_row.was_cancelled.is_(False),
-                            annotation_row.geometry["type"].astext == "raster_mask",
-                        )
-                        .order_by(annotation_row.task_id, annotation_row.id)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            for annotation in rows:
-                grouped.setdefault(annotation.task_id, []).append(annotation)
+        grouped = await host.list_export_raster_masks(task_ids=task_ids)
 
         overlap_conflicts: list[dict[str, Any]] = []
         updated_items: list[MaskFormatPlanItem] = []
@@ -837,12 +788,12 @@ class ImageMaskImportAdapter:
         return _plan(payload)
 
 
-def binary_png_parser(db, project, staged, mapping, options):
-    return _parse_png_archive(db, project, staged, mapping, options, indexed=False)
+def binary_png_parser(host, project, staged, mapping, options):
+    return _parse_png_archive(host, project, staged, mapping, options, indexed=False)
 
 
-def indexed_png_parser(db, project, staged, mapping, options):
-    return _parse_png_archive(db, project, staged, mapping, options, indexed=True)
+def indexed_png_parser(host, project, staged, mapping, options):
+    return _parse_png_archive(host, project, staged, mapping, options, indexed=True)
 
 
 IMAGE_IMPORT_PARSERS = {

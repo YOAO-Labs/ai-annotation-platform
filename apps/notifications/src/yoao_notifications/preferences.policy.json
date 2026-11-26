@@ -36,5 +36,33 @@
     "feedback.reply_created",
     "job.failed",
     "export.failed"
+  ],
+  "reserved_channel_ids": ["in_app", "toast", "email", "external"],
+  "external_channel_default_enabled": false,
+  "external_channel_id_pattern": "^[a-z][a-z0-9_-]{1,31}$",
+  "external_deliverable_types": [
+    "bug_report.commented",
+    "bug_report.reopened",
+    "bug_report.status_changed",
+    "batch.rejected",
+    "batch.review_reopened",
+    "batch.admin_locked",
+    "batch.admin_unlocked",
+    "batch.unarchived",
+    "task.approved",
+    "task.rejected",
+    "task.reopened",
+    "failed_prediction.retry.started",
+    "failed_prediction.retry.succeeded",
+    "failed_prediction.retry.failed",
+    "export.ready",
+    "export.failed",
+    "job.completed",
+    "job.failed",
+    "job.cancelled",
+    "feedback.reply_created",
+    "feedback.status_changed",
+    "feedback.comment_mentioned",
+    "annotation.comment_mentioned"
   ]
 }

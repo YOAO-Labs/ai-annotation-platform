@@ -10,14 +10,14 @@ from app.services import training_claims as claims
 from app.services.project_write_guard import lock_project_manager
 
 
-def snapshot(framework, base_model, configuration, initialization_pin=None):
-    template = adapters.controlled_template(framework, base_model)
+async def snapshot(db, framework, base_model, configuration, initialization_pin=None):
+    template = await adapters.plugin_template(db, framework, base_model)
     value = {
         key: template[key]
         for key in ("framework", "framework_version", "image_digest", "base_model")
     } | {
-        "configuration": adapters.resolve_configuration(
-            framework, base_model, configuration
+        "configuration": await adapters.resolve_plugin_configuration(
+            db, framework, base_model, configuration
         )
     }
     if (
@@ -38,6 +38,7 @@ def snapshot(framework, base_model, configuration, initialization_pin=None):
             framework,
             base_model,
             framework_version=template["framework_version"],
+            expected_task=template["task"],
         )
         if reasons:
             raise HTTPException(status_code=409, detail="；".join(reasons))
@@ -49,8 +50,8 @@ async def resolve_snapshot(db, project_id, body):
     pin = await initialization.resolve(
         db, project_id, body.initialization, body.framework, body.base_model
     )
-    return snapshot(
-        body.framework, body.base_model, body.configuration.model_dump(), pin
+    return await snapshot(
+        db, body.framework, body.base_model, body.configuration.model_dump(), pin
     )
 
 
@@ -76,10 +77,11 @@ def from_run(run):
     )
 
 
-def compatibility(value):
+async def compatibility(db, value):
     try:
         config = value["configuration"]
-        current = snapshot(
+        current = await snapshot(
+            db,
             value["framework"],
             value["base_model"]["id"],
             {
@@ -127,7 +129,7 @@ async def source_run(db, project_id, run_id, attempt_id=None):
 async def clone_candidate(db, project_id, run_id, attempt_id=None):
     run = await source_run(db, project_id, run_id, attempt_id)
     value = from_run(run)
-    compatible, reason = compatibility(value)
+    compatible, reason = await compatibility(db, value)
     if compatible and value.get("initialization"):
         try:
             await initialization.validate_accepted(
@@ -157,7 +159,7 @@ async def clone_candidate(db, project_id, run_id, attempt_id=None):
 
 
 async def describe(db, recipe, revision):
-    compatible, reason = compatibility(revision.snapshot)
+    compatible, reason = await compatibility(db, revision.snapshot)
     origin = revision.origin or {}
     source_available = True
     if origin.get("kind") == "clone":
@@ -239,7 +241,7 @@ async def origin_snapshot(
             raise HTTPException(status_code=409, detail="来源实验摘要不匹配")
         value, label = from_run(run), run.name
         metadata = {"source_dataset_id": str(run.dataset_id)}
-    compatible, reason = compatibility(value)
+    compatible, reason = await compatibility(db, value)
     if not compatible:
         raise HTTPException(status_code=409, detail=reason)
     if value.get("initialization") and not current.get("initialization"):
@@ -311,7 +313,7 @@ async def write_revision(body, project, user, db, recipe_id=None):
                 status_code=409, detail="仅已验证成功的实验可直接保存为配方"
             )
         value = from_run(run)
-        compatible, reason = compatibility(value)
+        compatible, reason = await compatibility(db, value)
         if not compatible:
             raise HTTPException(status_code=409, detail=reason)
         if value.get("initialization"):

@@ -24,6 +24,7 @@ from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 from app.services.workspace_e2e_fixtures import create_fixture_project
 from app.services.mask_formats.catalog import registry
+from app.services.mask_formats.runtime import format_host
 from app.services.raster_mask_storage import build_rle_reference
 from tests.factory import build_tool_bindings
 
@@ -408,10 +409,11 @@ async def test_video_preflight_shapes_and_loss_boundaries(test_engine):
             "coco-frames-seg": set(task_ids[1:]),
         }
         async with runtime.begin() as db:
+            host, project_ctx = format_host(db, project)
             for format_id, supported in supported_tasks.items():
                 plan = await registry.get(format_id).preflight_export(
-                    db,
-                    project=project,
+                    host,
+                    project=project_ctx,
                     scope={"project_id": str(project.id)},
                     options={},
                 )

@@ -1,7 +1,9 @@
 """CPU supervision cannot release live children or change training controls."""
 
 import copy
+import hashlib
 import json
+import sys
 import threading
 import uuid
 from types import SimpleNamespace
@@ -9,6 +11,8 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from training_contract.preview import POLICY_DIGEST
+from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
 from training_executor.files import digest_file
 from training_executor.preview_worker import PreviewSupervisor
 from training_executor.worker import RetiredAttempt
@@ -33,6 +37,9 @@ def supervisor(tmp_path):
     owned = PreviewSupervisor(training)
     owned.models.mkdir()
     owned.heartbeat = lambda journal: None
+    owned.local_plugins = {
+        "test.preview": {"entrypoint": [sys.executable, str(tmp_path / "preview.py")]}
+    }
     owned.lock = (tmp_path / "cpu.lock").open("a+")
     try:
         yield owned, training
@@ -45,20 +52,52 @@ def supervisor(tmp_path):
 def journal_for(owned):
     base = owned.models / "base.pt"
     base.write_bytes(b"controlled base")
+    source_bytes = b"synthetic-image"
+    source_sha = hashlib.sha256(source_bytes).hexdigest()
+    task_id = str(uuid.uuid4())
     return {
         "phase": "preparing",
         "claim": {"executor_id": owned.executor_id, "boot_id": owned.boot},
         "assignment": {
             "preview_id": "owned-preview",
             "lease_token": "fence",
-            "input_digest": "digest",
+            "input_digest": "a" * 64,
             "stop": False,
-            "source_urls": {},
+            "source_urls": {task_id: "https://storage.test/source.png"},
             "spec": {
                 "count": 1,
-                "sources": [],
+                "seed": 42,
+                "epoch": 1,
+                "config_digest": "b" * 64,
+                "dataset_snapshot_digest": "c" * 64,
+                "policy_digest": POLICY_DIGEST,
+                "native_values": {},
+                "pool_summary": {"selected": 1},
+                "sources": [
+                    {
+                        "task_id": task_id,
+                        "filename": "images/train/sample.png",
+                        "image_path": "images/train/sample.png",
+                        "sha256": source_sha,
+                        "width": 16,
+                        "height": 12,
+                        "size_bytes": len(source_bytes),
+                        "box_count": 0,
+                    }
+                ],
+                "trainer_plugin": {
+                    "plugin_id": "test.preview",
+                    "execution_mode": "local_process",
+                    "entrypoint": owned.local_plugins["test.preview"]["entrypoint"],
+                },
                 "config": {
-                    "base_model": {"filename": "base.pt", "sha256": digest_file(base)}
+                    "framework": "dummy",
+                    "task": "detect",
+                    "base_model": {
+                        "id": "dummy-n",
+                        "filename": "base.pt",
+                        "sha256": digest_file(base),
+                    },
                 },
             },
         },
@@ -95,33 +134,45 @@ def test_live_child_survives_pid_persistence_failure_and_blocks_same_boot_retry(
 ):
     owned, _ = supervisor
     journal = journal_for(owned)
-    process = SimpleNamespace(pid=424242, returncode=None, wait=lambda: None)
     monkeypatch.setattr(
-        "training_executor.preview_worker.subprocess.Popen",
+        "training_executor.preview_worker.Supervisor.download",
+        lambda self, url, dst, sha, *a, **kw: dst.write_bytes(b"synthetic-image"),
+    )
+    process = SimpleNamespace(
+        pid=424242,
+        returncode=None,
+        stdout=None,
+        poll=lambda: None,
+        wait=lambda timeout=None: 0,
+    )
+    monkeypatch.setattr(
+        "training_executor.plugin_runner.subprocess.Popen",
         lambda *args, **kwargs: process,
     )
     monkeypatch.setattr(
         "training_executor.preview_worker.psutil.Process",
         lambda pid: (_ for _ in ()).throw(OSError("cannot record process")),
     )
+    monkeypatch.setattr("training_executor.plugin_runner.live_group", lambda pid: [pid])
     monkeypatch.setattr(
         "training_executor.preview_worker.live_group", lambda pid: [pid]
     )
     monkeypatch.setattr(
-        "training_executor.preview_worker.stop_process",
-        lambda child: (_ for _ in ()).throw(RuntimeError("not stopped")),
+        "training_executor.plugin_runner.stop_process_group",
+        lambda child, **kwargs: (_ for _ in ()).throw(RuntimeError("not stopped")),
     )
     published = []
     owned.publish = lambda *args: published.append(args) or False
     with pytest.raises(RuntimeError, match="not stopped"):
         owned.execute(journal)
-    assert owned.process is process and not owned.process_exited
+    assert owned.process is not None and not owned.process_exited
     assert owned.heartbeat_done.is_set()
     persisted = json.loads(owned.journal_path.read_text())
     assert persisted["phase"] == "transforming" and "process" not in persisted
     with pytest.raises(RuntimeError, match="not stopped"):
         owned.execute(persisted, recovery=True)
     assert not published and "finish_body" not in persisted
+    monkeypatch.setattr("training_executor.plugin_runner.live_group", lambda pid: [])
     monkeypatch.setattr("training_executor.preview_worker.live_group", lambda pid: [])
     owned.execute(persisted, recovery=True)
     assert len(published) == 1 and owned.process_exited and owned.process is None
@@ -147,21 +198,55 @@ def test_preview_child_hides_cuda_secrets_and_inherits_only_cpu_lock(
 ):
     owned, training = supervisor
     journal = journal_for(owned)
-    process = SimpleNamespace(pid=123, returncode=0, poll=lambda: 0, wait=lambda: 0)
+    monkeypatch.setattr(
+        "training_executor.preview_worker.Supervisor.download",
+        lambda self, url, dst, sha, *a, **kw: dst.write_bytes(b"synthetic-image"),
+    )
     seen = []
 
-    def popen(*args, **kwargs):
+    def popen(args, **kwargs):
         seen.append(kwargs)
-        return process
+        output_dir = owned.state / "previews" / "owned-preview" / "output"
+        png_bytes = b"\x89PNG\r\n\x1a\nfake"
+        (output_dir / "preview-0.png").write_bytes(png_bytes)
+        (output_dir / "report.json").write_text(
+            json.dumps(
+                {
+                    "protocol_version": TRAINER_PROTOCOL_VERSION,
+                    "status": "succeeded",
+                    "input_digest": "a" * 64,
+                    "policy_digest": POLICY_DIGEST,
+                    "cuda_initialized": False,
+                    "outputs": [
+                        {
+                            "filename": "preview-0.png",
+                            "sha256": hashlib.sha256(png_bytes).hexdigest(),
+                            "size_bytes": len(png_bytes),
+                            "width": 16,
+                            "height": 12,
+                            "box_count": 0,
+                            "metadata": {},
+                        }
+                    ],
+                }
+            )
+        )
+        return SimpleNamespace(
+            pid=123,
+            returncode=0,
+            stdout=None,
+            poll=lambda: 0,
+            wait=lambda timeout=None: 0,
+        )
 
     monkeypatch.setenv("TRAINING_EXECUTOR_TOKEN", "private credential")
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "GPU-owned-by-training")
-    monkeypatch.setattr("training_executor.preview_worker.subprocess.Popen", popen)
+    monkeypatch.setattr("training_executor.plugin_runner.subprocess.Popen", popen)
     monkeypatch.setattr(
         "training_executor.preview_worker.psutil.Process",
         lambda pid: SimpleNamespace(create_time=lambda: 1.0),
     )
-    monkeypatch.setattr("training_executor.preview_worker.live_group", lambda pid: [])
+    monkeypatch.setattr("training_executor.plugin_runner.live_group", lambda pid: [])
     owned.publish = lambda current, directory: (
         current["outcome"] == "succeeded" and False
     )

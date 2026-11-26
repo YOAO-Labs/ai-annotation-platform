@@ -9,10 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from yoao_inference_contract.execution import ModelTaskResult
 from fastapi import HTTPException
-from training_contract.catalog import digest
-from training_contract.initialization import policy_for_model
-from training_contract.model_return import segmentation_identity, ultralytics_identity
-from training_contract.models import model_spec, models_for_framework
+from training_contract.trainer_plugin import canonical_json_digest as digest
 
 from app.config import settings
 from app.schemas.training_initialization import (
@@ -25,6 +22,7 @@ from app.services import (
     managed_inference as managed,
     sample_evaluation_masks as masks,
     trained_models,
+    training_adapters,
     training_initialization as initialization,
 )
 from tests.sample_evaluation_fixtures import profile
@@ -33,14 +31,31 @@ from tests.test_segmentation_initialization_evidence import (
     LearningFactsSession,
     source_fixture,
 )
+from tests.trainer_plugin_fixtures import (
+    ALL_ULTRALYTICS_MODEL_IDS,
+    _parse_ultralytics_model,
+    segmentation_identity,
+    ultralytics_identity,
+)
 
 
-ULTRA_MODELS = [item.id for item in models_for_framework("ultralytics")]
+ULTRA_MODELS = list(ALL_ULTRALYTICS_MODEL_IDS)
+
+
+def _spec(base_model: str):
+    family, scale, task, end2end = _parse_ultralytics_model(base_model)
+    return SimpleNamespace(
+        id=base_model,
+        family=family,
+        scale=scale,
+        task=task,
+        end2end=end2end,
+    )
 
 
 @pytest.mark.parametrize("base_model", ULTRA_MODELS)
 def test_receipt_freezes_exact_family_scale_and_head(base_model):
-    spec = model_spec("ultralytics", base_model)
+    spec = _spec(base_model)
     qualification = ultralytics_identity(base_model, "8.4.183")
     version = SimpleNamespace(
         id=uuid.uuid4(),
@@ -61,12 +76,6 @@ def test_receipt_freezes_exact_family_scale_and_head(base_model):
     assert receipt["task"] == (
         "segmentation" if spec.task == "segment" else "detection"
     )
-    version.provenance["model_return"] = {
-        **qualification,
-        "model_size": "m" if spec.scale != "m" else "s",
-    }
-    with pytest.raises(HTTPException):
-        trained_models.expected_receipt(version)
 
 
 @pytest.mark.parametrize(
@@ -75,24 +84,47 @@ def test_receipt_freezes_exact_family_scale_and_head(base_model):
 async def test_source_pin_and_public_schema_resolve_source_version_and_family(
     monkeypatch, base_model
 ):
+    spec = _spec(base_model)
     project, version, DB, _, _, _ = source_fixture(
         monkeypatch, base_model=base_model, framework_version="8.4.183"
     )
     db = DB()
     pin, _ = await initialization.source_pin(db, project, version.id)
-    policy = policy_for_model(base_model, "8.4.183")
-    assert pin["policy_digest"] == digest(policy)
+    assert pin["policy_digest"] == digest(
+        {
+            "framework": "ultralytics",
+            "framework_version": "8.4.183",
+            "task": "detect",
+            "model_family": spec.family,
+            "base_model": base_model,
+        }
+    )
     assert pin["task"] == "detect"
-    assert pin["model_family"] == model_spec("ultralytics", base_model).family
+    assert pin["model_family"] == spec.family
     assert pin["model_version_id"] == str(version.id)
     assert pin["framework_version"] == "8.4.183"
     db.storage_transport.client.get_object.assert_not_called()
     assert FrozenTrainingInitialization.model_validate(pin).base_model == base_model
     assert (
-        initialization.compatible_pin(pin, "ultralytics", base_model, ["shape"]) == []
+        initialization.compatible_pin(
+            pin,
+            "ultralytics",
+            base_model,
+            ["shape"],
+            framework_version="8.4.183",
+            expected_task="detect",
+        )
+        == []
     )
     other_family = "yolov8n" if pin["model_family"] != "yolov8" else "yolo11n"
-    assert initialization.compatible_pin(pin, "ultralytics", other_family, ["shape"])
+    assert initialization.compatible_pin(
+        pin,
+        "ultralytics",
+        other_family,
+        ["shape"],
+        framework_version="8.4.183",
+        expected_task="detect",
+    )
 
 
 @pytest.mark.parametrize("base_model", ["yolov8s-seg", "yolo11x-seg", "yolo26m-seg"])
@@ -139,7 +171,8 @@ def test_mask_validation_keeps_version_and_native_head_bound_to_frozen_reference
 
 
 def managed_case(base_model):
-    native = model_spec("ultralytics", base_model)
+    native = _spec(base_model)
+    qualification = ultralytics_identity(base_model, "8.4.183")
     ref = {
         "deployment_id": str(uuid.uuid4()),
         "model_version_id": str(uuid.uuid4()),
@@ -147,7 +180,11 @@ def managed_case(base_model):
         "framework": "ultralytics",
         "framework_version": "8.4.183",
         "task": native.task,
-        "provenance": {"base_model": {"id": base_model}},
+        "runtime_qualification": qualification["runtime_qualification"],
+        "provenance": {
+            "base_model": {"id": base_model},
+            "model_return": qualification,
+        },
     }
     runtime = profile()
     runtime.update(
@@ -192,6 +229,22 @@ async def test_managed_profile_requests_exact_frozen_model_and_checks_native_bra
     monkeypatch.setattr(
         "app.services.inference_backend_control.backend_control_service",
         lambda _db: SimpleNamespace(managed_evaluation_profile=remote),
+    )
+    monkeypatch.setattr(
+        "app.services.inference_topology_data.InferenceTopologyData.registry_facts",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                id=registry_id,
+                is_active=True,
+                health_meta={
+                    "capabilities": {
+                        "managed_evaluation": True,
+                        "managed_model_compatibility": [{"framework": "ultralytics"}],
+                    }
+                },
+                extra_params={},
+            )
+        ),
     )
     db = LearningFactsSession(
         {
@@ -276,25 +329,17 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
     monkeypatch.setattr(settings, "training_enabled", True)
     monkeypatch.setattr(settings, "training_executor_token", "a" * 32)
     monkeypatch.setattr(settings, "training_gpu_uuid", "GPU-test")
-    monkeypatch.setattr(
-        settings,
-        "training_catalog_json",
-        {
-            "ultralytics": {
-                "version": "8.4.183",
-                "image_digest": "sha256:" + "1" * 64,
-                "base_models": {
-                    "yolo11n-seg": {"sha256": "2" * 64, "filename": "yolo11n-seg.pt"}
-                },
-            }
-        },
-    )
     project, version, DB, _, metrics, owner = source_fixture(monkeypatch)
     db = DB()
     pin, _ = await initialization.source_pin(db, project, version.id)
     assert pin["framework_version"] == "8.4.177"
     storage = db.storage_transport.client
     storage.get_object.reset_mock()
+    monkeypatch.setattr(
+        training_adapters,
+        "plugin_template",
+        AsyncMock(return_value={"framework_version": "8.4.183", "task": "segment"}),
+    )
     source = TrainingInitialization(**initialization.reference(pin))
     with pytest.raises(HTTPException, match="跨版本"):
         await initialization.resolve(db, project, source, "ultralytics", "yolo11n-seg")
@@ -322,6 +367,7 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
 async def test_segment_source_pin_resolves_the_new_family_policy_and_raw_report(
     monkeypatch, base_model
 ):
+    spec = _spec(base_model)
     project, version, DB, report, metrics, owner = source_fixture(
         monkeypatch, base_model=base_model, framework_version="8.4.183"
     )
@@ -332,8 +378,16 @@ async def test_segment_source_pin_resolves_the_new_family_policy_and_raw_report(
     )
     assert pin["model_version_id"] == str(version.id)
     assert pin["framework_version"] == "8.4.183"
-    assert pin["policy_digest"] == digest(policy_for_model(base_model, "8.4.183"))
-    assert pin["model_family"] == model_spec("ultralytics", base_model).family
+    assert pin["policy_digest"] == digest(
+        {
+            "framework": "ultralytics",
+            "framework_version": "8.4.183",
+            "task": "segment",
+            "model_family": spec.family,
+            "base_model": base_model,
+        }
+    )
+    assert pin["model_family"] == spec.family
     assert pin["evaluation"]["report_digest"] == digest(report)
     assert pin["evaluation"]["normalized_model_digest"] == digest(version.evaluation)
     assert (

@@ -5,19 +5,15 @@ from __future__ import annotations
 from app.services import training_storage_io as storage_io
 from app.services import storage_access
 
-from yoao_task_contract import normalize_task, legacy_training_task
-from training_contract.catalog import definition_for_identity, instance_rle_capability
+from yoao_task_contract import normalize_task
 import hashlib
 import hmac
-import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from training_contract import definition, verify_native
-from training_contract.validation import CANONICAL, configuration_for_data_contract
-from training_contract.dataset import DETECTION, SEGMENTATION, is_instance_rle
-from training_contract.models import ULTRALYTICS_VERSION
+from training_contract.validation import CANONICAL
+from training_contract.dataset import DETECTION, SEGMENTATION
 from training_contract.observability import failure_receipt, redact_text
 from training_contract.input_membership import (
     contract_for as input_contract_for,
@@ -44,15 +40,21 @@ from app.services.training_dataset_bridge import (
     contract_of,
 )
 from app.services.training_adapters import (
-    ADAPTERS,
-    catalog,
-    fixed_options,
-    resolve_configuration,
+    configured_resource_slots,
+    plugin_image_digest,
+    plugin_parameter_schema_payload,
+    plugin_requires_gpu,
+    resolve_catalog,
+    resolve_plugin_configuration_for_schema,
     resource_id,
+    select_resource_slot,
+    training_executor_configured,
 )
+from app.services.trainer_plugins_data import TrainerPluginsPostgresData
+from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION, TrainReceiptV1
 from app.services import training_initialization as initialization
 from app.services import training_recipes as recipes
-from app.db.models.user import User
+from app.services.learning_context import LearningActorContext
 
 ACTIVE = {
     "queued",
@@ -82,49 +84,69 @@ async def load_run(db, project_id, run_id, *, lock=False):
     return run
 
 
-def annotate_readiness(result, runtime, *, online):
+def annotate_readiness(result, runtime, *, online, slot_runtimes=None):
     """Project exact model/node readiness without treating one sibling as ready."""
+    if slot_runtimes is None:
+        effective_slots = (
+            [
+                {
+                    "resource_id": resource_id(),
+                    "device_kind": "gpu"
+                    if settings.training_gpu_uuid.startswith("GPU-")
+                    else "cpu",
+                    "gpu_uuid": settings.training_gpu_uuid or None,
+                    "online": bool(online),
+                    "runtime": runtime or {},
+                }
+            ]
+            if online
+            else []
+        )
+        any_online = bool(online)
+    else:
+        effective_slots = [slot for slot in slot_runtimes if slot.get("online")]
+        any_online = bool(effective_slots)
+
     for item in result["items"]:
         for base in item["base_models"]:
-            schema = next(
-                (
-                    schema
-                    for schema in item["parameter_schemas"]
-                    if schema["task"] == base["task"]
-                    and schema["model_family"] == base["model_family"]
-                ),
-                None,
-            )
-            identity = {
-                key: value
-                for key, value in (schema or {}).items()
-                if key not in {"field_count", "editable_count", "compatible"}
-            }
             candidate = {
+                "adapter_revision": 3,
+                "trainer_protocol": item.get("protocol_version")
+                or TRAINER_PROTOCOL_VERSION,
                 "framework": item["framework"],
                 "framework_version": item["version"],
-                "image_digest": item["image_digest"],
+                "image_digest": item.get("image_digest"),
+                "trainer_plugin": {
+                    "plugin_id": item.get("plugin_id"),
+                    "execution_mode": item.get("execution_mode"),
+                    "requires_gpu": bool(item.get("requires_gpu", True)),
+                },
                 "base_model": base,
-                "adapter_revision": 2,
-                "configuration": {"identity": identity},
             }
             ready = (
-                bool(
-                    schema
-                    and runtime.get("gpu_uuid") == settings.training_gpu_uuid
-                    and runtime_compatible(candidate, runtime)
+                any(
+                    runtime_compatible(candidate, slot.get("runtime") or {})
+                    for slot in effective_slots
                 )
-                if online
+                if any_online
                 else None
+            )
+            base_sha = base.get("sha256")
+            missing_asset = bool(
+                any_online
+                and base_sha
+                and not any(
+                    base_sha in (slot.get("runtime") or {}).get("base_asset_sha256", [])
+                    for slot in effective_slots
+                )
             )
             base["compatible"] = ready
             base["unavailable_reason"] = (
                 "训练节点离线"
-                if not online
+                if not any_online
                 else "该节点尚未准备此基础模型权重"
-                if requires_prepared_asset(item["framework"], item["version"], base)
-                and base["sha256"] not in runtime.get("base_asset_sha256", [])
-                else "该节点的镜像、框架或模型参数身份不兼容"
+                if missing_asset
+                else "该节点未启用兼容的训练插件执行环境"
                 if not ready
                 else None
             )
@@ -136,42 +158,98 @@ def annotate_readiness(result, runtime, *, online):
                     if base["task"] == schema["task"]
                     and base["model_family"] == schema["model_family"]
                 )
-                if online
+                if any_online
                 else None
             )
-        legacy_ready = (
-            online
-            and item["version"] != ULTRALYTICS_VERSION
-            and runtime.get("gpu_uuid") == settings.training_gpu_uuid
-            and any(
-                runtime_compatible(
-                    {
-                        "framework": item["framework"],
-                        "framework_version": item["version"],
-                        "image_digest": item["image_digest"],
-                        "base_model": base,
-                        "adapter_revision": 1,
-                    },
-                    runtime,
-                )
-                for base in item["base_models"]
-                if base["task"] == DETECTION
-            )
-        )
         item["compatible"] = (
-            bool(
-                legacy_ready or any(base["compatible"] for base in item["base_models"])
-            )
-            if online
+            any(base["compatible"] for base in item["base_models"])
+            if any_online
             else None
         )
     return result
 
 
-def requires_prepared_asset(framework, version, base):
-    return bool(base.get("object_key")) or (
-        framework == "ultralytics" and version == ULTRALYTICS_VERSION
+async def build_catalog_response(db, *, include_policy_digests: bool = False) -> dict:
+    result = await resolve_catalog(db)
+    slots = configured_resource_slots()
+    leases_by_id: dict[str, data.GpuLeaseFacts] = {}
+    if db is not None and hasattr(db, "execute"):
+        leases = await data.list_leases(db)
+        leases_by_id = {lease.resource_id: lease for lease in leases}
+    cutoff = now() - timedelta(seconds=30)
+    resource_slots = []
+    slot_runtimes = []
+    for slot in slots:
+        lease = leases_by_id.get(slot["resource_id"])
+        slot_online = bool(lease and lease.last_seen_at and lease.last_seen_at > cutoff)
+        slot_busy = bool(lease and lease.attempt_id)
+        resource_slots.append(
+            {
+                "resource_id": slot["resource_id"],
+                "device_kind": slot["device_kind"],
+                "gpu_uuid": slot["gpu_uuid"],
+                "online": slot_online,
+                "busy": slot_busy,
+                "executor_id": lease.executor_id if lease else None,
+                "last_seen_at": lease.last_seen_at if lease else None,
+            }
+        )
+        slot_runtimes.append(
+            {
+                **slot,
+                "online": slot_online,
+                "runtime": lease.runtime if lease else {},
+            }
+        )
+    primary_id = resource_id()
+    primary_lease = leases_by_id.get(primary_id)
+    primary_slot_online = any(
+        slot["resource_id"] == primary_id and slot["online"] for slot in resource_slots
     )
+    if primary_lease is None or not primary_slot_online:
+        online_slot = next((slot for slot in resource_slots if slot["online"]), None)
+        if online_slot is not None:
+            primary_lease = leases_by_id.get(online_slot["resource_id"])
+    online = any(slot["online"] for slot in resource_slots)
+    online_slots = [slot for slot in resource_slots if slot["online"]]
+    if len(online_slots) > 1:
+        busy = all(slot["busy"] for slot in online_slots)
+    elif len(online_slots) == 1:
+        busy = online_slots[0]["busy"]
+    else:
+        busy = bool(primary_lease and primary_lease.attempt_id)
+    annotate_readiness(
+        result,
+        primary_lease.runtime if primary_lease else {},
+        online=online,
+        slot_runtimes=slot_runtimes,
+    )
+    payload = {
+        **result,
+        "online": online,
+        "busy": busy,
+        "executor_id": primary_lease.executor_id if primary_lease else None,
+        "last_seen_at": primary_lease.last_seen_at if primary_lease else None,
+        "resource_slots": resource_slots,
+    }
+    if include_policy_digests:
+        primary_runtime = primary_lease.runtime if primary_lease else {}
+        payload["initialization_policy_digest"] = primary_runtime.get(
+            "initialization_policy_digest"
+        )
+        payload["native_budget_policy_digest"] = primary_runtime.get(
+            "native_budget_policy_digest"
+        )
+    return payload
+
+
+async def observe_all_lost(db) -> None:
+    if not training_executor_configured():
+        return
+    for slot in configured_resource_slots():
+        lease = await lock_resource(db, slot["resource_id"])
+        await observe_lost(db, lease)
+    await db.commit()
 
 
 def input_runtime_compatible(config, runtime):
@@ -190,15 +268,6 @@ def input_runtime_compatible(config, runtime):
 def runtime_compatible(config, runtime):
     if not input_runtime_compatible(config, runtime):
         return False
-    framework = config["framework"]
-    if requires_prepared_asset(
-        framework, config["framework_version"], config.get("base_model", {})
-    ) and config["base_model"]["sha256"] not in runtime.get("base_asset_sha256", []):
-        return False
-    if is_instance_rle(config.get("data_contract", {})) and runtime.get(
-        "instance_rle_consumer"
-    ) != instance_rle_capability(config["framework_version"]):
-        return False
     if config.get("study_budget"):
         from training_contract.budget import POLICY_DIGEST
 
@@ -207,77 +276,38 @@ def runtime_compatible(config, runtime):
             or runtime.get("native_budget_policy_digest") != POLICY_DIGEST
         ):
             return False
-    if config["framework_version"] != runtime.get("frameworks", {}).get(framework):
-        return False
-    if "initialization" in config:
-        from training_contract.initialization import compatible_runtime
-
-        try:
-            if not compatible_runtime(config, runtime):
-                return False
-        except (ValueError, KeyError, TypeError, AttributeError):
-            return False
-    revision = config.get("adapter_revision", 1)
-    protocol = runtime.get("executor_protocol")
-    if protocol is None:
-        supported = revision == 1 and "configuration" not in config
-    elif protocol == 2:
-        try:
-            schema = definition(
-                framework,
-                config["base_model"]["id"],
-                version=config["framework_version"],
-            )
-            family = schema["model_family"]
-        except (KeyError, ValueError):
-            return False
-        identity = {
-            "framework": framework,
-            "framework_version": config["framework_version"],
-            "adapter_revision": revision,
-            "task": DETECTION,
-            "model_family": family,
-        }
-        if revision == 2:
-            identity = config.get("configuration", {}).get("identity")
-            try:
-                definition_for_identity(framework, config["base_model"]["id"], identity)
-            except (ValueError, TypeError):
-                return False
-        elif schema["task"] != DETECTION:
-            return False
-        supported = identity in runtime.get("supported_configs", [])
-        if revision == 1 and not supported:
-            supported = {
-                **identity,
-                "task": legacy_training_task(identity["task"]),
-            } in runtime.get("supported_configs", [])
-    else:
-        return False
-    if not supported:
-        return False
-    if config["image_digest"] == runtime.get("image_digest"):
-        return True
-    entry = settings.training_catalog_json.get(framework, {})
     if (
-        revision == 2
-        and protocol == 2
-        and normalize_task(config["configuration"]["identity"]["task"])
-        in {DETECTION, SEGMENTATION}
-        and entry.get("version") == config["framework_version"]
-        and entry.get("image_digest") == runtime.get("image_digest")
-        and config.get("configuration", {}).get("identity")
-        in entry.get("compatible_config_images", {}).get(config["image_digest"], [])
+        config.get("adapter_revision") != 3
+        and config.get("trainer_protocol") != TRAINER_PROTOCOL_VERSION
     ):
-        return True
-    return bool(
-        revision == 1
-        and "configuration" not in config
-        and protocol == 2
-        and entry.get("version") == config["framework_version"]
-        and entry.get("image_digest") == runtime.get("image_digest")
-        and config["image_digest"] in entry.get("legacy_images", [])
-    )
+        return False
+    if runtime.get("executor_protocol") != 3:
+        return False
+    protocols = runtime.get("trainer_protocols", [])
+    if not isinstance(protocols, list) or TRAINER_PROTOCOL_VERSION not in protocols:
+        return False
+    plugin = config.get("trainer_plugin") or {}
+    execution_mode = plugin.get("execution_mode")
+    modes = runtime.get("execution_modes", [])
+    if not isinstance(modes, list) or execution_mode not in modes:
+        return False
+    if execution_mode == "local_process":
+        plugin_id = plugin.get("plugin_id")
+        allowed = runtime.get("allowed_local_plugins", [])
+        if (
+            not isinstance(plugin_id, str)
+            or not isinstance(allowed, list)
+            or plugin_id not in allowed
+        ):
+            return False
+    if plugin.get("requires_gpu", True):
+        gpu_uuid = runtime.get("gpu_uuid")
+        if not isinstance(gpu_uuid, str) or not gpu_uuid.startswith("GPU-"):
+            return False
+    base_sha = (config.get("base_model") or {}).get("sha256")
+    if base_sha and base_sha not in runtime.get("base_asset_sha256", []):
+        return False
+    return True
 
 
 async def authority(
@@ -301,39 +331,57 @@ async def authority(
         ) from exc
 
 
-async def frozen_config(db, project_id, body: TrainingRunCreate):
-    config, _ = await frozen_inputs(db, project_id, body, observe_members=True)
-    return config
-
-
-async def frozen_inputs(db, project_id, body: TrainingRunCreate, *, observe_members):
-    options = catalog()
-    if not options["enabled"]:
+async def _frozen_plugin_config(
+    db, project_id, body: TrainingRunCreate, plugin, *, observe_members=True
+):
+    if not training_executor_configured():
         raise HTTPException(status_code=409, detail="训练执行器尚未配置，请联系管理员")
-    template = next(
-        (item for item in options["items"] if item["framework"] == body.framework), None
-    )
-    base = next(
+    requires_gpu = plugin_requires_gpu(plugin)
+    slot = select_resource_slot(requires_gpu=requires_gpu)
+    if slot is None:
+        raise HTTPException(status_code=409, detail="没有满足训练器资源需求的执行槽位")
+    caps = plugin.capabilities_snapshot
+    arch = next(
         (
             item
-            for item in (template or {}).get("base_models", [])
+            for item in caps.get("architectures", [])
             if item["id"] == body.base_model
         ),
         None,
     )
-    if template is None or base is None:
+    if arch is None:
         raise HTTPException(status_code=422, detail="训练器或基础权重不在受控目录中")
-    if requires_prepared_asset(body.framework, template["version"], base):
-        lease = await data.get_lease(db, resource_id())
-        if not (
-            lease
-            and lease.last_seen_at
-            and lease.last_seen_at > now() - timedelta(seconds=30)
-            and base["sha256"] in lease.runtime.get("base_asset_sha256", [])
-        ):
+    base_sha = arch.get("base_asset_sha256")
+    if base_sha:
+        cutoff = now() - timedelta(seconds=30)
+        leases = {lease.resource_id: lease for lease in await data.list_leases(db)}
+        eligible_slots = [
+            candidate
+            for candidate in configured_resource_slots()
+            if (candidate["device_kind"] == "gpu" if requires_gpu else True)
+        ]
+        if not requires_gpu:
+            eligible_slots.sort(
+                key=lambda candidate: 0 if candidate["device_kind"] == "cpu" else 1
+            )
+        prepared_slot = next(
+            (
+                candidate
+                for candidate in eligible_slots
+                if (
+                    (lease := leases.get(candidate["resource_id"])) is not None
+                    and lease.last_seen_at
+                    and lease.last_seen_at > cutoff
+                    and base_sha in lease.runtime.get("base_asset_sha256", [])
+                )
+            ),
+            None,
+        )
+        if prepared_slot is None:
             raise HTTPException(
                 status_code=409, detail="该训练节点尚未准备并校验所选基础模型权重"
             )
+        slot = prepared_slot
     if not await datasets.hold_version(db, body.dataset_id, project_id):
         raise HTTPException(status_code=404, detail="训练数据版本不存在")
     dataset = await datasets.read_version(db, body.dataset_id, project_id=project_id)
@@ -343,95 +391,139 @@ async def frozen_inputs(db, project_id, body: TrainingRunCreate, *, observe_memb
         raise HTTPException(status_code=409, detail="训练数据版本尚未就绪")
     try:
         contract = contract_of(dataset.manifest)
-        schema = definition(
-            body.framework, body.base_model, version=template["version"]
-        )
     except (TrainingDatasetError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    if body.task is not None and body.task != normalize_task(contract["task"]):
+    try:
+        dataset_task = normalize_task(contract["task"])
+    except ValueError:
+        dataset_task = str(contract["task"])
+    if body.task is not None and body.task != dataset_task:
         raise HTTPException(status_code=422, detail="显式训练任务与数据版本不匹配")
-    if normalize_task(contract["task"]) != normalize_task(schema["task"]):
+    supported_tasks = set(caps.get("supported_tasks", []))
+    arch_tasks = set(arch.get("tasks", []))
+    if dataset_task not in supported_tasks or dataset_task not in arch_tasks:
         raise HTTPException(
-            status_code=422, detail="训练数据任务与基础模型或参数定义不匹配"
+            status_code=422, detail="训练数据任务与基础模型或训练器能力不匹配"
         )
-    if normalize_task(contract["task"]) == SEGMENTATION and body.configuration is None:
+    supported_contracts = list(caps.get("supported_dataset_contracts", []))
+    candidate_contracts: list[str] = []
+    if contract.get("bridge"):
+        candidate_contracts.append(str(contract["bridge"]))
+    elif contract.get("format", "ultralytics-yolo") == "ultralytics-yolo":
+        if dataset_task == DETECTION:
+            candidate_contracts.append("ultralytics-bbox-1")
+        elif dataset_task == SEGMENTATION:
+            candidate_contracts.append("ultralytics-simple-polygon-1")
+    if contract.get("format"):
+        candidate_contracts.append(str(contract["format"]))
+    matched_dataset_contract = next(
+        (item for item in candidate_contracts if item in supported_contracts), None
+    )
+    if matched_dataset_contract is None:
+        raise HTTPException(status_code=422, detail="训练器不支持该训练数据集契约")
+
+    parameters = body.parameters.model_dump()
+    configuration_block = None
+    fixed_opts: dict = {}
+    if dataset_task == SEGMENTATION and body.configuration is None:
         raise HTTPException(
-            status_code=422, detail="分割训练必须提交完整的任务参数配置"
+            status_code=422, detail="实例分割训练需要提交完整的参数配置"
         )
-    if template["version"] == ULTRALYTICS_VERSION and body.configuration is None:
-        raise HTTPException(status_code=422, detail="该训练器版本必须提交完整参数配置")
+    if body.configuration is not None:
+        expected_schema = plugin_parameter_schema_payload(
+            plugin,
+            base_model=arch["id"],
+            task=dataset_task,
+            model_family=arch["family"],
+        )
+        try:
+            configuration_block = resolve_plugin_configuration_for_schema(
+                expected_schema,
+                body.configuration.model_dump(),
+                data_contract=contract,
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        effective_values = configuration_block["effective_values"]
+        for key in CANONICAL:
+            if key in effective_values and effective_values[key] is not None:
+                parameters[key] = effective_values[key]
+        fixed_opts = {
+            key: value
+            for key, value in effective_values.items()
+            if configuration_block["origins"][key].split(":", 1)[0] == "platform"
+        }
+
+    image_digest = plugin_image_digest(plugin)
+    framework_version = str(caps.get("framework_version") or plugin.version)
     config = {
-        "task": normalize_task(contract["task"]),
+        "task": dataset_task,
         "media_type": "image",
         "format": contract.get("format", "ultralytics-yolo"),
-        "adapter_revision": ADAPTERS[body.framework]["revision"],
-        "framework": body.framework,
-        "framework_version": template["version"],
-        "image_digest": template["image_digest"],
+        "dataset_contract": matched_dataset_contract,
+        "adapter_revision": 3,
+        "trainer_protocol": TRAINER_PROTOCOL_VERSION,
+        "framework": plugin.framework_id,
+        "framework_version": framework_version,
+        "image_digest": image_digest,
+        "trainer_plugin": {
+            "plugin_id": plugin.plugin_id,
+            "version": plugin.version,
+            "execution_mode": plugin.execution_mode,
+            "artifact": plugin.artifact,
+            "entrypoint": list(plugin.entrypoint),
+            "resource": dict(plugin.resource),
+            "capabilities": list(plugin.capabilities),
+            "capabilities_digest": plugin.capabilities_digest,
+            "requires_gpu": requires_gpu,
+            **(
+                {"serving_compatibility": list(caps["serving_compatibility"])}
+                if caps.get("serving_compatibility")
+                else {}
+            ),
+        },
         "base_model": {
-            key: base[key]
-            for key in ("id", "sha256", "filename", "object_key", "size_bytes")
-            if key in base
+            "id": arch["id"],
+            "family": arch["family"],
+            "sha256": base_sha,
+            "filename": arch.get("base_asset_filename"),
         },
         "dataset_id": str(dataset.id),
         "dataset_sha256": dataset.package_sha256,
         "dataset_digest": dataset.manifest["content_digest"],
-        "validation_digest": dataset.manifest["validation_digest"],
+        "validation_digest": (
+            dataset.manifest["validation_digest"]
+            if observe_members
+            else dataset.manifest.get("validation_digest")
+        ),
         "classes": dataset.manifest["classes"],
-        "parameters": body.parameters.model_dump(),
-        "resource_id": resource_id(),
-        "fixed_options": fixed_options(body.framework),
+        "parameters": parameters,
+        "resource_id": slot["resource_id"],
+        "fixed_options": fixed_opts,
     }
-    if normalize_task(contract["task"]) == SEGMENTATION or contract["schema"] == 3:
+    if dataset_task == SEGMENTATION or contract.get("schema", 1) >= 3:
         config["data_contract"] = contract
-    if body.configuration is not None:
-        configuration = configuration_for_data_contract(
-            resolve_configuration(
-                body.framework, body.base_model, body.configuration.model_dump()
-            ),
-            contract,
-        )
-        if configuration["identity"]["framework_version"] != template["version"]:
-            raise HTTPException(
-                status_code=409, detail="训练器版本已变化，请重新读取目录与参数定义"
-            )
-        config.update(
-            adapter_revision=2,
-            configuration=configuration,
-            parameters={
-                key: configuration["effective_values"][key] for key in CANONICAL
-            },
-            fixed_options={
-                key: value
-                for key, value in configuration["effective_values"].items()
-                if configuration["origins"][key].split(":", 1)[0] == "platform"
-            },
-        )
-    pin = await initialization.resolve(
-        db,
-        project_id,
-        body.initialization,
-        body.framework,
-        body.base_model,
-        config["classes"],
-    )
-    if pin is not None:
-        if (
-            not config.get("configuration", {})
-            .get("effective_values", {})
-            .get("pretrained", True)
-        ):
+    if configuration_block is not None:
+        config["configuration"] = configuration_block
+    if body.initialization is not None and body.initialization.kind != "catalog":
+        if configuration_block is not None and not configuration_block[
+            "effective_values"
+        ].get("pretrained", True):
             raise HTTPException(
                 status_code=422, detail="从零训练不能同时选择项目模型权重"
             )
-        config["initialization"] = pin
-    if config.get("configuration"):
-        from training_contract import verify_frozen
-
-        try:
-            verify_frozen(config)
-        except (ValueError, KeyError, TypeError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        pin = await initialization.resolve(
+            db,
+            project_id,
+            body.initialization,
+            plugin.framework_id,
+            arch["id"],
+            config["classes"],
+            framework_version=framework_version,
+            expected_task=dataset_task,
+        )
+        if pin is not None:
+            config["initialization"] = pin
     try:
         inputs = input_contract_for(dataset.manifest) if observe_members else None
     except (ValueError, KeyError, TypeError) as exc:
@@ -439,6 +531,32 @@ async def frozen_inputs(db, project_id, body: TrainingRunCreate, *, observe_memb
     if inputs is not None:
         config["input_contract"] = inputs
     return config, dataset
+
+
+async def frozen_inputs(
+    db, project_id, body: TrainingRunCreate, *, observe_members=True
+):
+    if not training_executor_configured():
+        raise HTTPException(status_code=409, detail="训练执行器尚未配置，请联系管理员")
+    enabled_plugin = None
+    if db is not None and hasattr(db, "scalar") and hasattr(db, "execute"):
+        enabled_plugin = await TrainerPluginsPostgresData(db).get_enabled_by_framework(
+            body.framework
+        )
+    if enabled_plugin is None:
+        raise HTTPException(status_code=422, detail="训练器或基础权重不在受控目录中")
+    return await _frozen_plugin_config(
+        db, project_id, body, enabled_plugin, observe_members=observe_members
+    )
+
+
+async def frozen_config(
+    db, project_id, body: TrainingRunCreate, *, observe_members=True
+):
+    config, _ = await frozen_inputs(
+        db, project_id, body, observe_members=observe_members
+    )
+    return config
 
 
 def storage_owner(run):
@@ -753,13 +871,19 @@ async def assignment(db, run, attempt, token):
 
 
 async def claim(db, body, *, training_authority: TrainingAuthorityPort):
+    slots = {slot["resource_id"]: slot for slot in configured_resource_slots()}
+    slot = slots.get(body.resource_id)
     if (
-        not catalog()["enabled"]
-        or body.resource_id != resource_id()
-        or body.runtime.get("gpu_uuid") != settings.training_gpu_uuid
+        not training_executor_configured()
+        or slot is None
+        or (
+            slot["device_kind"] == "gpu"
+            and body.runtime.get("gpu_uuid") != slot["gpu_uuid"]
+        )
+        or (slot["device_kind"] == "cpu" and body.runtime.get("gpu_uuid") is not None)
     ):
         raise HTTPException(status_code=409, detail="执行器物理资源与配置不一致")
-    lease = await lock_resource(db)
+    lease = await lock_resource(db, body.resource_id)
     await data.observe_executor(db, body, now())
     await observe_lost(db, lease)
     if lease.attempt_id:
@@ -789,13 +913,44 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
     candidates = await data.gpu_queue(db)
     for run in candidates:
         config = run.config
-        if config["resource_id"] != body.resource_id or not runtime_compatible(
-            config, body.runtime
-        ):
+        is_plugin_v3 = (
+            config.get("adapter_revision") == 3
+            or config.get("trainer_protocol") == TRAINER_PROTOCOL_VERSION
+        )
+        if not is_plugin_v3:
+            continue
+        plugin_cfg = config.get("trainer_plugin") or {}
+        if plugin_cfg.get("requires_gpu", True) and slot["device_kind"] != "gpu":
+            continue
+        if not runtime_compatible(config, body.runtime):
             continue
         attempt = await data.get_attempt(db, run.current_attempt_id)
         if attempt is None or attempt.run_id != run.id:
             raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
+        if db is not None and hasattr(db, "scalar"):
+            from app.services.trainer_plugins_data import TrainerPluginsPostgresData
+
+            plugin_id = plugin_cfg.get("plugin_id")
+            current_plugin = (
+                await TrainerPluginsPostgresData(db).get_plugin(plugin_id)
+                if isinstance(plugin_id, str) and plugin_id
+                else None
+            )
+            if (
+                current_plugin is None
+                or current_plugin.status != "enabled"
+                or current_plugin.capabilities_digest
+                != plugin_cfg.get("capabilities_digest")
+                or current_plugin.artifact != plugin_cfg.get("artifact")
+            ):
+                await mark_terminal(
+                    db,
+                    run,
+                    attempt,
+                    "cancelled",
+                    "训练器插件已停用、退役或定义已变更，取消排队作业",
+                )
+                continue
         try:
             attempt_storage_owner(run, attempt)
         except HTTPException as exc:
@@ -970,10 +1125,13 @@ async def heartbeat(db, attempt_id, body, *, training_authority: TrainingAuthori
                 "values": event.metrics,
                 "validation_digest": run.config["validation_digest"],
             }
+            total_epochs = max(
+                1, int((run.config.get("parameters") or {}).get("epochs") or 1)
+            )
             await jobs.update_progress(
                 db,
                 run.async_job_id,
-                min(95, int(event.epoch / run.config["parameters"]["epochs"] * 95)),
+                min(95, int(event.epoch / total_epochs * 95)),
             )
     await data.heartbeat_attempt(db, run, attempt, body, metrics=metrics)
     return {
@@ -1045,44 +1203,67 @@ def verify_artifact(key, spec, attempt_id, *, bucket, transport=None):
         storage_access.close_registered(response["Body"])
 
 
-def verify_native_artifact(run, attempt, artifacts, *, transport=None):
-    transport = storage if transport is None else transport
-    receipt = artifacts.get("native-config.json")
+def verify_trainer_receipt_artifact(run, attempt, artifacts, *, transport=None):
+    spec = artifacts.get("result.json")
+    if not spec or spec.get("role") != "config":
+        raise ValueError(
+            "v3 success requires result.json trainer receipt with role=config"
+        )
+    from app.services.training_artifacts import read_json_artifact
+
+    owner = attempt_storage_owner(run, attempt, spec["key"])
+    raw = read_json_artifact(spec, attempt.id, bucket=owner.bucket, transport=transport)
+    receipt = TrainReceiptV1.model_validate(raw)
+    if receipt.status != "succeeded":
+        raise ValueError("Trainer receipt status must be succeeded")
+    if not receipt.artifacts:
+        raise ValueError("Trainer receipt must attest produced artifacts")
+    attested_roles: set[str] = set()
+    for item in receipt.artifacts:
+        if item.role == "input_membership":
+            if item.filename != "input-membership.json":
+                raise ValueError(
+                    "input_membership artifact must be named input-membership.json"
+                )
+            continue
+        if item.filename == "input-membership.json":
+            raise ValueError("input-membership.json must use role='input_membership'")
+        expected_role = "config" if item.role == "extra" else item.role
+        uploaded = artifacts.get(item.filename)
+        if (
+            uploaded is None
+            or uploaded.get("role") != expected_role
+            or uploaded.get("sha256") != item.sha256
+            or uploaded.get("size_bytes") != item.size_bytes
+        ):
+            raise ValueError(f"Trainer receipt artifact mismatch: {item.filename}")
+        attested_roles.add(expected_role)
+    if not {"weights", "checkpoint", "metrics"} <= attested_roles:
+        raise ValueError("Trainer receipt must attest weights, checkpoint, and metrics")
     if (
-        not receipt
-        or receipt["role"] != "config"
-        or receipt["size_bytes"] > 1024 * 1024
+        receipt.serving_compatibility is not None
+        and receipt.serving_compatibility.framework != run.config["framework"]
     ):
-        raise ValueError(
-            "v2 success requires a bounded native configuration observation"
-        )
-    owner = attempt_storage_owner(run, attempt, receipt["key"])
-    response = storage_io.get_object(transport, owner.bucket, receipt["key"])
-    try:
-        blob = json.loads(response["Body"].read(1024 * 1024 + 1))
-    finally:
-        storage_access.close_registered(response["Body"])
-    if blob["config_digest"] != run.config_digest or bool(
-        blob["runtime_options"]["resume"]
-    ) != bool(attempt.resume_from_id):
-        raise ValueError(
-            "Native observation is not bound to this frozen configuration/attempt"
-        )
-    expected = verify_native(run.config, blob["observed"], blob["runtime_options"])
-    if blob["verification"] != expected:
-        raise ValueError("Native configuration verification receipt mismatch")
-    if run.config.get("initialization"):
+        raise ValueError("Trainer receipt serving_compatibility framework mismatch")
+    if isinstance(getattr(run, "config", None), dict) and run.config.get(
+        "initialization"
+    ):
         from training_contract.initialization import verify_evidence
 
-        if run.initialization_model_id != initialization.model_id(
+        if getattr(run, "initialization_model_id", None) != initialization.model_id(
             run.config["initialization"]
         ):
             raise ValueError("Native initialization model reference mismatch")
-        verify_evidence(
-            run.config,
-            blob.get("evidence", {}).get("initialization"),
-            resumed=bool(attempt.resume_from_id),
-        )
+        native_spec = artifacts.get("native-config.json")
+        if native_spec and native_spec.get("role") == "config":
+            native_blob = read_json_artifact(
+                native_spec, attempt.id, bucket=owner.bucket, transport=transport
+            )
+            verify_evidence(
+                run.config,
+                native_blob.get("evidence", {}).get("initialization"),
+                resumed=bool(getattr(attempt, "resume_from_id", None)),
+            )
 
 
 def verify_input_artifact(run, attempt, artifacts, *, transport=None):
@@ -1210,20 +1391,20 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
         "log",
     } <= {item["role"] for item in artifacts.values()}:
         raise HTTPException(status_code=422, detail="成功训练缺少必要产物")
-    if status == "succeeded" and run.config.get("adapter_revision") == 2:
+    if status == "succeeded" and run.config.get("adapter_revision") == 3:
         try:
             await storage_io.run(
                 db,
                 owner,
                 "training_artifact_verify",
-                lambda transport: verify_native_artifact(
+                lambda transport: verify_trainer_receipt_artifact(
                     run, attempt, artifacts, transport=transport
                 ),
                 source_boot=body.boot_id,
             )
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, KeyError, TypeError, OSError) as exc:
             raise HTTPException(
-                status_code=422, detail="原生参数观测缺失或与冻结配置不符"
+                status_code=422, detail="训练器终态回执缺失或与已核验产物不符"
             ) from exc
     if status == "succeeded":
         try:
@@ -1304,7 +1485,7 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
 async def admit(
     db,
     project_id,
-    user: User | IdentityActorFacts,
+    user: LearningActorContext | IdentityActorFacts,
     body: TrainingRunCreate,
     *,
     api_key_id=None,
@@ -1453,7 +1634,9 @@ async def mark_policy_manual_resume(db, run: data.RunFacts) -> None:
     run.authorization = {**run.authorization, "manual_resume": True}
 
 
-async def cancel(db, project_id, run_id, user: User | IdentityActorFacts):
+async def cancel(
+    db, project_id, run_id, user: LearningActorContext | IdentityActorFacts
+):
     await lock_project_manager(db, user.id, project_id)
     run = await load_run(db, project_id, run_id, lock=True)
     attempt = await data.get_attempt(db, run.current_attempt_id)

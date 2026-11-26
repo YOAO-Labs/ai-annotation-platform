@@ -25,6 +25,7 @@ export interface NotificationPreferenceItem {
   in_app: boolean;
   email: boolean;
   toast: boolean;
+  external_channels?: Record<string, boolean>;
 }
 
 export interface NotificationPreferencesResponse {
@@ -34,6 +35,7 @@ export interface NotificationPreferencesResponse {
 export interface NotificationPreferencePatch {
   in_app?: boolean;
   toast?: boolean;
+  external_channels?: Record<string, boolean>;
 }
 
 export const notificationsApi = {

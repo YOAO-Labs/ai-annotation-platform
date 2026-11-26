@@ -467,6 +467,7 @@ async def add_bug_comment(
                     "reopen": was_reopened,
                     "reopen_count": report.reopen_count if was_reopened else None,
                 },
+                operation_id=comment.id,
             )
     else:
         if report.reporter_id != current_user.id:
@@ -483,6 +484,7 @@ async def add_bug_comment(
                     "snippet": snippet,
                     "reopen": False,
                 },
+                operation_id=comment.id,
             )
             if row is not None:
                 pending_notifications = [row]

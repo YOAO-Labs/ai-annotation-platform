@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from app.db.models.project import Project
+from app.services.learning_context import LearningProjectContext
 from app.services.learning_models_data import Deployment, ModelVersion
 from app.services.training_dataset_data import read_version
 from app.services import trained_models as models
@@ -29,7 +29,7 @@ async def live_receipt(
 
 async def install_and_trial(
     db,
-    project: Project,
+    project: LearningProjectContext,
     version: ModelVersion,
     deployment: Deployment,
 ):

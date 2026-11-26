@@ -537,6 +537,7 @@ class GPUAuthorityManager:
             ):
                 raise ValueError("GPU diagnostics backend fact is malformed")
             retired_installation = False
+            direct_unarbitrated = False
             if (
                 backend_resource_id is None
                 and budget is None
@@ -550,6 +551,12 @@ class GPUAuthorityManager:
                         installation.installation_id == parsed_id
                         and installation.status == "retired"
                     )
+                    direct_unarbitrated = (
+                        installation.installation_id == parsed_id
+                        and installation.execution_mode == "direct"
+                        and installation.resource.gpu_resource_id is None
+                        and installation.status != "retired"
+                    )
                 except (TypeError, ValueError):
                     pass
             facts.append(
@@ -561,6 +568,7 @@ class GPUAuthorityManager:
                     last_checked_at=parsed_checked_at,
                     health_meta=health_meta,
                     retired_installation=retired_installation,
+                    direct_unarbitrated=direct_unarbitrated,
                 )
             )
 

@@ -30,6 +30,9 @@ export function useUpdateNotificationPreference() {
       const patch: NotificationPreferencePatch = {};
       if (input.in_app !== undefined) patch.in_app = input.in_app;
       if (input.toast !== undefined) patch.toast = input.toast;
+      if (input.external_channels !== undefined) {
+        patch.external_channels = input.external_channels;
+      }
       return notificationsApi.updatePreference(input.type, patch).then((result) => ({
         result,
         owner,
@@ -49,6 +52,14 @@ export function useUpdateNotificationPreference() {
                     ...item,
                     ...(variables.in_app !== undefined ? { in_app: variables.in_app } : {}),
                     ...(variables.toast !== undefined ? { toast: variables.toast } : {}),
+                    ...(variables.external_channels !== undefined
+                      ? {
+                          external_channels: {
+                            ...(item.external_channels ?? {}),
+                            ...variables.external_channels,
+                          },
+                        }
+                      : {}),
                   }
                 : item,
             ),

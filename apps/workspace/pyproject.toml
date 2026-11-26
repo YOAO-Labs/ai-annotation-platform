@@ -10,14 +10,14 @@ requires-python = ">=3.11"
 dependencies = [
     "yoao-assets-cleanup",
     "yoao-audit-contract",
-    "yoao-inference-contract",
+    "yoao-sdk",
     "yoao-owner-data",
     "yoao-workspace-contract",
     "pydantic>=2.10",
 ]
 
 [tool.uv.sources]
-yoao-inference-contract = { path = "../_shared/inference_contract", editable = true }
+yoao-sdk = { path = "../../packages/python-sdk", editable = true }
 yoao-owner-data = { path = "../_shared/owner_data", editable = true }
 yoao-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
 yoao-identity = { path = "../identity", editable = true }

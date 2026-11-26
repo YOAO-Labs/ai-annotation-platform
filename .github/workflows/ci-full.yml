@@ -590,30 +590,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install offline Ultralytics fonts
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends fonts-dejavu-core fonts-noto-cjk
-          test -r /usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
-          test -r /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: Install uv
         id: setup-uv
         run: pip install uv
-      - name: Verify official YOLO11n preview weights
-        working-directory: ${{ runner.temp }}
-        run: |
-          curl --fail --silent --show-error --location --proto '=https' --max-time 120 \
-            --output yolo11n.pt.part \
-            https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo11n.pt
-          echo '0ebbc80d4a7680d14987a577cd21342b65ecfd94632bd9a8da63ae6417644ee1  yolo11n.pt.part' | sha256sum --check --strict
-          mv yolo11n.pt.part yolo11n.pt
       - name: Run training executor tests
         if: ${{ !cancelled() && steps.setup-uv.outcome == 'success' }}
-        env:
-          PREVIEW_TEST_BASE: ${{ runner.temp }}/yolo11n.pt
         working-directory: apps/training-executor
         run: uv run --with pytest --with pytest-asyncio pytest -q --junitxml=training-executor-test-results.xml
       - name: Upload training executor results

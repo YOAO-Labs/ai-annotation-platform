@@ -20,7 +20,6 @@ _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0236_identity_api_keys.sql"
 _SCHEMA = "0236_identity_api_keys.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0236_identity_api_keys.py"
-_NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
 
 
 def _jwt_actor(actor_id: uuid.UUID, *, jti: uuid.UUID | None = None) -> dict:
@@ -95,10 +94,11 @@ async def _execute(session: AsyncSession, request: dict) -> dict:
 
 
 def test_frozen_native_key_artifacts_and_two_function_owner_surface():
+    from app.db.native_schema import NATIVE_MANAGED_TABLES
+
     schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
-    native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
     statements = [
         statement.strip()
         for statement in artifact.split("-- aap-statement-break")
@@ -138,7 +138,7 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
     assert "plaintext" not in artifact
 
     assert "Cannot remove Identity API-key operation receipts" in migration
-    assert "identity_key_operation_receipts" in native_schema
+    assert "identity_key_operation_receipts" in NATIVE_MANAGED_TABLES
 
 
 @pytest.mark.asyncio

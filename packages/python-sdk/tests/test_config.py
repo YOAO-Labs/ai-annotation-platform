@@ -1,6 +1,10 @@
 import json
 import os
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
 
 import pytest
 from typer.testing import CliRunner

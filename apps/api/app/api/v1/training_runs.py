@@ -3,7 +3,6 @@
 import secrets
 import uuid
 from copy import deepcopy
-from datetime import timedelta
 from typing import Literal
 from urllib.parse import quote
 
@@ -33,6 +32,7 @@ from app.schemas.training_run import (
     ExecutorRecoveryResponse,
     ExecutorUpload,
     ExecutorUploadResponse,
+    FrameworkId,
     TrainingAttemptOut,
     TrainingRunCreate,
     TrainingRunOut,
@@ -42,10 +42,9 @@ from app.schemas.training_run import (
 )
 from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
-from training_contract import definition
-from training_contract.model_return import registration_eligibility
 from app.application import training_control
 from app.services.project_write_guard import lock_project_manager
+from app.services import trained_models
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
@@ -88,24 +87,7 @@ async def catalog(
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    result = adapters.catalog()
-    lease = await data.get_lease(db, adapters.resource_id())
-    result["online"] = bool(
-        lease
-        and lease.last_seen_at
-        and lease.last_seen_at > service.now() - timedelta(seconds=30)
-    )
-    result["busy"] = bool(lease and lease.attempt_id)
-    service.annotate_readiness(
-        result, lease.runtime if lease else {}, online=result["online"]
-    )
-    result["initialization_policy_digest"] = (
-        lease.runtime.get("initialization_policy_digest") if lease else None
-    )
-    result["native_budget_policy_digest"] = (
-        lease.runtime.get("native_budget_policy_digest") if lease else None
-    )
-    return result
+    return await service.build_catalog_response(db, include_policy_digests=True)
 
 
 @router.get(
@@ -114,12 +96,13 @@ async def catalog(
 )
 async def initialization_source(
     model_id: uuid.UUID,
-    framework: Literal["ultralytics", "libreyolo"],
-    base_model: str = Query(min_length=1, max_length=64),
+    framework: FrameworkId,
+    base_model: str = Query(min_length=1, max_length=128),
     dataset_id: uuid.UUID | None = None,
     project: Project = Depends(require_project_owner),
     db: AsyncSession = Depends(get_db),
 ):
+    await adapters.ensure_known_framework(db, framework, require_enabled_plugin=True)
     return await initialization.eligibility(
         db, project.id, model_id, framework, base_model, dataset_id
     )
@@ -138,26 +121,13 @@ async def preflight(
 
 @router.get("/parameter-schema", response_model=TrainingParameterSchema)
 async def parameter_schema(
-    framework: Literal["ultralytics", "libreyolo"],
-    base_model: str = Query(min_length=1, max_length=64),
+    framework: FrameworkId,
+    base_model: str = Query(min_length=1, max_length=128),
     project: Project = Depends(require_project_owner),
+    db: AsyncSession = Depends(get_db),
 ):
-    template = next(
-        (
-            item
-            for item in adapters.catalog()["items"]
-            if item["framework"] == framework
-        ),
-        None,
-    )
-    if not template or not any(
-        base["id"] == base_model for base in template["base_models"]
-    ):
-        raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
-    try:
-        return definition(framework, base_model, version=template["version"])
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await adapters.ensure_known_framework(db, framework, require_enabled_plugin=True)
+    return await adapters.plugin_parameter_schema(db, framework, base_model)
 
 
 @router.post(
@@ -197,7 +167,7 @@ async def list_runs(
         pattern="^(queued|preparing|training|evaluating|uploading|cancelling|lost|succeeded|failed|cancelled)$",
     ),
     task: Literal["detect", "segment"] | None = None,
-    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    framework: FrameworkId | None = None,
     created_from: ISODate | None = Query(
         None, description="创建日期下界，UTC 日期（含）"
     ),
@@ -223,15 +193,13 @@ async def list_runs(
     if task is not None:
         predicates.append(run_task_expression(fields.config) == task)
     if framework is not None:
+        await adapters.ensure_known_framework(db, framework)
         predicates.append(fields.config["framework"].as_string() == framework)
     if start is not None:
         predicates.append(fields.created_at >= start)
     if end is not None:
         predicates.append(fields.created_at <= end)
-    if adapters.catalog()["enabled"]:
-        lease = await service.lock_resource(db)
-        await service.observe_lost(db, lease)
-        await db.commit()
+    await service.observe_all_lost(db)
     total = await db.scalar(
         select(func.count()).select_from(data.run_summary_row).where(*predicates)
     )
@@ -287,7 +255,7 @@ async def get_run(
     registered_models = await models.run_candidates(db, project.id, run.id)
     return {
         "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
-        "registration_eligibility": registration_eligibility(run.config),
+        "registration_eligibility": trained_models.registration_eligibility(run.config),
         "registered_models": [
             TrainingRegisteredModel.model_validate(model).model_dump(mode="json")
             for model in registered_models

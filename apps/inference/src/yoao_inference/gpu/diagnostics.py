@@ -23,7 +23,9 @@ from yoao_inference.gpu.policy import (
     _is_explicit_cpu_backend,
     _requires_gpu_claim,
     _trusted_health_meta,
+    direct_remote_gpu_collides_with_local,
     effective_gpu_arbiter_mode,
+    observed_gpu_device_uuids,
 )
 from yoao_inference.gpu.rollout_state import (
     GPUArbiterRolloutDecision,
@@ -46,6 +48,7 @@ class GPUBackendDiagnosticFacts:
     last_checked_at: datetime | None
     health_meta: Mapping[str, Any] | None
     retired_installation: bool = False
+    direct_unarbitrated: bool = False
 
 
 logger = structlog.get_logger(__name__)
@@ -171,6 +174,62 @@ def build_backend_gpu_config_status(
 
     if resource_id is None and budget is None and backend.retired_installation:
         pass
+    elif resource_id is None and budget is None and backend.direct_unarbitrated:
+        if requires_gpu_claim:
+            if direct_remote_gpu_collides_with_local(health_meta, config=config):
+                diagnostics.append(
+                    _diag(
+                        "direct_gpu_local_collision",
+                        "blocker",
+                        "直连推理插件的物理 GPU 与本机受管 GPU 资源冲突，或本机仅配置了无法核验 UUID 的 index:* GPU 资源",
+                        field="gpu_resource_id",
+                        backend_id=backend_id,
+                    )
+                )
+            elif config.gpu_arbiter_resources and not observed_gpu_device_uuids(
+                health_meta
+            ):
+                diagnostics.append(
+                    _diag(
+                        "gpu_identity_unverified",
+                        "blocker",
+                        "直连 GPU 推理插件尚未上报可核验非本机冲突的物理设备 UUID",
+                        field="gpu_resource_id",
+                        backend_id=backend_id,
+                    )
+                )
+            else:
+                diagnostics.append(
+                    _diag(
+                        "direct_unarbitrated_gpu_backend",
+                        "info",
+                        "直连外部 GPU 推理插件不参与本机 GPU 仲裁",
+                        field="gpu_resource_id",
+                        backend_id=backend_id,
+                    )
+                )
+        elif _is_explicit_cpu_backend(
+            health_meta, requires_gpu_claim=requires_gpu_claim
+        ):
+            diagnostics.append(
+                _diag(
+                    "explicit_cpu_backend",
+                    "info",
+                    "backend 显式配置为 CPU，无需声明 GPU 资源",
+                    field="gpu_resource_id",
+                    backend_id=backend_id,
+                )
+            )
+        else:
+            diagnostics.append(
+                _diag(
+                    "direct_backend_unobserved",
+                    "info",
+                    "直连推理插件尚未完成最新健康探测",
+                    field="gpu_resource_id",
+                    backend_id=backend_id,
+                )
+            )
     elif resource_id is None and budget is None:
         if requires_gpu_claim:
             diagnostics.append(

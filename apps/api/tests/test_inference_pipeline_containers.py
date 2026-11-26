@@ -56,15 +56,13 @@ _IMAGE_ACCEPTANCE = "inference-pipeline-owner"
 _RUN_ACCEPTANCE = "module-data-boundary"
 _PACKAGE_SOURCE_PATHS = {
     "yoao_inference": "apps/inference/src/yoao_inference",
-    "yoao_inference_contract": (
-        "apps/_shared/inference_contract/src/yoao_inference_contract"
-    ),
+    "yoao_inference_contract": "packages/python-sdk/src/yoao_inference_contract",
     "yoao_owner_data": "apps/_shared/owner_data/src/yoao_owner_data",
     "yoao_workspace_contract": (
         "apps/_shared/workspace_contract/src/yoao_workspace_contract"
     ),
-    "yoao_task_contract": "apps/_shared/task_contract/src/yoao_task_contract",
-    "yoao_protocol_v2": "apps/_shared/protocol_v2/src/yoao_protocol_v2",
+    "yoao_task_contract": "packages/python-sdk/src/yoao_task_contract",
+    "yoao_protocol_v2": "packages/python-sdk/src/yoao_protocol_v2",
 }
 _PACKAGE_SUFFIXES = {".py", ".json", ".sql"}
 

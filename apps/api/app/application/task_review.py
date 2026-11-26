@@ -304,6 +304,9 @@ class TaskReviewWorkflow:
                     "actor_id": str(actor.id),
                     "actor_name": actor.name,
                 },
+                operation_id=review_round_id,
+                project_id=task.project_id,
+                task_id=task.id,
             )
 
         await self.db.commit()
@@ -400,6 +403,9 @@ class TaskReviewWorkflow:
                     "actor_id": str(actor.id),
                     "actor_name": actor.name,
                 },
+                operation_id=review_round_id,
+                project_id=task.project_id,
+                task_id=task.id,
             )
 
         await self.db.commit()

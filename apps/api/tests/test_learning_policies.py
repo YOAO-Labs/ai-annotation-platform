@@ -10,7 +10,6 @@ from sqlalchemy import func, select
 from training_contract.dataset import DETECTION_CONTRACT
 from training_contract.input_membership import POLICY_DIGEST
 
-from app.config import settings
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingRun
@@ -60,7 +59,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
     )
     legacy = copy.deepcopy(policy.config)
     assert "configuration" not in legacy
-    assert claims.policy_template_current(policy)
+    assert await claims.policy_template_current(db_session, policy)
     update = {key: value for key, value in body.items() if key != "parameters"}
     update.update(
         expected_revision=1,
@@ -77,7 +76,7 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
     pinned = copy.deepcopy(policy.config["configuration"])
     _, _, run = await build_candidate(db_session, policy)
     assert run.config["configuration"] == pinned
-    assert run.config["adapter_revision"] == 2
+    assert run.config["adapter_revision"] == 3
     assert run.config["parameters"] == policy.config["parameters"]
 
 
@@ -402,8 +401,12 @@ async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
     policy.baseline = baseline_without_one_train_member(parent)
     saved = copy.deepcopy(policy.baseline)
     t, data, run = await build_candidate(db_session, policy)
+    from tests.trainer_plugin_fixtures import ULTRALYTICS_VERSION
+
     assert (
-        run and t.changed_samples == 1 and run.config["framework_version"] == "8.4.177"
+        run
+        and t.changed_samples == 1
+        and run.config["framework_version"] == ULTRALYTICS_VERSION
     )
     run.status = "failed"
     await db_session.flush()
@@ -532,18 +535,18 @@ async def test_current_authority_status_and_fixed_catalog_stop_future_runs(
     elif reason == "project":
         p.status = "completed"
     else:
-        monkeypatch.setattr(
-            settings,
-            "training_catalog_json",
-            {
-                "ultralytics": {
-                    "version": "different",
-                    "image_digest": "sha256:" + "f" * 64,
-                    "base_models": {
-                        "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"}
-                    },
-                }
-            },
+        from tests.trainer_plugin_fixtures import (
+            retire_trainer_plugin,
+            seed_enabled_trainer_plugin,
+        )
+
+        await retire_trainer_plugin(db_session, "yoao.trainer.ultralytics")
+        await seed_enabled_trainer_plugin(
+            db_session,
+            framework_id="ultralytics",
+            plugin_id="yoao.trainer.ultralytics.different",
+            image_digest="sha256:" + "f" * 64,
+            base_models={"yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"}},
         )
     await db_session.flush()
     await check_policy_with_db_reader(db_session, policy.id, force=True)

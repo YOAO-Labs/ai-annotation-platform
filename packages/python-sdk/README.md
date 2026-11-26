@@ -32,10 +32,10 @@ python -m pip install /absolute/path/yoao_sdk-0.20.0-py3-none-any.whl
 python -m pip install 'yoao-sdk[cli] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
 python -m pip install 'yoao-sdk[tui] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
 python -m pip install 'yoao-sdk[plugins] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
+python -m pip install 'yoao-sdk[protocol] @ file:///absolute/path/yoao_sdk-0.20.0-py3-none-any.whl'
 ```
 
-核心只依赖 httpx 与 pydantic；CLI、TUI 和本机插件部署分别按需选装。`plugins` 还需提供
-对应 `yoao-*-contract` 实际构建制品；包名切换不代表这些制品已经公开发布。
+核心支持 Python `>=3.10`，内置平台客户端与五组便携协议契约（`yoao_task_contract`、`yoao_lifecycle_contract`、`yoao_inference_contract`、`yoao_protocol_v2`、`training_contract`），仅依赖 httpx 与 pydantic（Python 3.10 额外引入纯 Python 的 `tomli`）。CLI、TUI、本机插件部署与协议运行时（`[protocol]`：FastAPI / cryptography / PyJWT）按需选装，不再要求单独安装 5 个独立的 `yoao-*-contract` 发行包。
 
 旧客户端升级时显式运行 `yoao migrate-config`（支持 `--json`）：它把
 `~/.config/ai-annotation/config.toml` 复制到 `~/.config/yoao/config.toml`，保留原文件，
@@ -46,83 +46,92 @@ python -m pip install 'yoao-sdk[plugins] @ file:///absolute/path/yoao_sdk-0.20.0
 TUI 支持 Textual 8.x，启动时只加载项目、作业与当前主体；数据集、模型服务、看板和绩效按首次访问加载。
 列表提供筛选与分页，详情可查看数据集条目、批次、项目资源池，并可确认后重试失败作业。
 
-## 本机 GPU 推理插件安装
+## 本机推理插件安装
 
-`yoao plugins` 由平台超级管理员在 Docker 执行机运行；平台 API 不访问 Docker socket。先从
-LibreYOLO 插件发布流程取得真实构建产物的固定 OCI 摘要及生成的 manifest，并将该摘要镜像
-加载到执行机的 Docker。执行机必须具备 NVIDIA Container Toolkit、显式授权的单张物理 GPU、
-受批准的 Docker 网络，以及平台 API 可访问的插件 URL。不要使用浮动标签、host 网络、平台
-数据库凭据或 GPU 签发私钥。请以可访问 Docker 的**非 root**用户运行；容器使用该用户的
-UID/GID 读取仅该用户可访问的状态目录。
+`yoao plugins` 由平台超级管理员在可访问 Docker 的执行机上运行，支持 CPU 和单卡 CUDA 插件，平台 API 不访问 Docker socket。以可访问 Docker 的**非 root**用户运行；容器沿用该用户的 UID/GID，挂载仅该用户可访问的 `0700` 私有状态目录。不要使用浮动标签、`host` 网络、平台数据库凭据或 GPU 签发私钥。
 
-准备一个管理员审批的 JSON 配置文件：`manifest` 为构建生成的完整 manifest 对象；另含
-`name`、`url`（平台可访问的插件 HTTP(S) URL）、`gpu_resource_id`、
-`physical_gpu_uuid`（`GPU-...`）、`network`、`host_port`、`cpus`、
-`gpu_verify_keyring`（key ID 到 Ed25519 公钥的 unpadded base64url 映射）和
-`image_hosts`（允许下载图片的主机名列表）。manifest 的 `allowed_asset_sources` 是批准的
-资产源 origin 列表。`host_port` 暴露容器的 8000 端口；确保 URL 指向这个实例，且网络策略
-允许核心访问它。配置仅含公钥，不含业务 Token。
+### 1. 检查镜像与预留身份
 
-`prepare-assets` 要求所选固定摘要镜像对应的已审批 manifest 将 `yoao-libreyolo`
-声明为入口命令；旧版 `aap-libreyolo` 清单会在启动容器前拒绝。此检查不证明镜像内
-命令实际存在，镜像构建与检查仍须验证其打包合同。历史不可变镜像继续使用其原工具
-安全排空或退役；新工具不会探测后回退到旧命令，也不会改写已有状态目录。
+先将固定摘要的 OCI 镜像加载到执行机 Docker，再用 `inspect-image` 只读检查镜像 ID、内嵌 `io.yoao.plugin.manifest` 及可选的 `io.yoao.plugin.qualification-command`：
 
 ```bash
-yoao plugins prepare --config deployment.json --state-dir ./libreyolo-state --json
-# 以下显式步骤会从批准的来源准备并核验默认 t 资产；不会在预测时隐式下载。
+yoao plugins inspect-image --image registry.example/my-plugin@sha256:<64位摘要> --json
+```
+
+镜像包含 `io.yoao.plugin.manifest` 标签时，可直接用 CLI 参数或精简 JSON（含 `"image"`、省略 `"manifest"`，并在 `entrypoint` 已带 `--port` 时省略 `"container_port"`）完成 `prepare`，无需手工抄写完整 manifest；在 `--json` 模式下需传 `--yes` 明确批准镜像声明。传统含完整内联 `"manifest"` 的 `deployment.json` 继续兼容。
+
+CPU 插件示例：
+
+```bash
+yoao plugins prepare \
+  --image registry.example/rapidocr@sha256:<64位摘要> \
+  --name "RapidOCR CPU" \
+  --url http://172.17.0.1:18005 \
+  --network yoao-plugins \
+  --host-port 18005 \
+  --cpus 4 \
+  --image-host media.example \
+  --state-dir ./rapidocr-state \
+  --yes --json
+
+yoao plugins install --state-dir ./rapidocr-state --yes --json
+yoao plugins status --state-dir ./rapidocr-state --json
+```
+
+CUDA 插件另需执行机具备 NVIDIA Container Toolkit、显式授权的单张物理 GPU（`GPU-...`）和 Ed25519 公钥映射文件（`gpu_verify_keyring`，仅含公钥不含签发私钥）。镜像在 OCI 标签中声明 `io.yoao.plugin.prepare-assets-command` 时，可通过 `yoao plugins prepare-assets` 在非 root 临时容器中执行资产准备；未声明该标签的插件按各自获准资产流程准备权重。
+
+### 2. CUDA 资格验证与安装
+
+镜像声明 `io.yoao.plugin.qualification-command` 时，安装器可在断网、非 root、单卡隔离的临时容器中执行资格校验（不挂载 `data/token` 或 `gpu-keyring.json`）：
+
+```bash
+yoao plugins prepare \
+  --image registry.example/libreyolo@sha256:<64位摘要> \
+  --name "LibreYOLO CUDA" \
+  --url http://172.17.0.1:18000 \
+  --network yoao-plugins \
+  --host-port 18000 \
+  --cpus 4 \
+  --image-host media.example \
+  --gpu-resource-id gpu-worker-1 \
+  --physical-gpu-uuid GPU-12345678-1234-1234-1234-123456789abc \
+  --gpu-verify-keyring ./gpu-keyring.json \
+  --state-dir ./libreyolo-state \
+  --yes --json
+
+# 仅声明了 io.yoao.plugin.prepare-assets-command 的镜像支持此命令
 yoao plugins prepare-assets --state-dir ./libreyolo-state --json
-# 先取得与该 Registry、GPU、镜像和 runtime 绑定的完整、通过的 GPU 生命周期证据。
-yoao plugins install --state-dir ./libreyolo-state --qualification gpu-report.json --yes --json
+
+# 方式 A：一步运行隔离资格检查并激活
+yoao plugins install --state-dir ./libreyolo-state --qualify \
+  --fixture ./fixtures.json --asset-dir ./assets --yes --json
+
+# 方式 B：先运行 qualify 审核报告，再安装（省略 --out 会直接绑定到状态目录）
+yoao plugins qualify --state-dir ./libreyolo-state --fixture ./fixtures.json --out ./gpu-report.json --json
+yoao plugins install --state-dir ./libreyolo-state --qualification ./gpu-report.json --yes --json
+
 yoao plugins status --state-dir ./libreyolo-state --json
 ```
 
-`prepare` 先持久化随机安装身份和独立 Token，再预留不可接流的 Registry/GPU 绑定。
-重试必须使用相同状态目录和配置；该目录及其中的收据、Token、公钥文件和资产目录为私有
-状态，不能复制给其他安装或丢失。`install` 核验本机镜像摘要、镜像 ID、容器所有权、
-GPU/资源及挂载，并向核心提交可信管理员的本机检查收据；这不是远程加密证明。核心仍需
-独立验证可达性、健康、setup 和运行事实后才激活；安装不自动启用任何项目。项目负责人仍须
-通过现有 `yoao ml-backends` 或项目设置显式启用。若激活失败，容器保持原状且不自动接流；
-修复原因后重试同一状态目录。已激活实例的容器若消失或停止，不会未经重新资格检查而重启。
-真实 GPU 生命周期资格与镜像收据不同：超级管理员须提交完整、通过的共享生命周期报告。
-报告必须绑定这次 `prepare` 返回的 Registry ID、GPU 资源、制品和运行时；安装器将其规范
-JSON 内容及 SHA-256 提交核心，并以只读文件挂载同一内容供插件验证。报告经首次持久化后，
-重试可省略 `--qualification`；不能用另一个报告覆盖原身份。本命令不会自行声明资格。
-报告和本地镜像先完成完整校验及身份绑定，再持久化；无效候选或镜像检查失败可修正后重试。
+`prepare` 先持久化随机安装身份与独立 Token，再预留不可接流的 Registry 和资源绑定；失败重试须复用同一私有状态目录。安装完成后不会自动启用任何项目，也不自动开放预训练权重：项目负责人须通过 `yoao ml-backends` 或项目设置显式启用服务池，超管通过 `yoao plugins asset-approvals` 和 `yoao plugins approve-assets` 审批并在容器内测量预训练资产。
 
-升级时用**新**状态目录和新制品先运行 `prepare` 与 `prepare-assets`，取得绑定新身份的
-完整报告，再执行 `yoao plugins upgrade --from-state ./old-state --state-dir ./new-state
---qualification new-gpu-report.json --yes --json`。
-这会验证并激活新身份，保留旧实例与已有冻结引用；模型需重新部署、试用并由负责人发布。
-`yoao plugins disable --state-dir ./libreyolo-state --yes --json` 先关闭核心准入，再等待
-核心证明签名排空及全部运行结束，只有证明成功才停止容器。卸载使用
-`yoao plugins uninstall --state-dir ./libreyolo-state --yes --json`；活动依赖或未知资源
-状态会阻止操作。退役保留历史 Registry、部署与发布记录，不删除历史数据；成功停止后移除
-本地业务 Token，但保留用于查询历史身份的收据。失败后保留状态目录并重试，不要手工接管
-名称相同但所有权不匹配的容器。`--yes` 只跳过确认，不覆盖授权、依赖或并发修订检查。
-仅 `prepare` 后且没有本地容器、启动收据或 GPU 执行历史的预留可直接取消；未知容器不能视为未启动。已启动实例的排空证明绑定完整容器 ID，重试只可停止该 ID，不能复用证明处理同名替代容器。恢复检查也要求私有 PID 命名空间。
+### 3. 升级、重启、停用与卸载
 
-受控重启使用 `yoao plugins restart --state-dir ./libreyolo-state --yes --json`：
-先禁用并取得核心终止证明，再仅停止证明绑定的容器，使用同一数据目录、制品、Registry、
-GPU 和已保存的资格报告创建新容器并重新激活。已禁用实例只能凭本地证明或匹配的未完成重启意图继续；
-中断时保留状态目录并重试同一命令；重启在禁用前保存绑定原启动身份和修订的意图，
-因此可继续中断的排空，但只有取得并保存核心证明后才能创建候选容器。没有该意图且没有
-本地证明的禁用实例不会被自动接管。候选容器和历史证明均受私有收据约束，不能手工替换。
-重启不会自动恢复被排空的池成员；须通过现有授权管理操作显式恢复。意外退出或外部重启
-不能作为安全终止证明，安装重试会拒绝无法确认的进程身份；不要手动重启或强制停止容器，
-必须由资源所有者处理未解决的运行状态。较早版本创建的收据若没有进程启动身份，也不能
-用 `install` 声称当前进程已验证；仍可在原进程存活且核心能证明终止时进行受控重启。
-若已禁用的旧收据缺少已证明进程的启动身份，而容器仍存在，则不能重用证明停止该容器；
-必须由资源所有者处理，不能凭相同容器 ID 推断进程未被外部重启。候选进程若曾退出，
-即使同一容器又在运行，也不会被当作可恢复的首次启动。
-安装器执行期间须独占该安装的 Docker 管理操作；Docker 不提供按进程启动时间原子条件停止的接口，
-不能与外部 `docker restart`、替换或删除操作并发执行。
+```bash
+yoao plugins disable --state-dir ./plugin-state --yes --json
+yoao plugins restart --state-dir ./plugin-state --yes --json
+yoao plugins upgrade --from-state ./old-state --state-dir ./new-state --qualify --yes --json
+yoao plugins uninstall --state-dir ./plugin-state --yes --json
+```
 
-CPU 插件启动时显式禁用 NVIDIA 和 CUDA 设备。旧 CPU 状态目录若保存的环境文件没有这些限制，
-仍可查询并按原身份排空、停用，但不能直接用该目录重建进程：安装器会拒绝不匹配的环境文件。
-完成受控退役后，使用新的状态目录和安装身份重新部署；不要手工修改旧收据或环境文件。
+- `upgrade` 在新状态目录针对新摘要镜像创建新的安装和 Registry 身份，保留旧实例及已有冻结引用；升级 CPU 插件时省略 `--qualify` 与 `--qualification`。
+- `disable` 先关闭核心准入并等待安全排空证明后才停止容器；`uninstall` 校验无活动发布或冻结依赖后退役并保留历史记录（未启动过的预留也会安全取消）。
+- `restart` 先取得终止证明再重建新容器，不会自动恢复已排空的服务池成员，且重启后须重新执行 `approve-assets`。
+- 命令因网络或超时中断时保留原状态目录，先用 `status` 查权威状态再重试，不要手工停启或替换容器。
 
-SDK core 仍只依赖 httpx 和 pydantic；`client.plugins` 提供类型化安装动作。本机部署使用 `plugins` extra，须提供可信来源的生命周期、推理和训练契约 wheel；验证报告不需要 backend runtime、FastAPI 或 Torch。
+完整超管指南见[可安装推理插件](../../docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)；OCI 标签契约、资格容器隔离、`incarnation` 替换、崩溃恢复与历史收据迁移（`migrate-state`）见[推理插件安装、资格与生命周期](../../docs-site/dev/concepts/plugin-installation-lifecycle.md)。
+
+SDK core 仍只依赖 httpx 和 pydantic（Python 3.10 额外引入纯 Python 的 tomli），并已内置五组便携契约；`client.plugins` 提供类型化安装动作，本机部署使用 `plugins` extra，无需再额外提供独立的 `yoao-*-contract` wheel；验证报告不需要 backend runtime、FastAPI 或 Torch。
 
 ## 快速上手
 

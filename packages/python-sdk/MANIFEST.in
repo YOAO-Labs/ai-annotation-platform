@@ -1,7 +1,9 @@
+include LICENSE
 include CHANGELOG.md
 include api-coverage.toml
 include src/yoao/_operation_catalog.generated.json
 include src/yoao/AGENT_GUIDE.md
+recursive-include src/yoao_inference_contract *.schema.json
 recursive-include tests *.py
-recursive-include tests/fixtures *.json
+recursive-include tests *.json
 exclude tests/test_docs_snippets.py tests/test_openapi_contract.py

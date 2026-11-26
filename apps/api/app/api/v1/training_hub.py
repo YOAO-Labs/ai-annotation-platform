@@ -1,7 +1,6 @@
 """Global training discovery without widening project authority."""
 
 import uuid
-from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -17,11 +16,11 @@ from app.schemas.training_hub import (
     TrainingProjectPage,
     TrainingQueuePage,
 )
-from app.schemas.training_run import TrainingRunOut
+from app.schemas.training_run import FrameworkId, TrainingRunOut
 from app.services import training_runs as service
 from app.services import training_adapters as adapters
 from app.services.training_dataset_data import dataset_lineage_row
-from app.services.training_run_data import get_lease, run_summary_row
+from app.services.training_run_data import run_summary_row
 from app.services.project_aggregates import managed_project_scope_clause
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_facts, project_rows
@@ -42,21 +41,7 @@ def project_scope(user: IdentityActorFacts, project_id_column):
 
 @router.get("/catalog", response_model=TrainingHubCatalog)
 async def catalog(db: AsyncSession = Depends(get_db)):
-    result = adapters.catalog()
-    lease = await get_lease(db, adapters.resource_id())
-    online = bool(
-        lease
-        and lease.last_seen_at
-        and lease.last_seen_at > service.now() - timedelta(seconds=30)
-    )
-    service.annotate_readiness(result, lease.runtime if lease else {}, online=online)
-    return {
-        **result,
-        "online": online,
-        "busy": bool(lease and lease.attempt_id),
-        "executor_id": lease.executor_id if lease else None,
-        "last_seen_at": lease.last_seen_at if lease else None,
-    }
+    return await service.build_catalog_response(db, include_policy_digests=False)
 
 
 def preparation_reason(project):
@@ -166,16 +151,15 @@ async def projects(
 async def runs(
     state: Literal["all", "active", "finished", "failed"] = "active",
     project_id: uuid.UUID | None = None,
-    framework: Literal["ultralytics", "libreyolo"] | None = None,
+    framework: FrameworkId | None = None,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if adapters.catalog()["enabled"]:
-        lease = await service.lock_resource(db)
-        await service.observe_lost(db, lease)
-        await db.commit()
+    if framework is not None:
+        await adapters.ensure_known_framework(db, framework)
+    await service.observe_all_lost(db)
     run = run_summary_row.c
     counts_projects = project_facts()
     count_predicates = project_scope(user, counts_projects.c.id)

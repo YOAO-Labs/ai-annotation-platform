@@ -6,11 +6,7 @@ from dataclasses import replace
 
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 
-from training_contract.model_return import (
-    SEGMENTATION_OUTPUT_CONTRACT,
-    segmentation_identity,
-    segmentation_runtime,
-)
+from training_contract.dataset import SEGMENTATION_OUTPUT_CONTRACT
 
 from app.schemas._jsonb_types import RasterMaskGeometry
 from app.services.raster_mask_storage import (
@@ -70,38 +66,39 @@ def validate_portable_masks(result, meta):
 def runtime_for_reference(ref, framework_version=None):
     """Resolve only the frozen model/profile, never a response-provided version."""
     if "inference_runtime" in ref:
-        from training_contract.inference_runtime import validate_inference_runtime
+        from app.services.trained_models import validate_inference_runtime
 
         identity = validate_inference_runtime(ref, ref["inference_runtime"])
         if framework_version is not None and identity["version"] != framework_version:
             raise ValueError(
                 "Frozen segmentation inference and profile versions differ"
             )
-        return identity["qualification"]
-    runtime = ref.get("runtime_qualification")
+        qualification = identity["qualification"]
+        if (
+            not isinstance(qualification, dict)
+            or not isinstance(qualification.get("decoder"), str)
+            or not isinstance(qualification.get("mask_processing"), str)
+        ):
+            raise ValueError("Unqualified frozen segmentation runtime")
+        return qualification
     if (
         framework_version is not None
         and ref.get("framework_version") is not None
         and ref["framework_version"] != framework_version
     ):
         raise ValueError("Frozen segmentation model and profile versions differ")
-    version = ref.get("framework_version") or framework_version
-    if version is None and isinstance(runtime, dict):
-        version = runtime.get("ultralytics")
-    if version == "8.4.177":
-        expected = segmentation_runtime(version)
-    else:
-        try:
-            expected = segmentation_identity(
-                ref["provenance"]["base_model"]["id"], version
-            )["runtime_qualification"]
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError(
-                "Frozen segmentation model identity is unavailable"
-            ) from exc
-    if runtime != expected and not (runtime is None and version == "8.4.177"):
+    runtime = ref.get("runtime_qualification")
+    if runtime is None:
+        model_return = (ref.get("provenance") or {}).get("model_return")
+        if isinstance(model_return, dict):
+            runtime = model_return.get("runtime_qualification")
+    if (
+        not isinstance(runtime, dict)
+        or not isinstance(runtime.get("decoder"), str)
+        or not isinstance(runtime.get("mask_processing"), str)
+    ):
         raise ValueError("Unqualified frozen segmentation runtime")
-    return expected
+    return runtime
 
 
 def validate_metadata(meta, ref):

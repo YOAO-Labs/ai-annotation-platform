@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from yoao_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
 from fastapi import HTTPException
-from training_contract.model_return import (
+from tests.trainer_plugin_fixtures import (
     SEGMENTATION_OUTPUT_CONTRACT,
     SEGMENTATION_RUNTIME,
 )

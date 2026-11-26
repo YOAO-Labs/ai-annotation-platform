@@ -19,6 +19,10 @@ runtime = [
     "uvicorn>=0.46.0",
 ]
 publication-client = ["httpx>=0.28.1"]
+channels = [
+    "cryptography>=43.0.0",
+    "httpx>=0.28.1",
+]
 websocket = [
     "yoao-identity-admission[http]",
     "yoao-owner-data",
@@ -29,6 +33,7 @@ websocket = [
     "uvicorn[standard]>=0.46.0",
 ]
 test = [
+    "cryptography>=43.0.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.6.0",
     "pytest>=8.3.0",
@@ -45,6 +50,7 @@ packages = ["src/yoao_notifications"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/yoao_notifications/sql/0484_notifications_terminal_outbox.sql" = "yoao_notifications/sql/0484_notifications_terminal_outbox.sql"
+"src/yoao_notifications/sql/0510_notification_channels.sql" = "yoao_notifications/sql/0510_notification_channels.sql"
 "src/yoao_notifications/preferences.schema.json" = "yoao_notifications/preferences.schema.json"
 "src/yoao_notifications/preferences.policy.json" = "yoao_notifications/preferences.policy.json"
 "src/yoao_notifications/append.schema.json" = "yoao_notifications/append.schema.json"

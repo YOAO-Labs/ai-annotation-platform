@@ -7,11 +7,13 @@ from uuid import UUID
 from yoao._http import HttpTransport
 from yoao.errors import APIStatusError
 from yoao_inference_contract.plugin import (
+    DirectPluginProbeResponse,
     PluginActivateRequest,
     PluginInstallationResponse,
     PreparePluginInstallation,
     PluginInstallationCommand,
     PluginQuiesceResponse,
+    RegisterDirectPluginRequest,
 )
 from yoao_inference_contract.plugin_assets import (
     PluginAssetApprovalState,
@@ -70,10 +72,40 @@ class PluginInstallations:
         )
         return PluginAssetApprovalState.model_validate(response.json())
 
+    def register_direct(
+        self, request: RegisterDirectPluginRequest
+    ) -> PluginInstallationResponse:
+        try:
+            response = self._http.request(
+                "POST",
+                "/admin/ml-integrations/plugins/direct",
+                json=request.model_dump(mode="json"),
+                timeout=300,
+            )
+        except APIStatusError as exc:
+            raise type(exc)(
+                exc.status_code,
+                "Direct plugin registration failed",
+                request_id=exc.request_id,
+                retry_after=exc.retry_after,
+            ) from None
+        return PluginInstallationResponse.model_validate(response.json())
+
+    def probe(self, installation_id: str | UUID) -> DirectPluginProbeResponse:
+        response = self._http.request(
+            "POST",
+            f"/admin/ml-integrations/plugins/installations/{installation_id}/probe",
+            timeout=120,
+        )
+        return DirectPluginProbeResponse.model_validate(response.json())
+
     def activate(
         self, installation_id: str | UUID, request: PluginActivateRequest
     ) -> PluginInstallationResponse:
-        if UUID(str(installation_id)) != request.receipt.installation_id:
+        if (
+            request.receipt is not None
+            and UUID(str(installation_id)) != request.receipt.installation_id
+        ):
             raise ValueError("Installation ID must match launch receipt")
         response = self._http.request(
             "POST",

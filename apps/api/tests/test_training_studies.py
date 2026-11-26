@@ -12,7 +12,6 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from training_contract.budget import POLICY_DIGEST, receipt
-from training_contract.catalog import supported_identities
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
@@ -60,7 +59,6 @@ def body(dataset, **options):
 
 def native_claim(*, qualified=True):
     claim = executor_claim()
-    claim.runtime.update(executor_protocol=2, supported_configs=supported_identities())
     if qualified:
         claim.runtime["native_budget_policy_digest"] = POLICY_DIGEST
     return claim
@@ -301,6 +299,7 @@ async def test_unknown_and_exhausted_accounting_prevents_next_child(
     await studies.coordinate(
         db_session, study.id, training_authority=bind_training_authority(db_session)
     )
+    await db_session.refresh(study)
     result = await studies.describe(db_session, study)
     assert result["status"] == expected and result["trials"][1]["run_id"] is None
     assert result["accounting"]["overrun_seconds"] == (2.5 if seconds == 12.5 else 0)
@@ -333,6 +332,7 @@ async def test_cancel_study_stops_admission_and_preserves_owned_lease(
         lease = await db_session.get(TrainingResourceLease, child.config["resource_id"])
         assert child.status == "cancelling" and lease.attempt_id == attempt.id
         await finish(db_session, claim, assignment, seconds=2)
+        await db_session.refresh(lease)
         assert lease.attempt_id is None
     else:
         assert attempt.native_accounting["state"] == "not_started"
@@ -413,7 +413,8 @@ async def test_resume_re_reserves_current_study_balance_after_later_trial_consum
     )
     first_attempt = await finish(db_session, first_claim, first, seconds=2)
     first_run = await db_session.get(TrainingRun, first_attempt.run_id)
-    first_attempt.artifacts = {
+    first_attempt_orm = await db_session.get(TrainingAttempt, first_attempt.id)
+    first_attempt_orm.artifacts = {
         "checkpoint.pt": {
             "role": "checkpoint",
             "epoch": 1,

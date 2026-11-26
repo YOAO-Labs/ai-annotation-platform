@@ -1,0 +1,47 @@
+"""Framework-agnostic training contracts shared by platform API and supervisor."""
+
+from .trainer_plugin import (
+    TRAINER_PROTOCOL_VERSION,
+    PreviewOutputV1,
+    PreviewReportV1,
+    PreviewSourceV1,
+    PreviewSpecV1,
+    ServingCompatibilityV1,
+    TrainArtifactV1,
+    TrainEventV1,
+    TrainReceiptV1,
+    TrainSpecV1,
+    TrainerArchitectureV1,
+    TrainerCapabilitiesV1,
+    ValidateConfigResultV1,
+    ValidationIssueV1,
+    atomic_write_json,
+    canonical_json_bytes,
+    canonical_json_digest,
+    write_event_jsonl,
+)
+from .validation import CANONICAL, normalized, validate_value
+
+__all__ = [
+    "CANONICAL",
+    "TRAINER_PROTOCOL_VERSION",
+    "PreviewOutputV1",
+    "PreviewReportV1",
+    "PreviewSourceV1",
+    "PreviewSpecV1",
+    "ServingCompatibilityV1",
+    "TrainArtifactV1",
+    "TrainEventV1",
+    "TrainReceiptV1",
+    "TrainSpecV1",
+    "TrainerArchitectureV1",
+    "TrainerCapabilitiesV1",
+    "ValidateConfigResultV1",
+    "ValidationIssueV1",
+    "atomic_write_json",
+    "canonical_json_bytes",
+    "canonical_json_digest",
+    "normalized",
+    "validate_value",
+    "write_event_jsonl",
+]

@@ -300,6 +300,71 @@ def _is_explicit_cpu_backend(
     )
 
 
+def configured_physical_gpu_tokens(config: Settings) -> frozenset[str]:
+    return frozenset(
+        resource.physical_device_token.strip().lower()
+        for resource in config.gpu_arbiter_resources.values()
+        if isinstance(resource.physical_device_token, str)
+        and resource.physical_device_token.strip()
+    )
+
+
+def has_unverifiable_index_gpu_resources(config: Settings) -> bool:
+    return any(
+        isinstance(resource.physical_device_token, str)
+        and resource.physical_device_token.strip().lower().startswith("index:")
+        for resource in config.gpu_arbiter_resources.values()
+    )
+
+
+def observed_gpu_device_uuids(health_meta: Mapping[str, Any] | None) -> tuple[str, ...]:
+    gpu_info = _as_mapping(_as_mapping(health_meta).get("gpu_info"))
+    tokens: list[str] = []
+    seen: set[str] = set()
+    for key in ("device_uuid", "mig_uuid", "physical_device_token"):
+        value = gpu_info.get(key)
+        if isinstance(value, str):
+            cleaned = value.strip()
+            lowered = cleaned.lower()
+            if cleaned and lowered not in seen:
+                seen.add(lowered)
+                tokens.append(cleaned)
+    return tuple(tokens)
+
+
+def is_unarbitrated_direct_plugin(extra_params: object) -> bool:
+    if not isinstance(extra_params, Mapping):
+        return False
+    plugin = extra_params.get("plugin")
+    if not isinstance(plugin, Mapping) or plugin.get("execution_mode") != "direct":
+        return False
+    manifest = plugin.get("manifest")
+    resource = plugin.get("resource")
+    return (
+        isinstance(manifest, Mapping)
+        and manifest.get("execution_mode") == "direct"
+        and isinstance(resource, Mapping)
+        and resource.get("gpu_resource_id") is None
+        and resource.get("physical_gpu_uuid") is None
+    )
+
+
+def direct_remote_gpu_collides_with_local(
+    health_meta: Mapping[str, Any] | None, *, config: Settings
+) -> bool:
+    local_tokens = configured_physical_gpu_tokens(config)
+    if not local_tokens:
+        return False
+    observed = {token.lower() for token in observed_gpu_device_uuids(health_meta)}
+    if any(token in local_tokens for token in observed):
+        return True
+    if has_unverifiable_index_gpu_resources(config) and (
+        _requires_gpu_claim(health_meta) or bool(observed)
+    ):
+        return True
+    return False
+
+
 def backend_is_trusted_explicit_cpu(
     backend: Any, *, now: datetime | None = None
 ) -> bool:
@@ -311,6 +376,32 @@ def backend_is_trusted_explicit_cpu(
         health_meta,
         requires_gpu_claim=requires_gpu_claim,
     )
+
+
+def backend_is_trusted_direct_unarbitrated(
+    backend: Any, *, config: Settings, now: datetime | None = None
+) -> bool:
+    """Allow an unarbitrated direct plugin only when CPU or provably off local GPUs."""
+
+    if (
+        getattr(backend, "gpu_resource_id", None) is not None
+        or getattr(backend, "vram_budget_mb", None) is not None
+        or not is_unarbitrated_direct_plugin(getattr(backend, "extra_params", None))
+    ):
+        return False
+    health_meta = _trusted_health_meta(backend, now=now)
+    if not health_meta:
+        return False
+    requires_gpu_claim = _requires_gpu_claim(health_meta)
+    if _is_explicit_cpu_backend(health_meta, requires_gpu_claim=requires_gpu_claim):
+        return True
+    if not requires_gpu_claim:
+        return False
+    if not config.gpu_arbiter_resources:
+        return True
+    if not observed_gpu_device_uuids(health_meta):
+        return False
+    return not direct_remote_gpu_collides_with_local(health_meta, config=config)
 
 
 def strict_gpu_loaded_evidence(health_meta: Mapping[str, Any]) -> bool | None:
@@ -458,7 +549,7 @@ def evaluate_gpu_shadow_decision(
             return None
         if _is_explicit_cpu_backend(
             requester_health, requires_gpu_claim=requires_gpu_claim
-        ):
+        ) or backend_is_trusted_direct_unarbitrated(requester, config=config, now=now):
             return None
         return _shadow_reject_for_claim(
             requester,

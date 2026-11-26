@@ -25,7 +25,7 @@ _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0240_identity_groups.sql"
 _SCHEMA = "0240_identity_groups.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0240_identity_groups.py"
-_NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
+
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _GROUP_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
 _LEGACY_GRANTS = _ROOT / "infra/docker/m2b-runtime-grants.sql"
@@ -251,13 +251,14 @@ async def test_group_policy_rejections_are_atomic_and_keep_public_details(test_e
 
 
 def test_frozen_group_artifacts_and_owner_capabilities():
+    from app.db.native_schema import NATIVE_MANAGED_TABLES
+
     schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
     group_grants = read_psql_grant_script(_GROUP_GRANTS, capability="groups")
     legacy_grants = _LEGACY_GRANTS.read_text(encoding="utf-8")
-    native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
     statements = [
         statement.strip()
         for statement in artifact.split("-- aap-statement-break")
@@ -279,7 +280,7 @@ def test_frozen_group_artifacts_and_owner_capabilities():
     assert "FOR KEY SHARE NOWAIT" in artifact
     assert "FOR NO KEY UPDATE NOWAIT" in artifact
     assert "pg_try_advisory_xact_lock(" in artifact
-    assert "identity_group_operation_receipts" in native_schema
+    assert "identity_group_operation_receipts" in NATIVE_MANAGED_TABLES
     assert "request_fingerprint" in artifact and "derivation_id" in artifact
     assert (
         "token"

@@ -5,22 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "yoao-sdk"
 dynamic = ["version"]
-description = "YOAO 官方 Python SDK: 同步 Client 覆盖稳定工作流, extras 提供 yoao CLI / TUI"
-requires-python = ">=3.11"
+license = { file = "LICENSE" }
+description = "YOAO 官方 Python SDK 与便携协议契约: 同步 Client、CLI / TUI 及 task / lifecycle / inference / protocol-v2 / training 共享契约"
+requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 4 - Beta",
 ]
 dependencies = [
     "httpx>=0.27",
-    "pydantic>=2.5",
+    "pydantic>=2.10.0",
+    "tomli>=2.0; python_version < '3.11'",
 ]
 
 [project.optional-dependencies]
+protocol = [
+    "cryptography>=43.0.0",
+    "fastapi>=0.110",
+    "PyJWT>=2.10,<3",
+]
 cli = ["typer>=0.12", "rich>=13.0"]
-plugins = ["typer>=0.12", "rich>=13.0", "yoao-inference-contract==0.1.0", "yoao-lifecycle-contract==0.1.0", "yoao-training-contract==0.1.0"]
+plugins = ["typer>=0.12", "rich>=13.0"]
 streams = ["websockets>=12"]
 tui = ["textual>=8.2,<9", "typer>=0.12", "rich>=13.0", "websockets>=12"]
 test = [
+    "cryptography>=43.0.0",
+    "fastapi>=0.110",
+    "numpy>=1.24",
+    "PyJWT>=2.10,<3",
     "pytest>=8.3",
     "respx>=0.21",
     "typer>=0.12",
@@ -38,15 +49,17 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 yoao = ["_operation_catalog.generated.json", "AGENT_GUIDE.md"]
+yoao_inference_contract = ["*.schema.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "yoao._version.__version__" }
 
-[tool.uv.sources]
-yoao-inference-contract = { path = "../../apps/_shared/inference_contract", editable = true }
-yoao-lifecycle-contract = { path = "../../apps/_shared/lifecycle_contract", editable = true }
-yoao-training-contract = { path = "../../apps/_shared/training_contract", editable = true }
-yoao-task-contract = { path = "../../apps/_shared/task_contract", editable = true }
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/**/*.py" },
+    { file = "src/**/*.json" },
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

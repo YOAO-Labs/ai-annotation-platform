@@ -24,7 +24,7 @@ _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0239_identity_recovery.sql"
 _SCHEMA = "0239_identity_recovery.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0239_identity_recovery.py"
-_NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
+
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _RECOVERY_GRANTS = _ROOT / "infra/docker/identity-grants.sql"
 
@@ -154,12 +154,13 @@ async def _cleanup_recovery(
 
 
 def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
+    from app.db.native_schema import NATIVE_MANAGED_TABLES
+
     schema = load_contract_schema(_SCHEMA)
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
     grants = read_psql_grant_script(_RECOVERY_GRANTS, capability="recovery")
     module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
     statements = [
         statement.strip()
         for statement in artifact.split("-- aap-statement-break")
@@ -192,8 +193,8 @@ def test_frozen_identity_recovery_artifacts_and_narrow_role_grants():
     )
     assert "issued_email = account.email" in artifact
     assert "ON DELETE CASCADE" in artifact
-    assert "identity_recovery_operation_receipts" in native_schema
-    assert "identity_credential_mail_outbox" in native_schema
+    assert "identity_recovery_operation_receipts" in NATIVE_MANAGED_TABLES
+    assert "identity_credential_mail_outbox" in NATIVE_MANAGED_TABLES
     assert (
         "ALTER TABLE public.password_reset_tokens RENAME COLUMN token TO token_hash"
         in artifact

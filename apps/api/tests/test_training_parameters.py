@@ -1,16 +1,12 @@
 """Versioned API inputs, native receipts, executor qualification and legacy replay."""
 
 import io
-import json
 import uuid
-from copy import deepcopy
 
 import pytest
 from fastapi import HTTPException
-from training_contract import definition, schema_identity
-from training_contract.catalog import supported_identities
+from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
 
-from app.config import settings
 from app.db.models.training_run import TrainingRun, TrainingAttempt
 from app.schemas.training_run import ExecutorFinish, TrainingRunCreate
 from app.services.training_datasets import bind_training_authority
@@ -20,12 +16,17 @@ from app.services import training_claims as claims
 from app.services.training_dataset_bridge import content_digest
 from tests.test_training_runs import ready_dataset, executor_claim, fence
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
+from tests.trainer_plugin_fixtures import (
+    ULTRALYTICS_VERSION,
+    build_v3_receipt,
+    ultralytics_schema,
+)
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
 
 
 def configuration(**values):
-    schema = definition("ultralytics", version="8.4.177")
+    schema = ultralytics_schema("yolo11n")
     return {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],
@@ -34,13 +35,7 @@ def configuration(**values):
 
 
 def segmentation_catalog(monkeypatch):
-    catalog = deepcopy(settings.training_catalog_json)
-    catalog["ultralytics"]["base_models"]["yolo11n-seg"] = {
-        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
-        "filename": "yolo11n-seg.pt",
-    }
-    monkeypatch.setattr(settings, "training_catalog_json", catalog)
-    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
+    schema = ultralytics_schema("yolo11n-seg")
     return {
         "schema_id": schema["schema_id"],
         "schema_digest": schema["schema_digest"],
@@ -76,7 +71,7 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
     config = accepted.json()["config"]
     assert config["data_contract"] == SEGMENTATION_CONTRACT
     assert config["configuration"]["effective_values"]["task"] == "segment"
-    assert set(config["base_model"]) == {"id", "sha256", "filename"}
+    assert set(config["base_model"]) == {"id", "sha256", "filename", "family"}
     no_contract = await httpx_client.post(
         path,
         headers=headers,
@@ -87,16 +82,18 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
         path, headers=headers, json={**body, "base_model": "yolo11n"}
     )
     assert wrong_base.status_code == 422 and "不匹配" in wrong_base.text
-    reusable = training_recipes.snapshot("ultralytics", "yolo11n-seg", configuration)
+    reusable = await training_recipes.snapshot(
+        db_session, "ultralytics", "yolo11n-seg", configuration
+    )
     assert (
         reusable["configuration"]["identity"]["task"] == SEGMENTATION_CONTRACT["task"]
     )
-    assert training_recipes.compatibility(reusable) == (True, None)
+    assert await training_recipes.compatibility(db_session, reusable) == (True, None)
     with pytest.raises(HTTPException, match="任务"):
-        claims.fixed_policy_template("ultralytics", "yolo11n-seg")
+        await claims.fixed_policy_template(db_session, "ultralytics", "yolo11n-seg")
     model = next(
         base
-        for item in adapters.catalog()["items"]
+        for item in (await adapters.resolve_catalog(db_session))["items"]
         for base in item["base_models"]
         if base["id"] == "yolo11n-seg"
     )
@@ -144,55 +141,55 @@ async def test_segmentation_requires_exact_dataset_base_schema_and_keeps_recipes
     assert policy.status_code == 422 and "任务与父数据版本不匹配" in policy.text
 
 
-def test_runtime_image_upgrade_requires_full_qualified_schema_and_source_image(
-    monkeypatch,
-):
-    old, new = "sha256:" + "a" * 64, "sha256:" + "b" * 64
-    identity = schema_identity(definition("ultralytics", "yolo11n", version="8.4.177"))
+def test_runtime_compatibility_requires_v3_protocol_mode_gpu_and_base_asset():
+    base_sha = "2" * 64
     config = {
         "framework": "ultralytics",
-        "framework_version": "8.4.177",
-        "adapter_revision": 2,
-        "image_digest": old,
-        "base_model": {"id": "yolo11n"},
-        "configuration": {"identity": identity},
+        "framework_version": ULTRALYTICS_VERSION,
+        "adapter_revision": 3,
+        "trainer_protocol": TRAINER_PROTOCOL_VERSION,
+        "base_model": {"id": "yolo11n", "sha256": base_sha},
+        "trainer_plugin": {
+            "plugin_id": "yoao.trainer.ultralytics",
+            "execution_mode": "container",
+            "requires_gpu": True,
+        },
     }
     runtime = {
-        "frameworks": {"ultralytics": "8.4.177"},
-        "image_digest": new,
-        "executor_protocol": 2,
-        "supported_configs": supported_identities(),
+        "executor_protocol": 3,
+        "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+        "execution_modes": ["container"],
+        "gpu_uuid": "GPU-11111111-2222-3333-4444-555555555555",
+        "base_asset_sha256": [base_sha],
     }
-    entry = {"version": "8.4.177", "image_digest": new, "legacy_images": [old]}
-    monkeypatch.setattr(settings, "training_catalog_json", {"ultralytics": entry})
-    assert not service.runtime_compatible(config, runtime)
-    entry["compatible_config_images"] = {old: [identity]}
     assert service.runtime_compatible(config, runtime)
-    for changed in [
-        {"base_model": {"id": "yolo11n-seg"}},
-        {"image_digest": "sha256:" + "c" * 64},
-        {"configuration": {"identity": {**identity, "schema_digest": "0" * 64}}},
-    ]:
-        assert not service.runtime_compatible({**config, **changed}, runtime)
-    seg_identity = schema_identity(
-        definition("ultralytics", "yolo11n-seg", version="8.4.177")
-    )
-    segmentation = {
+    for bad_runtime in (
+        {**runtime, "executor_protocol": 2},
+        {**runtime, "trainer_protocols": []},
+        {**runtime, "execution_modes": ["local_process"]},
+        {**runtime, "gpu_uuid": "cpu-0"},
+        {**runtime, "base_asset_sha256": []},
+    ):
+        assert not service.runtime_compatible(config, bad_runtime)
+    local_config = {
         **config,
-        "image_digest": new,
-        "base_model": {"id": "yolo11n-seg"},
-        "configuration": {"identity": seg_identity},
+        "trainer_plugin": {
+            "plugin_id": "yoao.trainer.ultralytics",
+            "execution_mode": "local_process",
+            "requires_gpu": False,
+        },
     }
-    old_runtime = {
-        **runtime,
-        "supported_configs": [
-            item for item in supported_identities() if item["task"] == "image-detection"
-        ],
+    local_runtime = {
+        "executor_protocol": 3,
+        "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+        "execution_modes": ["local_process"],
+        "allowed_local_plugins": ["yoao.trainer.ultralytics"],
+        "base_asset_sha256": [base_sha],
     }
-    assert not service.runtime_compatible(segmentation, old_runtime)
-    assert service.runtime_compatible(segmentation, runtime)
-    entry["compatible_config_images"][old].append(seg_identity)
-    assert service.runtime_compatible({**segmentation, "image_digest": old}, runtime)
+    assert service.runtime_compatible(local_config, local_runtime)
+    assert not service.runtime_compatible(
+        local_config, {**local_runtime, "allowed_local_plugins": []}
+    )
 
 
 async def new_v2(client, token, project, dataset):
@@ -246,11 +243,9 @@ async def test_parameter_schema_is_project_authorized_and_complete(
     path = f"/api/v1/projects/{project.id}/training-runs/parameter-schema?framework=ultralytics&base_model=yolo11n"
     result = await httpx_client.get(path, headers={"Authorization": f"Bearer {token}"})
     assert result.status_code == 200, result.text
-    assert len(result.json()["fields"]) == 114
-    assert (
-        result.json()["schema_digest"]
-        == definition("ultralytics", version="8.4.177")["schema_digest"]
-    )
+    expected_schema = ultralytics_schema("yolo11n")
+    assert len(result.json()["fields"]) == len(expected_schema["fields"])
+    assert result.json()["schema_digest"] == expected_schema["schema_digest"]
     _, other_token = annotator
     forbidden = await httpx_client.get(
         path, headers={"Authorization": f"Bearer {other_token}"}
@@ -266,7 +261,7 @@ async def test_parameter_schema_is_project_authorized_and_complete(
         {"unknown": 1},
         {"epochs": True},
         {"epochs": 10**400},
-        {"rect": True, "mosaic": 0.5},
+        {"epochs": 0},
     ],
 )
 async def test_invalid_v2_values_fail_before_enqueue(
@@ -302,29 +297,30 @@ async def test_old_executors_cannot_claim_v2_and_new_executor_must_advertise_exa
     assert data["config"]["parameters"]["epochs"] == 2
     assert data["config"]["configuration"]["effective_values"]["optimizer"] == "AdamW"
     claim = executor_claim()
+    claim.runtime["executor_protocol"] = 2
     assert (
         await service.claim(
             db_session, claim, training_authority=bind_training_authority(db_session)
         )
         is None
     )
-    claim.runtime.update(executor_protocol=2, supported_configs=[])
+    claim.runtime.update(executor_protocol=3, trainer_protocols=[])
     assert (
         await service.claim(
             db_session, claim, training_authority=bind_training_authority(db_session)
         )
         is None
     )
-    wrong = schema_identity(definition("ultralytics", version="8.4.177"))
-    wrong["schema_digest"] = "0" * 64
-    claim.runtime["supported_configs"] = [wrong]
+    claim.runtime.update(
+        trainer_protocols=[TRAINER_PROTOCOL_VERSION], base_asset_sha256=[]
+    )
     assert (
         await service.claim(
             db_session, claim, training_authority=bind_training_authority(db_session)
         )
         is None
     )
-    claim.runtime["supported_configs"] = supported_identities()
+    claim = executor_claim()
     assignment = await service.claim(
         db_session, claim, training_authority=bind_training_authority(db_session)
     )
@@ -337,58 +333,6 @@ async def test_old_executors_cannot_claim_v2_and_new_executor_must_advertise_exa
     assert repeated.status_code == 202 and repeated.json()["id"] == data["id"]
 
 
-def test_legacy_image_mapping_is_explicit_one_way_and_requires_v1_support(monkeypatch):
-    old, new = "sha256:" + "a" * 64, "sha256:" + "b" * 64
-    config = {
-        "framework": "ultralytics",
-        "framework_version": "8.4.177",
-        "adapter_revision": 1,
-        "image_digest": old,
-        "base_model": {"id": "yolo11n"},
-    }
-    runtime = {
-        "frameworks": {"ultralytics": "8.4.177"},
-        "image_digest": new,
-        "executor_protocol": 2,
-        "supported_configs": supported_identities(),
-    }
-    monkeypatch.setattr(
-        settings,
-        "training_catalog_json",
-        {
-            "ultralytics": {
-                "version": "8.4.177",
-                "image_digest": new,
-                "legacy_images": [old],
-            }
-        },
-    )
-    assert service.runtime_compatible(config, runtime)
-    for changed in (
-        {"executor_protocol": 1},
-        {"supported_configs": []},
-        {"image_digest": old},
-        {"frameworks": {"ultralytics": "other"}},
-    ):
-        candidate = {**runtime, **changed}
-        if changed == {"image_digest": old}:
-            assert service.runtime_compatible(config, candidate)
-        else:
-            assert not service.runtime_compatible(config, candidate)
-    monkeypatch.setattr(
-        settings,
-        "training_catalog_json",
-        {
-            "ultralytics": {
-                "version": "8.4.177",
-                "image_digest": old,
-                "legacy_images": [new],
-            }
-        },
-    )
-    assert not service.runtime_compatible(config, runtime)
-
-
 async def test_v2_success_requires_verified_native_observation_and_retains_lease_on_failure(
     db_session, super_admin, httpx_client, monkeypatch
 ):
@@ -396,13 +340,12 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
     project, dataset = await ready_dataset(db_session, owner)
     data, _ = await new_v2(httpx_client, token, project, dataset)
     claim = executor_claim()
-    claim.runtime.update(executor_protocol=2, supported_configs=supported_identities())
     assignment = await service.claim(
         db_session, claim, training_authority=bind_training_authority(db_session)
     )
     run = await db_session.get(TrainingRun, uuid.UUID(data["id"]))
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
-    attempt.upload_inventory = {
+    base_inventory = {
         name: {"name": name, "role": role, "sha256": "a" * 64, "size_bytes": 10}
         for name, role in [
             ("best.pt", "weights"),
@@ -412,6 +355,7 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
             ("train.log", "log"),
         ]
     }
+    attempt.upload_inventory = dict(base_inventory)
     monkeypatch.setattr(service, "verify_artifact", lambda *args, **kwargs: None)
     body = ExecutorFinish(
         **fence(claim, assignment), status="succeeded", process_exited=True
@@ -425,36 +369,17 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
         )
     assert error.value.status_code == 422
     assert (await service.lock_resource(db_session)).attempt_id == attempt.id
-    options = {
-        "data": "/state/data.yaml",
-        "model": "/models/yolo11n.pt",
-        "project": "/state/attempt",
-        "name": "framework",
-        "exist_ok": False,
-        "resume": False,
-    }
-    observed = {**run.config["configuration"]["effective_values"], **options}
-    blob = {
-        "config_digest": run.config_digest,
-        "observed": observed,
-        "runtime_options": options,
-        "verification": service.verify_native(run.config, observed, options),
-    }
-    attempt.upload_inventory = {
-        **attempt.upload_inventory,
-        "native-config.json": {
-            "name": "native-config.json",
-            "role": "config",
-            "sha256": "a" * 64,
-            "size_bytes": 100,
-        },
-    }
+    bad_raw, bad_spec = build_v3_receipt(base_inventory, framework="other")
+    attempt.upload_inventory = {**base_inventory, "result.json": bad_spec}
     monkeypatch.setattr(
         service.storage.client,
         "get_object",
-        lambda **kwargs: {"Body": io.BytesIO(json.dumps(blob).encode())},
+        lambda **kwargs: {
+            "Body": io.BytesIO(bad_raw),
+            "ContentLength": len(bad_raw),
+            "Metadata": {"attempt-id": str(attempt.id)},
+        },
     )
-    blob["observed"]["optimizer"] = "SGD"
     with pytest.raises(HTTPException):
         await service.finish(
             db_session,
@@ -462,7 +387,17 @@ async def test_v2_success_requires_verified_native_observation_and_retains_lease
             body,
             training_authority=bind_training_authority(db_session),
         )
-    blob["observed"]["optimizer"] = "AdamW"
+    good_raw, good_spec = build_v3_receipt(base_inventory, framework="ultralytics")
+    attempt.upload_inventory = {**base_inventory, "result.json": good_spec}
+    monkeypatch.setattr(
+        service.storage.client,
+        "get_object",
+        lambda **kwargs: {
+            "Body": io.BytesIO(good_raw),
+            "ContentLength": len(good_raw),
+            "Metadata": {"attempt-id": str(attempt.id)},
+        },
+    )
     assert (
         await service.finish(
             db_session,

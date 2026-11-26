@@ -5,7 +5,11 @@ from datetime import timedelta
 
 import pytest
 from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import TrainingResourceLease, TrainingRun
+from app.db.models.training_run import (
+    TrainingAttempt,
+    TrainingResourceLease,
+    TrainingRun,
+)
 from app.services import training_runs as service
 from app.services import training_adapters as adapters
 
@@ -82,6 +86,9 @@ async def test_hub_scope_includes_owned_runs_by_other_creators_but_not_membershi
     )
     assert response.json()["total"] == 0
     assert sum(response.json()["counts"].values()) == 0
+    from tests.trainer_plugin_fixtures import seed_enabled_trainer_plugin
+
+    await seed_enabled_trainer_plugin(db_session, framework_id="libreyolo")
     response = await httpx_client.get(
         "/api/v1/training/runs?state=finished&framework=libreyolo&limit=1",
         headers=headers(project_admin),
@@ -134,18 +141,29 @@ async def test_project_readiness_uses_frozen_versions_and_reports_configuration_
 async def test_catalog_distinguishes_heartbeat_and_template_compatibility(
     db_session, httpx_client, super_admin
 ):
-    lease = TrainingResourceLease(
-        resource_id=adapters.resource_id(),
-        executor_id="actual-container",
-        last_seen_at=service.now(),
-        runtime={
-            "gpu_uuid": GPU,
-            "image_digest": IMAGE,
-            "frameworks": {"ultralytics": "8.4.177"},
-            "private_token": "must-not-leak",
-        },
+    from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
+    from tests.trainer_plugin_fixtures import (
+        DEFAULT_TEST_BASE_ASSET_SHAS,
+        ULTRALYTICS_VERSION,
     )
-    db_session.add(lease)
+
+    lease = await db_session.merge(
+        TrainingResourceLease(
+            resource_id=adapters.resource_id(),
+            executor_id="actual-container",
+            last_seen_at=service.now(),
+            runtime={
+                "gpu_uuid": GPU,
+                "image_digest": IMAGE,
+                "frameworks": {"ultralytics": ULTRALYTICS_VERSION},
+                "executor_protocol": 3,
+                "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+                "execution_modes": ["container"],
+                "base_asset_sha256": list(DEFAULT_TEST_BASE_ASSET_SHAS),
+                "private_token": "must-not-leak",
+            },
+        )
+    )
     await db_session.flush()
     response = await httpx_client.get(
         "/api/v1/training/catalog", headers=headers(super_admin)
@@ -154,7 +172,7 @@ async def test_catalog_distinguishes_heartbeat_and_template_compatibility(
     assert response.json()["online"] and response.json()["items"][0]["compatible"]
     assert response.json()["executor_id"] == "actual-container"
     assert "must-not-leak" not in response.text
-    lease.runtime = {**lease.runtime, "image_digest": "sha256:" + "f" * 64}
+    lease.runtime = {**lease.runtime, "executor_protocol": 2}
     await db_session.flush()
     response = await httpx_client.get(
         "/api/v1/training/catalog", headers=headers(super_admin)
@@ -172,24 +190,24 @@ async def test_catalog_distinguishes_heartbeat_and_template_compatibility(
 async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_capabilities(
     db_session, httpx_client, super_admin, monkeypatch
 ):
-    from app.config import settings
-    from training_contract import definition, schema_identity
     from training_contract.dataset import SEGMENTATION
-
-    monkeypatch.setattr(
-        settings,
-        "training_catalog_json",
-        {
-            "ultralytics": {
-                "version": "8.4.177",
-                "image_digest": IMAGE,
-                "base_models": {
-                    "yolo11n-seg": {"sha256": "a" * 64, "filename": "yolo11n-seg.pt"}
-                },
-            }
-        },
+    from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
+    from tests.trainer_plugin_fixtures import (
+        ULTRALYTICS_VERSION,
+        retire_trainer_plugin,
+        seed_enabled_trainer_plugin,
     )
-    db_session.add(
+
+    await retire_trainer_plugin(db_session, "yoao.trainer.ultralytics")
+    await seed_enabled_trainer_plugin(
+        db_session,
+        framework_id="ultralytics",
+        plugin_id="yoao.trainer.ultralytics.segonly",
+        framework_version=ULTRALYTICS_VERSION,
+        image_digest=IMAGE,
+        base_models={"yolo11n-seg": {"sha256": "a" * 64, "filename": "yolo11n-seg.pt"}},
+    )
+    await db_session.merge(
         TrainingResourceLease(
             resource_id=adapters.resource_id(),
             executor_id="segmentation-container",
@@ -197,13 +215,11 @@ async def test_segmentation_only_catalog_reports_qualified_runtime_and_actual_ca
             runtime={
                 "gpu_uuid": GPU,
                 "image_digest": IMAGE,
-                "frameworks": {"ultralytics": "8.4.177"},
-                "executor_protocol": 2,
-                "supported_configs": [
-                    schema_identity(
-                        definition("ultralytics", "yolo11n-seg", version="8.4.177")
-                    )
-                ],
+                "frameworks": {"ultralytics": ULTRALYTICS_VERSION},
+                "executor_protocol": 3,
+                "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+                "execution_modes": ["container"],
+                "base_asset_sha256": ["a" * 64],
             },
         )
     )
@@ -273,12 +289,18 @@ async def test_queue_observes_lost_execution_without_releasing_its_resource(
     project, dataset = await ready_dataset(db_session, super_admin[0])
     run = await add_run(db_session, project, dataset, super_admin[0])
     attempt = await service.new_attempt(db_session, run)
-    run.status = attempt.status = "training"
-    attempt.heartbeat_at = service.now() - timedelta(hours=1)
-    lease = TrainingResourceLease(
-        resource_id=adapters.resource_id(), attempt_id=attempt.id
+    await db_session.refresh(run)
+    attempt_orm = await db_session.get(TrainingAttempt, attempt.id)
+    run.status = attempt_orm.status = "training"
+    attempt_orm.resource_id = adapters.resource_id()
+    attempt_orm.heartbeat_at = service.now() - timedelta(hours=1)
+    lease = await db_session.merge(
+        TrainingResourceLease(
+            resource_id=adapters.resource_id(),
+            attempt_id=attempt.id,
+            last_seen_at=None,
+        )
     )
-    db_session.add(lease)
     await db_session.flush()
     response = await httpx_client.get(
         "/api/v1/training/runs?state=failed", headers=headers(super_admin)

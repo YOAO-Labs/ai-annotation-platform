@@ -37,16 +37,18 @@ def describe(
 
 
 async def _follow(context, max_events: int, timeout: float) -> None:
+    async def _consume() -> None:
+        async with context as events:
+            count = 0
+            async for event in events:
+                print_json(event.model_dump(mode="json", by_alias=True))
+                count += 1
+                if count >= max_events:
+                    return
+
     try:
-        async with asyncio.timeout(timeout):
-            async with context as events:
-                count = 0
-                async for event in events:
-                    print_json(event.model_dump(mode="json", by_alias=True))
-                    count += 1
-                    if count >= max_events:
-                        return
-    except TimeoutError:
+        await asyncio.wait_for(_consume(), timeout=timeout)
+    except (TimeoutError, asyncio.TimeoutError):
         return
 
 

@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 from fastapi import HTTPException
-from training_contract.model_return import segmentation_identity
+from tests.trainer_plugin_fixtures import segmentation_identity
 from app.config import settings
 
 from app.db.models.trained_model import TrainedModelVersion

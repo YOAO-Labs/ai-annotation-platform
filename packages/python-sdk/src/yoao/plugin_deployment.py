@@ -8,26 +8,39 @@ from __future__ import annotations
 
 import base64
 import binascii
+from collections.abc import Sequence
+from dataclasses import dataclass, replace
 import hashlib
-from dataclasses import replace
 import json
 import os
 import re
 import secrets
+import shutil
+import stat
+import tempfile
 from pathlib import Path
+from typing import Any, NamedTuple
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from yoao._plugin_docker import (
+    PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL,
+    QUALIFICATION_CONTEXT_TARGET,
+    QUALIFICATION_FIXTURE_TARGET,
+    QUALIFICATION_OUTPUT_FILE_TARGET,
     ContainerConfig,
     Docker,
+    InspectedPluginImage,
+    QualificationRunConfig,
     _validate_entrypoint,
 )
-from yoao._plugin_receipt import ReceiptStore, _check_private
+from yoao._plugin_receipt import ReceiptStore, _check_private, atomic_write_private
+from yoao.container_runtime import ContainerRuntimePort
 from yoao.errors import SDKError, APIStatusError, InstallError
 from yoao_inference_contract.plugin import (
+    PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL,
     PluginActivateRequest,
     PluginInstallationResponse,
     PluginLaunchReceipt,
@@ -35,6 +48,7 @@ from yoao_inference_contract.plugin import (
     PreparePluginInstallation,
     PluginLifecycleQualification,
     PluginResourceBinding,
+    validate_oci_digest_reference,
 )
 from yoao_inference_contract.plugin_assets import (
     PluginAssetApprovalUpdate,
@@ -44,7 +58,8 @@ from yoao_inference_contract.plugin_assets import (
 from yoao.plugins import PluginInstallations
 
 
-_DATA_TARGET = "/var/lib/aap-libreyolo"
+_DATA_TARGET = "/var/lib/yoao-plugin"
+_CONTAINER_NAME_PREFIX = "yoao-plugin-"
 
 
 class LocalPluginConfig(BaseModel):
@@ -135,18 +150,191 @@ class LocalPluginConfig(BaseModel):
         return self
 
 
+class LocalPluginDeploymentInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=255)
+    url: str
+    manifest: PluginManifest | None = None
+    image: str | None = None
+    gpu_resource_id: str | None = Field(default=None, min_length=1)
+    physical_gpu_uuid: str | None = Field(default=None, min_length=1)
+    network: str = Field(min_length=1)
+    host_port: int = Field(ge=1, le=65535)
+    container_port: int | None = Field(default=None, ge=1, le=65535)
+    cpus: float = Field(gt=0, le=256, allow_inf_nan=False)
+    gpu_verify_keyring: dict[str, str] = Field(default_factory=dict)
+    image_hosts: list[str] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_source(self):
+        if (self.manifest is None) == (self.image is None):
+            raise ValueError("Specify exactly one of manifest or image")
+        if self.image is not None:
+            validate_oci_digest_reference(self.image)
+        return self
+
+
+class ResolvedLocalPluginConfig(NamedTuple):
+    config: LocalPluginConfig
+    from_oci_label: bool
+
+
+def _default_container_port(entrypoint: Sequence[str]) -> int:
+    if entrypoint.count("--port") == 1:
+        index = entrypoint.index("--port")
+        if index + 1 < len(entrypoint):
+            raw_port = entrypoint[index + 1]
+            if raw_port.isascii() and raw_port.isdigit():
+                port = int(raw_port)
+                if 1 <= port <= 65535 and str(port) == raw_port:
+                    return port
+    return 8000
+
+
+def _coerce_plugin_docker(
+    docker: Docker | ContainerRuntimePort | None = None,
+    runtime: ContainerRuntimePort | None = None,
+) -> Any:
+    if docker is not None and runtime is not None:
+        raise ValueError("Specify at most one of docker or runtime")
+    if runtime is not None:
+        return Docker(runtime=runtime)
+    if docker is None:
+        return Docker()
+    if isinstance(docker, ContainerRuntimePort) and not isinstance(docker, Docker):
+        return Docker(runtime=docker)
+    return docker
+
+
+def _inspect_plugin_image(docker: Any, image: str) -> InspectedPluginImage:
+    if hasattr(docker, "inspect_image_metadata"):
+        return docker.inspect_image_metadata(image)
+    manifest, image_id, qualification_command = docker.inspect_image_manifest(image)
+    return InspectedPluginImage(
+        manifest=manifest,
+        image_id=image_id,
+        qualification_command=qualification_command,
+        prepare_assets_command=None,
+    )
+
+
+def resolve_local_plugin_config(
+    spec: LocalPluginDeploymentInput,
+    docker: Docker | ContainerRuntimePort | None = None,
+    *,
+    runtime: ContainerRuntimePort | None = None,
+) -> ResolvedLocalPluginConfig:
+    if spec.manifest is not None:
+        manifest = spec.manifest
+        from_oci_label = False
+    elif spec.image is not None:
+        controller = _coerce_plugin_docker(docker, runtime)
+        manifest = _inspect_plugin_image(controller, spec.image).manifest
+        from_oci_label = True
+    else:
+        raise SDKError("Specify exactly one of manifest or image")
+    container_port = (
+        spec.container_port
+        if spec.container_port is not None
+        else _default_container_port(manifest.entrypoint)
+    )
+    config = LocalPluginConfig(
+        name=spec.name,
+        url=spec.url,
+        manifest=manifest,
+        gpu_resource_id=spec.gpu_resource_id,
+        physical_gpu_uuid=spec.physical_gpu_uuid,
+        network=spec.network,
+        host_port=spec.host_port,
+        container_port=container_port,
+        cpus=spec.cpus,
+        gpu_verify_keyring=spec.gpu_verify_keyring,
+        image_hosts=spec.image_hosts,
+    )
+    return ResolvedLocalPluginConfig(config=config, from_oci_label=from_oci_label)
+
+
+def inspect_image(
+    image: str,
+    docker: Docker | ContainerRuntimePort | None = None,
+    *,
+    runtime: ContainerRuntimePort | None = None,
+) -> dict[str, Any]:
+    inspected = _inspect_plugin_image(_coerce_plugin_docker(docker, runtime), image)
+    return {
+        "image_id": inspected.image_id,
+        "manifest": inspected.manifest.model_dump(mode="json"),
+        "qualification_command": (
+            list(inspected.qualification_command)
+            if inspected.qualification_command is not None
+            else None
+        ),
+        "prepare_assets_command": (
+            list(inspected.prepare_assets_command)
+            if inspected.prepare_assets_command is not None
+            else None
+        ),
+    }
+
+
+@dataclass(frozen=True)
+class QualificationOptions:
+    fixture: Path | None = None
+    asset_dir: Path | None = None
+    model_approval_ref: str | None = None
+    fixture_approval_ref: str | None = None
+
+
+def _checked_host_path(path: Path, *, directory: bool, label: str) -> Path:
+    abs_path = path.absolute()
+    try:
+        st = abs_path.lstat()
+    except OSError as exc:
+        raise SDKError(f"{label} does not exist: {abs_path}") from exc
+    if stat.S_ISLNK(st.st_mode):
+        raise SDKError(f"{label} must not be a symlink: {abs_path}")
+    expected = stat.S_ISDIR(st.st_mode) if directory else stat.S_ISREG(st.st_mode)
+    if not expected:
+        kind = "directory" if directory else "regular file"
+        raise SDKError(f"{label} must be a {kind}: {abs_path}")
+    return abs_path.resolve()
+
+
+def _validate_output_path(path: Path) -> Path:
+    target = path.absolute()
+    if not target.parent.is_dir():
+        raise SDKError(f"Output directory does not exist: {target.parent}")
+    try:
+        st = target.lstat()
+    except FileNotFoundError:
+        return target
+    except OSError as exc:
+        raise SDKError(f"Unable to inspect output path: {target}") from exc
+    if stat.S_ISLNK(st.st_mode) or stat.S_ISDIR(st.st_mode):
+        raise SDKError(f"Output path must be a regular file: {target}")
+    return target
+
+
+def _atomic_write_private(path: Path, content: str) -> None:
+    target = _validate_output_path(path)
+    atomic_write_private(target, content, prefix=".qualification-")
+
+
 class LocalPluginDeployment:
     def __init__(
         self,
         plugins: PluginInstallations,
         api_origin: str,
         state_dir: Path,
-        docker: Docker | None = None,
+        docker: Docker | ContainerRuntimePort | None = None,
+        *,
+        runtime: ContainerRuntimePort | None = None,
     ):
         self.plugins = plugins
         self.api_origin = api_origin.rstrip("/")
         self.store = ReceiptStore(state_dir)
-        self.docker = docker or Docker()
+        self.docker = _coerce_plugin_docker(docker, runtime)
+        self.runtime = getattr(self.docker, "runtime", None)
 
     def _load(self) -> dict:
         receipt = self.store.load()
@@ -390,11 +578,7 @@ class LocalPluginDeployment:
         data = self.store.directory / "data"
         data.mkdir(mode=0o700, exist_ok=True)
         _check_private(data, directory=True)
-        data_target = (
-            _DATA_TARGET
-            if config.manifest.plugin_id == "libreyolo"
-            else "/var/lib/aap-plugin"
-        )
+        data_target = _DATA_TARGET
         if provision:
             self._private_file(data / "token", receipt["token"])
             if config.physical_gpu_uuid:
@@ -403,40 +587,47 @@ class LocalPluginDeployment:
                     json.dumps(config.gpu_verify_keyring, sort_keys=True),
                 )
         env = {
-            "AAP_PLUGIN_TOKEN_FILE": f"{data_target}/token",
+            "YOAO_PLUGIN_TOKEN_FILE": f"{data_target}/token",
             "ROUTE_CONTROL_TOKEN_FILE": f"{data_target}/token",
-            "AAP_PLUGIN_DEVICE": self._binding(config).logical_device,
-            "AAP_PLUGIN_REGISTRY_ID": str(result.registry_id),
+            "YOAO_PLUGIN_DEVICE": self._binding(config).logical_device,
+            "YOAO_PLUGIN_REGISTRY_ID": str(result.registry_id),
             **(
                 {
-                    "AAP_PLUGIN_GPU_RESOURCE_ID": config.gpu_resource_id,
-                    "AAP_PLUGIN_GPU_UUID": config.physical_gpu_uuid,
-                    "AAP_PLUGIN_GPU_KEYRING_FILE": f"{data_target}/gpu-keyring.json",
+                    "YOAO_PLUGIN_GPU_RESOURCE_ID": config.gpu_resource_id,
+                    "YOAO_PLUGIN_GPU_UUID": config.physical_gpu_uuid,
+                    "YOAO_PLUGIN_GPU_KEYRING_FILE": f"{data_target}/gpu-keyring.json",
                 }
                 if config.physical_gpu_uuid
                 else {}
             ),
-            "AAP_PLUGIN_ASSET_ORIGINS": ",".join(config.manifest.allowed_asset_sources),
-            "AAP_PLUGIN_IMAGE_HOSTS": ",".join(config.image_hosts),
-            "AAP_PLUGIN_DATA_DIR": data_target,
+            "YOAO_PLUGIN_ASSET_ORIGINS": ",".join(
+                config.manifest.allowed_asset_sources
+            ),
+            "YOAO_PLUGIN_IMAGE_HOSTS": ",".join(config.image_hosts),
+            "YOAO_PLUGIN_DATA_DIR": data_target,
             "OMP_NUM_THREADS": str(max(1, int(config.cpus))),
             "MKL_NUM_THREADS": str(max(1, int(config.cpus))),
             "OPENBLAS_NUM_THREADS": str(max(1, int(config.cpus))),
-        }
-        if config.manifest.plugin_id != "libreyolo":
-            env["AAP_ROUTE_REGISTRY_ID"] = str(result.registry_id)
-            env["AAP_PLUGIN_ID"] = config.manifest.plugin_id
-            env["AAP_PLUGIN_VERSION"] = config.manifest.version
-            env["AAP_PLUGIN_ASSET_MANIFEST_SHA256"] = (
-                config.manifest.asset_manifest_sha256
-            )
-            env["AAP_PLUGIN_MANAGED_MODEL_COMPATIBILITY"] = json.dumps(
+            "ROUTE_REGISTRY_ID": str(result.registry_id),
+            "YOAO_PLUGIN_ID": config.manifest.plugin_id,
+            "YOAO_PLUGIN_VERSION": config.manifest.version,
+            **(
+                {
+                    "YOAO_PLUGIN_ASSET_MANIFEST_SHA256": (
+                        config.manifest.asset_manifest_sha256
+                    )
+                }
+                if config.manifest.asset_manifest_sha256 is not None
+                else {}
+            ),
+            "YOAO_PLUGIN_MANAGED_MODEL_COMPATIBILITY": json.dumps(
                 [
                     entry.model_dump(mode="json")
                     for entry in config.manifest.managed_model_compatibility
                 ],
                 separators=(",", ":"),
-            )
+            ),
+        }
         if config.manifest.resource.device == "cpu":
             env["NVIDIA_VISIBLE_DEVICES"] = "void"
             env["CUDA_VISIBLE_DEVICES"] = ""
@@ -447,10 +638,10 @@ class LocalPluginDeployment:
         if qualification:
             env.update(
                 {
-                    "AAP_PLUGIN_QUALIFICATION_FILE": f"{data_target}-qualification/report.json",
-                    "AAP_PLUGIN_QUALIFICATION_SHA256": qualification["sha256"],
-                    "AAP_PLUGIN_OCI_ARTIFACT": config.manifest.artifact,
-                    "AAP_PLUGIN_IMAGE_ID": qualification["image_id"],
+                    "YOAO_PLUGIN_QUALIFICATION_FILE": f"{data_target}-qualification/report.json",
+                    "YOAO_PLUGIN_QUALIFICATION_SHA256": qualification["sha256"],
+                    "YOAO_PLUGIN_OCI_ARTIFACT": config.manifest.artifact,
+                    "YOAO_PLUGIN_IMAGE_ID": qualification["image_id"],
                 }
             )
         if any("\n" in value or "\r" in value for value in env.values()):
@@ -466,7 +657,7 @@ class LocalPluginDeployment:
             _check_private(env_file, directory=False)
         token = receipt.get("container_candidate_token")
         name = (
-            "aap-plugin-"
+            _CONTAINER_NAME_PREFIX
             + receipt["installation_id"]
             + ("-" + token[:16] if token else "")
         )
@@ -498,35 +689,37 @@ class LocalPluginDeployment:
                 raise SDKError(
                     "Assets can only be prepared for a prepared installation"
                 )
-            if result.installation.manifest.plugin_id != "libreyolo":
+            manifest = result.installation.manifest
+            inspected = _inspect_plugin_image(self.docker, manifest.artifact)
+            if inspected.manifest != manifest:
                 raise SDKError(
-                    "This plugin does not provide an installer asset-preparation command"
+                    "Local image manifest differs from the reserved installation"
+                )
+            if inspected.prepare_assets_command is None:
+                raise SDKError(
+                    f"Local image does not declare {PLUGIN_PREPARE_ASSETS_COMMAND_OCI_LABEL}; "
+                    "prepare assets according to the plugin documentation"
                 )
             self.docker.prepare_assets(
-                self._container(receipt, result, with_qualification=False)
+                self._container(receipt, result, with_qualification=False),
+                inspected.prepare_assets_command,
             )
             return result
 
-    def _qualification(
-        self, receipt: dict, result: PluginInstallationResponse, source: Path | None
-    ) -> PluginLifecycleQualification:
+    @staticmethod
+    def _lifecycle_validators():
         try:
             from yoao_lifecycle_contract import (
                 validate_managed_lifecycle_evidence,
             )
-            from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
         except ModuleNotFoundError as exc:
             raise InstallError(
                 "Plugin deployment dependencies are missing; install 'yoao-sdk[plugins]' from the private wheel index"
             ) from exc
+        return validate_managed_lifecycle_evidence
 
-        saved = receipt.get("qualification")
-        path = self.store.directory / "qualification.json"
-        if source is None:
-            if not saved:
-                raise SDKError("A GPU lifecycle qualification report is required")
-            source = path
-            _check_private(source, directory=False)
+    @staticmethod
+    def _read_canonical_report(source: Path) -> tuple[Any, str, str]:
         try:
             report = json.loads(source.read_text(encoding="utf-8"))
             canonical = json.dumps(
@@ -541,18 +734,33 @@ class LocalPluginDeployment:
                 "Unable to read a valid GPU lifecycle qualification report"
             ) from exc
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        if saved and saved["sha256"] != digest:
-            raise SDKError("Qualification report differs from the installation receipt")
+        return report, canonical, digest
+
+    def _validate_qualification_report(
+        self,
+        receipt: dict,
+        result: PluginInstallationResponse,
+        source: Path,
+        *,
+        expected_image_id: str | None = None,
+        saved_image_id: str | None = None,
+    ) -> tuple[dict, str, str]:
+        validate_managed_lifecycle_evidence = self._lifecycle_validators()
+        raw_report, canonical, digest = self._read_canonical_report(source)
         try:
-            report = validate_managed_lifecycle_evidence(report)
+            report = validate_managed_lifecycle_evidence(raw_report)
         except (TypeError, ValueError) as exc:
             raise SDKError("Invalid GPU lifecycle qualification report") from exc
         if not report["passed"]:
             raise SDKError("GPU lifecycle qualification did not pass")
-        image_id = self.docker.image_id(
-            self._container(receipt, result, with_qualification=False)
+        image_id = (
+            expected_image_id
+            if expected_image_id is not None
+            else self.docker.image_id(
+                self._container(receipt, result, with_qualification=False)
+            )
         )
-        if saved and saved["image_id"] != image_id:
+        if saved_image_id is not None and saved_image_id != image_id:
             raise SDKError("Qualified image ID differs from the local image")
         item = result.installation
         resource = item.resource
@@ -568,16 +776,6 @@ class LocalPluginDeployment:
             "gpu_resource_id": resource.gpu_resource_id,
             "driver_version": gpu["driver_version"],
         }
-        if any(
-            entry.framework == "libreyolo"
-            for entry in item.manifest.managed_model_compatibility
-        ):
-            required.update(
-                {
-                    key: str(value).lower() if isinstance(value, bool) else str(value)
-                    for key, value in LIBRE_CUDA_RUNTIME.items()
-                }
-            )
         expected_topology = {
             "registry_id": str(result.registry_id),
             "gpu_resource_id": resource.gpu_resource_id,
@@ -597,18 +795,238 @@ class LocalPluginDeployment:
             or deployment["pool_topology"] != expected_topology
             or any(versions.get(key) != value for key, value in required.items())
             or (
-                "cuda_build" in required
-                and gpu["runtime_version"] != required["cuda_build"]
+                "cuda_build" in versions
+                and gpu["runtime_version"] != versions["cuda_build"]
             )
         ):
             raise SDKError(
                 "GPU lifecycle qualification differs from the reserved installation"
             )
+        return report, canonical, digest
+
+    def _qualification(
+        self, receipt: dict, result: PluginInstallationResponse, source: Path | None
+    ) -> PluginLifecycleQualification:
+        self._lifecycle_validators()
+        saved = receipt.get("qualification")
+        path = self.store.directory / "qualification.json"
+        if source is None:
+            if not saved:
+                raise SDKError("A GPU lifecycle qualification report is required")
+            source = path
+            _check_private(source, directory=False)
+        _, _, pre_digest = self._read_canonical_report(source)
+        if saved and saved["sha256"] != pre_digest:
+            raise SDKError("Qualification report differs from the installation receipt")
+        report, canonical, digest = self._validate_qualification_report(
+            receipt,
+            result,
+            source,
+            saved_image_id=saved["image_id"] if saved else None,
+        )
+        image_id = report["deployment"]["image_id"]
         self._private_file(path, canonical)
         if not saved:
             receipt["qualification"] = {"sha256": digest, "image_id": image_id}
             self.store.save(receipt)
         return PluginLifecycleQualification(report=report, sha256=digest)
+
+    def _qualify_locked(
+        self,
+        receipt: dict,
+        result: PluginInstallationResponse,
+        options: QualificationOptions | None = None,
+        *,
+        output_path: Path | None = None,
+    ) -> PluginLifecycleQualification:
+        if receipt.get("restart_candidate") or receipt.get("restart_intent"):
+            raise SDKError("Finish the pending restart before qualifying")
+        if result.installation.status != "prepared":
+            raise SDKError(
+                "GPU lifecycle qualification requires a prepared installation"
+            )
+        manifest = result.installation.manifest
+        if manifest.resource.device != "cuda":
+            raise SDKError("CPU installations do not accept GPU qualification")
+        if output_path is None and receipt.get("qualification"):
+            raise SDKError("Installation already has a recorded qualification report")
+        if output_path is not None:
+            _validate_output_path(output_path)
+
+        opts = options or QualificationOptions()
+        inspected = _inspect_plugin_image(self.docker, manifest.artifact)
+        inspected_manifest = inspected.manifest
+        image_id = inspected.image_id
+        qualification_command = inspected.qualification_command
+        if inspected_manifest != manifest:
+            raise SDKError(
+                "Local image manifest differs from the reserved installation"
+            )
+        if qualification_command is None:
+            raise SDKError(
+                f"Local image does not declare {PLUGIN_QUALIFICATION_COMMAND_OCI_LABEL}; "
+                "supply a verified report with --qualification"
+            )
+
+        assets_dir: Path | None = None
+        if opts.asset_dir is not None:
+            assets_dir = _checked_host_path(
+                opts.asset_dir, directory=True, label="Qualification asset directory"
+            )
+        else:
+            default_assets = self.store.directory / "data" / "assets"
+            try:
+                default_assets.lstat()
+            except FileNotFoundError:
+                assets_dir = None
+            except OSError as exc:
+                raise SDKError("Unable to inspect plugin asset directory") from exc
+            else:
+                assets_dir = _checked_host_path(
+                    default_assets, directory=True, label="Plugin asset directory"
+                )
+
+        fixture_file: Path | None = None
+        if opts.fixture is not None:
+            fixture_file = _checked_host_path(
+                opts.fixture, directory=False, label="Qualification fixture file"
+            )
+
+        config = LocalPluginConfig.model_validate(receipt["config"])
+        resource = result.installation.resource
+        if resource.gpu_resource_id is None or resource.physical_gpu_uuid is None:
+            raise SDKError(
+                "GPU qualification requires a reserved GPU resource and UUID"
+            )
+        data_target = _DATA_TARGET
+        pools_payload = {
+            name: pool.model_dump(mode="json") for name, pool in manifest.pools.items()
+        }
+        context_payload = {
+            "schema_version": 1,
+            "plugin_id": manifest.plugin_id,
+            "plugin_version": manifest.version,
+            "artifact": manifest.artifact,
+            "image_id": image_id,
+            "registry_id": str(result.registry_id),
+            "gpu_resource_id": resource.gpu_resource_id,
+            "physical_gpu_uuid": resource.physical_gpu_uuid,
+            "logical_device": "cuda:0",
+            "asset_manifest_sha256": manifest.asset_manifest_sha256,
+            "pools": pools_payload,
+            "data_dir": data_target,
+            "output_file": QUALIFICATION_OUTPUT_FILE_TARGET,
+            "fixture_file": (
+                QUALIFICATION_FIXTURE_TARGET if fixture_file is not None else None
+            ),
+            "model_approval_ref": opts.model_approval_ref,
+            "fixture_approval_ref": opts.fixture_approval_ref,
+        }
+        env = {
+            "YOAO_PLUGIN_ID": manifest.plugin_id,
+            "YOAO_PLUGIN_VERSION": manifest.version,
+            "YOAO_PLUGIN_OCI_ARTIFACT": manifest.artifact,
+            "YOAO_PLUGIN_IMAGE_ID": image_id,
+            "YOAO_PLUGIN_REGISTRY_ID": str(result.registry_id),
+            "YOAO_PLUGIN_GPU_RESOURCE_ID": resource.gpu_resource_id,
+            "YOAO_PLUGIN_GPU_UUID": resource.physical_gpu_uuid,
+            "YOAO_PLUGIN_DEVICE": "cuda:0",
+            "YOAO_PLUGIN_ASSET_MANIFEST_SHA256": manifest.asset_manifest_sha256,
+            "YOAO_PLUGIN_POOLS_JSON": json.dumps(
+                pools_payload, sort_keys=True, separators=(",", ":")
+            ),
+            "YOAO_PLUGIN_DATA_DIR": data_target,
+            "YOAO_QUALIFICATION_CONTEXT_FILE": QUALIFICATION_CONTEXT_TARGET,
+            "YOAO_QUALIFICATION_OUTPUT_FILE": QUALIFICATION_OUTPUT_FILE_TARGET,
+            "VALIDATION_IMAGE_ID": image_id,
+            "VALIDATION_GPU_UUID": resource.physical_gpu_uuid,
+        }
+        if fixture_file is not None:
+            env["YOAO_QUALIFICATION_FIXTURE_FILE"] = QUALIFICATION_FIXTURE_TARGET
+        if opts.model_approval_ref is not None:
+            env["VALIDATION_MODEL_APPROVAL_REF"] = opts.model_approval_ref
+        if opts.fixture_approval_ref is not None:
+            env["VALIDATION_FIXTURE_APPROVAL_REF"] = opts.fixture_approval_ref
+        if any(
+            not isinstance(value, str) or any(c in value for c in "\n\r\x00")
+            for value in env.values()
+        ):
+            raise SDKError("Invalid newline in qualification environment")
+
+        work_dir = Path(tempfile.mkdtemp(prefix=".qualify-", dir=self.store.directory))
+        os.chmod(work_dir, 0o700)
+        try:
+            output_dir = work_dir / "output"
+            output_dir.mkdir(mode=0o700)
+            os.chmod(output_dir, 0o700)
+            context_file = work_dir / "context.json"
+            self._private_file(
+                context_file,
+                json.dumps(context_payload, sort_keys=True, separators=(",", ":")),
+            )
+            env_file = work_dir / "qualify.env"
+            self._private_file(
+                env_file, "".join(f"{key}={value}\n" for key, value in env.items())
+            )
+            run_cfg = QualificationRunConfig(
+                image=manifest.artifact,
+                command=qualification_command,
+                gpu_uuid=resource.physical_gpu_uuid,
+                memory_mb=manifest.resource.memory_mb,
+                cpus=config.cpus,
+                env_file=env_file,
+                context_file=context_file,
+                output_dir=output_dir,
+                data_target=data_target,
+                assets_dir=assets_dir,
+                fixture_file=fixture_file,
+            )
+            self.docker.run_qualification(run_cfg)
+            report_path = output_dir / "report.json"
+            try:
+                st = report_path.lstat()
+            except FileNotFoundError as exc:
+                raise SDKError(
+                    "Qualification command did not write a report to output/report.json"
+                ) from exc
+            except OSError as exc:
+                raise SDKError(
+                    "Unable to inspect generated qualification report"
+                ) from exc
+            if stat.S_ISLNK(st.st_mode) or not stat.S_ISREG(st.st_mode):
+                raise SDKError(
+                    "Generated qualification report must be a regular non-symlink file"
+                )
+            report, canonical, digest = self._validate_qualification_report(
+                receipt,
+                result,
+                report_path,
+                expected_image_id=image_id,
+            )
+        finally:
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+        if output_path is not None:
+            _atomic_write_private(output_path, canonical)
+        else:
+            self._private_file(self.store.directory / "qualification.json", canonical)
+            receipt["qualification"] = {"sha256": digest, "image_id": image_id}
+            self.store.save(receipt)
+        return PluginLifecycleQualification(report=report, sha256=digest)
+
+    def qualify(
+        self,
+        options: QualificationOptions | None = None,
+        *,
+        output_path: Path | None = None,
+    ) -> PluginLifecycleQualification:
+        with self.store.locked():
+            receipt = self._load()
+            result = self.plugins.get(receipt["installation_id"])
+            self._verify(receipt, result)
+            return self._qualify_locked(
+                receipt, result, options, output_path=output_path
+            )
 
     def _qualification_for_device(
         self, receipt: dict, result: PluginInstallationResponse, source: Path | None
@@ -620,8 +1038,28 @@ class LocalPluginDeployment:
         return None
 
     def install(
-        self, qualification_path: Path | None = None
+        self,
+        qualification_path: Path | None = None,
+        *,
+        qualify: bool = False,
+        qualification_options: QualificationOptions | None = None,
     ) -> PluginInstallationResponse:
+        if qualify and qualification_path is not None:
+            raise SDKError("Specify either --qualification or --qualify, not both")
+        if (
+            not qualify
+            and qualification_options is not None
+            and any(
+                value is not None
+                for value in (
+                    qualification_options.fixture,
+                    qualification_options.asset_dir,
+                    qualification_options.model_approval_ref,
+                    qualification_options.fixture_approval_ref,
+                )
+            )
+        ):
+            raise SDKError("Qualification options require --qualify")
         with self.store.locked():
             receipt = self._load()
             result = self.plugins.get(receipt["installation_id"])
@@ -630,9 +1068,16 @@ class LocalPluginDeployment:
                 raise SDKError("Finish the pending restart with plugins restart")
             if result.installation.status not in {"prepared", "active"}:
                 raise SDKError("Only a prepared or active installation can be started")
-            qualification = self._qualification_for_device(
-                receipt, result, qualification_path
-            )
+            if qualify:
+                qualification: PluginLifecycleQualification | None = (
+                    self._qualify_locked(
+                        receipt, result, qualification_options, output_path=None
+                    )
+                )
+            else:
+                qualification = self._qualification_for_device(
+                    receipt, result, qualification_path
+                )
             container = self._container(receipt, result)
             if result.installation.status == "active":
                 inspected = self.docker.verify_running(container)
@@ -857,7 +1302,7 @@ class LocalPluginDeployment:
         container = self._container(receipt, result)
         return replace(
             container,
-            name="aap-plugin-" + receipt["installation_id"] + "-" + token[:16],
+            name=_CONTAINER_NAME_PREFIX + receipt["installation_id"] + "-" + token[:16],
             candidate_token=token,
         )
 

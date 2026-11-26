@@ -11,7 +11,10 @@ from datetime import datetime, timedelta, timezone
 from yoao_protocol_v2.backend_auth import managed_provider
 from yoao_protocol_v2.model_metadata import ModelMetadataResponse, classes_digest
 from yoao_inference_contract.topology import to_record
-from yoao_inference_contract.plugin_assets import plugin_asset_reason
+from yoao_inference_contract.plugin_assets import (
+    plugin_asset_reason,
+    plugin_requires_asset_approval,
+)
 from yoao_task_contract import normalize_task
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -136,17 +139,20 @@ async def pool_has_plugin(db, backend):
 
 
 async def pool_asset_candidates(db, backend, model_id, variants):
-    """Return approved selectable members, or None when no plugin is involved."""
+    """Return approved selectable members, or None when no plugin requires asset approval."""
     topology = InferenceTopologyData(db)
     pool = await topology.pool_for_registry(backend.id)
     if pool is None:
-        if "plugin" not in (backend.extra_params or {}):
+        if not plugin_requires_asset_approval(backend.extra_params):
             return None, None
         state = await topology.get_plugin_asset_approval(backend.id)
         reason = plugin_asset_reason(backend.extra_params, state, model_id, variants)
         return ([backend.id] if reason is None else []), reason
     members = await topology.pool_members(pool.id)
-    if not any("plugin" in (member.registry.extra_params or {}) for member in members):
+    if not any(
+        plugin_requires_asset_approval(member.registry.extra_params)
+        for member in members
+    ):
         return None, None
     active_count = sum(member.traffic_state == "active" for member in members)
     approved = []
@@ -160,7 +166,7 @@ async def pool_asset_candidates(db, backend, model_id, variants):
             continue
         state = (
             await topology.get_plugin_asset_approval(candidate.id)
-            if "plugin" in (candidate.extra_params or {})
+            if plugin_requires_asset_approval(candidate.extra_params)
             else None
         )
         reason = plugin_asset_reason(candidate.extra_params, state, model_id, variants)
@@ -315,7 +321,9 @@ async def list_catalog(
                     enabled=pool is not None and pool.id in enabled_pools,
                     member_count=member_counts[pool.id] if pool else 0,
                 )
-                if code is None and "plugin" in (backend.extra_params or {}):
+                if code is None and plugin_requires_asset_approval(
+                    backend.extra_params
+                ):
                     asset_state = await topology.get_plugin_asset_approval(backend.id)
                     asset_code = plugin_asset_reason(
                         backend.extra_params, asset_state, capability.id, variants

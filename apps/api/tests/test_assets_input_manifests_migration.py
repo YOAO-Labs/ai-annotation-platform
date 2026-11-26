@@ -138,7 +138,8 @@ def test_0222_revokes_every_new_function_and_streams_without_full_json_aggregati
 
 
 def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
-    native_schema = (ROOT / "apps/api/app/db/native_schema.py").read_text()
+    from app.db.native_schema import NATIVE_MANAGED_TABLES
+
     modules = (ROOT / "infra/docker/module-data-grants.sql").read_text()
     media = read_psql_grant_script(
         ROOT / "infra/docker/assets-grants.sql", capability="media"
@@ -150,7 +151,7 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
         "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)"
     )
     for table in TABLES:
-        assert f'"{table}"' in native_schema
+        assert table in NATIVE_MANAGED_TABLES
         assert f"public.{table}" in modules
         assert f"public.{table}" not in media
         assert f"public.{table}" not in worker

@@ -4,7 +4,7 @@ import math
 import re
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
@@ -16,8 +16,15 @@ from pydantic import (
     model_validator,
 )
 from app.schemas.training_initialization import TrainingInitialization
+from app.services.training_adapters import (
+    FRAMEWORK_ID_PATTERN,
+    supports_task_evaluation,
+)
 from training_contract.dataset import config_task
 from yoao_task_contract import normalize_task, normalize_task_fields
+
+FrameworkSlug = Annotated[str, Field(pattern=FRAMEWORK_ID_PATTERN)]
+FrameworkId = FrameworkSlug
 
 
 class TrainingConfiguration(BaseModel):
@@ -64,10 +71,10 @@ class TrainingOrigin(BaseModel):
 class TrainingRunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
-    task: Literal["detect", "segment"] | None = None
+    task: str | None = None
     dataset_id: uuid.UUID
-    framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
-    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    framework: FrameworkId = "ultralytics"
+    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
     initialization: TrainingInitialization | None = None
@@ -132,13 +139,16 @@ class TrainingRunOut(BaseModel):
     study_id: uuid.UUID | None = None
     name: str
     status: str
-    task: Literal["detect", "segment"] = "detect"
+    task: str = "detect"
     media_type: Literal["image"] = "image"
     config: dict
 
     @model_validator(mode="after")
     def canonical_task_view(self):
-        self.task = config_task(self.config)
+        try:
+            self.task = config_task(self.config)
+        except ValueError:
+            self.task = str(self.config.get("task") or "detect")
         return self
 
     config_digest: str
@@ -217,7 +227,7 @@ class EvaluationBenchmark(BaseModel):
 
 class EvaluationEvaluator(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: FrameworkSlug
     version: str = Field(min_length=1, max_length=100)
     task: Literal["detection", "instance-segmentation"]
     implementation: str = Field(min_length=1, max_length=200)
@@ -257,10 +267,10 @@ class TrainingEvaluationDescriptor(BaseModel):
     @model_validator(mode="after")
     def task_revision(self):
         segmentation = self.evaluator.task == "instance-segmentation"
-        if (
-            self.revision not in ({2, 3} if segmentation else {1})
-            or segmentation
-            and self.evaluator.framework != "ultralytics"
+        if self.revision not in (
+            {2, 3} if segmentation else {1}
+        ) or not supports_task_evaluation(
+            self.evaluator.framework, self.evaluator.task
         ):
             raise ValueError("评估任务、框架与 descriptor 修订不匹配")
         return self

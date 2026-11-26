@@ -3,17 +3,17 @@
     "GetPreferencesData": {
       "additionalProperties": false,
       "properties": {
+        "operation": {
+          "const": "get",
+          "title": "Operation",
+          "type": "string"
+        },
         "items": {
           "items": {
             "$ref": "#/$defs/PreferenceItem"
           },
           "title": "Items",
           "type": "array"
-        },
-        "operation": {
-          "const": "get",
-          "title": "Operation",
-          "type": "string"
         }
       },
       "required": ["operation", "items"],
@@ -23,18 +23,18 @@
     "GetPreferencesReply": {
       "additionalProperties": false,
       "properties": {
-        "data": {
-          "$ref": "#/$defs/GetPreferencesData"
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
         },
         "ok": {
           "const": true,
           "title": "Ok",
           "type": "boolean"
         },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
-          "type": "string"
+        "data": {
+          "$ref": "#/$defs/GetPreferencesData"
         }
       },
       "required": ["schema", "ok", "data"],
@@ -44,14 +44,14 @@
     "GetPreferencesRequest": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
+        },
         "operation": {
           "const": "get",
           "title": "Operation",
-          "type": "string"
-        },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
           "type": "string"
         },
         "user_id": {
@@ -67,14 +67,14 @@
     "IsInAppMutedData": {
       "additionalProperties": false,
       "properties": {
-        "muted": {
-          "title": "Muted",
-          "type": "boolean"
-        },
         "operation": {
           "const": "is_in_app_muted",
           "title": "Operation",
           "type": "string"
+        },
+        "muted": {
+          "title": "Muted",
+          "type": "boolean"
         }
       },
       "required": ["operation", "muted"],
@@ -84,18 +84,18 @@
     "IsInAppMutedReply": {
       "additionalProperties": false,
       "properties": {
-        "data": {
-          "$ref": "#/$defs/IsInAppMutedData"
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
         },
         "ok": {
           "const": true,
           "title": "Ok",
           "type": "boolean"
         },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
-          "type": "string"
+        "data": {
+          "$ref": "#/$defs/IsInAppMutedData"
         }
       },
       "required": ["schema", "ok", "data"],
@@ -105,25 +105,25 @@
     "IsInAppMutedRequest": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
+        },
         "operation": {
           "const": "is_in_app_muted",
           "title": "Operation",
           "type": "string"
         },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
           "type": "string"
         },
         "type": {
           "maxLength": 60,
           "minLength": 1,
           "title": "Type",
-          "type": "string"
-        },
-        "user_id": {
-          "format": "uuid",
-          "title": "User Id",
           "type": "string"
         }
       },
@@ -152,18 +152,18 @@
     "PatchPreferenceReply": {
       "additionalProperties": false,
       "properties": {
-        "data": {
-          "$ref": "#/$defs/PatchPreferenceData"
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
         },
         "ok": {
           "const": true,
           "title": "Ok",
           "type": "boolean"
         },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
-          "type": "string"
+        "data": {
+          "$ref": "#/$defs/PatchPreferenceData"
         }
       },
       "required": ["schema", "ok", "data"],
@@ -173,9 +173,25 @@
     "PatchPreferenceRequest": {
       "additionalProperties": false,
       "properties": {
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
+        },
         "operation": {
           "const": "patch",
           "title": "Operation",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        },
+        "type": {
+          "maxLength": 60,
+          "minLength": 1,
+          "title": "Type",
           "type": "string"
         },
         "patch": {
@@ -188,24 +204,23 @@
           "title": "Patch",
           "type": "object"
         },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
-          "type": "string"
-        },
-        "type": {
-          "maxLength": 60,
-          "minLength": 1,
-          "title": "Type",
-          "type": "string"
-        },
-        "user_id": {
-          "format": "uuid",
-          "title": "User Id",
-          "type": "string"
+        "external_channels": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "boolean"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "External Channels"
         }
       },
-      "required": ["schema", "operation", "user_id", "type", "patch"],
+      "required": ["schema", "operation", "user_id", "type"],
       "title": "PatchPreferenceRequest",
       "type": "object"
     },
@@ -213,7 +228,7 @@
       "additionalProperties": false,
       "properties": {
         "code": {
-          "enum": ["invalid_request", "unknown_type"],
+          "enum": ["invalid_request", "unknown_type", "channel_not_deliverable", "unknown_channel"],
           "title": "Code",
           "type": "string"
         }
@@ -225,18 +240,18 @@
     "PreferenceFailure": {
       "additionalProperties": false,
       "properties": {
-        "error": {
-          "$ref": "#/$defs/PreferenceError"
+        "schema": {
+          "const": "yoao-notification-preferences/v2",
+          "title": "Schema",
+          "type": "string"
         },
         "ok": {
           "const": false,
           "title": "Ok",
           "type": "boolean"
         },
-        "schema": {
-          "const": "aap-notification-preferences/v1",
-          "title": "Schema",
-          "type": "string"
+        "error": {
+          "$ref": "#/$defs/PreferenceError"
         }
       },
       "required": ["schema", "ok", "error"],
@@ -246,21 +261,28 @@
     "PreferenceItem": {
       "additionalProperties": false,
       "properties": {
-        "email": {
-          "title": "Email",
-          "type": "boolean"
+        "type": {
+          "title": "Type",
+          "type": "string"
         },
         "in_app": {
           "title": "In App",
+          "type": "boolean"
+        },
+        "email": {
+          "title": "Email",
           "type": "boolean"
         },
         "toast": {
           "title": "Toast",
           "type": "boolean"
         },
-        "type": {
-          "title": "Type",
-          "type": "string"
+        "external_channels": {
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "title": "External Channels",
+          "type": "object"
         }
       },
       "required": ["type", "in_app", "email", "toast"],
@@ -268,8 +290,6 @@
       "type": "object"
     }
   },
-  "$id": "aap-notification-preferences/v1",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "anyOf": [
     {
       "$ref": "#/$defs/GetPreferencesRequest"
@@ -293,5 +313,7 @@
       "$ref": "#/$defs/PreferenceFailure"
     }
   ],
-  "title": "AAP notification preferences protocol"
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "yoao-notification-preferences/v2",
+  "title": "YOAO notification preferences protocol"
 }

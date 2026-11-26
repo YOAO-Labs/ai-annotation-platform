@@ -48,16 +48,6 @@ class TrainingStudyCreate(BaseModel):
     def full_configuration(self):
         if self.base.configuration is None:
             raise ValueError("参数搜索必须使用完整配置")
-        if self.base.framework == "libreyolo" and self.objective in {
-            "metrics/precision",
-            "metrics/recall",
-        }:
-            raise ValueError("LibreYOLO 最终评估不提供 precision/recall")
-        if self.base.framework == "ultralytics" and self.objective in {
-            "metrics/mAP75",
-            "metrics/AR100",
-        }:
-            raise ValueError("Ultralytics 最终评估不提供 mAP75/AR100")
         return self
 
     def request_payload(self):

@@ -6135,6 +6135,11 @@
             "title": "Is Interactive",
             "type": "boolean"
           },
+          "managed_evaluation": {
+            "default": false,
+            "title": "Managed Evaluation",
+            "type": "boolean"
+          },
           "managed_lifecycle": {
             "anyOf": [
               {
@@ -16960,6 +16965,24 @@
         "title": "DecisionCreate",
         "type": "object"
       },
+      "DeleteChannelBindingOut": {
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "title": "DeleteChannelBindingOut",
+        "type": "object"
+      },
       "DeleteUserPayload": {
         "description": "可选转交目标 —— 当 target 仍持有未完成任务时必填。",
         "properties": {
@@ -17238,6 +17261,137 @@
           "xyxy"
         ],
         "title": "DetectionTruth",
+        "type": "object"
+      },
+      "DirectPluginProbeResponse": {
+        "additionalProperties": false,
+        "description": "Read-only probe snapshot for an installed inference plugin.",
+        "properties": {
+          "boot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boot Id"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "enum": [
+                  "cpu",
+                  "cuda"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "execution_mode": {
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "installation_id": {
+            "format": "uuid",
+            "title": "Installation Id",
+            "type": "string"
+          },
+          "matches_manifest": {
+            "title": "Matches Manifest",
+            "type": "boolean"
+          },
+          "mismatch_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mismatch Reason"
+          },
+          "observed_managed_evaluation": {
+            "default": false,
+            "title": "Observed Managed Evaluation",
+            "type": "boolean"
+          },
+          "observed_managed_model_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedModelCompatibility"
+            },
+            "title": "Observed Managed Model Compatibility",
+            "type": "array"
+          },
+          "observed_models": {
+            "items": {
+              "$ref": "#/components/schemas/PluginModelCapability"
+            },
+            "title": "Observed Models",
+            "type": "array"
+          },
+          "observed_pools": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PluginPoolTopology"
+            },
+            "title": "Observed Pools",
+            "type": "object"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "registry_id": {
+            "format": "uuid",
+            "title": "Registry Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "terminal_drain_supported": {
+            "default": false,
+            "title": "Terminal Drain Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "registry_id",
+          "installation_id",
+          "execution_mode",
+          "status",
+          "healthy",
+          "matches_manifest"
+        ],
+        "title": "DirectPluginProbeResponse",
         "type": "object"
       },
       "DirectoryEntry": {
@@ -17640,10 +17794,7 @@
         "additionalProperties": false,
         "properties": {
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -19571,6 +19722,134 @@
         "title": "ExportRequestBody",
         "type": "object"
       },
+      "ExtensionManifestV1": {
+        "additionalProperties": false,
+        "description": "Image-embedded universal extension manifest (without artifact or source_tier).",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entrypoint",
+            "type": "array"
+          },
+          "extension": {
+            "$ref": "#/components/schemas/NotificationChannelExtensionBlock"
+          },
+          "extension_point": {
+            "const": "notification_channel",
+            "title": "Extension Point",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "license": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "License",
+            "type": "string"
+          },
+          "manifest_schema": {
+            "const": "yoao-extension-manifest/v1",
+            "title": "Manifest Schema",
+            "type": "string"
+          },
+          "plugin_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "protocol_version": {
+            "const": "yoao-notification-channel/v1",
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "publisher": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Publisher",
+            "type": "string"
+          },
+          "resource": {
+            "$ref": "#/components/schemas/ExtensionResourceV1"
+          },
+          "version": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest_schema",
+          "extension_point",
+          "plugin_id",
+          "version",
+          "publisher",
+          "license",
+          "protocol_version",
+          "entrypoint",
+          "capabilities",
+          "resource",
+          "extension"
+        ],
+        "title": "ExtensionManifestV1",
+        "type": "object"
+      },
+      "ExtensionResourceV1": {
+        "additionalProperties": false,
+        "properties": {
+          "memory_mb": {
+            "exclusiveMinimum": 0.0,
+            "title": "Memory Mb",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "memory_mb"
+        ],
+        "title": "ExtensionResourceV1",
+        "type": "object"
+      },
       "FailedPredictionItem": {
         "properties": {
           "backend_name": {
@@ -20288,6 +20567,257 @@
         "title": "ForgotPasswordRequest",
         "type": "object"
       },
+      "FormatAdapterPluginRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "adapter_version": {
+            "title": "Adapter Version",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "endpoint_url": {
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "format_id": {
+            "title": "Format Id",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "manifest_version": {
+            "title": "Manifest Version",
+            "type": "string"
+          },
+          "media_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Media Types",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "option_schema": {
+            "additionalProperties": true,
+            "title": "Option Schema",
+            "type": "object"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "format_id",
+          "display_name",
+          "source_tier",
+          "mode",
+          "status",
+          "revision",
+          "endpoint_url",
+          "protocol_version",
+          "adapter_version",
+          "manifest_version",
+          "media_types",
+          "capabilities",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FormatAdapterPluginRecord",
+        "type": "object"
+      },
+      "FormatAdapterProbeResponse": {
+        "properties": {
+          "adapter_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adapter Version"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "format_id": {
+            "title": "Format Id",
+            "type": "string"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "manifest_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Version"
+          },
+          "media_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Media Types",
+            "type": "array"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "setup_ok": {
+            "title": "Setup Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "format_id",
+          "healthy",
+          "setup_ok"
+        ],
+        "title": "FormatAdapterProbeResponse",
+        "type": "object"
+      },
       "FramePose": {
         "properties": {
           "ego_rotation": {
@@ -20487,7 +21017,7 @@
             "$ref": "#/components/schemas/SegmentationInitializationEvaluation"
           },
           "framework": {
-            "const": "ultralytics",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -20501,11 +21031,8 @@
             "type": "string"
           },
           "model_family": {
-            "enum": [
-              "yolov8",
-              "yolo11",
-              "yolo26"
-            ],
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Model Family",
             "type": "string"
           },
@@ -20639,7 +21166,7 @@
             "$ref": "#/components/schemas/InitializationEvaluation"
           },
           "framework": {
-            "const": "ultralytics",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -20653,11 +21180,8 @@
             "type": "string"
           },
           "model_family": {
-            "enum": [
-              "yolov8",
-              "yolo11",
-              "yolo26"
-            ],
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Model Family",
             "type": "string"
           },
@@ -23381,6 +23905,108 @@
         "title": "ImportResult",
         "type": "object"
       },
+      "InferencePluginSummary": {
+        "additionalProperties": false,
+        "description": "Unified read-only projection shared across container and direct inference plugins.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "device": {
+            "enum": [
+              "cpu",
+              "cuda"
+            ],
+            "title": "Device",
+            "type": "string"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "execution_mode": {
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "extension_point": {
+            "const": "inference",
+            "default": "inference",
+            "title": "Extension Point",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "locally_arbitrated_gpu": {
+            "title": "Locally Arbitrated Gpu",
+            "type": "boolean"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plugin_id",
+          "version",
+          "source_tier",
+          "execution_mode",
+          "status",
+          "device",
+          "locally_arbitrated_gpu"
+        ],
+        "title": "InferencePluginSummary",
+        "type": "object"
+      },
       "InitializationArtifact": {
         "additionalProperties": false,
         "properties": {
@@ -25023,7 +25649,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -25073,10 +25699,7 @@
           },
           "framework": {
             "default": "ultralytics",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -26730,6 +27353,7 @@
           "format": {
             "anyOf": [
               {
+                "maxLength": 64,
                 "minLength": 1,
                 "type": "string"
               },
@@ -26741,6 +27365,7 @@
             "title": "Format"
           },
           "framework": {
+            "maxLength": 64,
             "minLength": 1,
             "title": "Framework",
             "type": "string"
@@ -33780,6 +34405,514 @@
         "title": "NormalizedCameraBbox",
         "type": "object"
       },
+      "NotificationChannelAdminListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationChannelAdminOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "NotificationChannelAdminListOut",
+        "type": "object"
+      },
+      "NotificationChannelAdminOut": {
+        "properties": {
+          "address_schema": {
+            "additionalProperties": true,
+            "title": "Address Schema",
+            "type": "object"
+          },
+          "auth_token_sha256": {
+            "title": "Auth Token Sha256",
+            "type": "string"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "consecutive_auth_errors": {
+            "title": "Consecutive Auth Errors",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "endpoint_url": {
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "mode": {
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "prepared",
+              "active",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel_id",
+          "display_name",
+          "source_tier",
+          "mode",
+          "status",
+          "revision",
+          "endpoint_url",
+          "auth_token_sha256",
+          "protocol_version",
+          "capabilities",
+          "address_schema",
+          "rate_limit_per_minute",
+          "consecutive_auth_errors",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "NotificationChannelAdminOut",
+        "type": "object"
+      },
+      "NotificationChannelExtensionBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "address_schema": {
+            "additionalProperties": true,
+            "title": "Address Schema",
+            "type": "object"
+          },
+          "allowed_egress_hosts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Egress Hosts",
+            "type": "array"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "channel_id",
+          "address_schema"
+        ],
+        "title": "NotificationChannelExtensionBlock",
+        "type": "object"
+      },
+      "NotificationChannelProbeOut": {
+        "properties": {
+          "capabilities": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capabilities"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "health_detail": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Health Detail"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "setup_ok": {
+            "title": "Setup Ok",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "healthy",
+          "setup_ok"
+        ],
+        "title": "NotificationChannelProbeOut",
+        "type": "object"
+      },
+      "NotificationChannelRegisterIn": {
+        "properties": {
+          "auth_token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "endpoint_url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExtensionManifestV1"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "default": "direct",
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "rate_limit_per_minute": {
+            "default": 60,
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Rate Limit Per Minute",
+            "type": "integer"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "default": "active",
+            "enum": [
+              "prepared",
+              "active"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint_url",
+          "auth_token"
+        ],
+        "title": "NotificationChannelRegisterIn",
+        "type": "object"
+      },
+      "NotificationChannelTransitionIn": {
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "NotificationChannelTransitionIn",
+        "type": "object"
+      },
+      "NotificationChannelUpdateIn": {
+        "properties": {
+          "auth_token": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Token"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "endpoint_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Endpoint Url"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "rate_limit_per_minute": {
+            "anyOf": [
+              {
+                "maximum": 600.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Per Minute"
+          },
+          "source_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "official",
+                  "third_party"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Tier"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "NotificationChannelUpdateIn",
+        "type": "object"
+      },
       "NotificationList": {
         "properties": {
           "items": {
@@ -33865,6 +34998,13 @@
             "title": "Email",
             "type": "boolean"
           },
+          "external_channels": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "title": "External Channels",
+            "type": "object"
+          },
           "in_app": {
             "default": true,
             "title": "In App",
@@ -33888,6 +35028,20 @@
       },
       "NotificationPreferenceUpdate": {
         "properties": {
+          "external_channels": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "boolean"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Channels"
+          },
           "in_app": {
             "anyOf": [
               {
@@ -36123,12 +37277,18 @@
             ]
           },
           "receipt": {
-            "$ref": "#/components/schemas/PluginLaunchReceipt"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginLaunchReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
-          "expected_revision",
-          "receipt"
+          "expected_revision"
         ],
         "title": "PluginActivateRequest",
         "type": "object"
@@ -36198,9 +37358,16 @@
             "type": "array"
           },
           "container_id": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Container Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Container Id"
           },
           "descriptor": {
             "$ref": "#/components/schemas/PluginAssetDescriptor"
@@ -36221,9 +37388,16 @@
             "type": "integer"
           },
           "image_id": {
-            "pattern": "^sha256:[0-9a-f]{64}$",
-            "title": "Image Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Id"
           },
           "inventory": {
             "items": {
@@ -36231,6 +37405,19 @@
             },
             "title": "Inventory",
             "type": "array"
+          },
+          "runtime_instance_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runtime Instance Id"
           }
         },
         "required": [
@@ -36239,9 +37426,7 @@
           "descriptor",
           "descriptor_sha256",
           "approved",
-          "inventory",
-          "container_id",
-          "image_id"
+          "inventory"
         ],
         "title": "PluginAssetApprovalUpdate",
         "type": "object"
@@ -36250,9 +37435,16 @@
         "additionalProperties": false,
         "properties": {
           "artifact": {
-            "minLength": 1,
-            "title": "Artifact",
-            "type": "string"
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
           },
           "asset_manifest_sha256": {
             "pattern": "^[0-9a-f]{64}$",
@@ -36334,6 +37526,15 @@
       "PluginInstallation": {
         "additionalProperties": false,
         "properties": {
+          "execution_mode": {
+            "default": "container",
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
           "installation_id": {
             "format": "uuid",
             "title": "Installation Id",
@@ -36349,6 +37550,15 @@
             "minimum": 1.0,
             "title": "Revision",
             "type": "integer"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
           },
           "status": {
             "enum": [
@@ -36396,6 +37606,16 @@
             "format": "uuid",
             "title": "Registry Id",
             "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InferencePluginSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -36482,35 +37702,106 @@
             "type": "array"
           },
           "artifact": {
-            "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[0-9a-f]{64}$",
-            "title": "Artifact",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
           },
           "asset_manifest_sha256": {
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Asset Manifest Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Manifest Sha256"
           },
           "capabilities": {
             "items": {
               "enum": [
                 "inference",
                 "detection",
-                "managed_models"
+                "segmentation",
+                "interactive",
+                "video_tracking",
+                "ocr",
+                "classification",
+                "obb",
+                "pose",
+                "doc_layout",
+                "managed_models",
+                "managed_evaluation"
               ],
               "type": "string"
             },
+            "maxItems": 16,
             "minItems": 1,
             "title": "Capabilities",
             "type": "array"
           },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
           "entrypoint": {
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Entrypoint",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entrypoint"
+          },
+          "execution_mode": {
+            "default": "container",
+            "enum": [
+              "container",
+              "direct"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
           },
           "license": {
             "maxLength": 255,
@@ -36524,6 +37815,18 @@
             },
             "title": "Managed Model Compatibility",
             "type": "array"
+          },
+          "manifest_schema": {
+            "anyOf": [
+              {
+                "const": "yoao-extension-manifest/v1",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest Schema"
           },
           "models": {
             "items": {
@@ -36549,6 +37852,18 @@
             "title": "Pools",
             "type": "object"
           },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "const": "yoao-inference/v2",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
           "publisher": {
             "maxLength": 255,
             "minLength": 1,
@@ -36559,10 +37874,17 @@
             "$ref": "#/components/schemas/PluginResourceRequirements"
           },
           "sdk_compatibility": {
-            "maxLength": 255,
-            "minLength": 1,
-            "title": "Sdk Compatibility",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Compatibility"
           },
           "version": {
             "maxLength": 128,
@@ -36576,15 +37898,10 @@
           "version",
           "publisher",
           "license",
-          "artifact",
-          "sdk_compatibility",
-          "entrypoint",
           "capabilities",
           "models",
           "pools",
-          "resource",
-          "asset_manifest_sha256",
-          "allowed_asset_sources"
+          "resource"
         ],
         "title": "PluginManifest",
         "type": "object"
@@ -36676,7 +37993,14 @@
             "$ref": "#/components/schemas/PluginInstallation"
           },
           "launch": {
-            "$ref": "#/components/schemas/PluginLaunchReceipt"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PluginLaunchReceipt"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "registry_id": {
             "format": "uuid",
@@ -36686,13 +38010,22 @@
           "safe_to_stop": {
             "title": "Safe To Stop",
             "type": "boolean"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InferencePluginSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "registry_id",
           "installation",
-          "safe_to_stop",
-          "launch"
+          "safe_to_stop"
         ],
         "title": "PluginQuiesceResponse",
         "type": "object"
@@ -36745,20 +38078,26 @@
             "type": "string"
           },
           "gpu_memory_mb": {
+            "default": 0,
             "minimum": 0.0,
             "title": "Gpu Memory Mb",
             "type": "integer"
           },
           "memory_mb": {
-            "exclusiveMinimum": 0.0,
-            "title": "Memory Mb",
-            "type": "integer"
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Mb"
           }
         },
         "required": [
-          "device",
-          "memory_mb",
-          "gpu_memory_mb"
+          "device"
         ],
         "title": "PluginResourceRequirements",
         "type": "object"
@@ -43926,6 +45265,33 @@
         "title": "ProtocolTaskItem",
         "type": "object"
       },
+      "QualifyTrainerPluginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "qualification_report": {
+            "additionalProperties": true,
+            "title": "Qualification Report",
+            "type": "object"
+          },
+          "qualification_report_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Qualification Report Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "qualification_report_sha256",
+          "qualification_report"
+        ],
+        "title": "QualifyTrainerPluginRequest",
+        "type": "object"
+      },
       "QualityReviewBatchList": {
         "properties": {
           "items": {
@@ -44778,6 +46144,227 @@
         "title": "ReferenceReplicaUpdate",
         "type": "object"
       },
+      "RegisterDirectPluginRequest": {
+        "additionalProperties": false,
+        "description": "Super-admin registration request for a D1 unarbitrated direct inference plugin.",
+        "properties": {
+          "approved_managed_evaluation": {
+            "default": false,
+            "title": "Approved Managed Evaluation",
+            "type": "boolean"
+          },
+          "approved_managed_model_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ManagedModelCompatibility"
+            },
+            "title": "Approved Managed Model Compatibility",
+            "type": "array"
+          },
+          "asset_manifest_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asset Manifest Sha256"
+          },
+          "auth_token": {
+            "minLength": 32,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "installation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installation Id"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "auth_token"
+        ],
+        "title": "RegisterDirectPluginRequest",
+        "type": "object"
+      },
+      "RegisterFormatAdapterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "activate": {
+            "default": true,
+            "title": "Activate",
+            "type": "boolean"
+          },
+          "auth_token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Auth Token",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "endpoint_url": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "mode": {
+            "default": "direct",
+            "enum": [
+              "direct",
+              "managed"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint_url",
+          "auth_token"
+        ],
+        "title": "RegisterFormatAdapterRequest",
+        "type": "object"
+      },
       "RegisterRequest": {
         "properties": {
           "name": {
@@ -44846,6 +46433,54 @@
           "user"
         ],
         "title": "RegisterResponse",
+        "type": "object"
+      },
+      "RegisterTrainerPluginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
+          },
+          "capabilities_snapshot": {
+            "$ref": "#/components/schemas/TrainerCapabilitiesV1"
+          },
+          "execution_mode": {
+            "default": "container",
+            "enum": [
+              "container",
+              "local_process"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest",
+          "capabilities_snapshot"
+        ],
+        "title": "RegisterTrainerPluginRequest",
         "type": "object"
       },
       "RegisteredReferenceOut": {
@@ -48423,6 +50058,49 @@
           }
         },
         "title": "ServicePoolPatchRequest",
+        "type": "object"
+      },
+      "ServingCompatibilityV1": {
+        "additionalProperties": false,
+        "properties": {
+          "compatible_serving_runtimes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Compatible Serving Runtimes",
+            "type": "array"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "framework": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Framework",
+            "type": "string"
+          },
+          "training_runtime": {
+            "additionalProperties": true,
+            "title": "Training Runtime",
+            "type": "object"
+          }
+        },
+        "required": [
+          "framework",
+          "format"
+        ],
+        "title": "ServingCompatibilityV1",
         "type": "object"
       },
       "ShortcutBinding": {
@@ -57631,6 +59309,415 @@
         "title": "TrainedModelOut",
         "type": "object"
       },
+      "TrainerArchitectureV1": {
+        "additionalProperties": false,
+        "properties": {
+          "base_asset_filename": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Asset Filename"
+          },
+          "base_asset_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Asset Sha256"
+          },
+          "end2end": {
+            "default": false,
+            "title": "End2End",
+            "type": "boolean"
+          },
+          "family": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Family",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "family",
+          "tasks"
+        ],
+        "title": "TrainerArchitectureV1",
+        "type": "object"
+      },
+      "TrainerCapabilitiesV1": {
+        "additionalProperties": false,
+        "properties": {
+          "architectures": {
+            "items": {
+              "$ref": "#/components/schemas/TrainerArchitectureV1"
+            },
+            "minItems": 1,
+            "title": "Architectures",
+            "type": "array"
+          },
+          "evaluator_descriptors": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evaluator Descriptors",
+            "type": "object"
+          },
+          "framework_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Framework Id",
+            "type": "string"
+          },
+          "framework_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "parameter_schema": {
+            "additionalProperties": true,
+            "title": "Parameter Schema",
+            "type": "object"
+          },
+          "policy_digests": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Policy Digests",
+            "type": "object"
+          },
+          "protocol_version": {
+            "const": "yoao-trainer/v1",
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "runtime_versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Runtime Versions",
+            "type": "object"
+          },
+          "serving_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ServingCompatibilityV1"
+            },
+            "title": "Serving Compatibility",
+            "type": "array"
+          },
+          "supported_dataset_contracts": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supported Dataset Contracts",
+            "type": "array"
+          },
+          "supported_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supported Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "framework_id",
+          "framework_version",
+          "supported_tasks",
+          "supported_dataset_contracts",
+          "architectures"
+        ],
+        "title": "TrainerCapabilitiesV1",
+        "type": "object"
+      },
+      "TrainerPluginRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "capabilities_digest": {
+            "title": "Capabilities Digest",
+            "type": "string"
+          },
+          "capabilities_snapshot": {
+            "additionalProperties": true,
+            "title": "Capabilities Snapshot",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled At"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entrypoint",
+            "type": "array"
+          },
+          "execution_mode": {
+            "enum": [
+              "container",
+              "local_process"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "extension_point": {
+            "const": "trainer",
+            "default": "trainer",
+            "title": "Extension Point",
+            "type": "string"
+          },
+          "framework_id": {
+            "title": "Framework Id",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "qualification_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualification Report"
+          },
+          "qualification_report_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualification Report Sha256"
+          },
+          "qualified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualified At"
+          },
+          "resource": {
+            "additionalProperties": true,
+            "title": "Resource",
+            "type": "object"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "registered",
+              "qualified",
+              "enabled",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "plugin_id",
+          "version",
+          "framework_id",
+          "display_name",
+          "source_tier",
+          "execution_mode",
+          "status",
+          "revision",
+          "protocol_version",
+          "entrypoint",
+          "capabilities",
+          "manifest",
+          "capabilities_snapshot",
+          "capabilities_digest",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TrainerPluginRecord",
+        "type": "object"
+      },
       "TrainingArtifactSpec": {
         "additionalProperties": false,
         "properties": {
@@ -57868,8 +59955,15 @@
             "title": "Compatible"
           },
           "filename": {
-            "title": "Filename",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
           },
           "id": {
             "title": "Id",
@@ -57909,8 +60003,15 @@
             "title": "Object Key"
           },
           "sha256": {
-            "title": "Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "size_bytes": {
             "anyOf": [
@@ -57927,10 +60028,6 @@
           },
           "task": {
             "default": "detect",
-            "enum": [
-              "detect",
-              "segment"
-            ],
             "title": "Task",
             "type": "string"
           },
@@ -57947,9 +60044,7 @@
           }
         },
         "required": [
-          "id",
-          "sha256",
-          "filename"
+          "id"
         ],
         "title": "TrainingBaseModel",
         "type": "object"
@@ -58307,7 +60402,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -58315,10 +60410,7 @@
             "$ref": "#/components/schemas/TrainingConfiguration"
           },
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -58757,11 +60849,7 @@
           "bridge": {
             "anyOf": [
               {
-                "enum": [
-                  "ultralytics-bbox-1",
-                  "ultralytics-simple-polygon-1",
-                  "ultralytics-instance-rle-1"
-                ],
+                "pattern": "^[a-z][a-z0-9_-]{0,127}$",
                 "type": "string"
               },
               {
@@ -60406,11 +62494,7 @@
           "bridge": {
             "anyOf": [
               {
-                "enum": [
-                  "ultralytics-bbox-1",
-                  "ultralytics-simple-polygon-1",
-                  "ultralytics-instance-rle-1"
-                ],
+                "pattern": "^[a-z][a-z0-9_-]{0,127}$",
                 "type": "string"
               },
               {
@@ -61318,6 +63402,13 @@
               }
             ],
             "title": "Resource Id"
+          },
+          "resource_slots": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingResourceSlot"
+            },
+            "title": "Resource Slots",
+            "type": "array"
           }
         },
         "required": [
@@ -61424,12 +63515,12 @@
       "TrainingInstanceRleCapability": {
         "properties": {
           "bridge": {
-            "const": "ultralytics-instance-rle-1",
+            "pattern": "^[a-z][a-z0-9_-]{0,127}$",
             "title": "Bridge",
             "type": "string"
           },
           "framework": {
-            "const": "ultralytics",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -61750,7 +63841,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -61777,10 +63868,7 @@
             "type": "integer"
           },
           "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -61890,7 +63978,7 @@
             ]
           },
           "request": {
-            "$ref": "#/components/schemas/TrainingPreviewCreate"
+            "$ref": "#/components/schemas/TrainingPreviewRequestOut"
           },
           "started_at": {
             "anyOf": [
@@ -62051,6 +64139,64 @@
           "runtime"
         ],
         "title": "TrainingPreviewReport",
+        "type": "object"
+      },
+      "TrainingPreviewRequestOut": {
+        "additionalProperties": false,
+        "properties": {
+          "base_model": {
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
+            "title": "Base Model",
+            "type": "string"
+          },
+          "configuration": {
+            "$ref": "#/components/schemas/TrainingConfiguration"
+          },
+          "count": {
+            "default": 1,
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "epoch": {
+            "default": 1,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "framework": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "title": "Framework",
+            "type": "string"
+          },
+          "request_id": {
+            "format": "uuid",
+            "title": "Request Id",
+            "type": "string"
+          },
+          "seed": {
+            "default": 42,
+            "maximum": 2147483647.0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "framework",
+          "base_model",
+          "configuration",
+          "request_id"
+        ],
+        "title": "TrainingPreviewRequestOut",
         "type": "object"
       },
       "TrainingProgress": {
@@ -62638,6 +64784,72 @@
         "title": "TrainingRegisteredModel",
         "type": "object"
       },
+      "TrainingResourceSlot": {
+        "properties": {
+          "busy": {
+            "default": false,
+            "title": "Busy",
+            "type": "boolean"
+          },
+          "device_kind": {
+            "enum": [
+              "gpu",
+              "cpu"
+            ],
+            "title": "Device Kind",
+            "type": "string"
+          },
+          "executor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executor Id"
+          },
+          "gpu_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Uuid"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_id",
+          "device_kind"
+        ],
+        "title": "TrainingResourceSlot",
+        "type": "object"
+      },
       "TrainingReuseCandidate": {
         "properties": {
           "compatible": {
@@ -62700,7 +64912,7 @@
         "properties": {
           "base_model": {
             "default": "yolo11n",
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -62721,10 +64933,7 @@
           },
           "framework": {
             "default": "ultralytics",
-            "enum": [
-              "ultralytics",
-              "libreyolo"
-            ],
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
@@ -62777,10 +64986,6 @@
           "task": {
             "anyOf": [
               {
-                "enum": [
-                  "detect",
-                  "segment"
-                ],
                 "type": "string"
               },
               {
@@ -62994,10 +65199,6 @@
           },
           "task": {
             "default": "detect",
-            "enum": [
-              "detect",
-              "segment"
-            ],
             "title": "Task",
             "type": "string"
           }
@@ -63169,23 +65370,82 @@
             ],
             "title": "Compatible"
           },
-          "framework": {
-            "enum": [
-              "ultralytics",
-              "libreyolo"
+          "execution_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "container",
+                  "local_process"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
+            "title": "Execution Mode"
+          },
+          "framework": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
           "image_digest": {
-            "title": "Image Digest",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Digest"
           },
           "parameter_schemas": {
             "items": {
               "$ref": "#/components/schemas/TrainingSchemaSummary"
             },
             "title": "Parameter Schemas",
+            "type": "array"
+          },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plugin Id"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "requires_gpu": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Gpu"
+          },
+          "supported_dataset_contracts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Dataset Contracts",
             "type": "array"
           },
           "version": {
@@ -63196,7 +65456,6 @@
         "required": [
           "framework",
           "version",
-          "image_digest",
           "base_models",
           "capabilities"
         ],
@@ -63223,6 +65482,36 @@
           "scene_id"
         ],
         "title": "TrajectoryResponse",
+        "type": "object"
+      },
+      "TransitionFormatAdapterRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "TransitionFormatAdapterRequest",
+        "type": "object"
+      },
+      "TransitionTrainerPluginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "TransitionTrainerPluginRequest",
         "type": "object"
       },
       "TriViewFloatState": {
@@ -63603,6 +65892,197 @@
           "avatar_initial"
         ],
         "title": "UserBrief",
+        "type": "object"
+      },
+      "UserChannelBindingUpsertIn": {
+        "properties": {
+          "address": {
+            "additionalProperties": true,
+            "title": "Address",
+            "type": "object"
+          },
+          "locale": {
+            "default": "zh-CN",
+            "title": "Locale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "address"
+        ],
+        "title": "UserChannelBindingUpsertIn",
+        "type": "object"
+      },
+      "UserNotificationChannelBindingOut": {
+        "properties": {
+          "address": {
+            "additionalProperties": true,
+            "title": "Address",
+            "type": "object"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "locale": {
+            "title": "Locale",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "channel_id",
+          "address",
+          "locale",
+          "updated_at"
+        ],
+        "title": "UserNotificationChannelBindingOut",
+        "type": "object"
+      },
+      "UserNotificationChannelListOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/UserNotificationChannelOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "UserNotificationChannelListOut",
+        "type": "object"
+      },
+      "UserNotificationChannelOut": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "address_schema": {
+            "additionalProperties": true,
+            "title": "Address Schema",
+            "type": "object"
+          },
+          "bound": {
+            "title": "Bound",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "channel_id": {
+            "title": "Channel Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "locale": {
+            "default": "zh-CN",
+            "title": "Locale",
+            "type": "string"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "disabled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "required": [
+          "channel_id",
+          "display_name",
+          "source_tier",
+          "status",
+          "capabilities",
+          "address_schema",
+          "bound"
+        ],
+        "title": "UserNotificationChannelOut",
         "type": "object"
       },
       "UserOut": {
@@ -64241,6 +66721,39 @@
           "height"
         ],
         "title": "VerifiedScanContent",
+        "type": "object"
+      },
+      "VerifyChannelAddressOut": {
+        "properties": {
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "provider_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Message Id"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "title": "VerifyChannelAddressOut",
         "type": "object"
       },
       "VerifyEmailRequest": {
@@ -70113,6 +72626,367 @@
         ]
       }
     },
+    "/api/v1/admin/format-adapters": {
+      "get": {
+        "operationId": "list_format_adapter_plugins_api_v1_admin_format_adapters_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_retired",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Retired",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                  },
+                  "title": "Response List Format Adapter Plugins Api V1 Admin Format Adapters Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Format Adapter Plugins",
+        "tags": [
+          "format-adapters"
+        ]
+      },
+      "post": {
+        "operationId": "register_format_adapter_plugin_api_v1_admin_format_adapters_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}": {
+      "get": {
+        "operationId": "get_format_adapter_plugin_api_v1_admin_format_adapters__format_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/activate": {
+      "post": {
+        "operationId": "activate_format_adapter_plugin_api_v1_admin_format_adapters__format_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Activate Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/disable": {
+      "post": {
+        "operationId": "disable_format_adapter_plugin_api_v1_admin_format_adapters__format_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/probe": {
+      "post": {
+        "operationId": "probe_format_adapter_plugin_api_v1_admin_format_adapters__format_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterProbeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probe Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
+    "/api/v1/admin/format-adapters/{format_id}/retire": {
+      "post": {
+        "operationId": "retire_format_adapter_plugin_api_v1_admin_format_adapters__format_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "format_id",
+            "required": true,
+            "schema": {
+              "title": "Format Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionFormatAdapterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormatAdapterPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Format Adapter Plugin",
+        "tags": [
+          "format-adapters"
+        ]
+      }
+    },
     "/api/v1/admin/ml-backend-operations/jobs": {
       "post": {
         "operationId": "submit_job_api_v1_admin_ml_backend_operations_jobs_post",
@@ -70457,6 +73331,52 @@
         "summary": "Get Overview",
         "tags": [
           "admin-ml-integrations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/direct": {
+      "post": {
+        "operationId": "register_direct_api_v1_admin_ml_integrations_plugins_direct_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterDirectPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PluginInstallationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Direct",
+        "tags": [
+          "admin-plugin-installations"
         ]
       }
     },
@@ -70855,6 +73775,54 @@
           }
         ],
         "summary": "Disable",
+        "tags": [
+          "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe": {
+      "post": {
+        "operationId": "probe_installation_api_v1_admin_ml_integrations_plugins_installations__installation_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "installation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Installation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectPluginProbeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probe Installation",
         "tags": [
           "admin-plugin-installations"
         ]
@@ -72002,6 +74970,418 @@
         ]
       }
     },
+    "/api/v1/admin/notification-channels": {
+      "get": {
+        "operationId": "list_admin_notification_channels_api_v1_admin_notification_channels_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_retired",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Retired",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Admin Notification Channels",
+        "tags": [
+          "notification-channels"
+        ]
+      },
+      "post": {
+        "operationId": "register_admin_notification_channel_api_v1_admin_notification_channels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelRegisterIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}": {
+      "get": {
+        "operationId": "get_admin_notification_channel_api_v1_admin_notification_channels__channel_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      },
+      "patch": {
+        "operationId": "update_admin_notification_channel_api_v1_admin_notification_channels__channel_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/disable": {
+      "post": {
+        "operationId": "disable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/enable": {
+      "post": {
+        "operationId": "enable_admin_notification_channel_api_v1_admin_notification_channels__channel_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/probe": {
+      "post": {
+        "operationId": "probe_admin_notification_channel_api_v1_admin_notification_channels__channel_id__probe_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelProbeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Probe Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/admin/notification-channels/{channel_id}/retire": {
+      "post": {
+        "operationId": "retire_admin_notification_channel_api_v1_admin_notification_channels__channel_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelTransitionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationChannelAdminOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Admin Notification Channel",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
     "/api/v1/admin/preannotate-queue": {
       "get": {
         "description": "列出已预标 (pre_annotated 状态) 的批次, 按最近一次预标时间倒序.\n\n含 prediction / failed 计数 + 项目元数据, 供 AIPreAnnotatePage 历史表渲染.",
@@ -72227,6 +75607,400 @@
         "summary": "Get System Health",
         "tags": [
           "admin-system-health"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins": {
+      "get": {
+        "operationId": "list_trainer_plugins_api_v1_admin_trainer_plugins_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_retired",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Retired",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "registered",
+                    "qualified",
+                    "enabled",
+                    "disabled",
+                    "retired"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrainerPluginRecord"
+                  },
+                  "title": "Response List Trainer Plugins Api V1 Admin Trainer Plugins Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Trainer Plugins",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      },
+      "post": {
+        "operationId": "register_trainer_plugin_api_v1_admin_trainer_plugins_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}": {
+      "get": {
+        "operationId": "get_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/disable": {
+      "post": {
+        "operationId": "disable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/enable": {
+      "post": {
+        "operationId": "enable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/qualify": {
+      "post": {
+        "operationId": "qualify_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__qualify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualifyTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qualify Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/retire": {
+      "post": {
+        "operationId": "retire_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
         ]
       }
     },
@@ -86355,6 +90129,181 @@
         ]
       }
     },
+    "/api/v1/notification-channels": {
+      "get": {
+        "operationId": "list_user_notification_channels_api_v1_notification_channels_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserNotificationChannelListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List User Notification Channels",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/notification-channels/{channel_id}/binding": {
+      "delete": {
+        "operationId": "delete_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteChannelBindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete User Notification Channel Binding",
+        "tags": [
+          "notification-channels"
+        ]
+      },
+      "put": {
+        "operationId": "upsert_user_notification_channel_binding_api_v1_notification_channels__channel_id__binding_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserChannelBindingUpsertIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserNotificationChannelBindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert User Notification Channel Binding",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
+    "/api/v1/notification-channels/{channel_id}/verify-address": {
+      "post": {
+        "operationId": "verify_user_notification_channel_address_api_v1_notification_channels__channel_id__verify_address_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "channel_id",
+            "required": true,
+            "schema": {
+              "title": "Channel Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyChannelAddressOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Verify User Notification Channel Address",
+        "tags": [
+          "notification-channels"
+        ]
+      }
+    },
     "/api/v1/notification-preferences": {
       "get": {
         "description": "返回所有已知 type 的偏好；无记录默认 in_app=True / email=False。\n\ntoast 的未存储值由 Notifications 偏好合同按类型给出默认重要程度。",
@@ -98899,10 +102848,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "ultralytics",
-                    "libreyolo"
-                  ],
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
                   "type": "string"
                 },
                 {
@@ -101949,10 +105895,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "ultralytics",
-                    "libreyolo"
-                  ],
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
                   "type": "string"
                 },
                 {
@@ -102171,10 +106114,7 @@
             "name": "framework",
             "required": true,
             "schema": {
-              "enum": [
-                "ultralytics",
-                "libreyolo"
-              ],
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
               "title": "Framework",
               "type": "string"
             }
@@ -102184,7 +106124,7 @@
             "name": "base_model",
             "required": true,
             "schema": {
-              "maxLength": 64,
+              "maxLength": 128,
               "minLength": 1,
               "title": "Base Model",
               "type": "string"
@@ -102260,10 +106200,7 @@
             "name": "framework",
             "required": true,
             "schema": {
-              "enum": [
-                "ultralytics",
-                "libreyolo"
-              ],
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$",
               "title": "Framework",
               "type": "string"
             }
@@ -102273,7 +106210,7 @@
             "name": "base_model",
             "required": true,
             "schema": {
-              "maxLength": 64,
+              "maxLength": 128,
               "minLength": 1,
               "title": "Base Model",
               "type": "string"
@@ -115976,10 +119913,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "enum": [
-                    "ultralytics",
-                    "libreyolo"
-                  ],
+                  "pattern": "^[a-z][a-z0-9_-]{0,63}$",
                   "type": "string"
                 },
                 {

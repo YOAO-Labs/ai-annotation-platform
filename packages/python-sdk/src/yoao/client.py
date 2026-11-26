@@ -2187,6 +2187,13 @@ class Client:
             ) from exc
         return PluginInstallations(self._http)
 
+    @cached_property
+    def trainer_plugins(self):
+        """Super-admin yoao-trainer/v1 plugin registry operations."""
+        from yoao.trainer_plugins import TrainerPlugins
+
+        return TrainerPlugins(self._http)
+
     def me(self) -> Me:
         """当前认证主体 (GET /auth/me)。用于自检凭据 / 角色感知。"""
         resp = self._http.request("GET", "/auth/me")

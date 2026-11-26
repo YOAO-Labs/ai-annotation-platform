@@ -5,11 +5,7 @@ import uuid
 
 from fastapi import HTTPException
 from botocore.exceptions import BotoCoreError, ClientError
-from training_contract.initialization import (
-    policy_for_model,
-    validate_pin,
-)
-from training_contract.models import model_spec
+from training_contract.initialization import validate_pin
 from yoao_task_contract import normalize_task
 from training_contract.dataset import (
     SEGMENTATION,
@@ -43,11 +39,20 @@ def model_id(pin):
     return uuid.UUID(pin["model_version_id"]) if pin else None
 
 
-def compatible_pin(pin, framework, base_model, classes=None, *, framework_version=None):
+def compatible_pin(
+    pin,
+    framework,
+    base_model,
+    classes=None,
+    *,
+    framework_version=None,
+    expected_task=None,
+):
     validate_pin(pin)
     reasons = []
-    expected_task = model_spec(framework, base_model).task
-    if normalize_task(pin["task"]) != expected_task:
+    if expected_task is not None and normalize_task(pin["task"]) != normalize_task(
+        expected_task
+    ):
         reasons.append("初始化来源与目标训练任务不同")
     if framework != pin["framework"]:
         reasons.append("来源训练器与当前训练器不同")
@@ -80,14 +85,24 @@ async def source_pin(db, project_id, version_id):
     ):
         raise ValueError("初始化模型缺少同项目的成功执行与冻结数据来源")
     config, provenance = run.config, version.provenance
-    segmentation = config_task(config) == SEGMENTATION
-    policy = policy_for_model(config["base_model"]["id"], version.framework_version)
+    source_task = config_task(config)
+    segmentation = source_task == SEGMENTATION
+    model_family = (
+        (config.get("base_model") or {}).get("family")
+        or (config.get("configuration") or {}).get("identity", {}).get("model_family")
+        or config["base_model"]["id"]
+    )
+    policy = {
+        "framework": version.framework,
+        "framework_version": version.framework_version,
+        "task": source_task,
+        "model_family": model_family,
+        "base_model": config["base_model"]["id"],
+    }
     source_contract = data_contract(dataset.manifest) if segmentation else None
     if segmentation and (
         data_task(source_contract) != SEGMENTATION
         or config.get("data_contract") != source_contract
-        or model_spec(version.framework, config["base_model"]["id"]).task
-        != SEGMENTATION
     ):
         raise ValueError("分割初始化缺少一致的来源任务、架构和数据桥接")
     if (
@@ -151,8 +166,12 @@ async def source_pin(db, project_id, version_id):
         "dataset_digest": config["dataset_digest"],
         "validation_digest": config["validation_digest"],
         "runtime": {
-            key: attempt.runtime.get(key)
-            for key in ("python", "torch", "torchvision", "cuda", "image_digest")
+            "python": attempt.runtime.get("python"),
+            "torch": attempt.runtime.get("torch"),
+            "torchvision": attempt.runtime.get("torchvision"),
+            "cuda": attempt.runtime.get("cuda"),
+            "image_digest": attempt.runtime.get("image_digest")
+            or config.get("image_digest"),
         },
         "evaluation": {
             "report_sha256": metrics[0]["sha256"],
@@ -372,13 +391,14 @@ async def eligibility(
                 "pin": None,
             }
     try:
-        target = training_adapters.controlled_template(framework, base_model)
+        target = await training_adapters.plugin_template(db, framework, base_model)
         reasons = compatible_pin(
             pin,
             framework,
             base_model,
             classes,
             framework_version=target["framework_version"],
+            expected_task=target["task"],
         )
     except HTTPException as exc:
         return {
@@ -418,17 +438,25 @@ async def resolve(
     *,
     full=True,
     framework_version=None,
+    expected_task=None,
 ):
     if source is None or source.kind == "catalog":
         return None
     try:
         pin, metrics = await source_pin(db, project_id, source.model_version_id)
-        if framework_version is None:
-            framework_version = training_adapters.controlled_template(
-                framework, base_model
-            )["framework_version"]
+        if framework_version is None or expected_task is None:
+            target = await training_adapters.plugin_template(db, framework, base_model)
+            if framework_version is None:
+                framework_version = target["framework_version"]
+            if expected_task is None:
+                expected_task = target["task"]
         reasons = compatible_pin(
-            pin, framework, base_model, classes, framework_version=framework_version
+            pin,
+            framework,
+            base_model,
+            classes,
+            framework_version=framework_version,
+            expected_task=expected_task,
         )
         if source.source_digest != pin["source_digest"]:
             reasons.append("初始化来源身份已变化，请明确重新选择并预检")
@@ -462,6 +490,7 @@ async def validate_accepted(
             classes,
             full=full,
             framework_version=pin["framework_version"],
+            expected_task=pin["task"],
         )
         if current != pin:
             raise ValueError("初始化来源与已接受的固定身份不符")

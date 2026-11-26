@@ -30,10 +30,14 @@ from yoao_inference.gpu.native import GPUAuthorityData, GPUAuthorityDataProvider
 from yoao_inference.gpu.policy import (
     GPUClaimConfigurationError,
     GPUShadowDecision,
+    _trusted_health_meta,
+    backend_is_trusted_direct_unarbitrated,
     backend_is_trusted_explicit_cpu,
+    direct_remote_gpu_collides_with_local,
     evaluate_gpu_shadow_decision,
     effective_gpu_arbiter_mode,
     gpu_shadow_observation_enabled,
+    is_unarbitrated_direct_plugin,
     validate_gpu_claim,
 )
 from yoao_inference.gpu.rollout_state import (
@@ -239,7 +243,7 @@ class BackendGPUDispatchContextFactory:
 
         resource_id = endpoint.gpu_resource_id
         resource_is_configured = resource_id in self._config.gpu_arbiter_resources
-        unclaimed_explicit_cpu = False
+        unclaimed_exempt = False
         rollout_boundary_active = False
 
         if self._config.gpu_arbiter_rollout_enabled:
@@ -249,16 +253,49 @@ class BackendGPUDispatchContextFactory:
                         data,
                         endpoint,
                     )
+                    requester_claim = (
+                        _requester_with_endpoint_claim(requester, endpoint)
+                        if requester is not None
+                        else None
+                    )
                     unclaimed_explicit_cpu = (
                         resource_id is None
                         and endpoint.vram_budget_mb is None
-                        and requester is not None
+                        and requester_claim is not None
                         and backend_is_trusted_explicit_cpu(
-                            _requester_with_endpoint_claim(requester, endpoint),
+                            requester_claim,
                             now=self._now(),
                         )
                     )
-                    if unclaimed_explicit_cpu:
+                    if (
+                        not unclaimed_explicit_cpu
+                        and resource_id is None
+                        and requester_claim is not None
+                        and is_unarbitrated_direct_plugin(endpoint.extra_params)
+                        and direct_remote_gpu_collides_with_local(
+                            _trusted_health_meta(requester_claim, now=self._now()),
+                            config=self._config,
+                        )
+                    ):
+                        raise GPUArbiterDispatchError(
+                            GPUArbiterErrorCode.CONFIG_INVALID,
+                            message=(
+                                "Direct inference plugin cannot target a locally "
+                                "managed GPU without GPU arbitration"
+                            ),
+                        )
+                    unclaimed_direct = (
+                        resource_id is None
+                        and endpoint.vram_budget_mb is None
+                        and requester_claim is not None
+                        and backend_is_trusted_direct_unarbitrated(
+                            requester_claim,
+                            config=self._config,
+                            now=self._now(),
+                        )
+                    )
+                    unclaimed_exempt = unclaimed_explicit_cpu or unclaimed_direct
+                    if unclaimed_exempt:
                         effective_mode = GPUArbiterMode.OFF
                     elif resource_id is not None:
                         rollout = await resolve_gpu_arbiter_rollout(
@@ -358,7 +395,7 @@ class BackendGPUDispatchContextFactory:
 
         if (
             not resource_is_configured
-            and not unclaimed_explicit_cpu
+            and not unclaimed_exempt
             and (
                 rollout_boundary_active
                 if self._config.gpu_arbiter_rollout_enabled

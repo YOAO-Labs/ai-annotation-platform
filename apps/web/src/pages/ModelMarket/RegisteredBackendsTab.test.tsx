@@ -26,6 +26,20 @@ const mockListAll = vi.fn();
 const mockGpuResources = vi.fn();
 const mockOverview = vi.fn();
 const mockListServicePools = vi.fn();
+const mockListPluginInstallations = vi.fn();
+
+vi.mock("@/api/adminInferencePlugins", async () => {
+  const actual = await vi.importActual<typeof import("@/api/adminInferencePlugins")>(
+    "@/api/adminInferencePlugins",
+  );
+  return {
+    ...actual,
+    adminInferencePluginsApi: {
+      ...actual.adminInferencePluginsApi,
+      list: () => mockListPluginInstallations(),
+    },
+  };
+});
 
 vi.mock("@/api/adminMlIntegrations", () => ({
   adminMlIntegrationsApi: {
@@ -332,6 +346,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     mockGpuResources.mockReset();
     mockOverview.mockReset();
     mockListServicePools.mockReset();
+    mockListPluginInstallations.mockReset();
     mockRole = "super_admin";
 
     mockTopology.mockResolvedValue(makeTopology());
@@ -340,6 +355,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     mockListAll.mockResolvedValue({ items: [] });
     mockGpuResources.mockResolvedValue(makeGpuResources([]));
     mockOverview.mockResolvedValue(makeOverview());
+    mockListPluginInstallations.mockResolvedValue([]);
     mockCapabilityPreview.mockReturnValue({
       data: {
         pool_id: "pool-1",
@@ -434,13 +450,21 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       });
     });
 
-    it("默认显示 5 个 tab，默认在服务池 tab", async () => {
+    it("默认显示 6 个 tab（含超管插件安装），默认在服务池 tab", async () => {
       renderUI();
       expect(await screen.findByRole("tab", { name: /服务池/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /实例/ })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /插件安装/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /GPU 资源/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /项目绑定/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /问题中心/ })).toBeInTheDocument();
+    });
+
+    it("超管切换插件安装 tab → 更新 URL 并渲染注册直连插件入口", async () => {
+      renderUI();
+      await switchTab(/插件安装/);
+      expect(await screen.findByRole("button", { name: /注册直连插件/ })).toBeInTheDocument();
+      expect(currentSearch()).toContain("registry_view=plugins");
     });
 
     it("服务池行隐藏 ID 文本并可复制完整值，不展开成员", async () => {
@@ -724,10 +748,11 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       mockRole = "project_admin";
     });
 
-    it("只显示服务池 + 实例两个 tab，无 GPU / 项目绑定 / 问题中心", async () => {
+    it("只显示服务池 + 实例两个 tab，无插件安装 / GPU / 项目绑定 / 问题中心", async () => {
       renderUI();
       expect(await screen.findByRole("tab", { name: /服务池/ })).toBeInTheDocument();
       expect(screen.getByRole("tab", { name: /实例/ })).toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: /插件安装/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: /GPU 资源/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: /项目绑定/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: /问题中心/ })).not.toBeInTheDocument();
@@ -761,7 +786,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       expect(screen.queryByRole("button", { name: /注册实例/ })).not.toBeInTheDocument();
     });
 
-    it("不触发超管专属查询（runtime-snapshot / gpu-resources / overview）", async () => {
+    it("不触发超管专属查询（runtime-snapshot / gpu-resources / overview / plugin-installations）", async () => {
       mockPrimaryPoolProjectCounts.mockResolvedValue({ counts: { "pool-1": 1 } });
       renderUI();
       await screen.findByText("grounded-sam2-pool");
@@ -771,6 +796,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       expect(mockRuntimeSnapshot).not.toHaveBeenCalled();
       expect(mockGpuResources).not.toHaveBeenCalled();
       expect(mockOverview).not.toHaveBeenCalled();
+      expect(mockListPluginInstallations).not.toHaveBeenCalled();
     });
   });
 
@@ -1075,11 +1101,12 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
 
     it("项目管理员深链超管子视图 → 回退服务池且不渲染超管 TAB", async () => {
       mockRole = "project_admin";
-      renderUI("/model-market?tab=registry&registry_view=gpu");
+      renderUI("/model-market?tab=registry&registry_view=plugins");
       expect(await screen.findByText("grounded-sam2-pool")).toBeInTheDocument();
       await waitFor(() => {
-        expect(currentSearch()).not.toContain("registry_view=gpu");
+        expect(currentSearch()).not.toContain("registry_view=plugins");
       });
+      expect(screen.queryByRole("tab", { name: /插件安装/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("tab", { name: /GPU 资源/ })).not.toBeInTheDocument();
     });
   });

@@ -6,12 +6,13 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, JsonValue, AliasChoices
 
-from app.schemas.training_run import TrainingRunOut
+from app.schemas.training_run import FrameworkSlug, TrainingRunOut
+from app.services.training_adapters import BRIDGE_ID_PATTERN
 
 
 class TrainingInstanceRleCapability(BaseModel):
-    bridge: Literal["ultralytics-instance-rle-1"]
-    framework: Literal["ultralytics"]
+    bridge: str = Field(pattern=BRIDGE_ID_PATTERN)
+    framework: FrameworkSlug
     version: str
     models: list[str]
     limits: dict[str, int]
@@ -31,9 +32,9 @@ class TrainingCapabilities(BaseModel):
 
 class TrainingBaseModel(BaseModel):
     id: str
-    sha256: str
-    filename: str
-    task: Literal["detect", "segment"] = "detect"
+    sha256: str | None = None
+    filename: str | None = None
+    task: str = "detect"
     model_family: str | None = None
     model_size: str | None = None
     object_key: str | None = None
@@ -80,10 +81,25 @@ class TrainingParameterSchema(TrainingSchemaIdentity):
     fields: list[TrainingParameterField]
 
 
+class TrainingResourceSlot(BaseModel):
+    resource_id: str
+    device_kind: Literal["gpu", "cpu"]
+    gpu_uuid: str | None = None
+    online: bool = False
+    busy: bool = False
+    executor_id: str | None = None
+    last_seen_at: datetime | None = None
+
+
 class TrainingTemplate(BaseModel):
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: FrameworkSlug
     version: str
-    image_digest: str
+    image_digest: str | None = None
+    plugin_id: str | None = None
+    execution_mode: Literal["container", "local_process"] | None = None
+    protocol_version: str | None = None
+    requires_gpu: bool | None = None
+    supported_dataset_contracts: list[str] = Field(default_factory=list)
     base_models: list[TrainingBaseModel]
     capabilities: TrainingCapabilities
     compatible: bool | None = None
@@ -97,6 +113,7 @@ class TrainingHubCatalog(BaseModel):
     resource_id: str | None
     executor_id: str | None
     last_seen_at: datetime | None
+    resource_slots: list[TrainingResourceSlot] = Field(default_factory=list)
     items: list[TrainingTemplate]
 
 

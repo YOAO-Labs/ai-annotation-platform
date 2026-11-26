@@ -35,6 +35,14 @@ from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
 from app.services.mask_formats.catalog import registry
+from app.services.mask_formats.dynamic_registry import resolve_format_adapter
+from app.services.mask_formats.runtime import format_host
+from yoao_labeling.format_adapter_security import (
+    FormatAdapterCryptoError,
+    FormatAdapterHostDenied,
+    FormatAdapterHttpError,
+    FormatAdapterKeyNotConfigured,
+)
 from app.services.storage import storage_service
 from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
@@ -501,10 +509,19 @@ async def preflight_import(
 ) -> MaskFormatImportPreflightResponse:
     try:
         adapter = registry.get(format_id)
-    except ValueError as exc:
-        raise MaskFormatError(
-            "format_adapter_not_found", str(exc), status_code=404
-        ) from exc
+    except ValueError:
+        try:
+            adapter = await resolve_format_adapter(db, format_id)
+        except (FormatAdapterKeyNotConfigured, FormatAdapterCryptoError) as exc:
+            raise MaskFormatError(
+                "format_adapter_credentials_unavailable",
+                str(exc),
+                status_code=503,
+            ) from exc
+        except ValueError as exc:
+            raise MaskFormatError(
+                "format_adapter_not_found", str(exc), status_code=404
+            ) from exc
     capability = adapter.descriptor.import_capability
     if (
         not capability.supported
@@ -532,16 +549,23 @@ async def preflight_import(
         staging_ref=staging_ref,
         observation=observation,
     ) as staged:
+        host, project_ctx = format_host(db, project)
         try:
             plan = await adapter.preflight_import(
-                db,
-                project=project,
+                host,
+                project=project_ctx,
                 staged=staged,
                 mapping=mapping,
                 options=options,
             )
         except MaskFormatError:
             raise
+        except (FormatAdapterHttpError, FormatAdapterHostDenied) as exc:
+            raise MaskFormatError(
+                "format_preflight_failed",
+                str(exc),
+                status_code=getattr(exc, "status_code", 502),
+            ) from exc
         except ValueError as exc:
             raise MaskFormatError(
                 "format_preflight_failed", str(exc), status_code=422
@@ -631,7 +655,23 @@ async def execute_import(
             "format import receipt has expired",
             status_code=410,
         )
-    adapter = registry.get(batch.format_id)
+    try:
+        adapter = registry.get(batch.format_id)
+    except ValueError:
+        try:
+            adapter = await resolve_format_adapter(db, batch.format_id)
+        except (FormatAdapterKeyNotConfigured, FormatAdapterCryptoError) as exc:
+            raise MaskFormatError(
+                "format_adapter_credentials_unavailable",
+                str(exc),
+                status_code=503,
+            ) from exc
+        except ValueError as exc:
+            raise MaskFormatError(
+                "format_adapter_not_found",
+                str(exc),
+                status_code=409,
+            ) from exc
     if (
         batch.adapter_version != adapter.descriptor.adapter_version
         or batch.manifest_version != adapter.descriptor.manifest_version
@@ -728,6 +768,23 @@ async def resume_import(
             "only failed or partial imports can be resumed",
             status_code=422,
         )
+    try:
+        registry.get(batch.format_id)
+    except ValueError:
+        try:
+            await resolve_format_adapter(db, batch.format_id)
+        except (FormatAdapterKeyNotConfigured, FormatAdapterCryptoError) as exc:
+            raise MaskFormatError(
+                "format_adapter_credentials_unavailable",
+                str(exc),
+                status_code=503,
+            ) from exc
+        except ValueError as exc:
+            raise MaskFormatError(
+                "format_adapter_not_found",
+                str(exc),
+                status_code=409,
+            ) from exc
     job = await async_job_svc.create_job(
         db,
         kind=AsyncJobKind.MASK_FORMAT_IMPORT.value,

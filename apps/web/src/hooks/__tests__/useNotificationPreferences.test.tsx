@@ -103,6 +103,38 @@ describe("useNotificationPreferences", () => {
     expect(cached?.items.find((item) => item.type === "task.approved")?.toast).toBe(false);
   });
 
+  it("合并 external_channels 偏好更新并透传请求", async () => {
+    const client = makeClient();
+    client.setQueryData(["notification-preferences", "u1"], {
+      items: [
+        {
+          type: "task.rejected",
+          in_app: true,
+          email: false,
+          toast: true,
+          external_channels: { feishu: false, wecom: true },
+        },
+      ],
+    });
+    api.getPreferences.mockReturnValue(new Promise(() => {}));
+    const { result } = renderHook(() => useUpdateNotificationPreference(), {
+      wrapper: wrapper(client),
+    });
+    await act(async () => {
+      await result.current.mutateAsync({
+        type: "task.rejected",
+        external_channels: { feishu: true },
+      });
+    });
+    expect(api.updatePreference).toHaveBeenCalledWith("task.rejected", {
+      external_channels: { feishu: true },
+    });
+    const cached = client.getQueryData<{
+      items: { type: string; external_channels?: Record<string, boolean> }[];
+    }>(["notification-preferences", "u1"]);
+    expect(cached?.items[0]?.external_channels).toEqual({ feishu: true, wecom: true });
+  });
+
   it("迟到的旧账号响应不能失效新账号的查询", async () => {
     let resolveSave!: (value: { ok: boolean }) => void;
     api.updatePreference.mockReturnValue(new Promise((r) => (resolveSave = r)));

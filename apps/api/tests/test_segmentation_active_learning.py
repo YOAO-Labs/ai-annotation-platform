@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, select
-from training_contract.model_return import segmentation_identity
+from tests.trainer_plugin_fixtures import segmentation_identity
 
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -83,7 +83,7 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
     }
     world.deployment.receipt = trained_models.expected_receipt(world.model)
     if runtime_version == "8.4.183":
-        from training_contract.inference_runtime import inference_runtime
+        from tests.trainer_plugin_fixtures import inference_runtime
 
         world.deployment.receipt = {
             **world.deployment.receipt,

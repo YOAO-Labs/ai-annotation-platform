@@ -1,18 +1,17 @@
 FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS build
 RUN python -m pip install --no-cache-dir uv==0.11.29
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_COMPILE_BYTECODE=1 UV_PYTHON_DOWNLOADS=never
-WORKDIR /build
-COPY apps/_shared/owner_data /_shared/owner_data
-COPY apps/_shared/identity_admission /_shared/identity_admission
-COPY apps/_shared/inference_contract /_shared/inference_contract
-COPY apps/_shared/workspace_contract /_shared/workspace_contract
-COPY apps/_shared/task_contract /_shared/task_contract
-COPY apps/identity /identity
-COPY apps/notifications/pyproject.toml /notifications/pyproject.toml
-COPY apps/notifications/src /notifications/src
-COPY apps/assets-source /assets-source
-COPY apps/assets-cleanup /assets-cleanup
-COPY apps/_shared/audit_contract /_shared/audit_contract
+WORKDIR /src/apps/workspace
+COPY apps/_shared/owner_data /src/apps/_shared/owner_data
+COPY apps/_shared/identity_admission /src/apps/_shared/identity_admission
+COPY packages/python-sdk /src/packages/python-sdk
+COPY apps/_shared/workspace_contract /src/apps/_shared/workspace_contract
+COPY apps/identity /src/apps/identity
+COPY apps/notifications/pyproject.toml /src/apps/notifications/pyproject.toml
+COPY apps/notifications/src /src/apps/notifications/src
+COPY apps/assets-source /src/apps/assets-source
+COPY apps/assets-cleanup /src/apps/assets-cleanup
+COPY apps/_shared/audit_contract /src/apps/_shared/audit_contract
 COPY apps/workspace/pyproject.toml apps/workspace/uv.lock ./
 RUN uv sync --frozen --no-dev --extra runtime --no-install-project
 COPY apps/workspace/src ./src

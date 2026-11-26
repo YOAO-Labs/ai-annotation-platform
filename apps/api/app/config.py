@@ -170,7 +170,16 @@ class Settings(BaseSettings):
                 raise ValueError("Invalid controlled storage root")
         return value
 
-    @field_validator("connector_host_allowlist", mode="before")
+    @field_validator(
+        "connector_host_allowlist",
+        "notification_channel_host_allowlist",
+        "notification_channel_allow_insecure_http_hosts",
+        "format_adapter_host_allowlist",
+        "format_adapter_allow_insecure_http_hosts",
+        "inference_plugin_private_host_allowlist",
+        "inference_plugin_loopback_host_allowlist",
+        mode="before",
+    )
     @classmethod
     def _parse_connector_host_allowlist(cls, v):
         """允许 env 用 JSON list 或逗号分隔字符串。"""
@@ -217,7 +226,8 @@ class Settings(BaseSettings):
     training_executor_token: str = Field(default="", repr=False)
     training_node_id: str = "local"
     training_gpu_uuid: str = ""
-    training_catalog_json: dict[str, dict] = Field(default_factory=dict)
+    training_gpu_uuids: str = ""
+    training_cpu_slots: int = Field(default=0, ge=0, le=64)
     training_heartbeat_timeout_seconds: int = Field(default=60, ge=30, le=600)
     minio_use_ssl: bool = False
     minio_public_url: str = ""
@@ -269,6 +279,22 @@ class Settings(BaseSettings):
     notification_publish_redis_url_file: str = ""
     notification_subscribe_redis_url: str = Field(default="", repr=False)
     notification_subscribe_redis_url_file: str = ""
+    notification_channel_encryption_key: str = Field(default="", repr=False)
+    notification_channel_encryption_key_file: str = ""
+    notification_channel_host_allowlist: Annotated[list[str], NoDecode] = []
+    notification_channel_allow_insecure_http_hosts: Annotated[list[str], NoDecode] = []
+    notification_channel_delivery_database_url: str = Field(default="", repr=False)
+    notification_channel_delivery_database_url_file: str = ""
+    notification_channel_verify_rate_limit_per_minute: int = Field(
+        default=5, ge=1, le=60
+    )
+    notification_channel_sweep_interval_seconds: int = Field(default=10, ge=2, le=300)
+    format_adapter_encryption_key: str = Field(default="", repr=False)
+    format_adapter_encryption_key_file: str = ""
+    format_adapter_host_allowlist: Annotated[list[str], NoDecode] = []
+    format_adapter_allow_insecure_http_hosts: Annotated[list[str], NoDecode] = []
+    inference_plugin_private_host_allowlist: Annotated[list[str], NoDecode] = []
+    inference_plugin_loopback_host_allowlist: Annotated[list[str], NoDecode] = []
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
     identity_recovery_database_url: str = Field(default="", repr=False)

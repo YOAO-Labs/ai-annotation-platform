@@ -34,7 +34,7 @@ from app.services.ml_routing.ledger import RoutingLedger
 logger = logging.getLogger(__name__)
 
 
-def _router_mode() -> RouterMode:
+def router_mode() -> RouterMode:
     try:
         return RouterMode(settings.ml_backend_router_mode)
     except ValueError:
@@ -43,6 +43,9 @@ def _router_mode() -> RouterMode:
             settings.ml_backend_router_mode,
         )
         return RouterMode.OFF
+
+
+_router_mode = router_mode
 
 
 class MLBackendRouter:
@@ -215,6 +218,20 @@ class MLBackendRouter:
                 )
             )
         return candidates
+
+    async def is_registry_routable(
+        self,
+        pool: PoolFacts,
+        registry_id: uuid.UUID,
+    ) -> bool:
+        """Check whether a specific pool member is healthy and capability-matched."""
+        candidates = await self._build_candidates(
+            pool, required_instance_id=registry_id
+        )
+        return any(
+            c.instance_id == registry_id and c.health_fresh and c.fingerprint_ok
+            for c in candidates
+        )
 
     async def _max_concurrency_for(
         self, gpu_data, registry_id: uuid.UUID, extra_params

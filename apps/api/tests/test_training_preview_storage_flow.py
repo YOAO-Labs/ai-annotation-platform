@@ -312,7 +312,6 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
         AsyncMock(return_value=(row.spec["config"], owned.dataset)),
     )
     monkeypatch.setattr(previews, "validate_request", Mock())
-    monkeypatch.setattr(previews, "native_values", lambda _: row.spec["native_values"])
     monkeypatch.setattr(
         previews,
         "select_sources",

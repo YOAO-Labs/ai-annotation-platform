@@ -32,7 +32,12 @@
     {
       "id": "shared-protocol-v2",
       "owner": "protocol and task contracts",
-      "paths": ["apps/_shared/protocol_v2/", "apps/_shared/task_contract/"],
+      "paths": [
+        "packages/python-sdk/src/yoao_protocol_v2/",
+        "packages/python-sdk/src/yoao_task_contract/",
+        "packages/python-sdk/tests/contracts/protocol_v2/",
+        "packages/python-sdk/tests/contracts/task_contract/"
+      ],
       "python": "3.10",
       "resources": "package test dependencies; CPU",
       "skip_policy": "no native model qualification"
@@ -43,7 +48,8 @@
       "paths": [
         "scripts/prepare-controlled-model-assets.py",
         "scripts/test_controlled_model_assets.py",
-        "apps/_shared/training_contract/"
+        "packages/python-sdk/src/training_contract/",
+        "packages/python-sdk/tests/contracts/training_contract/"
       ],
       "python": "3.12",
       "resources": "task and training contracts; CPU",
@@ -53,9 +59,6 @@
   "owner_contracts": [
     { "directory": "apps/_shared/audit_contract", "options": "--extra test" },
     { "directory": "apps/_shared/workspace_contract", "options": "--extra test" },
-    { "directory": "apps/_shared/inference_contract", "options": "--extra test" },
-    { "directory": "apps/_shared/lifecycle_contract", "options": "--with pytest" },
-    { "directory": "apps/_shared/training_contract", "options": "--with pytest" },
     { "directory": "apps/_shared/mail_transport", "options": "--with pytest" },
     { "directory": "apps/jobs", "options": "--extra test" },
     { "directory": "apps/identity", "options": "--extra test --extra runtime" },

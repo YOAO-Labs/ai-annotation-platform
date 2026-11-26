@@ -38,8 +38,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- `yoao plugins` 支持从固定摘要的 OCI 镜像标签 `io.yoao.plugin.manifest` 读取插件清单，提供 `yoao plugins inspect-image` 离线核验，并允许 `yoao plugins prepare` 通过 `--image` 参数或精简配置跳过手写完整 `manifest`（从标签读取清单时强制确认；仍完整兼容原有含内联 `manifest` 的 `--config`）。
+- `yoao plugins` 新增 `qualify` 子命令，并在 `install` 与 `upgrade` 中支持 `--qualify`（搭配可选 `--fixture`、`--asset-dir`、`--model-approval-ref`、`--fixture-approval-ref`），可在 `--network none` 隔离容器中执行镜像声明的 `io.yoao.plugin.qualification-command` 生成并校验 GPU 生命周期资格报告，不挂载 `data/token` 或签名密钥环，且不放宽任何现有 GPU 资格门禁、安装身份或排空语义。
+- 新增外部通知通道扩展点平台侧支持（`yoao-notification-channel/v1`、`yoao-notification-preferences/v2` 与通用 `yoao-extension-manifest/v1` 展示元数据及平台权威 `source_tier`）：提供超管通道注册／探测／CAS 状态流转（`prepared`／`active`／`disabled`／`retired`）与用户地址绑定／解绑／限流测试发送 REST 与 Python SDK 接口；通道凭据须通过独立 `NOTIFICATION_CHANNEL_ENCRYPTION_KEY` 加密且未配置时失败关闭，出站请求实施连接期 IP 绑定 SSRF 护栏，业务事务内写入 `yoao_notifications_v1.notification_channel_deliveries` 发件箱并由后台投递 worker 按目标可见性、账号状态、偏好与绑定四重复核后以脱敏 5 字段信封投递。
+- 新增外部通知渠道插件开发者接入教程，并与独立插件仓库 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 中的零依赖 Node.js 飞书私信参考插件（`plugins/notification-channel/feishu-dm`）完成直连档与非 root 只读容器安装档双档协议联通验证。
+- 新增外部格式适配器扩展点平台侧支持（`yoao-format-adapter/v1`，复用 `yoao-extension-manifest/v1` 与平台权威 `source_tier`）：从公开 `MaskFormatAdapter` 契约彻底剥离 `AsyncSession` 与 ORM 对象并闭合图片尺寸直读 `DatasetItem` 边界；新增 `yoao_labeling_v1.format_adapter_plugins` 私有表与固定 `SECURITY DEFINER` owner 能力、独立 `FORMAT_ADAPTER_ENCRYPTION_KEY` 失败关闭加密、连接期 IP 绑定 SSRF 护栏、7 条超管注册／探测／启停／退役接口及动态格式目录接入，并与独立插件仓库 `YOAO-Plugins` 中的零依赖 Node.js LabelMe JSON 参考插件（`plugins/format-adapter/labelme-json`）完成直连档与非 root 只读容器安装档双档实测。
+- 推理插件支持 D1 非容器直连模式（`execution_mode = "direct"`，无需 Docker 即可接入远端 HTTP 推理服务或经显式白名单授权的裸机本机进程）：新增前向 SQL 迁移 `bo0513`（含直连安装准备、状态机、可选资产审批、路由实例替换授权及 `uses_gpu` 判定）、Inference 自有连接期 IP 绑定 SSRF 守卫（独立 `INFERENCE_PLUGIN_PRIVATE_HOST_ALLOWLIST` 与 `INFERENCE_PLUGIN_LOOPBACK_HOST_ALLOWLIST`）、本机受管 GPU 冲突双层核验、`managed_evaluation` 能力声明与管理审批闭环、超管直连注册与只读探活接口（`POST /api/v1/admin/ml-integrations/plugins/direct` 与 `POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe`）、统一安装摘要投影 `summary` 以及 `yoao plugins register-direct`／`probe` Python SDK 与 CLI 命令。
+- 新增外部训练器扩展点平台注册表与轻量化双轨 `training-supervisor`（`yoao-trainer/v1`）：新增前向 SQL 迁移 `bo0514` 与私有表 `yoao_learning_v1.trainer_plugins`（强制发现不等于资格门禁与活跃框架唯一约束）、7 条超管 `/api/v1/admin/trainer-plugins*` 接口、`yoao.Client.trainer_plugins` Python SDK 与 `yoao plugins trainer` CLI；扩展多槽位训练资源模型（`TRAINING_GPU_UUIDS` / `TRAINING_CPU_SLOTS`，继续按单张物理 GPU UUID 互斥）；将 `apps/training-executor` 核心剥离为无 ML 依赖监督器（纯 `nvidia-smi` 探测、`ContainerRuntimePort` 受管断网容器沙箱与 `local_process` 白名单进程双轨、先落盘后启动与启动期孤儿容器回收、`ProcessBudget` 单调时钟中止、容器/OS 强制 CPU-only 预览与 `result.json` 终态收据全量回读校验）。
+- 模型市场「注册管理」新增超管专属「插件安装」视图与独立可复用的推理插件管理组件（面向后续统一插件市场 M5 复用）：支持同屏浏览直连与容器推理插件摘要、按运行模式与状态筛选、在 Web 端注册 D1 直连推理插件（含可选元数据与受控模型兼容／评估审批）、对非退役实例发起只读探活并查看偏差快照，以及执行直连插件启停、排空、退役与取消预留操作。
+
 ### Changed
 
+- 完成官方训练器插件化拆仓与单卡 GPU 端到端资格验收（T3–T4）：将原内建 `ultralytics`（8.4.183）与 `libreyolo`（1.6.0）官方参考训练器提取至独立插件仓库 `YOAO-Plugins`（`plugins/trainer/ultralytics/` 与 `plugins/trainer/libreyolo/`，统一以非 root `USER 10001:10001` 运行并输出完整 `yoao-trainer/v1` 能力与推理回流兼容矩阵）；平台 API、训练监督器、`yoao-sdk`、遗留在线学习测试套件与 Compose 配置全面切到 `yoao_learning_v1.trainer_plugins` 数据驱动校验与 `yoao-trainer/v1` 协议，并在真实单卡 GPU 隔离环境中通过检测、RLE 实例分割、CPU-only 增强预览、运行中取消、预算超时、崩溃孤儿回收、LibreYOLO 断点续训以及向真实 `yolo-backend` / `libreyolo-plugin` 的模型回流、CAS 发布与两阶段退役全链路验收（ADR-0189 转正归档）。
+- 将平台主仓库根目录遗留的 6 个官方推理插件 Compose 叠加文件（`docker-compose.ml*.yml`）迁移收口至独立插件仓库 `YOAO-Plugins`（`plugins/inference/<plugin>/docker-compose.yml`，并将 `yolo_checkpoints` 命名卷合并进 `yolo/docker-compose.yml`）；同步从内建模块装配清单与 `scripts/development-restart.py` 中移除这些文件（叠加插件 Compose 启动时仅指定目标插件服务，避免重建平台 Celery worker），宿主机维护脚本 `scripts/ml-backend-runner.py` 改为通过显式 `--plugins-root` 绑定官方插件仓库。
+- 清除推理插件安装观察器与部署器中的全部 LibreYOLO 特例硬编码，改为框架无关的受控模型兼容回退与资格版本校验，将容器档资产准备收口至通用 OCI 标签 `io.yoao.plugin.prepare-assets-command`，并在 `yoao-sdk` 中抽离后端无关的 `ContainerRuntimePort` 窄接口（默认本地 Docker CLI 实现，为训练器插件化 T2 复用铺路）。
+- 将平台内部 5 个独立便携契约包（`yoao-task-contract`、`yoao-lifecycle-contract`、`yoao-inference-contract`、`yoao-protocol-v2`、`yoao-training-contract`）合并收编至单一 `yoao-sdk` 发行包（`packages/python-sdk`，支持 Python `>=3.10`，原有顶层导入路径保持不变），并通过可选 `yoao-sdk[protocol]` 提供 FastAPI／cryptography／PyJWT 协议运行时依赖；`apps/api`、`apps/inference`、`apps/workspace`、`apps/training-executor`、`scripts/build-plugin-contracts.py` 与 `scripts/test-sdk-distributions.py` 同步切换至单一 `yoao-sdk`。
+- 推理插件安装器与 `yoao-protocol-v2` 路由控制运行时全面切到 YOAO 命名：Docker 所有权标签改为 `yoao.installation`／`yoao.owner`／`yoao.image`／`yoao.config`／`yoao.candidate`，容器名前缀改为 `yoao-plugin-`，挂载目录统一为 `/var/lib/yoao-plugin` 与 `/var/lib/yoao-qualification/*`，容器环境变量改为 `YOAO_PLUGIN_*`、`YOAO_QUALIFICATION_*` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_REGISTRY_ID` 非空时启动阶段失败关闭）。不保留旧别名；既有插件容器须用原匹配 CLI 停用或退役后再部署，外部 `Plugin-SDK` 与 `YOAO-Plugins` 制品须同步升级以匹配新运行契约。
+- 超级管理员模型服务文档的“可安装推理插件”章节拆分为“操作步骤”和“安全原理”两层，移除面向运维的内部实现术语；插件安装状态机、OCI 标签规范、资格容器隔离约束与历史本地收据迁移说明移至开发者概念文档（插件安装生命周期）。
 - 文档站已从主仓库 `docs-site/` 迁移至独立仓库 `YOAO-Labs/YOAO-Docs`，在线访问地址更新为 <https://yoao-labs.github.io/YOAO-Docs/>；主仓库 GitHub Pages 保留路径无损重定向，架构决策（ADR）、计划文档与路线图留在主仓库维护，不再在文档站镜像发布。可执行示例后端迁至 `examples/ml-backend/`。
 - 原件身份与完整下载在返回 HTTP 409 时记录脱敏结构化警告日志，并在任务解析阶段复用既有 1 秒有界 `DatasetItem FOR SHARE` 等待（保留所有冲突与绑定漂移保护，不引入原件身份自动重试）；前端透出 `x-request-id` 与并发占用业务码，在「重读原图」横幅次级文案展示错误码与请求回执，并将脱敏读取诊断与手动重读后的原件摘要纳入反馈采集。
 - 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。新拓扑已在隔离部署验证；旧安装不会自动切换，升级前须核对[进程清单](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#deployment-convergence)与[升级门禁](https://yoao-labs.github.io/YOAO-Docs/ops/upgrade-guide#split-topology-upgrade)。
@@ -78,6 +95,7 @@
 
 ### Removed
 
+- 从主仓库移除所有遗留静态 ML 训练器实现、静态 `TRAINING_CATALOG_JSON` 环境变量及 `apps/training-executor` 与 `packages/python-sdk/src/training_contract` 中的 PyTorch/Ultralytics/LibreYOLO 代码与原生参数清单（同步收紧 `apps/training-executor/Dockerfile` 为无 ML 依赖非 root `10001:10001` 监督器并新增 AST 导入边界守卫）；所有训练任务须经已启用的 `yoao-trainer/v1` 训练器插件执行。
 - 退役仓库内的文档和演示媒体采集自动化及专用夹具；需要截图或录屏时，由 AI 按请求操作真实界面。既有文档、首页和文章媒体保持不变，产品功能和渲染测试照常执行。
 
 ### Fixed
@@ -91,6 +109,8 @@
 - 就绪训练数据版本可用于增强预览。预览沿用同一冻结版本的验证集摘要和样本；尚未通过预览验证的模型不会被当作 YOLO11 执行。
 - 数据集详情接口在归档后返回归档时间、归档人和当前生命周期修订号。恢复后归档信息为空，修订号不再误报为初始值。
 - 视频工作台播放分片时，单帧 AI 会短暂等待读取结束再保存候选，不再因此误报「任务忙」或需要重新推理。其他编辑者占用任务时仍拒绝写入。
+- 修复 `training-supervisor` 在训练器插件尝试被取消或失败时未将已原子提交的检查点（`checkpoint.json` 与 `checkpoint-NNNN.pt`）纳入上传清单的问题，使 `POST /resume` 可在完整校验非符号链接、路径边界与 SHA-256 后从最近检查点安全续训。
+- 修复受控自训模型安装与试跑核验中按特定框架特判缺失 `inference_runtime` 及旧回退分支漏检 `runtime_qualification` 漂移的问题，统一改为按模型产物格式与实际运行资格字典精确校验；同步补齐实例分割训练预检的显式配置要求与原生增强预览边界拒绝非检测任务的校验。
 - 已有预测月分区的开发库可以原地升级，不会因分区月份与新装环境不同被拒绝；触发器定义异常仍会阻止迁移。日常 worker 可沿用原有 S3 端点和浏览器下载地址，不必改写存储记录。
 - `pnpm dev:web` 在启动 Vite 前按需生成 API 类型和能力词表。全新 checkout 或切换快照后不再需要先手动运行 `pnpm codegen` 才能打开相关页面。
 - 新安装无需先访问存储管理页即可上传首个数据集原件；补齐内建用途时不会改动已有绑定。

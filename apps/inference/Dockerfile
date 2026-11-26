@@ -1,13 +1,11 @@
 FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS build
 RUN python -m pip install --no-cache-dir uv==0.11.29
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_COMPILE_BYTECODE=1 UV_PYTHON_DOWNLOADS=never
-WORKDIR /build
-COPY apps/_shared/owner_data /_shared/owner_data
-COPY apps/_shared/inference_contract /_shared/inference_contract
-COPY apps/_shared/workspace_contract /_shared/workspace_contract
-COPY apps/_shared/task_contract /_shared/task_contract
-COPY apps/_shared/protocol_v2 /_shared/protocol_v2
-COPY apps/assets-mask-content /assets-mask-content
+WORKDIR /src/apps/inference
+COPY apps/_shared/owner_data /src/apps/_shared/owner_data
+COPY packages/python-sdk /src/packages/python-sdk
+COPY apps/_shared/workspace_contract /src/apps/_shared/workspace_contract
+COPY apps/assets-mask-content /src/apps/assets-mask-content
 COPY apps/inference/pyproject.toml apps/inference/uv.lock ./
 RUN uv sync --frozen --no-dev --extra runtime --no-install-project
 COPY apps/inference/src ./src

@@ -7,24 +7,23 @@ from app.services import training_storage_io as storage_io
 from yoao_protocol_v2.backend_auth import managed_provider
 
 from yoao_task_contract import normalize_task, normalize_task_fields
-from training_contract.dataset import config_task
-from training_contract.inference_runtime import validate_inference_runtime
+from training_contract.dataset import SEGMENTATION_OUTPUT_CONTRACT, config_task
 
 import math
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
 from types import SimpleNamespace
+from typing import Any
 
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from training_contract.model_return import registration_eligibility
 
 from app.services import learning_models_data as data
+from app.services import training_adapters
 from app.services import training_run_data
-from app.services.ml_backend import MLBackendService
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
@@ -41,6 +40,219 @@ from app.services.trained_model_reference_contract import (
     RegistryLearningUsage,
     ValidateFrozenModelReferenceRequest,
 )
+
+
+_MODEL_RETURN_RECEIPT_KEYS = (
+    "model_family",
+    "model_size",
+    "artifact_format",
+    "output_contract",
+    "runtime_qualification",
+)
+
+
+def _match_serving_entry(
+    serving: list[Any], *, framework: str, task: str, model_family: str | None
+) -> Mapping[str, Any] | None:
+    for entry in serving:
+        if not isinstance(entry, Mapping):
+            continue
+        if entry.get("framework") != framework:
+            continue
+        tr = entry.get("training_runtime")
+        if not isinstance(tr, Mapping):
+            return entry
+        entry_task = tr.get("task")
+        entry_tasks = tr.get("tasks")
+        if entry_task is not None and normalize_task(entry_task) != task:
+            continue
+        if isinstance(entry_tasks, list) and task not in [
+            normalize_task(item) for item in entry_tasks
+        ]:
+            continue
+        entry_family = tr.get("model_family")
+        entry_families = tr.get("model_families")
+        if (
+            model_family is not None
+            and entry_family is not None
+            and entry_family != model_family
+        ):
+            continue
+        if (
+            model_family is not None
+            and isinstance(entry_families, list)
+            and model_family not in entry_families
+        ):
+            continue
+        return entry
+    return None
+
+
+def validate_inference_runtime(ref, runtime):
+    if not isinstance(runtime, Mapping):
+        raise ValueError("Inference runtime must be an object")
+    framework = runtime.get("framework")
+    version = runtime.get("version")
+    qualification = runtime.get("qualification")
+    if (
+        not isinstance(framework, str)
+        or not framework
+        or not isinstance(version, str)
+        or not version
+        or not isinstance(qualification, Mapping)
+    ):
+        raise ValueError("Inference runtime is missing required identity fields")
+    expected_framework = ref.get("framework") if isinstance(ref, Mapping) else None
+    if expected_framework and framework != expected_framework:
+        raise ValueError("Inference runtime framework differs from frozen model")
+    training_version = runtime.get("training_version")
+    expected_version = (
+        ref.get("framework_version") if isinstance(ref, Mapping) else None
+    )
+    if (
+        training_version is not None
+        and expected_version is not None
+        and training_version != expected_version
+    ):
+        raise ValueError("Inference runtime training_version differs from frozen model")
+    runtime_task = runtime.get("task")
+    expected_task = ref.get("task") if isinstance(ref, Mapping) else None
+    if (
+        runtime_task is not None
+        and expected_task is not None
+        and normalize_task(runtime_task) != normalize_task(expected_task)
+    ):
+        raise ValueError("Inference runtime task differs from frozen model")
+    device = qualification.get("device")
+    if device is not None and device not in {"cpu", "cuda"}:
+        raise ValueError("Inference runtime device is invalid")
+    if "end2end" in qualification and type(qualification["end2end"]) is not bool:
+        raise ValueError("Inference runtime end2end flag must be boolean")
+    if qualification.get("end2end") is True and qualification.get("nms") is not False:
+        raise ValueError("End-to-end inference runtime requires nms=False")
+    pinned_qual = (
+        ref.get("runtime_qualification")
+        if isinstance(ref, Mapping)
+        and isinstance(ref.get("runtime_qualification"), Mapping)
+        else None
+    )
+    if pinned_qual is not None:
+        if (
+            "end2end" in pinned_qual
+            and "end2end" in qualification
+            and qualification["end2end"] != pinned_qual["end2end"]
+        ):
+            raise ValueError("Inference runtime end2end differs from frozen model")
+    if expected_task is not None and normalize_task(expected_task) == "segment":
+        if (
+            not isinstance(qualification.get("decoder"), str)
+            or not qualification["decoder"]
+            or not isinstance(qualification.get("mask_processing"), str)
+            or not qualification["mask_processing"]
+        ):
+            raise ValueError("Segmentation inference runtime missing decoder metadata")
+    return dict(runtime)
+
+
+def registration_eligibility(config):
+    if not isinstance(config, Mapping):
+        return {
+            "qualified": False,
+            "reason": "训练配置缺失，无法判断模型回流资格",
+            "qualification": None,
+        }
+    try:
+        task = config_task(config)
+    except (ValueError, TypeError):
+        return {
+            "qualified": False,
+            "reason": "模型训练任务类型不在受控回流范围内",
+            "qualification": None,
+        }
+    if task not in {"detect", "segment"}:
+        return {
+            "qualified": False,
+            "reason": "仅支持图片检测或实例分割模型回流",
+            "qualification": None,
+        }
+    framework = config.get("framework")
+    framework_version = config.get("framework_version")
+    base_model = config.get("base_model")
+    base_id = base_model.get("id") if isinstance(base_model, Mapping) else None
+    if (
+        not isinstance(framework, str)
+        or not framework
+        or not isinstance(framework_version, str)
+        or not framework_version
+        or not isinstance(base_id, str)
+        or not base_id
+    ):
+        return {
+            "qualified": False,
+            "reason": "训练配置缺少框架、版本或基础模型身份",
+            "qualification": None,
+        }
+    plugin = config.get("trainer_plugin")
+    if isinstance(plugin, Mapping):
+        capabilities = plugin.get("capabilities") or []
+        serving = plugin.get("serving_compatibility") or []
+        if "export_weights" not in capabilities and not serving:
+            return {
+                "qualified": False,
+                "reason": "训练器插件未声明权重导出或推理兼容能力",
+                "qualification": None,
+            }
+        model_family = (
+            base_model.get("family") if isinstance(base_model, Mapping) else None
+        )
+        matched = (
+            _match_serving_entry(
+                serving,
+                framework=framework,
+                task=task,
+                model_family=model_family,
+            )
+            if isinstance(serving, list)
+            else None
+        )
+        qualification: dict = {}
+        if isinstance(model_family, str) and model_family:
+            qualification["model_family"] = model_family
+        if matched is not None:
+            if matched.get("format"):
+                qualification["artifact_format"] = matched["format"]
+            training_rt = matched.get("training_runtime")
+            if isinstance(training_rt, Mapping):
+                serving_family = training_rt.get("serving_model_family")
+                if isinstance(serving_family, str) and serving_family:
+                    qualification["model_family"] = serving_family
+                model_size = training_rt.get("model_size")
+                if not model_size and isinstance(
+                    training_rt.get("model_sizes"), Mapping
+                ):
+                    model_size = training_rt["model_sizes"].get(base_id.lower())
+                if isinstance(model_size, str) and model_size:
+                    qualification["model_size"] = model_size
+                if isinstance(training_rt.get("output_contract"), str):
+                    qualification["output_contract"] = training_rt["output_contract"]
+                runtime_qual = training_rt.get("runtime_qualification")
+                if isinstance(runtime_qual, Mapping):
+                    qualification["runtime_qualification"] = dict(runtime_qual)
+        if task == "segment" and "output_contract" not in qualification:
+            qualification["output_contract"] = SEGMENTATION_OUTPUT_CONTRACT
+        return {
+            "qualified": True,
+            "reason": None,
+            "qualification": qualification or None,
+        }
+    qualification = None
+    if task == "segment":
+        qualification = {"output_contract": SEGMENTATION_OUTPUT_CONTRACT}
+    return {
+        "qualified": True,
+        "reason": None,
+        "qualification": qualification,
+    }
 
 
 def model_task(version):
@@ -317,8 +529,8 @@ async def retire_deployment(db, project_id, version_id, deployment_id, *, termin
     from app.services.inference_topology_data import InferenceTopologyData
 
     version = await load_version(db, project_id, version_id)
-    if version.framework != "libreyolo":
-        raise HTTPException(status_code=422, detail="此操作仅适用于 LibreYOLO 部署")
+    if not training_adapters.supports_deployment_retirement(version.framework):
+        raise HTTPException(status_code=422, detail="当前框架部署不支持退役流程")
     candidate = await data.get_deployment(db, project_id, version_id, deployment_id)
     if candidate is None:
         raise HTTPException(status_code=404, detail="模型部署不存在")
@@ -404,47 +616,14 @@ def expected_receipt(version):
         "framework_version": version.framework_version,
         "task": "segmentation" if model_task(version) == "segment" else "detection",
     }
-    if model_task(version) == "segment":
-        from training_contract.model_return import segmentation_identity
-
-        try:
-            qualification = segmentation_identity(
-                version.provenance["base_model"]["id"], version.framework_version
-            )
-        except (KeyError, ValueError, TypeError) as exc:
-            raise HTTPException(status_code=409, detail="模型分割回流资格缺失") from exc
-        if version.provenance.get("model_return") != qualification:
-            raise HTTPException(status_code=409, detail="模型分割回流资格已变化")
-        receipt.update(qualification)
-    elif version.framework == "ultralytics" and version.framework_version != "8.4.177":
-        from training_contract.model_return import ultralytics_identity
-
-        try:
-            qualification = ultralytics_identity(
-                version.provenance["base_model"]["id"], version.framework_version
-            )
-        except (KeyError, ValueError, TypeError) as exc:
-            raise HTTPException(status_code=409, detail="模型回流资格缺失") from exc
-        if version.provenance.get("model_return") != qualification:
-            raise HTTPException(status_code=409, detail="模型回流资格已变化")
-        receipt.update(qualification)
-    elif version.framework == "libreyolo":
-        qualification = registration_eligibility(
-            {
-                "framework": version.framework,
-                "framework_version": version.framework_version,
-                "base_model": version.provenance.get("base_model"),
-            }
-        )
-        if (
-            not qualification["qualified"]
-            or version.provenance.get("model_return") != qualification["qualification"]
-        ):
-            raise HTTPException(status_code=409, detail="模型回流资格身份缺失或已变化")
-        receipt.update(
-            **qualification["qualification"],
-            artifact_size_bytes=version.artifact["size_bytes"],
-        )
+    model_return = (version.provenance or {}).get("model_return")
+    if isinstance(model_return, Mapping):
+        for key in _MODEL_RETURN_RECEIPT_KEYS:
+            value = model_return.get(key)
+            if value is not None:
+                receipt[key] = value
+        if model_return.get("artifact_format") and "size_bytes" in version.artifact:
+            receipt["artifact_size_bytes"] = version.artifact["size_bytes"]
     return receipt
 
 
@@ -475,16 +654,23 @@ def check_trial_runtime(version, deployment, receipt):
     """Require the live profile to match the trial, including legacy CPU trials."""
     pinned = (deployment.trial or {}).get("inference_runtime")
     live = (receipt or {}).get("inference_runtime")
-    if pinned is None and live is not None:
-        from training_contract.inference_runtime import inference_runtime
-
-        try:
-            expected = expected_receipt(version)
-            pinned = inference_runtime(
-                expected, version.framework_version, device="cpu"
+    if pinned is None and isinstance(live, Mapping):
+        expected_qual = expected_receipt(version).get("runtime_qualification")
+        live_qual = live.get("qualification")
+        if (
+            live.get("framework") == version.framework
+            and live.get("version") == version.framework_version
+            and isinstance(live_qual, Mapping)
+            and live_qual.get("device") == "cpu"
+            and (
+                expected_qual is None
+                or (
+                    isinstance(expected_qual, Mapping)
+                    and dict(live_qual) == dict(expected_qual)
+                )
             )
-        except (TypeError, ValueError):
-            pinned = None
+        ):
+            pinned = dict(live)
     if pinned != live:
         raise HTTPException(
             status_code=409, detail="推理实例运行时与已试用的部署不一致"
@@ -493,16 +679,23 @@ def check_trial_runtime(version, deployment, receipt):
 
 def check_install_runtime(version, deployment, receipt):
     runtime = receipt.get("inference_runtime")
-    if version.framework == "libreyolo" and runtime is None:
-        raise HTTPException(status_code=409, detail="LibreYOLO 部署必须明确声明运行时")
     pinned = (deployment.trial or {}).get("inference_runtime")
+    if (
+        runtime is None
+        and not deployment.receipt
+        and expected_receipt(version).get("artifact_format") is not None
+    ):
+        raise HTTPException(status_code=409, detail="安装回执缺少推理运行时身份")
     if pinned is not None and runtime != pinned:
         raise PinnedRuntimeConflict("已固定运行时不可原地更改，请使用新部署")
     if deployment.receipt and pinned is None and runtime is not None:
-        if (
-            version.framework == "libreyolo"
-            and runtime.get("qualification", {}).get("device") != "cpu"
-        ):
+        qualification = (
+            runtime.get("qualification") if isinstance(runtime, Mapping) else None
+        )
+        if isinstance(qualification, Mapping) and qualification.get("device") not in {
+            None,
+            "cpu",
+        }:
             raise PinnedRuntimeConflict("旧 CPU 部署不可原地切换运行时")
 
 
@@ -583,13 +776,15 @@ async def enabled_backend(db, project_id, registry_id):
     from app.services.inference_topology_data import InferenceTopologyData
     from yoao_inference_contract.plugin import plugin_is_active
 
-    facts = await InferenceTopologyData(db).lock_plugin_registry(registry_id)
+    topology = InferenceTopologyData(db)
+    facts = await topology.lock_plugin_registry(registry_id)
     if facts is None:
         raise HTTPException(status_code=404, detail="推理实例不存在")
     if not plugin_is_active(facts.extra_params):
         raise HTTPException(status_code=409, detail="推理插件安装未启用")
     backend = facts
-    if not await MLBackendService(db).is_enabled(project_id, registry_id):
+    assoc = await topology.project_assoc_for_registry(project_id, registry_id)
+    if not (assoc and assoc.enabled):
         raise HTTPException(status_code=404, detail="推理实例未在当前项目启用")
     if (
         backend.auth_method != "token"
@@ -610,10 +805,10 @@ async def enabled_backend(db, project_id, registry_id):
 async def assert_routable_backend(db, project_id, registry_id):
     from app.services.inference_topology_data import InferenceTopologyData
     from app.services.ml_routing.contracts import RouterMode
-    from app.services.ml_routing.router import MLBackendRouter, _router_mode
+    from app.services.ml_routing.router import MLBackendRouter, router_mode
 
     pool = await InferenceTopologyData(db).pool_for_registry(registry_id)
-    mode = _router_mode()
+    mode = router_mode()
     if (
         not pool
         or not pool.enabled
@@ -625,13 +820,7 @@ async def assert_routable_backend(db, project_id, registry_id):
         raise HTTPException(
             status_code=409, detail="该实例不满足当前服务池的精确路由条件"
         )
-    candidates = await MLBackendRouter(db, mode=mode)._build_candidates(
-        pool, required_instance_id=registry_id
-    )
-    if not any(
-        c.instance_id == registry_id and c.health_fresh and c.fingerprint_ok
-        for c in candidates
-    ):
+    if not await MLBackendRouter(db, mode=mode).is_registry_routable(pool, registry_id):
         raise HTTPException(status_code=409, detail="推理实例健康或能力校验尚未就绪")
 
 

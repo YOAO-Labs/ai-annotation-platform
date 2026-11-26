@@ -144,7 +144,7 @@ async def test_large_segment_completed_receipt_recovers_through_read_and_seal(
     from app.services import managed_inference as managed
     from app.services.training_dataset_bridge import content_digest
     from yoao_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
-    from training_contract.model_return import (
+    from tests.trainer_plugin_fixtures import (
         SEGMENTATION_OUTPUT_CONTRACT,
         SEGMENTATION_RUNTIME,
     )

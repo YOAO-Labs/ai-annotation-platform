@@ -515,7 +515,7 @@ def verify(owner, image, *, scenario="basic", ui_hold_seconds=0):
             DUCKDB_PATH="/runtime/analytics.duckdb",
             PYTHONDONTWRITEBYTECODE="1",
             STORAGE_MAINTENANCE_PROTOCOL_ENABLED="true",
-            PYTHONPATH="/app:/_shared/filesystem_read/src:/_shared/site_agent_contract/src:/_shared/task_contract/src:/_shared/training_contract:/_shared/protocol_v2/src",
+            PYTHONPATH="/app:/_shared/filesystem_read/src:/_shared/site_agent_contract/src:/python-sdk/src",
         )
         endpoint = parse.urlsplit("http://" + environment["MINIO_ENDPOINT"])
         environment["MINIO_ENDPOINT"] = center_gateway + ":" + str(endpoint.port)
@@ -538,6 +538,8 @@ def verify(owner, image, *, scenario="basic", ui_hold_seconds=0):
             str(ROOT / "apps/api") + ":/app:ro",
             "--volume",
             str(ROOT / "apps/_shared") + ":/_shared:ro",
+            "--volume",
+            str(ROOT / "packages/python-sdk/src") + ":/python-sdk/src:ro",
             "--volume",
             str(center_dir) + ":/runtime",
             "--volume",

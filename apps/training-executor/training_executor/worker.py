@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import fcntl
 import hashlib
-import importlib.metadata
 import json
+import math
 import os
+from pathlib import Path
 import re
 import signal
 import subprocess
 import sys
 import threading
 import time
+from typing import Any
 import uuid
-from pathlib import Path
 
 import httpx
 import psutil
@@ -24,12 +26,53 @@ from training_contract.assets import (
 )
 from training_contract.observability import (
     FAILURE_CODES,
-    PHASES,
     InputMismatchError,
     failure_receipt,
+    redact_text,
+)
+from training_contract.trainer_plugin import (
+    TRAINER_PROTOCOL_VERSION,
+    TrainEventV1,
+    TrainReceiptV1,
+    TrainSpecV1,
+    atomic_write_json,
+    canonical_json_digest,
+)
+from yoao.container_runtime import ContainerRuntimePort
+
+from .files import (
+    atomic_json,
+    digest_file,
+    extract_dataset_archive,
+    immutable_copy,
+)
+from .plugin_runner import (
+    JobHandle,
+    LeaseRetainedError,
+    build_train_container_spec,
+    launch_container_job,
+    launch_local_process,
+    live_group,
+    load_local_plugins_allowlist,
+    reconcile_container_by_id_or_name,
+    reconcile_orphan_containers,
+    resolve_container_runtime,
+    resolve_local_plugin_entrypoint,
+    stop_process_group,
+    trainer_container_labels,
+    trainer_container_name,
 )
 
-from .files import atomic_json, digest_file, extract_dataset, immutable_copy
+_UNSET = object()
+_IMAGE_REFERENCE_RE = re.compile(r"[^@\s]+@(sha256:[0-9a-f]{64})")
+_CPU_SLOT_RE = re.compile(r"^[0-9]{1,6}$")
+_CHECKPOINT_EPOCH_RE = re.compile(r"^checkpoint-([0-9]{1,4})\.[a-zA-Z0-9_-]{1,32}$")
+_MAX_CHECKPOINT_BYTES = 2 * 1024 * 1024 * 1024
+_VALID_EVENT_PHASES = frozenset({"preparing", "training", "evaluating", "uploading"})
+_SUPERVISOR_OWNED_ARTIFACTS = frozenset(
+    {"manifest.json", "train.log", "observability.json", "config.json", "result.json"}
+)
+_MAX_UPLOAD_ARTIFACTS = 12
 
 
 class RetiredAttempt(Exception):
@@ -66,117 +109,313 @@ def require_upload_response(response, target):
         response.raise_for_status()
 
 
-def runtime_identity():
-    import torch
-    from training_contract.catalog import supported_identities, instance_rle_capability
-    from training_contract.preview import POLICY_DIGEST
-    from training_contract.initialization import (
-        POLICY_DIGEST as INITIALIZATION_POLICY_DIGEST,
-        supported_policy_digests,
-    )
-    from training_contract.budget import POLICY_DIGEST as BUDGET_POLICY_DIGEST
-    from training_contract.input_membership import POLICY_DIGEST as INPUT_POLICY_DIGEST
-
-    gpu = os.environ["TRAINING_GPU_UUID"]
-    devices = (
-        subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader"], text=True
-        )
-        .strip()
-        .splitlines()
-    )
-    if (
-        devices != [gpu]
-        or not torch.cuda.is_available()
-        or torch.cuda.device_count() != 1
-    ):
-        raise RuntimeError("Executor must expose exactly the configured physical GPU")
-    selected_image = re.fullmatch(
-        r"[^@\s]+@(sha256:[0-9a-f]{64})",
-        os.environ.get("TRAINING_IMAGE_REFERENCE", ""),
-    )
+def _parse_image_reference(raw: str, *, required: bool) -> str | None:
+    if not raw:
+        if required:
+            raise ValueError("An immutable executor image reference is required")
+        return None
+    selected_image = _IMAGE_REFERENCE_RE.fullmatch(raw)
     if selected_image is None:
         raise ValueError("An immutable executor image reference is required")
-    image = selected_image[1]
-    frameworks = {"ultralytics": importlib.metadata.version("ultralytics")}
+    return selected_image[1]
+
+
+def _probe_nvidia_gpu(configured_gpu_uuid: str) -> tuple[str | None, str | None]:
     try:
-        frameworks["libreyolo"] = importlib.metadata.version("libreyolo")
-    except importlib.metadata.PackageNotFoundError:
+        raw_uuids = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=uuid", "--format=csv,noheader"], text=True
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            "Executor must expose exactly the configured physical GPU"
+        ) from exc
+    devices = [line.strip() for line in raw_uuids.strip().splitlines() if line.strip()]
+    if devices != [configured_gpu_uuid]:
+        raise RuntimeError("Executor must expose exactly the configured physical GPU")
+    gpu_name: str | None = None
+    driver_version: str | None = None
+    try:
+        raw_meta = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=name,driver_version",
+                "--format=csv,noheader",
+            ],
+            text=True,
+        ).strip()
+        lines = [line.strip() for line in raw_meta.splitlines() if line.strip()]
+        if len(lines) == 1 and "," in lines[0]:
+            parts = [item.strip() for item in lines[0].split(",", 1)]
+            if len(parts) == 2:
+                gpu_name = parts[0] or None
+                driver_version = parts[1] or None
+    except (OSError, subprocess.SubprocessError):
         pass
+    return gpu_name, driver_version
+
+
+def _cpu_slot() -> str:
+    raw = os.environ.get("TRAINING_CPU_SLOT", "0").strip()
+    if _CPU_SLOT_RE.fullmatch(raw) is None:
+        raise ValueError("TRAINING_CPU_SLOT must be a non-negative integer")
+    return str(int(raw))
+
+
+def runtime_identity(
+    *,
+    container_runtime_available: bool | None = None,
+    local_plugins: Mapping[str, Any] | None = None,
+):
+    from training_contract.budget import POLICY_DIGEST as BUDGET_POLICY_DIGEST
+    from training_contract.input_membership import POLICY_DIGEST as INPUT_POLICY_DIGEST
+    from training_contract.preview import POLICY_DIGEST
+
+    device_env = os.environ.get("TRAINING_DEVICE_KIND", "").strip().lower()
+    if device_env not in {"", "gpu", "cpu"}:
+        raise ValueError(f"Unsupported TRAINING_DEVICE_KIND: {device_env}")
+    models_dir = os.environ.get("TRAINING_MODELS_DIR", "/models")
+    device_kind = "cpu" if device_env == "cpu" else "gpu"
+    if device_kind == "gpu":
+        gpu_uuid: str | None = os.environ["TRAINING_GPU_UUID"]
+        gpu_name, driver_version = _probe_nvidia_gpu(gpu_uuid)
+    else:
+        _cpu_slot()
+        gpu_uuid = None
+        gpu_name = None
+        driver_version = None
+    image_digest = _parse_image_reference(
+        os.environ.get("TRAINING_IMAGE_REFERENCE", ""), required=False
+    )
+    allowlist = (
+        load_local_plugins_allowlist() if local_plugins is None else dict(local_plugins)
+    )
+    allowed_local_plugins = sorted(allowlist.keys())
+    has_container = (
+        resolve_container_runtime() is not None
+        if container_runtime_available is None
+        else bool(container_runtime_available)
+    )
+    execution_modes: list[str] = []
+    if has_container:
+        execution_modes.append("container")
+    if allowed_local_plugins:
+        execution_modes.append("local_process")
     return {
-        "executor_protocol": 2,
+        "executor_protocol": 3,
+        "trainer_protocols": [TRAINER_PROTOCOL_VERSION],
+        "execution_modes": execution_modes,
+        "allowed_local_plugins": allowed_local_plugins,
+        "device_kind": device_kind,
+        "gpu_uuid": gpu_uuid,
+        "gpu_name": gpu_name,
+        "driver_version": driver_version,
+        "image_digest": image_digest,
         "training_saved_prefix_schema": 2,
         "preview_protocol": 1,
         "observability_protocol": 1,
-        "initialization_policy_digest": INITIALIZATION_POLICY_DIGEST,
-        "initialization_policy_digests": supported_policy_digests(
-            frameworks["ultralytics"]
-        ),
         "native_budget_policy_digest": BUDGET_POLICY_DIGEST,
         "input_receipt_policy_digest": INPUT_POLICY_DIGEST,
         "preview_policy_digest": POLICY_DIGEST,
-        "supported_configs": supported_identities(frameworks),
-        "instance_rle_consumer": instance_rle_capability(frameworks["ultralytics"]),
-        "base_asset_sha256": available_asset_digests(
-            os.environ.get("TRAINING_MODELS_DIR", "/models")
-        ),
-        "image_digest": image,
-        "gpu_uuid": gpu,
-        "frameworks": frameworks,
+        "base_asset_sha256": available_asset_digests(models_dir),
         "python": sys.version.split()[0],
-        "torch": torch.__version__,
-        "torchvision": importlib.metadata.version("torchvision"),
-        "cuda": torch.version.cuda,
-        "gpu_name": torch.cuda.get_device_name(0),
+        "frameworks": {},
     }
 
 
-def live_group(pgid: int):
-    found = []
-    for process in psutil.process_iter(["pid", "status"]):
-        try:
-            if (
-                process.info["status"] != psutil.STATUS_ZOMBIE
-                and os.getpgid(process.pid) == pgid
-            ):
-                found.append(process.pid)
-        except (ProcessLookupError, PermissionError, psutil.NoSuchProcess):
-            continue
-    return found
-
-
 def stop_process(process: subprocess.Popen):
-    pgid = process.pid
-    for sig, grace in ((signal.SIGINT, 10), (signal.SIGTERM, 10), (signal.SIGKILL, 10)):
-        if not live_group(pgid):
-            process.wait()
-            return
-        os.killpg(pgid, sig)
-        deadline = time.monotonic() + grace
-        while time.monotonic() < deadline:
-            process.poll()
-            if not live_group(pgid):
-                process.wait()
-                return
-            time.sleep(0.2)
-    raise RuntimeError("Training process group did not stop; lease must remain held")
+    stop_process_group(process)
+
+
+def _is_plugin_run(assignment: Mapping[str, Any]) -> bool:
+    config = assignment.get("config") or {}
+    return bool(
+        config.get("trainer_protocol") == TRAINER_PROTOCOL_VERSION
+        or config.get("adapter_revision") == 3
+        or isinstance(config.get("trainer_plugin"), Mapping)
+        or isinstance(assignment.get("trainer_plugin"), Mapping)
+    )
+
+
+def _extract_image_reference(
+    plugin: Mapping[str, Any], config: Mapping[str, Any]
+) -> str | None:
+    for candidate in (
+        plugin.get("image"),
+        plugin.get("artifact"),
+        config.get("image_reference"),
+        config.get("image"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+        if isinstance(candidate, Mapping):
+            for key in ("image", "reference", "oci_reference"):
+                value = candidate.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+    return None
+
+
+def _resolve_plugin_descriptor(
+    assignment: Mapping[str, Any], runtime: Mapping[str, Any]
+) -> dict[str, Any]:
+    config = assignment.get("config") or {}
+    merged: dict[str, Any] = {}
+    if isinstance(config.get("trainer_plugin"), Mapping):
+        merged.update(config["trainer_plugin"])
+    if isinstance(assignment.get("trainer_plugin"), Mapping):
+        merged.update(assignment["trainer_plugin"])
+    plugin_id = (
+        merged.get("plugin_id") or config.get("plugin_id") or config.get("framework")
+    )
+    if not isinstance(plugin_id, str) or not plugin_id.strip():
+        raise InputMismatchError("Plugin run is missing plugin_id")
+    execution_mode = merged.get("execution_mode") or config.get("execution_mode")
+    if execution_mode not in {"container", "local_process"}:
+        raise InputMismatchError(
+            "Plugin execution_mode must be container or local_process"
+        )
+    raw_requires_gpu = merged.get("requires_gpu", config.get("requires_gpu"))
+    if isinstance(raw_requires_gpu, bool):
+        requires_gpu = raw_requires_gpu
+    elif raw_requires_gpu is None:
+        requires_gpu = runtime.get("device_kind", "gpu") == "gpu"
+    else:
+        raise InputMismatchError("Plugin requires_gpu must be a boolean")
+    resource = merged.get("resource") or config.get("resource") or {}
+    if not isinstance(resource, Mapping):
+        raise InputMismatchError("Plugin resource specification must be a mapping")
+    return {
+        "plugin_id": plugin_id.strip(),
+        "execution_mode": execution_mode,
+        "entrypoint": merged.get("entrypoint") or config.get("entrypoint"),
+        "image": _extract_image_reference(merged, config),
+        "resource": dict(resource),
+        "requires_gpu": requires_gpu,
+    }
+
+
+def _finite_float_metrics(raw: Mapping[str, Any]) -> dict[str, float]:
+    result: dict[str, float] = {}
+    for key, value in raw.items():
+        if len(result) >= 100:
+            break
+        if (
+            isinstance(key, str)
+            and 1 <= len(key) <= 100
+            and not isinstance(value, bool)
+            and isinstance(value, (int, float))
+            and math.isfinite(value)
+        ):
+            as_float = float(value)
+            result[key] = 0.0 if as_float == 0.0 else as_float
+    return result
+
+
+def _translate_plugin_events(path: Path) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    last_seq = 0
+    with path.open() as source:
+        for line in source:
+            if not line.endswith("\n"):
+                break
+            event = TrainEventV1.model_validate(json.loads(line))
+            if event.seq <= last_seq:
+                raise ValueError("Plugin events.jsonl sequence must strictly increase")
+            last_seq = event.seq
+            metrics = _finite_float_metrics(event.metrics)
+            sequence = len(result) + 1
+            if (
+                event.kind == "epoch"
+                and event.epoch is not None
+                and 1 <= event.epoch <= 1000
+            ):
+                translated: dict[str, Any] = {
+                    "sequence": sequence,
+                    "kind": "epoch",
+                    "epoch": event.epoch,
+                    "metrics": metrics,
+                }
+            else:
+                kind = event.phase if event.phase in _VALID_EVENT_PHASES else "training"
+                translated = {
+                    "sequence": sequence,
+                    "kind": kind,
+                    "metrics": metrics,
+                }
+                if event.epoch is not None and 1 <= event.epoch <= 1000:
+                    translated["epoch"] = event.epoch
+            result.append(translated)
+    return result
+
+
+def _checkpoint_epoch_for(filename: str, output_dir: Path) -> int | None:
+    pointer_path = output_dir / "checkpoint.json"
+    if pointer_path.is_file() and pointer_path.stat().st_size <= 64 * 1024:
+        try:
+            pointer = json.loads(pointer_path.read_text())
+            if (
+                isinstance(pointer, dict)
+                and pointer.get("name") == filename
+                and type(pointer.get("epoch")) is int
+                and 1 <= pointer["epoch"] <= 1000
+            ):
+                return pointer["epoch"]
+        except ValueError:
+            pass
+    match = _CHECKPOINT_EPOCH_RE.fullmatch(filename)
+    if match:
+        epoch = int(match[1])
+        if 1 <= epoch <= 1000:
+            return epoch
+    return None
+
+
+def _project_plugin_failure(
+    receipt: TrainReceiptV1, config_digest: str, secrets: tuple[str, ...]
+) -> dict[str, Any]:
+    raw_code = receipt.failure_code or "native_exception"
+    code = raw_code if raw_code in FAILURE_CODES else "native_exception"
+    message = receipt.failure_message or raw_code
+    if raw_code != code and not message.startswith(raw_code):
+        message = f"{raw_code}: {message}"
+    return failure_receipt(
+        code,
+        "execution",
+        config_digest,
+        message,
+        secrets=secrets,
+        source="native",
+    )
 
 
 class Supervisor:
-    def __init__(self):
+    def __init__(
+        self, *, container_runtime: ContainerRuntimePort | None | object = _UNSET
+    ):
         self.state = Path(os.environ.get("TRAINING_STATE_DIR", "/state"))
         self.state.mkdir(parents=True, exist_ok=True)
         self.state.chmod(0o700)
         self.models = Path(os.environ.get("TRAINING_MODELS_DIR", "/models"))
         self.boot = str(uuid.uuid4())
-        self.runtime = runtime_identity()
+        self.container_runtime: ContainerRuntimePort | None = (
+            resolve_container_runtime()
+            if container_runtime is _UNSET
+            else container_runtime
+        )
+        self.local_plugins = load_local_plugins_allowlist()
+        self.runtime = runtime_identity(
+            container_runtime_available=self.container_runtime is not None,
+            local_plugins=self.local_plugins,
+        )
         identity_path = self.state / "executor.json"
         if not identity_path.exists():
             atomic_json(identity_path, {"id": "executor-" + uuid.uuid4().hex})
         self.executor_id = json.loads(identity_path.read_text())["id"]
-        self.resource = (
-            os.environ.get("TRAINING_NODE_ID", "local") + "/" + self.runtime["gpu_uuid"]
-        )
+        node_id = os.environ.get("TRAINING_NODE_ID", "local")
+        if self.runtime.get("device_kind") == "cpu":
+            self.resource = f"{node_id}/cpu-{_cpu_slot()}"
+        else:
+            self.resource = f"{node_id}/{self.runtime['gpu_uuid']}"
         token_file = os.environ.get("TRAINING_EXECUTOR_TOKEN_FILE")
         token = (
             Path(token_file).read_text().strip()
@@ -238,17 +477,10 @@ class Supervisor:
         return result
 
     def events(self, directory):
-        path = directory / "events.jsonl"
-        if not path.exists():
+        plugin_path = directory / "output" / "events.jsonl"
+        if not plugin_path.exists():
             return []
-        result = []
-        with path.open() as source:
-            for line in source:
-                if not line.endswith("\n"):
-                    break
-                event = json.loads(line)
-                result.append({"sequence": len(result) + 1, **event})
-        return result
+        return _translate_plugin_events(plugin_path)
 
     def heartbeat(self, journal, directory):
         acknowledged = 0
@@ -312,22 +544,337 @@ class Supervisor:
             )
         os.replace(temporary, path)
 
+    def _stage_plugin_receipt(
+        self, journal, directory: Path, output_dir: Path, *, config_digest: str, secrets
+    ) -> None:
+        receipt_path = output_dir / "result.json"
+        if journal["outcome"] == "succeeded":
+            if (
+                not receipt_path.is_file()
+                or receipt_path.is_symlink()
+                or receipt_path.stat().st_size > 1024 * 1024
+            ):
+                journal["outcome"] = "failed"
+                journal["error"] = "训练插件未生成合法的 result.json 终态收据"
+                journal["failure"] = failure_receipt(
+                    "native_exception",
+                    "execution",
+                    config_digest,
+                    journal["error"],
+                    secrets=secrets,
+                )
+                return
+            try:
+                receipt = TrainReceiptV1.model_validate(
+                    json.loads(receipt_path.read_text())
+                )
+            except (ValueError, OSError) as exc:
+                journal["outcome"] = "failed"
+                journal["error"] = "训练插件 result.json 终态收据校验失败"
+                journal["failure"] = failure_receipt(
+                    "native_exception",
+                    "execution",
+                    config_digest,
+                    str(exc),
+                    exception_type=type(exc).__name__,
+                    secrets=secrets,
+                )
+                return
+            if receipt.status == "failed":
+                journal["outcome"] = "failed"
+                journal["error"] = redact_text(
+                    receipt.failure_message
+                    or receipt.failure_code
+                    or "训练插件报告失败",
+                    secrets,
+                )[:1000]
+                journal["failure"] = _project_plugin_failure(
+                    receipt, config_digest, secrets
+                )
+                immutable_copy(receipt_path, directory / "result.json")
+                self._stage_committed_checkpoint(output_dir, directory)
+                return
+            if receipt.status == "cancelled":
+                journal["outcome"] = "cancelled"
+                immutable_copy(receipt_path, directory / "result.json")
+                self._stage_committed_checkpoint(output_dir, directory)
+                return
+            resolved_output = output_dir.resolve()
+            staged: list[dict[str, Any]] = []
+            try:
+                for item in receipt.artifacts:
+                    src = output_dir / item.filename
+                    if (
+                        src.is_symlink()
+                        or not src.is_file()
+                        or not src.resolve().is_relative_to(resolved_output)
+                    ):
+                        raise ValueError(
+                            f"Declared plugin artifact is missing or unsafe: {item.filename}"
+                        )
+                    if (
+                        src.stat().st_size != item.size_bytes
+                        or digest_file(src) != item.sha256
+                    ):
+                        raise ValueError(
+                            f"Declared plugin artifact digest or size mismatch: {item.filename}"
+                        )
+                    if (
+                        item.role == "input_membership"
+                        or item.filename == "input-membership.json"
+                    ):
+                        if (
+                            item.role != "input_membership"
+                            or item.filename != "input-membership.json"
+                        ):
+                            raise ValueError(
+                                "input-membership.json must be declared with role='input_membership'"
+                            )
+                        immutable_copy(src, directory / "input-membership.json")
+                        continue
+                    if item.filename in _SUPERVISOR_OWNED_ARTIFACTS:
+                        raise ValueError(
+                            f"Plugin artifact collides with supervisor-owned file: {item.filename}"
+                        )
+                    if item.size_bytes <= 0:
+                        raise ValueError(
+                            f"Declared plugin artifact must be non-empty: {item.filename}"
+                        )
+                    copied = immutable_copy(src, directory / item.filename)
+                    mapped_role = "config" if item.role == "extra" else item.role
+                    entry: dict[str, Any] = {
+                        "name": copied["name"],
+                        "role": mapped_role,
+                        "sha256": copied["sha256"],
+                        "size_bytes": copied["size_bytes"],
+                    }
+                    if mapped_role == "checkpoint":
+                        epoch = _checkpoint_epoch_for(item.filename, output_dir)
+                        if epoch is not None:
+                            entry["epoch"] = epoch
+                    staged.append(entry)
+                immutable_copy(receipt_path, directory / "result.json")
+            except (ValueError, OSError) as exc:
+                journal["outcome"] = "failed"
+                journal["error"] = redact_text(f"训练插件产物校验失败：{exc}", secrets)[
+                    :1000
+                ]
+                journal["failure"] = failure_receipt(
+                    "native_exception",
+                    "execution",
+                    config_digest,
+                    str(exc),
+                    exception_type=type(exc).__name__,
+                    secrets=secrets,
+                )
+                return
+            journal["plugin_artifacts"] = staged
+            if receipt.serving_compatibility is not None:
+                journal["serving_compatibility"] = (
+                    receipt.serving_compatibility.model_dump(mode="json")
+                )
+            return
+        if (
+            journal["outcome"] == "failed"
+            and receipt_path.is_file()
+            and not receipt_path.is_symlink()
+            and receipt_path.stat().st_size <= 64 * 1024
+        ):
+            try:
+                receipt = TrainReceiptV1.model_validate(
+                    json.loads(receipt_path.read_text())
+                )
+                immutable_copy(receipt_path, directory / "result.json")
+                if receipt.status == "failed" and "failure" not in journal:
+                    journal["failure"] = _project_plugin_failure(
+                        receipt, config_digest, secrets
+                    )
+            except (ValueError, OSError):
+                pass
+        self._stage_committed_checkpoint(output_dir, directory)
+
+    @staticmethod
+    def _stage_committed_checkpoint(output_dir: Path, directory: Path) -> None:
+        pointer_path = output_dir / "checkpoint.json"
+        if (
+            pointer_path.is_symlink()
+            or not pointer_path.is_file()
+            or pointer_path.stat().st_size > 64 * 1024
+        ):
+            return
+        try:
+            pointer = json.loads(pointer_path.read_text())
+            if not isinstance(pointer, dict):
+                return
+            name = pointer.get("name")
+            epoch = pointer.get("epoch")
+            sha256 = pointer.get("sha256")
+            size_bytes = pointer.get("size_bytes")
+            if (
+                not isinstance(name, str)
+                or _CHECKPOINT_EPOCH_RE.fullmatch(name) is None
+                or type(epoch) is not int
+                or not 1 <= epoch <= 1000
+                or not isinstance(sha256, str)
+                or len(sha256) != 64
+                or type(size_bytes) is not int
+                or not 0 < size_bytes <= _MAX_CHECKPOINT_BYTES
+            ):
+                return
+            src = output_dir / name
+            resolved_output = output_dir.resolve()
+            if (
+                src.is_symlink()
+                or not src.is_file()
+                or not src.resolve().is_relative_to(resolved_output)
+                or src.stat().st_size != size_bytes
+                or digest_file(src) != sha256
+            ):
+                return
+            copied = immutable_copy(src, directory / name)
+            copied.update(role="checkpoint", epoch=epoch)
+            atomic_json(directory / "checkpoint.json", copied)
+        except (ValueError, OSError):
+            return
+
+    def _build_train_spec(
+        self,
+        assignment: Mapping[str, Any],
+        config: Mapping[str, Any],
+        *,
+        execution_mode: str,
+        input_dir: Path,
+        base_path: Path | None,
+        resume_path: Path | None,
+        initialization_path: Path | None,
+    ) -> TrainSpecV1:
+        def container_or_host(path: Path | None, container_path: str) -> str | None:
+            if path is None:
+                return None
+            return (
+                container_path if execution_mode == "container" else str(path.resolve())
+            )
+
+        base_weights_path: str | None = None
+        if base_path is not None:
+            if execution_mode == "container":
+                rel = base_path.resolve().relative_to(self.models.resolve()).as_posix()
+                base_weights_path = f"/models/{rel}"
+            else:
+                base_weights_path = str(base_path.resolve())
+        base_model = config.get("base_model")
+        architecture_id = (
+            config.get("architecture_id")
+            or (
+                base_model.get("id")
+                if isinstance(base_model, Mapping)
+                else base_model
+                if isinstance(base_model, str)
+                else None
+            )
+            or "default"
+        )
+        dataset_contract = (
+            config.get("dataset_contract")
+            or (
+                config["data_contract"].get("bridge")
+                if isinstance(config.get("data_contract"), Mapping)
+                else None
+            )
+            or config.get("format")
+        )
+        if not isinstance(dataset_contract, str) or not dataset_contract.strip():
+            raise InputMismatchError(
+                "Plugin run configuration is missing dataset_contract"
+            )
+        dataset_snapshot_digest = config.get("dataset_snapshot_digest") or config.get(
+            "dataset_digest"
+        )
+        if not isinstance(dataset_snapshot_digest, str):
+            raise InputMismatchError(
+                "Plugin run configuration is missing dataset_digest"
+            )
+        classes_digest = config.get("classes_digest")
+        if classes_digest is None:
+            if "classes" not in config:
+                raise InputMismatchError("Plugin run configuration is missing classes")
+            classes_digest = canonical_json_digest(config["classes"])
+        configuration = config.get("configuration")
+        schema_id = config.get("schema_id")
+        schema_digest = config.get("schema_digest")
+        effective_parameters = dict(config.get("parameters") or {})
+        if isinstance(configuration, Mapping):
+            identity = configuration.get("identity")
+            if schema_id is None and isinstance(identity, Mapping):
+                schema_id = identity.get("schema_id")
+                schema_digest = identity.get("schema_digest")
+            if schema_id is None:
+                schema_id = configuration.get("schema_id")
+                schema_digest = configuration.get("schema_digest")
+            effective_values = configuration.get("effective_values")
+            if isinstance(effective_values, Mapping):
+                effective_parameters.update(effective_values)
+        task = config.get("task")
+        if task is None and isinstance(configuration, Mapping):
+            identity = configuration.get("identity")
+            if isinstance(identity, Mapping):
+                task = identity.get("task")
+        return TrainSpecV1(
+            protocol_version=TRAINER_PROTOCOL_VERSION,
+            run_id=str(assignment["run_id"]),
+            attempt_id=str(assignment["attempt_id"]),
+            framework_id=str(config.get("framework_id") or config["framework"]),
+            task=str(task or "detect"),
+            architecture_id=str(architecture_id),
+            dataset_contract=dataset_contract.strip(),
+            dataset_dir=container_or_host(input_dir / "dataset", "/work/input/dataset"),
+            dataset_snapshot_digest=dataset_snapshot_digest,
+            config_digest=str(assignment["config_digest"]),
+            classes_digest=str(classes_digest),
+            schema_id=schema_id,
+            schema_digest=schema_digest,
+            parameters=effective_parameters,
+            base_weights_path=base_weights_path,
+            resume_checkpoint_path=container_or_host(
+                resume_path, "/work/input/resume.pt"
+            ),
+            init_weights_path=container_or_host(
+                initialization_path, "/work/input/initialization.pt"
+            ),
+            native_budget=assignment.get("native_budget"),
+        )
+
     def inventory(self, journal, directory):
         artifacts = []
+        seen_names = set()
+        for item in journal.get("plugin_artifacts", []):
+            path = directory / item["name"]
+            if not path.is_file() or not path.stat().st_size:
+                raise ValueError(f"Plugin artifact is missing or empty: {item['name']}")
+            if (
+                path.stat().st_size != item["size_bytes"]
+                or digest_file(path) != item["sha256"]
+            ):
+                raise ValueError(f"Plugin artifact changed locally: {item['name']}")
+            artifacts.append(dict(item))
+            seen_names.add(item["name"])
+        has_plugin_checkpoint = any(
+            item.get("role") == "checkpoint" for item in artifacts
+        )
         checkpoint = directory / "checkpoint.json"
-        if checkpoint.is_file():
-            artifacts.append(json.loads(checkpoint.read_text()))
+        if checkpoint.is_file() and not has_plugin_checkpoint:
+            cp = json.loads(checkpoint.read_text())
+            if cp["name"] not in seen_names:
+                artifacts.append(cp)
+                seen_names.add(cp["name"])
         for name, role in (
-            ("best.pt", "weights"),
-            ("metrics.json", "metrics"),
+            ("result.json", "config"),
             ("config.json", "config"),
-            ("native-config.json", "config"),
-            ("rle-consumer.json", "config"),
-            ("rle-train-preflight.json", "config"),
-            ("rle-val-preflight.json", "config"),
             ("train.log", "log"),
             ("observability.json", "telemetry"),
         ):
+            if name in seen_names:
+                continue
             path = directory / name
             if path.is_file() and path.stat().st_size:
                 artifacts.append(
@@ -338,6 +885,7 @@ class Supervisor:
                         "size_bytes": path.stat().st_size,
                     }
                 )
+                seen_names.add(name)
         manifest = {
             "run_id": journal["assignment"]["run_id"],
             "attempt_id": journal["assignment"]["attempt_id"],
@@ -347,6 +895,8 @@ class Supervisor:
             "publication_runtime": self.runtime,
             "artifacts": artifacts,
         }
+        if "serving_compatibility" in journal:
+            manifest["serving_compatibility"] = journal["serving_compatibility"]
         from training_contract.input_membership import declared_contract
         from .input_membership import verified_local_receipt
 
@@ -369,6 +919,8 @@ class Supervisor:
                 "size_bytes": (directory / "manifest.json").stat().st_size,
             }
         )
+        if len(artifacts) > _MAX_UPLOAD_ARTIFACTS:
+            raise ValueError("Artifact inventory exceeds maximum upload limit")
         return artifacts
 
     def finish_body(self, journal):
@@ -507,6 +1059,8 @@ class Supervisor:
         budget = getattr(self, "active_budget", None)
         if budget is not None and budget.process is process:
             budget.stop(reason)
+        elif isinstance(process, JobHandle):
+            process.stop()
         else:
             stop_process(process)
 
@@ -532,6 +1086,288 @@ class Supervisor:
                 assignment["native_budget"], "not_started", seconds=0.0
             )
 
+    def _run_plugin_attempt(
+        self,
+        journal,
+        directory: Path,
+        capture,
+        observation,
+        *,
+        config_digest: str,
+        secrets,
+    ):
+        assignment = journal["assignment"]
+        config = assignment["config"]
+        plugin = _resolve_plugin_descriptor(assignment, getattr(self, "runtime", {}))
+        execution_mode = plugin["execution_mode"]
+        container_runtime = getattr(self, "container_runtime", None)
+        if execution_mode == "container" and container_runtime is None:
+            raise InputMismatchError(
+                "Container runtime is unavailable on this supervisor"
+            )
+        local_allowlist = getattr(self, "local_plugins", None)
+        if local_allowlist is None:
+            local_allowlist = load_local_plugins_allowlist()
+        if execution_mode == "local_process":
+            resolve_local_plugin_entrypoint(
+                plugin["plugin_id"],
+                local_allowlist,
+                requested_entrypoint=plugin["entrypoint"],
+            )
+        input_dir = directory / "input"
+        output_dir = directory / "output"
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        atomic_json(directory / "config.json", config)
+        base_path: Path | None = None
+        base_model = config.get("base_model")
+        if (
+            isinstance(base_model, Mapping)
+            and base_model.get("sha256")
+            and base_model.get("filename")
+        ):
+            try:
+                base_path = resolve_asset(self.models, base_model)
+            except ValueError as exc:
+                raise InputMismatchError(
+                    "Controlled base weights are missing or changed"
+                ) from exc
+        self.download(
+            assignment["dataset_url"],
+            directory / "dataset.zip",
+            config["dataset_sha256"],
+            24 * 1024**3,
+        )
+        try:
+            extract_dataset_archive(
+                directory / "dataset.zip",
+                input_dir / "dataset",
+                require_data_yaml=False,
+            )
+        except ValueError as exc:
+            raise InputMismatchError(str(exc)) from exc
+        resume_path: Path | None = None
+        initialization_path: Path | None = None
+        if assignment.get("resume"):
+            resume = assignment["resume"]
+            resume_path = input_dir / "resume.pt"
+            self.download(
+                resume["url"],
+                resume_path,
+                resume["sha256"],
+                2 * 1024**3,
+                exact_size=resume["size_bytes"],
+            )
+            epoch = resume.get("epoch")
+            total_epochs = (config.get("parameters") or {}).get("epochs")
+            if (
+                type(epoch) is not int
+                or epoch <= 0
+                or (type(total_epochs) is int and epoch >= total_epochs)
+            ):
+                raise InputMismatchError(
+                    "Resume checkpoint has no valid completed epoch"
+                )
+            checkpoint = immutable_copy(
+                resume_path, directory / f"checkpoint-{epoch:04d}.pt"
+            )
+            checkpoint.update(role="checkpoint", epoch=epoch)
+            atomic_json(directory / "checkpoint.json", checkpoint)
+        elif config.get("initialization"):
+            from training_contract.initialization import MAX_WEIGHTS_BYTES, validate_pin
+
+            pin = validate_pin(config["initialization"])
+            source = assignment.get("initialization")
+            if (
+                not source
+                or any(
+                    source.get(key) != value for key, value in pin["artifact"].items()
+                )
+                or source.get("source_digest") != pin["source_digest"]
+            ):
+                raise InputMismatchError(
+                    "Initialization assignment differs from its frozen source"
+                )
+            initialization_path = input_dir / "initialization.pt"
+            self.download(
+                source["url"],
+                initialization_path,
+                pin["artifact"]["sha256"],
+                MAX_WEIGHTS_BYTES,
+                exact_size=pin["artifact"]["size_bytes"],
+            )
+        train_spec = self._build_train_spec(
+            assignment,
+            config,
+            execution_mode=execution_mode,
+            input_dir=input_dir,
+            base_path=base_path,
+            resume_path=resume_path,
+            initialization_path=initialization_path,
+        )
+        if config.get("dataset_id") and config.get("dataset_sha256"):
+            dataset_identity: dict[str, Any] = {
+                "dataset_id": str(config["dataset_id"]),
+                "dataset_sha256": str(config["dataset_sha256"]),
+                "dataset_digest": str(train_spec.dataset_snapshot_digest),
+            }
+            if isinstance(config.get("data_contract"), Mapping):
+                dataset_identity["data_contract"] = dict(config["data_contract"])
+            atomic_write_json(input_dir / "dataset-identity.json", dataset_identity)
+        if config.get("initialization"):
+            atomic_write_json(
+                input_dir / "initialization.json", config["initialization"]
+            )
+        atomic_write_json(input_dir / "spec.json", train_spec)
+        slot_gpu_uuid = getattr(self, "runtime", {}).get("gpu_uuid")
+        container_spec = None
+        if execution_mode == "container":
+            if not plugin["image"]:
+                raise InputMismatchError(
+                    "Container plugin run is missing pinned image reference"
+                )
+            if not plugin["entrypoint"]:
+                raise InputMismatchError("Container plugin run is missing entrypoint")
+            container_spec = build_train_container_spec(
+                resource_id=self.resource,
+                attempt_id=str(assignment["attempt_id"]),
+                run_id=str(assignment["run_id"]),
+                plugin_id=plugin["plugin_id"],
+                image=plugin["image"],
+                entrypoint=plugin["entrypoint"],
+                input_dir=input_dir,
+                output_dir=output_dir,
+                models_dir=self.models,
+                resource=plugin["resource"],
+                requires_gpu=plugin["requires_gpu"],
+                slot_gpu_uuid=slot_gpu_uuid,
+            )
+        if self.stop_training.is_set() or self.shutdown.is_set():
+            raise StopTraining()
+        budget = assignment.get("native_budget")
+        if budget:
+            from training_contract.budget import validate_budget
+            from .process_budget import ProcessBudget
+
+            validate_budget(budget, assignment["attempt_id"], config_digest)
+            self.active_budget = ProcessBudget(
+                budget,
+                stop=lambda handle: handle.stop(),
+                live=None,
+                on_deadline=self.budget_deadline,
+            )
+        journal["phase"] = "training"
+        journal["execution_mode"] = execution_mode
+        journal["spawn_intent"] = True
+        if execution_mode == "container":
+            journal["container_name"] = trainer_container_name(
+                self.resource, str(assignment["attempt_id"])
+            )
+            journal["container_labels"] = trainer_container_labels(
+                resource_id=self.resource,
+                attempt_id=str(assignment["attempt_id"]),
+                run_id=str(assignment["run_id"]),
+                plugin_id=plugin["plugin_id"],
+            )
+        self.save(journal)
+        if self.stop_training.is_set() or self.shutdown.is_set():
+            raise StopTraining()
+
+        def spawn():
+            if execution_mode == "container":
+                return launch_container_job(container_runtime, container_spec)
+            lock_fd = self.lock.fileno() if self.lock is not None else None
+            return launch_local_process(
+                plugin_id=plugin["plugin_id"],
+                allowlist=local_allowlist,
+                requested_entrypoint=plugin["entrypoint"],
+                args=[
+                    "train",
+                    "--spec",
+                    str((input_dir / "spec.json").resolve()),
+                    "--output",
+                    str(output_dir.resolve()),
+                ],
+                requires_gpu=plugin["requires_gpu"],
+                gpu_uuid=slot_gpu_uuid,
+                lock_fd=lock_fd,
+            )
+
+        handle = self.active_budget.launch(spawn) if budget else spawn()
+        self.active_process = handle
+        if handle.stdout is not None:
+            capture.start(handle.stdout)
+        if execution_mode == "container":
+            journal["container_id"] = handle.container_id
+            journal["process"] = {
+                "container_id": handle.container_id,
+                "container_name": handle.name,
+            }
+        else:
+            try:
+                started_at = psutil.Process(handle.pid).create_time()
+            except psutil.NoSuchProcess:
+                started_at = time.time()
+            journal["process"] = {
+                "pid": handle.pid,
+                "started_at": started_at,
+            }
+            if observation:
+                observation.sampler.attach(handle.pid, started_at)
+        self.save(journal)
+        while handle.poll() is None:
+            if self.stop_training.is_set() or self.shutdown.is_set():
+                self.terminate_process(
+                    handle,
+                    "shutdown" if self.shutdown.is_set() else "cancel",
+                )
+                break
+            time.sleep(0.05)
+        if handle.is_alive():
+            self.terminate_process(handle)
+        handle.wait()
+        self.freeze_accounting(journal)
+        self.active_process = None
+        interrupted = self.stop_reason in {
+            "heartbeat_expired",
+            "heartbeat_unavailable",
+            "executor_authority_lost",
+        }
+        journal["outcome"] = (
+            "failed"
+            if interrupted or self.stop_reason == "native_budget_exhausted"
+            else "cancelled"
+            if self.stop_training.is_set()
+            else "succeeded"
+            if handle.returncode == 0
+            else "failed"
+        )
+        if journal["outcome"] == "failed":
+            journal["error"] = (
+                f"训练进程退出码 {handle.returncode}；请下载脱敏日志查看原因"
+            )
+            if interrupted or self.stop_reason == "native_budget_exhausted":
+                code = (
+                    "budget_exhausted"
+                    if self.stop_reason == "native_budget_exhausted"
+                    else "authority_lost"
+                    if self.stop_reason == "executor_authority_lost"
+                    else "execution_lost"
+                )
+                journal["failure"] = failure_receipt(
+                    code, "execution", config_digest, journal["error"], secrets=secrets
+                )
+        self._stage_plugin_receipt(
+            journal, directory, output_dir, config_digest=config_digest, secrets=secrets
+        )
+        if journal["outcome"] == "failed" and "failure" not in journal:
+            code = (
+                "native_signal" if (handle.returncode or 0) < 0 else "native_exception"
+            )
+            journal["failure"] = failure_receipt(
+                code, "execution", config_digest, journal["error"], secrets=secrets
+            )
+
     def execute(self, journal, *, recovery=False):
         from .log_capture import LogCapture
         from .observability import ObservationSession
@@ -540,7 +1376,10 @@ class Supervisor:
         directory = self.state / "attempts" / assignment["attempt_id"]
         directory.mkdir(parents=True, exist_ok=True)
         config_digest = assignment.get("config_digest", "")
-        secrets = getattr(self, "redaction_secrets", ())
+        raw_secrets = list(getattr(self, "redaction_secrets", ()))
+        if assignment.get("lease_token"):
+            raw_secrets.append(assignment["lease_token"])
+        secrets = tuple(raw_secrets)
         observation = None
         self.reap_observation()
         capture = getattr(self, "active_capture", None)
@@ -571,15 +1410,30 @@ class Supervisor:
                         self.retire_observation(observation)
                     observation = None
                 if recovery:
-                    previous = journal.get("process")
-                    if (
-                        previous
-                        and journal["claim"]["boot_id"] == self.boot
-                        and live_group(previous["pid"])
-                    ):
-                        raise RuntimeError(
-                            "Previous training group is still alive; retaining its lease"
+                    container_id = journal.get("container_id")
+                    container_name = journal.get("container_name")
+                    if container_id or container_name:
+                        container_runtime = getattr(self, "container_runtime", None)
+                        if container_runtime is None:
+                            raise LeaseRetainedError(
+                                "Container runtime unavailable during recovery; retaining lease"
+                            )
+                        reconcile_container_by_id_or_name(
+                            container_runtime,
+                            container_id=container_id,
+                            name=container_name,
                         )
+                    else:
+                        previous = journal.get("process")
+                        if (
+                            previous
+                            and "pid" in previous
+                            and journal["claim"]["boot_id"] == self.boot
+                            and live_group(previous["pid"])
+                        ):
+                            raise LeaseRetainedError(
+                                "Previous training group is still alive; retaining its lease"
+                            )
                     if "outcome" not in journal:
                         journal["outcome"] = "failed"
                         journal["error"] = (
@@ -609,218 +1463,18 @@ class Supervisor:
                     )
                     self.active_capture = capture
                     capture.write(b"Controlled training preparation started.\n")
-                    config = assignment["config"]
-                    atomic_json(directory / "config.json", config)
-                    try:
-                        base = resolve_asset(self.models, config["base_model"])
-                    except ValueError as exc:
+                    if not _is_plugin_run(assignment):
                         raise InputMismatchError(
-                            "Controlled base weights are missing or changed"
-                        ) from exc
-                    self.download(
-                        assignment["dataset_url"],
-                        directory / "dataset.zip",
-                        config["dataset_sha256"],
-                        24 * 1024**3,
+                            "Legacy non-plugin training assignments are not supported"
+                        )
+                    self._run_plugin_attempt(
+                        journal,
+                        directory,
+                        capture,
+                        observation,
+                        config_digest=config_digest,
+                        secrets=secrets,
                     )
-                    try:
-                        data_yaml = extract_dataset(
-                            directory / "dataset.zip", directory / "dataset"
-                        )
-                    except ValueError as exc:
-                        raise InputMismatchError(str(exc)) from exc
-                    resume_path = None
-                    initialization_path = None
-                    if assignment["resume"]:
-                        resume = assignment["resume"]
-                        resume_path = directory / "resume.pt"
-                        self.download(
-                            resume["url"],
-                            resume_path,
-                            resume["sha256"],
-                            2 * 1024**3,
-                            exact_size=resume["size_bytes"],
-                        )
-                        epoch = resume.get("epoch")
-                        if (
-                            type(epoch) is not int
-                            or not 0 < epoch < config["parameters"]["epochs"]
-                        ):
-                            raise InputMismatchError(
-                                "Resume checkpoint has no valid completed epoch"
-                            )
-                        checkpoint = immutable_copy(
-                            resume_path, directory / f"checkpoint-{epoch:04d}.pt"
-                        )
-                        checkpoint.update(role="checkpoint", epoch=epoch)
-                        atomic_json(directory / "checkpoint.json", checkpoint)
-                    elif config.get("initialization"):
-                        from training_contract.initialization import (
-                            validate_pin,
-                            MAX_WEIGHTS_BYTES,
-                        )
-
-                        pin = validate_pin(config["initialization"])
-                        source = assignment.get("initialization")
-                        if (
-                            not source
-                            or any(
-                                source.get(key) != value
-                                for key, value in pin["artifact"].items()
-                            )
-                            or source.get("source_digest") != pin["source_digest"]
-                        ):
-                            raise InputMismatchError(
-                                "Initialization assignment differs from its frozen source"
-                            )
-                        initialization_path = directory / "initialization.pt"
-                        self.download(
-                            source["url"],
-                            initialization_path,
-                            pin["artifact"]["sha256"],
-                            MAX_WEIGHTS_BYTES,
-                            exact_size=pin["artifact"]["size_bytes"],
-                        )
-                    spec = {
-                        "run_id": assignment["run_id"],
-                        "attempt_id": assignment["attempt_id"],
-                        "framework": config["framework"],
-                        "parameters": config["parameters"],
-                        "base_path": str(base),
-                        "resume_path": str(resume_path) if resume_path else None,
-                        "initialization_path": str(initialization_path)
-                        if initialization_path
-                        else None,
-                        "data_yaml": str(data_yaml),
-                        "frozen_config": config,
-                    }
-                    atomic_json(directory / "spec.json", spec)
-                    journal["phase"] = "training"
-                    self.save(journal)
-                    if self.stop_training.is_set() or self.shutdown.is_set():
-                        raise StopTraining()
-                    environment = {
-                        key: value
-                        for key, value in os.environ.items()
-                        if not key.startswith("TRAINING_")
-                    }
-                    budget = assignment.get("native_budget")
-                    if budget:
-                        from training_contract.budget import validate_budget
-                        from .process_budget import ProcessBudget
-
-                        validate_budget(budget, assignment["attempt_id"], config_digest)
-                        self.active_budget = ProcessBudget(
-                            budget,
-                            stop=stop_process,
-                            live=live_group,
-                            on_deadline=self.budget_deadline,
-                        )
-                        journal["spawn_intent"] = True
-                        self.save(journal)
-
-                    def spawn():
-                        return subprocess.Popen(
-                            [
-                                sys.executable,
-                                "-m",
-                                "training_executor.train",
-                                "--spec",
-                                str(directory / "spec.json"),
-                            ],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            start_new_session=True,
-                            pass_fds=(self.lock.fileno(),),
-                            env=environment,
-                        )
-
-                    process = self.active_budget.launch(spawn) if budget else spawn()
-                    self.active_process = process
-                    capture.start(process.stdout)
-                    journal["process"] = {
-                        "pid": process.pid,
-                        "started_at": psutil.Process(process.pid).create_time(),
-                    }
-                    if observation:
-                        observation.sampler.attach(
-                            process.pid, journal["process"]["started_at"]
-                        )
-                    self.save(journal)
-                    while process.poll() is None:
-                        if self.stop_training.is_set() or self.shutdown.is_set():
-                            self.terminate_process(
-                                process,
-                                "shutdown" if self.shutdown.is_set() else "cancel",
-                            )
-                            break
-                        time.sleep(0.2)
-                    if live_group(process.pid):
-                        self.terminate_process(process)
-                    process.wait()
-                    self.freeze_accounting(journal)
-                    self.active_process = None
-                    interrupted = self.stop_reason in {
-                        "heartbeat_expired",
-                        "heartbeat_unavailable",
-                        "executor_authority_lost",
-                    }
-                    journal["outcome"] = (
-                        "failed"
-                        if interrupted or self.stop_reason == "native_budget_exhausted"
-                        else "cancelled"
-                        if self.stop_training.is_set()
-                        else "succeeded"
-                        if process.returncode == 0
-                        else "failed"
-                    )
-                    if journal["outcome"] == "failed":
-                        journal["error"] = (
-                            f"训练进程退出码 {process.returncode}；请下载脱敏日志查看原因"
-                        )
-                        native_failure = directory / "failure.json"
-                        if (
-                            native_failure.is_file()
-                            and native_failure.stat().st_size <= 16 * 1024
-                        ):
-                            try:
-                                receipt = json.loads(native_failure.read_text())
-                                if (
-                                    receipt.get("config_digest") == config_digest
-                                    and receipt.get("code") in FAILURE_CODES
-                                    and receipt.get("stage") in PHASES
-                                    and receipt.get("source") == "native"
-                                ):
-                                    journal["failure"] = failure_receipt(
-                                        receipt["code"],
-                                        receipt["stage"],
-                                        config_digest,
-                                        receipt["diagnostic"],
-                                        exception_type=receipt.get("exception_type"),
-                                        secrets=secrets,
-                                        source="native",
-                                    )
-                            except (ValueError, TypeError, KeyError):
-                                pass
-                        if (
-                            interrupted
-                            or self.stop_reason == "native_budget_exhausted"
-                            or "failure" not in journal
-                        ):
-                            code = (
-                                "budget_exhausted"
-                                if self.stop_reason == "native_budget_exhausted"
-                                else "authority_lost"
-                                if self.stop_reason == "executor_authority_lost"
-                                else "execution_lost"
-                                if interrupted
-                                else "native_signal"
-                                if process.returncode < 0
-                                else "native_exception"
-                            )
-                            journal["failure"] = failure_receipt(
-                                code, "execution", config_digest, journal["error"]
-                            )
                 if (
                     self.shutdown.is_set()
                     and journal.get("outcome") == "succeeded"
@@ -829,15 +1483,35 @@ class Supervisor:
                     journal["outcome"] = "failed"
             except StopTraining:
                 journal["outcome"] = "cancelled"
+            except LeaseRetainedError:
+                raise
             except Exception as exc:
                 owner = getattr(self, "active_budget", None)
                 if owner is not None and owner.process is not None:
                     process = owner.process
-                if process:
+                elif getattr(self, "active_process", None) is not None:
+                    process = self.active_process
+                if process is not None:
                     self.terminate_process(process)
+                elif journal.get("execution_mode") == "container" and (
+                    journal.get("spawn_intent")
+                    or journal.get("container_id")
+                    or journal.get("container_name")
+                ):
+                    container_runtime = getattr(self, "container_runtime", None)
+                    if container_runtime is None:
+                        raise LeaseRetainedError(
+                            "Container runtime unavailable after spawn intent; retaining lease"
+                        ) from exc
+                    reconcile_container_by_id_or_name(
+                        container_runtime,
+                        container_id=journal.get("container_id"),
+                        name=journal.get("container_name"),
+                    )
                 if (
                     recovery
                     and journal.get("process")
+                    and "pid" in journal["process"]
                     and journal["claim"]["boot_id"] == self.boot
                     and live_group(journal["process"]["pid"])
                 ):
@@ -912,6 +1586,9 @@ class Supervisor:
                 self.shutdown.wait(2)
         if self.shutdown.is_set():
             return
+        container_runtime = getattr(self, "container_runtime", None)
+        if container_runtime is not None:
+            reconcile_orphan_containers(container_runtime, self.resource)
         while not self.shutdown.is_set():
             self.reap_observation()
             if self.journal_path.exists():

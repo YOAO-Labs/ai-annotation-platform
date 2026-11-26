@@ -85,8 +85,8 @@ class LearningPolicySaveRequest(_SDKModel):
     enabled: bool = False
     parent_id: UUID
     batch_id: UUID | None = None
-    framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
-    base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    framework: str = Field(default="ultralytics", pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    base_model: str = Field(pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
     initialization: TrainingInitialization | None = None

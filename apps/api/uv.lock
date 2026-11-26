@@ -11,6 +11,10 @@ overrides = [
     { name = "matplotlib", specifier = ">=3.9,<4" },
     { name = "shapely", specifier = ">=2.0" },
 ]
+excludes = [
+    "yoao-lifecycle-contract",
+    "yoao-protocol-v2",
+]
 
 [[package]]
 name = "alembic"
@@ -114,19 +118,15 @@ dependencies = [
     { name = "yoao-identity", extra = ["postgres"] },
     { name = "yoao-identity-admission", extra = ["http"] },
     { name = "yoao-inference" },
-    { name = "yoao-inference-contract", extra = ["client"] },
     { name = "yoao-jobs" },
     { name = "yoao-labeling", extra = ["postgres"] },
     { name = "yoao-labeling-mask-gc", extra = ["client"] },
-    { name = "yoao-lifecycle-contract" },
     { name = "yoao-mail-transport" },
     { name = "yoao-media-probe", extra = ["client"] },
     { name = "yoao-notifications", extra = ["postgres", "publication-client"] },
     { name = "yoao-preannotation-results" },
-    { name = "yoao-protocol-v2" },
+    { name = "yoao-sdk", extra = ["protocol"] },
     { name = "yoao-site-agent-contract" },
-    { name = "yoao-task-contract" },
-    { name = "yoao-training-contract" },
     { name = "yoao-workspace", extra = ["postgres"] },
     { name = "yoao-workspace-contract" },
 ]
@@ -188,19 +188,15 @@ requires-dist = [
     { name = "yoao-identity", extras = ["postgres"], editable = "../identity" },
     { name = "yoao-identity-admission", extras = ["http"], editable = "../_shared/identity_admission" },
     { name = "yoao-inference", editable = "../inference" },
-    { name = "yoao-inference-contract", extras = ["client"], editable = "../_shared/inference_contract" },
     { name = "yoao-jobs", editable = "../jobs" },
     { name = "yoao-labeling", extras = ["postgres"], editable = "../labeling" },
     { name = "yoao-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
-    { name = "yoao-lifecycle-contract", editable = "../_shared/lifecycle_contract" },
     { name = "yoao-mail-transport", editable = "../_shared/mail_transport" },
     { name = "yoao-media-probe", extras = ["client"], editable = "../media-probe" },
     { name = "yoao-notifications", extras = ["postgres", "publication-client"], editable = "../notifications" },
     { name = "yoao-preannotation-results", editable = "../preannotation-results" },
-    { name = "yoao-protocol-v2", editable = "../_shared/protocol_v2" },
+    { name = "yoao-sdk", extras = ["protocol"], editable = "../../packages/python-sdk" },
     { name = "yoao-site-agent-contract", editable = "../_shared/site_agent_contract" },
-    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
-    { name = "yoao-training-contract", editable = "../_shared/training_contract" },
     { name = "yoao-workspace", extras = ["postgres"], editable = "../workspace" },
     { name = "yoao-workspace-contract", editable = "../_shared/workspace_contract" },
 ]
@@ -3178,8 +3174,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "pillow" },
-    { name = "yoao-lifecycle-contract" },
-    { name = "yoao-protocol-v2" },
 ]
 wheels = [
     { filename = "yoao_backend_runtime-0.1.0-py3-none-any.whl", hash = "sha256:96b10ea815c56eec1fe5fa747101226a283ea06781ca6649f92ac54c72d439f2" },
@@ -3273,10 +3267,8 @@ source = { editable = "../inference" }
 dependencies = [
     { name = "pydantic" },
     { name = "yoao-assets-mask-content" },
-    { name = "yoao-inference-contract" },
     { name = "yoao-owner-data" },
-    { name = "yoao-protocol-v2" },
-    { name = "yoao-task-contract" },
+    { name = "yoao-sdk", extra = ["protocol"] },
     { name = "yoao-workspace-contract" },
 ]
 
@@ -3299,38 +3291,11 @@ requires-dist = [
     { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
     { name = "structlog", marker = "extra == 'runtime'", specifier = ">=25.5.0" },
     { name = "yoao-assets-mask-content", editable = "../assets-mask-content" },
-    { name = "yoao-inference-contract", editable = "../_shared/inference_contract" },
     { name = "yoao-owner-data", editable = "../_shared/owner_data" },
-    { name = "yoao-protocol-v2", editable = "../_shared/protocol_v2" },
-    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
+    { name = "yoao-sdk", extras = ["protocol"], editable = "../../packages/python-sdk" },
     { name = "yoao-workspace-contract", editable = "../_shared/workspace_contract" },
 ]
 provides-extras = ["probe", "postgres", "client", "runtime", "video-restore", "test"]
-
-[[package]]
-name = "yoao-inference-contract"
-version = "0.1.0"
-source = { editable = "../_shared/inference_contract" }
-dependencies = [
-    { name = "pydantic" },
-    { name = "yoao-task-contract" },
-]
-
-[package.optional-dependencies]
-client = [
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
-]
-provides-extras = ["client", "test"]
 
 [[package]]
 name = "yoao-jobs"
@@ -3432,11 +3397,6 @@ requires-dist = [
 provides-extras = ["client", "runtime", "server", "test"]
 
 [[package]]
-name = "yoao-lifecycle-contract"
-version = "0.1.0"
-source = { editable = "../_shared/lifecycle_contract" }
-
-[[package]]
 name = "yoao-mail-transport"
 version = "0.1.0"
 source = { editable = "../_shared/mail_transport" }
@@ -3486,6 +3446,9 @@ publication-client = [
 requires-dist = [
     { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
     { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
+    { name = "cryptography", marker = "extra == 'channels'", specifier = ">=43.0.0" },
+    { name = "cryptography", marker = "extra == 'test'", specifier = ">=43.0.0" },
+    { name = "httpx", marker = "extra == 'channels'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
     { name = "pydantic", specifier = ">=2.10.0" },
@@ -3505,7 +3468,7 @@ requires-dist = [
     { name = "yoao-identity-admission", extras = ["http"], marker = "extra == 'websocket'", editable = "../_shared/identity_admission" },
     { name = "yoao-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
 ]
-provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
+provides-extras = ["postgres", "runtime", "publication-client", "channels", "websocket", "test"]
 
 [[package]]
 name = "yoao-owner-data"
@@ -3532,50 +3495,55 @@ requires-dist = [
 provides-extras = ["postgres", "test"]
 
 [[package]]
-name = "yoao-protocol-v2"
-version = "0.2.0"
-source = { editable = "../_shared/protocol_v2" }
+name = "yoao-sdk"
+source = { editable = "../../packages/python-sdk" }
 dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+protocol = [
     { name = "cryptography" },
     { name = "fastapi" },
-    { name = "pydantic" },
     { name = "pyjwt" },
-    { name = "yoao-task-contract" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "cryptography", specifier = ">=43.0.0" },
-    { name = "fastapi", specifier = ">=0.110" },
+    { name = "cryptography", marker = "extra == 'protocol'", specifier = ">=43.0.0" },
+    { name = "cryptography", marker = "extra == 'test'", specifier = ">=43.0.0" },
+    { name = "fastapi", marker = "extra == 'protocol'", specifier = ">=0.110" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.110" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
-    { name = "pydantic", specifier = ">=2.5" },
-    { name = "pyjwt", specifier = ">=2.10,<3" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pyjwt", marker = "extra == 'protocol'", specifier = ">=2.10,<3" },
+    { name = "pyjwt", marker = "extra == 'test'", specifier = ">=2.10,<3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
     { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
-    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
+    { name = "respx", marker = "extra == 'test'", specifier = ">=0.21" },
+    { name = "rich", marker = "extra == 'cli'", specifier = ">=13.0" },
+    { name = "rich", marker = "extra == 'plugins'", specifier = ">=13.0" },
+    { name = "rich", marker = "extra == 'test'", specifier = ">=13.0" },
+    { name = "rich", marker = "extra == 'tui'", specifier = ">=13.0" },
+    { name = "textual", marker = "extra == 'test'", specifier = ">=8.2,<9" },
+    { name = "textual", marker = "extra == 'tui'", specifier = ">=8.2,<9" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.12" },
+    { name = "typer", marker = "extra == 'plugins'", specifier = ">=0.12" },
+    { name = "typer", marker = "extra == 'test'", specifier = ">=0.12" },
+    { name = "typer", marker = "extra == 'tui'", specifier = ">=0.12" },
+    { name = "websockets", marker = "extra == 'streams'", specifier = ">=12" },
+    { name = "websockets", marker = "extra == 'test'", specifier = ">=12" },
+    { name = "websockets", marker = "extra == 'tui'", specifier = ">=12" },
 ]
-provides-extras = ["test"]
+provides-extras = ["protocol", "cli", "plugins", "streams", "tui", "test"]
 
 [[package]]
 name = "yoao-site-agent-contract"
 version = "0.1.0"
 source = { editable = "../_shared/site_agent_contract" }
-
-[[package]]
-name = "yoao-task-contract"
-version = "0.1.0"
-source = { editable = "../_shared/task_contract" }
-
-[[package]]
-name = "yoao-training-contract"
-version = "0.1.0"
-source = { editable = "../_shared/training_contract" }
-dependencies = [
-    { name = "yoao-task-contract" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "yoao-task-contract", editable = "../_shared/task_contract" }]
 
 [[package]]
 name = "yoao-workspace"
@@ -3585,8 +3553,8 @@ dependencies = [
     { name = "pydantic" },
     { name = "yoao-assets-cleanup" },
     { name = "yoao-audit-contract" },
-    { name = "yoao-inference-contract" },
     { name = "yoao-owner-data" },
+    { name = "yoao-sdk" },
     { name = "yoao-workspace-contract" },
 ]
 
@@ -3614,8 +3582,8 @@ requires-dist = [
     { name = "yoao-assets-source", extras = ["client"], marker = "extra == 'runtime'", editable = "../assets-source" },
     { name = "yoao-audit-contract", editable = "../_shared/audit_contract" },
     { name = "yoao-identity", extras = ["postgres"], marker = "extra == 'runtime'", editable = "../identity" },
-    { name = "yoao-inference-contract", editable = "../_shared/inference_contract" },
     { name = "yoao-owner-data", editable = "../_shared/owner_data" },
+    { name = "yoao-sdk", editable = "../../packages/python-sdk" },
     { name = "yoao-workspace-contract", editable = "../_shared/workspace_contract" },
 ]
 provides-extras = ["postgres", "runtime", "client", "test"]

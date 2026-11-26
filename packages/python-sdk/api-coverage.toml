@@ -2,9 +2,18 @@ snapshot = "0.26.1"
 watched_tags = ["*"]
 
 [operations]
+"GET /api/v1/admin/trainer-plugins" = { status = "covered" }
+"GET /api/v1/admin/trainer-plugins/{plugin_id}" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/enable" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/disable" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/retire" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/direct" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/plugins/installations" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/plugins/installations/{installation_id}" = { status = "covered" }
+"POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/probe" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/activate" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/disable" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations/{installation_id}/quiesce" = { status = "covered" }
@@ -395,6 +404,7 @@ watched_tags = ["*"]
 "DELETE /api/v1/comments/{comment_id}" = { status = "covered" }
 "DELETE /api/v1/groups/{group_id}" = { status = "covered" }
 "DELETE /api/v1/invitations/{invitation_id}" = { status = "covered" }
+"DELETE /api/v1/notification-channels/{channel_id}/binding" = { status = "covered" }
 "DELETE /api/v1/notifications/{notification_id}" = { status = "covered" }
 "DELETE /api/v1/project-pipelines/{pipeline_id}" = { status = "covered" }
 "DELETE /api/v1/project-templates/{template_id}" = { status = "covered" }
@@ -406,6 +416,10 @@ watched_tags = ["*"]
 "DELETE /api/v1/video-tracker-jobs/{job_id}" = { status = "covered" }
 "DELETE /api/v1/videos/{dataset_item_id}/chapters/{chapter_id}" = { status = "covered" }
 "GET /api/v1/admin/analytics/{panel_name}" = { status = "covered" }
+"GET /api/v1/admin/format-adapters" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/admin/format-adapters/{format_id}" = { status = "uncovered", reason = "not-implemented" }
+"GET /api/v1/admin/notification-channels" = { status = "covered" }
+"GET /api/v1/admin/notification-channels/{channel_id}" = { status = "covered" }
 "GET /api/v1/admin/preannotate-queue" = { status = "covered" }
 "GET /api/v1/admin/preannotate-summary" = { status = "covered" }
 "GET /api/v1/admin/projects/{project_id}/alias-frequency" = { status = "covered" }
@@ -439,6 +453,7 @@ watched_tags = ["*"]
 "GET /api/v1/mask-qc/repairs/{repair_id}" = { status = "covered" }
 "GET /api/v1/ml-capabilities/instances" = { status = "covered" }
 "GET /api/v1/ml-capabilities/protocol" = { status = "covered" }
+"GET /api/v1/notification-channels" = { status = "covered" }
 "GET /api/v1/notification-preferences" = { status = "covered" }
 "GET /api/v1/notifications" = { status = "covered" }
 "GET /api/v1/notifications/unread-count" = { status = "covered" }
@@ -506,6 +521,7 @@ watched_tags = ["*"]
 "GET /health/db" = { status = "covered" }
 "GET /health/minio" = { status = "covered" }
 "GET /health/redis" = { status = "covered" }
+"PATCH /api/v1/admin/notification-channels/{channel_id}" = { status = "covered" }
 "PATCH /api/v1/auth/me" = { status = "covered" }
 "PATCH /api/v1/auth/me/avatar" = { status = "covered" }
 "PATCH /api/v1/auth/me/preferences" = { status = "covered" }
@@ -522,6 +538,16 @@ watched_tags = ["*"]
 "PATCH /api/v1/users/{user_id}/group" = { status = "covered" }
 "PATCH /api/v1/users/{user_id}/role" = { status = "covered" }
 "PATCH /api/v1/videos/{dataset_item_id}/chapters/{chapter_id}" = { status = "covered" }
+"POST /api/v1/admin/format-adapters" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/activate" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/disable" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/probe" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/format-adapters/{format_id}/retire" = { status = "uncovered", reason = "not-implemented" }
+"POST /api/v1/admin/notification-channels" = { status = "covered" }
+"POST /api/v1/admin/notification-channels/{channel_id}/disable" = { status = "covered" }
+"POST /api/v1/admin/notification-channels/{channel_id}/enable" = { status = "covered" }
+"POST /api/v1/admin/notification-channels/{channel_id}/probe" = { status = "covered" }
+"POST /api/v1/admin/notification-channels/{channel_id}/retire" = { status = "covered" }
 "POST /api/v1/admin/preannotate-queue/bulk-clear" = { status = "covered" }
 "POST /api/v1/annotations/{annotation_id}/comment-attachments/upload-init" = { status = "covered" }
 "POST /api/v1/annotations/{annotation_id}/comments" = { status = "covered" }
@@ -542,6 +568,7 @@ watched_tags = ["*"]
 "POST /api/v1/invitations/{invitation_id}/send-email" = { status = "covered" }
 "POST /api/v1/mask-qc/repairs/{repair_id}/resume" = { status = "covered" }
 "POST /api/v1/mask-qc/repairs/{repair_id}/rollback" = { status = "covered" }
+"POST /api/v1/notification-channels/{channel_id}/verify-address" = { status = "covered" }
 "POST /api/v1/notifications/clear-read" = { status = "covered" }
 "POST /api/v1/notifications/mark-all-read" = { status = "covered" }
 "POST /api/v1/notifications/{notification_id}/read" = { status = "covered" }
@@ -591,6 +618,7 @@ watched_tags = ["*"]
 "POST /api/v1/videos/{dataset_item_id}/chapters" = { status = "covered" }
 "POST /api/v1/videos/{dataset_item_id}/frames:prefetch" = { status = "covered" }
 "POST /api/v1/videos/{dataset_item_id}/frames:retry" = { status = "covered" }
+"PUT /api/v1/notification-channels/{channel_id}/binding" = { status = "covered" }
 "PUT /api/v1/notification-preferences" = { status = "covered" }
 "PUT /api/v1/project-pipelines/{pipeline_id}" = { status = "covered" }
 "PUT /api/v1/storage-connections/allowlist" = { status = "covered" }

@@ -355,6 +355,8 @@ async def _emit_export_notification(
             target_type="export",
             target_id=job_uuid,
             payload=notif_payload,
+            operation_id=job_uuid,
+            project_id=job.project_id,
         )
     except Exception as e:  # noqa: BLE001
         log.warning("export notification failed job=%s err=%s", job_uuid, e)

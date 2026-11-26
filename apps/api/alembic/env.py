@@ -7,10 +7,12 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 
+from app.assembly.builders import load_declared_orm_models
 from app.db.base import Base
 from app.db.native_schema import include_orm_schema_object
-import app.db.models  # noqa: F401 — 触发 User/Project/Task/Annotation 注册到 Base.metadata
 from app.config import settings
+
+load_declared_orm_models()
 
 config = context.config
 

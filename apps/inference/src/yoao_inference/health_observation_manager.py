@@ -27,6 +27,7 @@ from yoao_inference_contract.health_observation_outcome import (
 )
 
 from .backend_transport import BackendTransport
+from .host_guard import InferenceHostDenied
 
 _SNAPSHOT_FIELDS = {
     "backend_json",
@@ -212,7 +213,9 @@ class BackendHealthObservationManager:
                     "error_type": "InvalidURL"
                     if isinstance(error, httpx.InvalidURL)
                     else "RuntimeError",
-                    "error_message": str(error),
+                    "error_message": f"inference_host_denied: {error}"
+                    if isinstance(error, InferenceHostDenied)
+                    else str(error),
                 }
             else:
                 failure["kind"] = "legacy_health_error"

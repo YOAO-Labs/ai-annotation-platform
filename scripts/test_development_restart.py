@@ -28,7 +28,7 @@ class DevelopmentRestartTests(unittest.TestCase):
                     "Labels": {
                         "com.docker.compose.project": "ai-annotation-platform",
                         "com.docker.compose.project.working_dir": str(self.root),
-                        "com.docker.compose.project.config_files": "/checkout/docker-compose.yml,/checkout/docker-compose.ml.yml",
+                        "com.docker.compose.project.config_files": "/checkout/docker-compose.yml",
                         "com.docker.compose.service": s,
                         "com.docker.compose.oneoff": "False",
                     },
@@ -77,12 +77,9 @@ class DevelopmentRestartTests(unittest.TestCase):
             m.validate(self.containers + extra, self.root), list(m.WORKERS)
         )
 
-    def test_official_plugin_overlays_keep_worker_identity_valid(self):
+    def test_inference_worker_dev_overlay_keeps_worker_identity_valid(self):
         labels = self.containers[0]["Config"]["Labels"]
         labels["com.docker.compose.project.config_files"] += (
-            ",/checkout/docker-compose.ml-yolo.yml"
-            ",/checkout/docker-compose.ml-onnxtools.yml"
-            ",/checkout/docker-compose.ml-rapidocr.yml"
             ",/checkout/docker-compose.inference-workers-development.yml"
         )
         self.assertEqual(m.validate(self.containers, self.root), list(m.WORKERS))

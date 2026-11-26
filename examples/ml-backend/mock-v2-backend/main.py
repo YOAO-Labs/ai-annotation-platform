@@ -11,7 +11,7 @@
   503 `model_unavailable` + Retry-After (演示错误形态, 见 _resolve_variants)。
 
 为保持示例零外部依赖 (仅 fastapi + pydantic), 错误体在本文件手写;
-生产 backend 请直接用共享库 `apps/_shared/protocol_v2` 的
+生产 backend 请直接用 `yoao-sdk[protocol]`（`packages/python-sdk/src/yoao_protocol_v2`）的
 `VariantNotSupportedError` / `ModelUnavailableError` / `WarmupResponse`。
 
 启动:

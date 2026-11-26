@@ -4,8 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from training_contract.inference_runtime import inference_runtime
-from training_contract.model_return import libre_identity, ultralytics_identity
+from tests.trainer_plugin_fixtures import (
+    inference_runtime,
+    libre_identity,
+    ultralytics_identity,
+)
 
 from app.services import trained_models
 
@@ -55,7 +58,7 @@ def test_install_and_publish_keep_trial_runtime_pinned():
     ref = libre_receipt()
     cpu = inference_runtime(ref, "1.6.0", device="cpu")
     cuda = inference_runtime(ref, "1.6.0", device="cuda")
-    version = SimpleNamespace(framework="libreyolo")
+    version = libre_version()
     fresh = SimpleNamespace(receipt={}, trial={})
     with pytest.raises(HTTPException, match="运行时"):
         trained_models.check_install_runtime(version, fresh, {})

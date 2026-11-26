@@ -83,7 +83,7 @@ class Training:
         self,
         state: Literal["all", "active", "finished", "failed"] = "active",
         project_id: IdLike | None = None,
-        framework: Literal["ultralytics", "libreyolo"] | None = None,
+        framework: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> TrainingQueuePage:
@@ -335,7 +335,7 @@ class TrainingRuns:
     def parameter_schema(
         self,
         project_id: IdLike,
-        framework: Literal["ultralytics", "libreyolo"],
+        framework: str,
         base_model: str,
     ) -> TrainingParameterSchema:
         resp = self._http.request(
@@ -349,7 +349,7 @@ class TrainingRuns:
         self,
         project_id: IdLike,
         model_id: IdLike,
-        framework: Literal["ultralytics", "libreyolo"],
+        framework: str,
         base_model: str,
         dataset_id: IdLike | None = None,
     ) -> TrainingInitializationEligibility:
