@@ -68,7 +68,12 @@ async def owned(test_engine, monkeypatch):
     monkeypatch.setattr(physical, "StorageService", lambda: Storage(provider))
     capture_target = physical.transport_target
 
-    class Access:
+    from app.services.source_readers.s3 import ScopedS3Access
+
+    class Access(ScopedS3Access):
+        def __init__(self):
+            pass
+
         @contextmanager
         def client(self, **options):
             storage = physical.StorageService()

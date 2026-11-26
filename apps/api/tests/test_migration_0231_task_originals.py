@@ -4,6 +4,7 @@ from datetime import timedelta
 import uuid
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import delete, inspect, select, text, update
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -17,12 +18,25 @@ from app.services import task_originals as service
 from app.services.managed_original_retirement import managed_storage_identity
 from tests.test_task_originals import (
     allocated,
+    current_original_session,
     migration,
     original_client as original_client,
     original_db as original_db,
     owners,
     verified,
 )
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def published_database(managed_database):
+    async with managed_database() as engine:
+        yield engine
+
+
+@pytest.fixture
+async def published_db(published_database):
+    async with current_original_session(published_database) as db:
+        yield db
 
 
 async def values_for(db, created):
@@ -136,9 +150,9 @@ async def test_pending_creation_cannot_forge_owner_even_with_matching_candidate_
 
 @pytest.mark.parametrize("field", service.FACTS)
 async def test_owner_facts_and_location_are_immutable(
-    original_db, original_client, field
+    published_db, original_client, field
 ):
-    db = original_db
+    db = published_db
     task, allocation, created = await verified(db, original_client)
     owner = await service.publish(
         db, task, allocation, created, actor_id=allocation["requested_by"]
@@ -164,9 +178,9 @@ async def test_owner_facts_and_location_are_immutable(
 
 
 async def test_owner_and_creation_cannot_be_deleted_after_task_is_gone(
-    original_db, original_client
+    published_db, original_client
 ):
-    db = original_db
+    db = published_db
     task, allocation, created = await verified(db, original_client)
     owner = await service.publish(
         db, task, allocation, created, actor_id=allocation["requested_by"]
@@ -177,13 +191,13 @@ async def test_owner_and_creation_cannot_be_deleted_after_task_is_gone(
         with pytest.raises(IntegrityError, match="immutable|cannot be deleted"):
             async with db.begin_nested():
                 await db.execute(delete(model).where(model.id == owner.id))
-    assert (await owners(db))[0]["id"] == owner.id
+    assert any(row["id"] == owner.id for row in await owners(db))
 
 
 async def test_restore_changes_only_current_bucket_and_identity(
-    original_db, original_client
+    published_db, original_client
 ):
-    db = original_db
+    db = published_db
     task, allocation, created = await verified(db, original_client, legacy=True)
     owner = await service.publish(
         db, task, allocation, created, actor_id=allocation["requested_by"]
@@ -231,9 +245,9 @@ async def test_restore_changes_only_current_bucket_and_identity(
     ],
 )
 async def test_attached_task_cannot_rebind_or_change_original_scope(
-    original_db, original_client, changes
+    published_db, original_client, changes
 ):
-    db = original_db
+    db = published_db
     task, allocation, created = await verified(db, original_client)
     await service.publish(
         db, task, allocation, created, actor_id=allocation["requested_by"]
@@ -243,10 +257,12 @@ async def test_attached_task_cannot_rebind_or_change_original_scope(
             await db.execute(update(Task).where(Task.id == task.id).values(**changes))
 
 
-async def test_owner_cannot_be_attached_to_another_task(original_db, original_client):
-    db = original_db
+async def test_owner_cannot_be_attached_to_another_task(published_db, original_client):
+    db = published_db
     first, allocation, created = await verified(db, original_client)
-    owner = await service.publish(db, first, allocation, created)
+    owner = await service.publish(
+        db, first, allocation, created, actor_id=allocation["requested_by"]
+    )
     second = Task(
         project_id=first.project_id,
         display_id="other-" + uuid.uuid4().hex[:18],
@@ -263,9 +279,10 @@ async def test_owner_cannot_be_attached_to_another_task(original_db, original_cl
 
 
 async def test_link_then_attach_and_attach_then_link_are_both_rejected(
-    original_db, original_client
+    published_db, original_client
 ):
-    db = original_db
+    db = published_db
+    fixture = db.info["original_fixture"]
     task, allocation, created = await verified(db, original_client)
     values = await values_for(db, created)
     await service._durable_owner(db, values)
@@ -274,7 +291,7 @@ async def test_link_then_attach_and_attach_then_link_are_both_rejected(
         TaskDatasetItemLink(
             id=link_id,
             task_id=task.id,
-            dataset_item_id=uuid.uuid4(),
+            dataset_item_id=fixture.item_id,
             role="primary_lidar",
         )
     )
@@ -298,16 +315,17 @@ async def test_link_then_attach_and_attach_then_link_are_both_rejected(
                 TaskDatasetItemLink.__table__.insert().values(
                     id=uuid.uuid4(),
                     task_id=task.id,
-                    dataset_item_id=uuid.uuid4(),
+                    dataset_item_id=fixture.item_id,
                     role="camera_front",
                 )
             )
 
 
 async def test_concurrent_link_insert_cannot_pass_inflight_attachment(
-    original_db, original_client
+    published_db, original_client
 ):
-    db = original_db
+    db = published_db
+    fixture = db.info["original_fixture"]
     task, allocation, created = await verified(db, original_client)
     await service.publish(
         db, task, allocation, created, actor_id=allocation["requested_by"]
@@ -320,7 +338,7 @@ async def test_concurrent_link_insert_cannot_pass_inflight_attachment(
                 TaskDatasetItemLink.__table__.insert().values(
                     id=uuid.uuid4(),
                     task_id=task.id,
-                    dataset_item_id=uuid.uuid4(),
+                    dataset_item_id=fixture.item_id,
                     role="primary_lidar",
                 )
             )
@@ -329,8 +347,8 @@ async def test_concurrent_link_insert_cannot_pass_inflight_attachment(
     await db.commit()
 
 
-async def test_any_owner_prevents_destructive_downgrade(original_db, original_client):
-    db = original_db
+async def test_any_owner_prevents_destructive_downgrade(published_db, original_client):
+    db = published_db
     task, allocation, created = await verified(db, original_client)
     identifier = task.id
     await service.publish(

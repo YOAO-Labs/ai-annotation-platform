@@ -18,6 +18,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
+from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
@@ -221,7 +222,7 @@ async def allocated(db, *, commit=True, legacy=False):
         )
         async with service.storage_access.engine(db).begin() as connection:
             await connection.execute(
-                creation.Creation.__table__.insert().values(**allocation)
+                ManagedOriginalCreation.__table__.insert().values(**allocation)
             )
     if fixture is not None:
         inserted = await db.scalar(

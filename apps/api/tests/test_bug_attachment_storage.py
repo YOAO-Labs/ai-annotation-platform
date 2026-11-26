@@ -230,8 +230,10 @@ def test_receipt_and_fixed_retention_are_strict(storage, changes):
 def allocation_db(storage):
     location = SimpleNamespace(
         id=LEGACY_LOCATION_ID,
+        name="embedded",
         kind="s3",
         config_revision=1,
+        connection_id=None,
         enabled=True,
         config={"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl},
     )
@@ -241,19 +243,24 @@ def allocation_db(storage):
         generation=1,
         bucket=storage.bug_reports_bucket,
     )
+    missing = {"location": False, "binding": False}
 
-    async def scalar(statement):
-        from app.db.models.dataset_asset import StorageLocation
-
-        return (
-            location
-            if statement.column_descriptions[0]["entity"] is StorageLocation
-            else binding
+    async def execute(statement, params=None):
+        sql = str(statement)
+        if "location_facts" in sql:
+            row = None if missing["location"] else vars(location)
+        elif "purpose_binding" in sql:
+            row = None if missing["binding"] else vars(binding)
+        else:
+            row = None
+        return SimpleNamespace(
+            mappings=lambda: SimpleNamespace(one_or_none=lambda: row)
         )
 
     return (
         SimpleNamespace(
-            get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=scalar)
+            execute=AsyncMock(side_effect=execute),
+            missing=missing,
         ),
         location,
         binding,
@@ -272,8 +279,10 @@ async def test_allocate_proves_current_binding_without_mutating_upload(
     )
     assert row.storage_ref == reference()
     ensure.assert_awaited_once_with(db)
-    statement = db.scalar.await_args.args[0]
-    assert statement.compile().params == {"purpose_1": "bug-reports"}
+    assert any(
+        call.args[1] == {"purpose": "bug-reports", "lock": "share"}
+        for call in db.execute.await_args_list
+    )
 
 
 @pytest.mark.parametrize(
@@ -314,9 +323,7 @@ async def test_allocate_rejects_changed_binding(
 async def test_allocate_rejects_missing_binding(storage, monkeypatch, missing):
     db, _, _ = allocation_db(storage)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    missing_call = db.get if missing == "location" else db.scalar
-    missing_call.side_effect = None
-    missing_call.return_value = None
+    db.missing[missing] = True
     with pytest.raises(owners.BugAttachmentStorageError):
         await owners.allocate(db, record())
 
@@ -329,7 +336,7 @@ async def test_allocate_exposes_no_bootstrap_details(storage, monkeypatch):
     with pytest.raises(owners.BugAttachmentStorageError) as caught:
         await owners.allocate(db, record())
     assert "secret" not in str(caught.value)
-    db.get.assert_not_awaited()
+    db.execute.assert_not_awaited()
 
 
 def readable(storage, data=RAW):

@@ -132,10 +132,16 @@ def _raise_mask_mutation_contract_error(exc: RasterMaskContractError) -> None:
         reason = "invalid_geometry"
     elif reason == "raster_mask_empty_foreground":
         reason = "empty_result"
+    extra = {
+        key: value
+        for key, value in exc.detail.items()
+        if key not in {"reason", "message"}
+    }
     raise _MaskMutationError(
         status_code=exc.status_code,
         reason=reason,
         message=str(exc.detail.get("message") or exc),
+        **extra,
     ) from exc
 
 
@@ -993,6 +999,12 @@ class MaskMutationService:
             try:
                 rle = await load_coco_rle(reference)
                 height, width, counts = validate_coco_rle(rle)
+            except (
+                RasterMaskContractError,
+                RasterObjectStorageError,
+                ContentError,
+            ) as exc:
+                raise _mutation_storage_error(exc) from exc
             except Exception as exc:
                 raise _MaskMutationError(
                     status_code=422,

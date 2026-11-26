@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
+from app.db.models.dataset_asset import StorageBinding
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_connection import StorageConnection
@@ -32,7 +32,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindin
 from app.services.content_snapshot import ContentError
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.managed_s3_target import Target
-from tests.test_avatar_storage_target import Objects, connection_target
+from tests.test_avatar_storage_target import Objects, connection_target, origin_db
 from tests.test_export_media_bundles import inputs, digest
 from tests.test_export_storage import reference, record, migration_route, RAW, KEY
 
@@ -127,15 +127,12 @@ async def test_rotation_uses_current_credentials_and_never_reinterprets_address(
 ):
     location, connection = connection_target()
     location.id, location.config_revision = LOCATION, 9
-    connection.revision, connection.secret_enc = 10, b"rotated-encrypted-secret"
+    connection.revision = 10
     connection.config.update(
         endpoint=ENDPOINT, bucket="exports-original", base_prefix="team/图片/[a](b)"
     )
 
-    async def get(model, _identifier, **_kwargs):
-        return location if model is StorageLocation else connection
-
-    db = SimpleNamespace(get=AsyncMock(side_effect=get))
+    db = origin_db(connection, location)
     monkeypatch.setattr(
         storage.storage_registry_data, "get_location", AsyncMock(return_value=location)
     )
@@ -161,7 +158,9 @@ async def test_rotation_uses_current_credentials_and_never_reinterprets_address(
     saved = deepcopy(row.storage_ref)
     target = await service.io_target(db, row)
     assert (
-        target._access.secret_enc == b"rotated-encrypted-secret"
+        target.is_registered
+        and target._access is None
+        and target.connection_revision == 10
         and target.key_prefix == root
         and row.storage_ref == saved
     )
@@ -197,7 +196,12 @@ def test_external_zip_and_media_sign_their_actual_endpoint(monkeypatch):
         config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
     )
 
-    class Access:
+    from app.services.source_readers.s3 import ScopedS3Access
+
+    class Access(ScopedS3Access):
+        def __init__(self):
+            pass
+
         @contextmanager
         def client(self):
             yield client

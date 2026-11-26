@@ -123,8 +123,19 @@ async def test_target_uses_current_credentials_and_rejects_changed_physical_iden
     current = replace(destination, config_revision=8, connection_revision=9)
 
     class DB:
-        async def get(self, *args, **kwargs):
-            return SimpleNamespace(id=destination.location_id)
+        async def execute(self, statement, params=None):
+            row = {
+                "id": destination.location_id,
+                "name": "saved-training",
+                "kind": "s3",
+                "config_revision": 1,
+                "config": {},
+                "connection_id": None,
+                "enabled": True,
+            }
+            return SimpleNamespace(
+                mappings=lambda: SimpleNamespace(one_or_none=lambda: row)
+            )
 
     async def current_target(*args, **kwargs):
         return current
@@ -174,7 +185,12 @@ async def test_run_passes_explicit_target_and_transaction_hook_without_committin
     owner = storage.resolve_ref(
         storage.make_ref(destination, 2, storage.prefix_for(uuid.uuid4(), uuid.uuid4()))
     )
-    callback, acquired = object(), object()
+    callback = object()
+    acquired_calls = []
+
+    async def acquired(permit):
+        acquired_calls.append(permit)
+
     seen = []
 
     async def registered(*args, **kwargs):
@@ -194,14 +210,11 @@ async def test_run_passes_explicit_target_and_transaction_hook_without_committin
         )
         == "done"
     )
-    assert seen[0][0][1:6] == (
-        owner.location_id,
-        "training_read",
-        io.physical,
-        destination,
-        callback,
-    )
-    assert seen[0][1]["on_acquired"] is acquired
+    assert seen[0][0][1:3] == (owner.location_id, "training_read")
+    assert seen[0][0][4:6] == (destination, callback)
+    permit = object()
+    await seen[0][1]["on_acquired"](permit)
+    assert acquired_calls == [permit]
 
 
 def test_registered_client_close_uncertainty_survives_facade(monkeypatch):
@@ -220,9 +233,13 @@ def test_registered_client_close_uncertainty_survives_facade(monkeypatch):
         lambda value: {"access_key": "test", "secret_key": "test"},
     )
     monkeypatch.setattr(s3_reference.boto3, "client", lambda *args, **kwargs: Client())
-    access = s3_reference.S3Access(
+    access = s3_reference.ScopedS3Access(
         {"endpoint": "https://objects.example.test", "bucket": "saved-training"},
-        "encrypted",
+        {
+            "endpoint": "https://objects.example.test",
+            "access_key": "test",
+            "secret_key": "test",
+        },
         (),
     )
     destination = replace(target(), _access=access)

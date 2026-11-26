@@ -148,9 +148,26 @@ class Session:
     def __init__(self, world):
         self.world, self.transaction, self.closed = world, False, False
         self.selected = None
+        self.autoflush = False
 
-    async def scalar(self, _query):
+    async def scalar(self, statement, params=None):
         self.transaction = True
+        sql = str(statement)
+        if "original_cache_locator_current" in sql:
+            return True
+        if "begin_original_cache_read" in sql:
+            lease = SimpleNamespace(
+                id=params["lease"],
+                entry_id=params["entry"],
+                expires_at=params["checked"] + timedelta(minutes=5),
+            )
+            self.world.leases[lease.id] = lease
+            self.selected = deepcopy(self.world.entry)
+            self.selected.last_accessed_at = params["checked"]
+            return True
+        if "original_cache_lease_current" in sql:
+            lease = self.world.leases.get(params["lease"])
+            return lease is not None and lease.expires_at > params["checked"]
         self.selected = deepcopy(self.world.entry)
         return self.selected
 
@@ -174,9 +191,39 @@ class Session:
         assert isinstance(row, OriginalCacheReadLease)
         self.world.leases[row.id] = row
 
-    async def execute(self, statement):
-        assert str(statement).startswith("DELETE FROM original_cache_read_leases")
+    async def execute(self, statement, params=None):
+        self.transaction = True
+        sql = str(statement)
+        if "lock_original_cache_read" in sql or "original_cache_entry_facts" in sql:
+            self.selected = deepcopy(self.world.entry)
+            row = vars(self.selected) if self.selected is not None else None
+            return SimpleNamespace(
+                mappings=lambda: SimpleNamespace(one_or_none=lambda: row)
+            )
+        if "location_facts" in sql:
+            from app.config import settings
+
+            row = {
+                "id": params["id"],
+                "name": "embedded",
+                "kind": "s3",
+                "config_revision": 1,
+                "config": {
+                    "endpoint": settings.minio_endpoint,
+                    "use_ssl": settings.minio_use_ssl,
+                },
+                "connection_id": None,
+                "enabled": True,
+            }
+            return SimpleNamespace(
+                mappings=lambda: SimpleNamespace(one_or_none=lambda: row)
+            )
+        if "end_original_cache_read" in sql:
+            self.world.leases.pop(params["lease"], None)
+            return SimpleNamespace()
+        assert sql.startswith("DELETE FROM original_cache_read_leases")
         self.world.leases.clear()
+        return SimpleNamespace()
 
     async def commit(self):
         self.transaction = False

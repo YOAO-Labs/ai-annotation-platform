@@ -9,19 +9,14 @@ from unittest.mock import AsyncMock
 import uuid
 
 from botocore.exceptions import ClientError
-from cryptography.fernet import Fernet
 import pytest
 
-from app.config import settings
-from app.core.crypto import encrypt_secret
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import connector_guard, storage_access, storage_presigning
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.managed_s3_target import Target
-from tests.test_avatar_storage_target import Objects
+from tests.test_avatar_storage_target import Objects, origin_db
 
 LOCATION = uuid.UUID(int=821)
 ENDPOINT = "https://saved-import.example.test"
@@ -276,14 +271,20 @@ async def test_missing_legacy_registration_uses_only_saved_legacy_bucket(
     ref = storage.legacy_ref(logical_prefix(), bucket="saved-old-import")
     owner = storage.resolve_ref(ref, expected_prefix=logical_prefix())
     monkeypatch.setattr(storage.storage_service, "import_bucket", "new-runtime-default")
-    db = SimpleNamespace(get=AsyncMock(return_value=None), scalar=AsyncMock())
+    db = origin_db(None, None)
     target = await storage.io_target(db, owner)
     assert (
         target.location_id == LEGACY_LOCATION_ID and target.bucket == "saved-old-import"
     )
     assert target.endpoint_url == ref["endpoint_url"] and target.key_prefix == ""
-    assert db.get.await_args.args == (StorageLocation, LEGACY_LOCATION_ID)
-    db.scalar.assert_not_awaited()
+    assert any(
+        "location_facts" in str(call.args[0])
+        and call.args[1]["id"] == LEGACY_LOCATION_ID
+        for call in db.execute.await_args_list
+    )
+    assert not any(
+        "purpose_binding" in str(call.args[0]) for call in db.execute.await_args_list
+    )
 
 
 @pytest.mark.parametrize("legacy", [False, True])
@@ -297,22 +298,20 @@ async def test_schema2_never_uses_missing_location_fallback(storage, legacy):
         }
     owner = storage.resolve_ref(ref, expected_prefix=logical_prefix())
     with pytest.raises(storage.ImportStorageError):
-        await storage.io_target(
-            SimpleNamespace(get=AsyncMock(return_value=None)), owner
-        )
+        await storage.io_target(origin_db(None, None), owner)
 
 
 async def test_saved_external_owner_captures_current_credentials_without_binding_or_io(
     storage, monkeypatch
 ):
-    monkeypatch.setattr(
-        settings, "connector_encryption_key", Fernet.generate_key().decode()
-    )
-    connection = StorageConnection(
-        id=uuid.uuid4(),
+    connection_id = uuid.uuid4()
+    connection = SimpleNamespace(
+        id=connection_id,
+        name="import-connection",
         kind="s3",
         scope="global",
         project_id=None,
+        created_by=None,
         revision=7,
         config={
             "endpoint": ENDPOINT,
@@ -320,51 +319,47 @@ async def test_saved_external_owner_captures_current_credentials_without_binding
             "base_prefix": "team/图片",
             "use_ssl": True,
         },
-        secret_enc=encrypt_secret(
-            {"access_key": "rotated-access", "secret_key": "rotated-secret"}
-        ),
+        secret_set=True,
     )
-    location = StorageLocation(
+    location = SimpleNamespace(
         id=LOCATION,
+        name="import-location",
         kind="s3",
         enabled=False,
         config_revision=5,
         config={},
-        connection_id=connection.id,
+        connection_id=connection_id,
     )
-
-    async def get(model, _identifier, **_kwargs):
-        if model is StorageLocation:
-            return location
-        if model is StorageConnection:
-            return connection
-        assert model is not StorageBinding, (
-            "saved reads must not consult the current binding"
-        )
-        pytest.fail("unexpected metadata lookup")
-
     monkeypatch.setattr(
         connector_guard,
         "get_allowlist",
         AsyncMock(return_value=("saved-import.example.test",)),
     )
-    db = SimpleNamespace(get=get, scalar=AsyncMock(return_value=location))
+    db = origin_db(connection, location)
     owner = storage.resolve_ref(reference(), expected_prefix=logical_prefix())
     target = await storage.io_target(db, owner)
     assert target.config_revision == 5 and target.connection_revision == 7
-    assert target._access.secret_enc == connection.secret_enc
+    assert target.is_registered and target._access is None
     assert (
         target.endpoint_url == owner.ref["endpoint_url"]
         and target.bucket == owner.bucket
     )
     assert owner.ref["config_revision"] == 3
+    assert not any(
+        "purpose_binding" in str(call.args[0]) for call in db.execute.await_args_list
+    )
 
 
 @pytest.fixture
 def signing(storage, monkeypatch):
+    from app.services.source_readers.s3 import ScopedS3Access
+
     events = []
 
-    class Access:
+    class Access(ScopedS3Access):
+        def __init__(self):
+            pass
+
         @contextmanager
         def client(self):
             events.append("client-open")
