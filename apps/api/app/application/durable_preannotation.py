@@ -639,9 +639,14 @@ async def run_durable_batch(
             if not applied:
                 cancelled = True
                 break
-        except PreannotationResultDeferred:
+        except PreannotationResultDeferred as exc:
             await db.rollback()
-            raise
+            if str(exc) != "lease_lost" or not await _cancel_requested(
+                db, execution.scope["job_id"]
+            ):
+                raise
+            cancelled = True
+            break
         except BatchResultFailure as exc:
             await db.rollback()
             if exc.code == "job_not_writable" and await _cancel_requested(
