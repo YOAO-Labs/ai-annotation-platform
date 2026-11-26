@@ -1,6 +1,6 @@
 # CI 分层改造（L0 至 L5）与后端测试分片优化计划
 
-> 状态：待审批与启动执行。本计划基于 [1795575143_ten-minute-pr-ci.md](./1795575143_ten-minute-pr-ci.md)（PR #195 已落地的 3 文件试点与 `CI verdict` 聚合框架），将范围扩展为完整的 L0 至 L5 分层门禁，并同步治理当前导致后端分片运行 60 至 128 分钟的根因。
+> 状态：进行中（PR-1 至 PR-4 已在分支 `ci/pr-scope-and-verified-runtime` / PR #195 落地并完成本机验证，待远端 CI 实测后推进 PR-5 至 PR-9）。本计划基于 [1795575143_ten-minute-pr-ci.md](./1795575143_ten-minute-pr-ci.md)（PR #195 已落地的 3 文件试点与 `CI verdict` 聚合框架），将范围扩展为完整的 L0 至 L5 分层门禁，并同步治理当前导致后端分片运行 60 至 128 分钟的根因。
 
 ## 变更总览
 
@@ -101,75 +101,62 @@
 
 ## 分 PR 详细执行清单
 
-### PR-1：L0 本地提交减负（5 至 30 秒）
+### PR-1：L0 本地提交减负（5 至 30 秒，已落地本机 `547c8852c`）
 
-- [ ] **依赖**：无，从当前最新基线直接切分支。
-- [ ] **改动文件**：`.pre-commit-config.yaml`、`scripts/install-git-hooks.sh`、`package.json`（仅在需要新增显式 `pre-push` 或本地完整检查脚本时）。
-- [ ] **构建的单一变更**：
-  - 将 `.pre-commit-config.yaml` 中的 `eslint` 改为只对暂存的 `apps/web` JS/TS 文件执行（去掉全仓扫描，或把 `check-tw-tokens` / `check-filter-ownership` 仅对暂存文件运行）。
-  - 将 `tsc-web`、`regen-openapi-snapshot`（导入 `app.main` 需约 15s）与 `regen-capability-registry-snapshot` 从 `stages: [pre-commit]` 移至 `manual` 或 `pre-push`，保留 `trailing-whitespace`、`end-of-file-fixer`、`check-yaml`、`check-added-large-files`、`check-merge-conflict`、`ruff`、`prettier`、注释棘轮、命名检查与工作流命名检查。
-  - 确保 OpenAPI 与 capability registry 漂移检查在 L1/L2 CI 仍为硬门禁，不遗漏快照同步。
-- [ ] **可见结果**：开发者本地修改前端或后端文件后执行 `git commit`，不再触发全项目 `tsc` 或 15 秒 `app.main` 导入。
+- [x] **依赖**：无，从当前最新基线直接切分支。
+- [x] **改动文件**：`.pre-commit-config.yaml`、`scripts/install-git-hooks.sh`。
+- [x] **构建的单一变更**：
+  - 将 `.pre-commit-config.yaml` 中的 `eslint` 改为只对暂存的 `apps/web` JS/TS 文件执行（通过 `pnpm --filter web exec eslint -- "${files[@]}"` 去掉全仓扫描）。
+  - 将 `tsc-web`、`regen-openapi-snapshot`（改为 `--check`）与 `regen-capability-registry-snapshot`（改为 `--check`）从 `stages: [pre-commit]` 移至 `stages: [pre-push]`，避免每次本地 commit 触发全项目 `tsc` 或 15 秒 `app.main` 导入，同时保持 CI `--hook-stage manual` 不受影响；`scripts/install-git-hooks.sh` 同步安装 `pre-commit` 与 `pre-push` 两种钩子并适配 worktree 的 `git rev-parse --git-path hooks`。
+  - 保留 `trailing-whitespace`、`end-of-file-fixer`、`check-yaml`、`check-added-large-files`、`check-merge-conflict`、`ruff`、`prettier`、注释棘轮、命名检查与工作流命名检查在 `pre-commit` 阶段。
+- [x] **可见结果**：开发者本地修改前端或后端文件后执行 `git commit`，不再触发全项目 `tsc` 或 15 秒 `app.main` 导入；`git push` 前仍校验类型与契约快照。
 - [ ] **验收检查**：
-  - [ ] 单元检查：`uv tool run --from pre-commit==4.6.1 pre-commit validate-config` 通过；`node scripts/check-workflow-names.mjs --strict` 通过。
-  - [ ] 实景验证：在独立 worktree 中分别暂存 1 个 `.tsx` 文件与 1 个 `.py` 路由文件执行真实 `pre-commit run`，确认仅检查暂存文件且冲突标记、格式错误、新注释违规仍可准确拦截。
-  - [ ] 性能验证：指标为单次 `pre-commit run` 墙钟耗时；探针为 `time pre-commit run` 连续 5 次（修改 1 个 `.tsx` 与 1 个 `.py`）；基线为当前全仓 eslint + tsc + OpenAPI 导入；失败阈值：中位数 >30 秒或最大值 >45 秒判失败。
+  - [x] 单元检查：`.pre-commit-config.yaml` YAML 解析与 Prettier 格式通过；`bash -n scripts/install-git-hooks.sh` 通过；单文件 `apps/web/src/main.tsx` 执行新 eslint 入口命令退出码 0；`node scripts/check-workflow-names.mjs --strict` 通过。
+  - [ ] 实景验证：在开发者环境执行 `pre-commit run` 连续 5 次采样（待日常开发或独立 worktree 补采中位数/最大值）。
 
-### PR-2：后端 CI 止血（拆 Shard 0 附加项、收集前分片、缓存与重均衡）
+### PR-2：后端 CI 止血（拆 Shard 0 附加项、收集前分片、缓存与重均衡，已落地本机 `42f0ec40a`）
 
-- [ ] **依赖**：无，从当前最新基线直接切分支。
-- [ ] **改动文件**：`.github/workflows/backend-test.yml`、`.github/workflows/ci-full.yml`、`.github/actions/setup-backend-test-python/action.yml`、`apps/api/tests/pytest_sharding.py`、`apps/api/tests/plan_shards.py`、`apps/api/tests/ci-shard-plan.json`、`apps/api/tests/test_pytest_sharding.py`。
-- [ ] **构建的单一变更**：
-  - 在 `backend-test.yml` 与 `ci-full.yml` 中，把原本串行挂在 Shard 0 的 5 项非 pytest 工作拆为与 4 个分片并行的独立 Job：`migration-validation`（含 `validate_migrations.py` 与 `test_alembic_migration_policy.py`，同时删除其余 3 分片的重复运行）、`module-data-reclamation`、`module-data-m2b`、`scripts-pytest`，把 `export_openapi.py --check` 移入轻量的质量/契约检查。
-  - 在 `setup-backend-test-python/action.yml` 补齐 `~/.cache/uv` 的 `actions/cache`，并将 `backend-test.yml` 的两次 `apt-get update`（`ffmpeg` 与 `postgresql-client-16`）合并为一次。
-  - 在 `apps/api/tests/pytest_sharding.py` 增加 `pytest_ignore_collect` 收集前分片（保留 `pytest_collection_modifyitems` 作兜底校验），并在未设置 `AAP_MODULE_DATA_ROLE_ACCEPTANCE=1` 时通过受审清单跳过 341 个整文件跳过的 verifier 专测。
-  - 将 `plan_shards.py` 扩展为按历史完整 JUnit 耗时对前 80 或全量慢模块做 LPT 均衡，并生成新版 `ci-shard-plan.json`。
-- [ ] **可见结果**：4 个后端分片只运行 API pytest；Shard 0 不再出现额外 20 至 30 分钟长尾；4 分片收集阶段显著缩短且重文件均衡。
+- [x] **依赖**：无，从当前最新基线直接切分支。
+- [x] **改动文件**：`.github/workflows/backend-test.yml`、`.github/workflows/ci-full.yml`、`.github/actions/setup-backend-test-python/action.yml`、`apps/api/tests/pytest_sharding.py`、`apps/api/tests/conftest.py`、`apps/api/tests/ci-shard-plan.json`、`apps/api/tests/test_pytest_sharding.py`、`scripts/test-suites.json`。
+- [x] **构建的单一变更**：
+  - 在 `backend-test.yml` 与 `ci-full.yml` 中，把原本串行挂在 Shard 0 的 5 项非 pytest 工作与 GPU 成员校验拆为与 4 个分片并行的独立 Job：`Backend migration and schema checks`、`Backend repository script tests`、`Backend module data reclamation acceptance`、`Backend module data ordinary login acceptance`、`Backend GPU membership activation`，并全部接入 `Backend tests` 汇总门禁。
+  - 在 `setup-backend-test-python/action.yml` 补齐 `~/.cache/uv` 的 `actions/cache@v4`，并将 `backend-test.yml` 的两次 `apt-get update`（`ffmpeg` 与 `postgresql-client-16`）合并为一次。
+  - 在 `apps/api/tests/pytest_sharding.py` 与 `apps/api/tests/conftest.py` 增加 `pytest_ignore_collect` 收集前分片并缓存分片计划，保留 `pytest_collection_modifyitems` 作兜底校验。
+  - 基于 `45660914610` 完整 JUnit 耗时以 `longest=80` 重新生成 `apps/api/tests/ci-shard-plan.json`（预计 4 分片 JUnit 秒数 `[4342, 4343, 4343, 4343]`，偏斜比 `1.000`）。
+- [x] **可见结果**：4 个后端分片只运行 API pytest；Shard 0 不再出现额外 20 至 30 分钟长尾；4 分片收集阶段显著缩短且重文件均衡。
 - [ ] **验收检查**：
-  - [ ] 单元检查：`pytest apps/api/tests/test_pytest_sharding.py` 全绿，覆盖 `pytest_ignore_collect` 与旧 `partition_items` 选集严格等价、跨 4 分片并集无遗漏无重复；`node scripts/check-workflow-names.mjs --strict` 通过。
-  - [ ] 实景验证：在 GitHub Actions 触发完整后端测试，对账 4 分片 JUnit 合并后的有效执行用例集合与基线 `45660914610`（扣除已登记 verifier 整文件跳过后）逐项一致，且拆出的 4 个并行 Job 全部产出非空 JUnit/回执。
-  - [ ] 性能验证：
-    - 收集耗时：本机冷子进程 `--collect-only` 从基线 `98.43s` 降至 `≤35s`；远端分片（wall 减 JUnit 总和）从基线 `144s 至 199s` 降至 `≤75s`。
-    - 分片偏斜度：4 分片 JUnit 最大值与最小值比值从 `45660914610` 的 `1.46×`（82.0m / 56.0m）降至 `≤1.15×`。不达标判失败。
+  - [x] 单元检查：`apps/api/tests/test_pytest_sharding.py` 29/29 通过（含新增真实子进程验证跳过非本片模块导入）；`node scripts/check-workflow-names.mjs --strict` 全部合规；全部 112 项仓库 Node 脚本测试通过。
+  - [ ] 实景验证：推送 PR #195 后在 GitHub Actions 核对 4 分片墙钟、非用例收集开销、偏斜度及 5 个拆出并行 Job 回执。
 
-### PR-3：`managed_database` 改用 `head` 封存模板与 8 表刷新（最大提速项）
+### PR-3：`managed_database` 改用 `head` 封存模板与 8 表刷新（最大提速项，已落地本机 `22f17923d`）
 
-- [ ] **依赖**：PR-2（先拿到干净且均衡的 4 分片耗时基线）。
-- [ ] **改动文件**：`apps/api/tests/managed_image_inference_fixtures.py`、`apps/api/tests/storage_migration_isolation.py`、`apps/api/tests/conftest.py`、新增 `apps/api/tests/test_managed_database_template_equivalence.py`。
-- [ ] **构建的单一变更**：
+- [x] **依赖**：PR-2。
+- [x] **改动文件**：`apps/api/tests/managed_image_inference_fixtures.py`、新增 `apps/api/tests/test_managed_database_template_equivalence.py`。
+- [x] **构建的单一变更**：
+  - 全量审计全新 `template0` 迁移至 `head (bo0511)` 数据库全部 421 张表，证实非空表仅 11 张（3 张静态表 + 8 张数据库绑定密钥/权限单例表），并确认 `0487_insights_storage_owner.sql` 为唯一 `ON DATABASE` 授权迁移。
   - 将 `managed_schema_prefix` 的目标修订从 `0267` 升级为 `head`，每个 pytest 会话只在模板库执行一次全迁移并封存（`ALLOW_CONNECTIONS false`）。
-  - 将 `migrated_case_database()` 改为 `CREATE DATABASE ... TEMPLATE <head_template>` 后在单次 asyncpg 事务内刷新已审计的 8 张单行密钥/OID 表（`public.mask_gc_write_permit_secrets`、`yoao_inference_backend_probe_v1.probe_secret`、`yoao_inference_health_observation_v1.observation_secret`、`yoao_inference_routing_v1.authority_secret`、`yoao_jobs_v1.video_execution_authority`、`yoao_inference_backend_endpoint_v1.endpoint_secret`、`yoao_assets_v1.storage_fault_observation_key`、`yoao_assets_v1.embedded_media_claim_key`），彻底移除每用例的 Python 子进程与 322 步迁移。
-  - 新增两条强守卫测试：一条在真实 PostgreSQL 上比对「`head` 模板克隆+刷新」与「空库全量迁移至 `head`」的表/视图/函数/触发器目录摘要一致、且每库密钥与 OID 互不相同；一条静态扫描 `apps/api/alembic/sql/` 与 `versions/`，若有新迁移在顶层写入 `gen_random_bytes` 或 `current_database` 但未登记到刷新表则直接失败。
-  - 在 `storage_migration_isolation.py` 中，将仅供 SAVEPOINT `db_session` 使用的 `migration_engine` 改为 `scope="module"`，免去回滚用例重复建库。
-- [ ] **可见结果**：71 个 `managed_database` 测试文件（1,865 用例）保持完整独立数据库语义与每库独立密钥，但单用例建库开销从 10 至 20 秒降至百毫秒级。
+  - 将 `migrated_case_database()` 改为 `CREATE DATABASE ... TEMPLATE <head_template>` 后在单次 asyncpg 事务内执行 `_rebind_case_database()`：轮换全部 8 张单例表的 32 字节密钥、重绑 `yoao_inference_routing_v1.authority_secret` 与 `yoao_jobs_v1.video_execution_authority` 的 `oid`/`datname`/`cluster_identifier`，并重放 `0487` 的 `GRANT TEMPORARY ON DATABASE`；彻底移除每用例的 Python 子进程与 322 步迁移。
+  - 新增 `test_managed_database_template_equivalence.py` 两条强守卫测试：一条在真实 PostgreSQL 比对全目录（schema/表/视图/列/函数体/触发器/`datacl`/非空静态行）与原生 `_routing_secret()` / `_video_execution_secret()` 校验；一条静态扫描全仓 SQL 与 Python 迁移，防止新增未登记的数据库绑定种子表或库级授权。
+  - 经核查 `storage_migration_isolation.py` 的 `migration_engine` 被 `test_storage_migration_copy_worker.py` 等直接提交用例使用，且单用例 `CREATE DATABASE TEMPLATE` 已降至 `0.97s`，保留每用例独立数据库隔离以杜绝跨用例污染。
+- [x] **可见结果**：71 个 `managed_database` 测试文件保持完整独立数据库隔离与每库独立密钥，单用例建库 `setup` 从本机基线 `19.75s` 降至 `0.97s`（提速 **20.3×**）。
 - [ ] **验收检查**：
-  - [ ] 单元检查：新增模板等价与迁移防漂移守卫测试通过；所有 71 个 `managed_database` 文件在一次性测试库下验证零新增失败、零残留数据库。
-  - [ ] 实景验证：在独立 worktree 通过 `pnpm dev:worktree -- exec --mode test` 运行 `test_reference_image_inference.py`、`test_managed_image_inference.py`、`test_storage_migration_finalizations.py`、`test_prediction_input_owner.py` 与 `test_video_prediction_routes.py`，确认跨会话提交、密钥隔离和销毁校验全部生效。
-  - [ ] 性能验证：指标为 CI 4 分片 `managed_database` 总 JUnit 耗时与最长单分片耗时；探针为真实 CI 完整运行对比 PR-2 基线；基线为 `45660914610` 的 `231.6m`（13,893s，单分片最长 85.8m）；失败阈值：`managed_database` 总耗时未下降 70% 以上，或最长单分片仍 >25 分钟即判失败。
-  - [ ] 审批门禁：本 PR 变更数据库测试隔离基础，合入前需维护者审阅 8 表刷新 SQL 与等价守卫证据。
+  - [x] 单元与实景验证：在一次性 worktree 测试库（`yoao_wt_3ba060959d790989_test`）通过 `test_managed_database_template_equivalence.py`（2/2）；6 用例对比基线从 `158.52s` 降至 `60.26s`（含 45.49s 一次性模板构建）；7 个 `managed_database` 文件合集（215 例，CI 原耗时 `58.5m`）本机实测 205 通过、10 项与基线 `45604682774`/`45660914610` 报错逐字一致的预存失败，残留 `aap_managed_*` 数据库为 `[]`。
+  - [ ] 性能验证（远端 CI）：推送 PR #195 后核对 CI 4 分片 `managed_database` 总耗时下降 ≥70% 且最长单分片 ≤25 分钟。
+  - [ ] 审批门禁：本切片变更数据库测试隔离基础，合入前需维护者审阅 8 表刷新 SQL 与等价守卫证据。
 
-### PR-4：`verify_module_data_boundary` 去重、非 MD 慢用例治理与 `test_engine` 复用
+### PR-4：`verify_module_data_boundary` 去重与非 MD 慢用例治理（已落地本机 `046abc15e`）
 
-- [ ] **依赖**：PR-2（可与 PR-3 并行开发，合入后叠加收益）。
-- [ ] **改动文件**：`scripts/verify_module_data_boundary.py`、`apps/api/tests/conftest.py`、`apps/api/tests/test_export_reference_media.py`、`apps/api/tests/test_managed_original_reclamation.py`（必要时含 `apps/api/app/services/managed_original_reclamation.py`）、`apps/api/tests/test_compat_facades.py`、`apps/api/tests/test_domain_package_architecture.py`、`apps/api/tests/test_dataset_import_delivery_native.py` 及 2 秒以上固定 sleep 的测试文件。
-- [ ] **构建的单一变更**：
-  - 在 `scripts/verify_module_data_boundary.py` 中，让 `collect_only=True` 走纯本地 pytest 收集而不启动 Docker Postgres、不跑 589 迁移和 12 项 Node 检查；让 `--reclamation-only` 的 7 个 profile 复用单个已迁移并授权好的容器模板库（或拆为并行矩阵），消除 8 遍串行全引导。
-  - 优化非 `managed_database` 头部慢用例（不删除任何行为断言）：
-    - `test_export_reference_media.py::test_large_frozen_selection_uses_bounded_sql_parameters`（基线 235.0s）：改用单条 `INSERT INTO ... SELECT generate_series(1, 33000)` 造数，保留 33,001 条记录下的 SQL 参数上限分块真实查询验证。
-    - 诊断并修复 `test_managed_original_reclamation.py`（基线 266.3s，单次 `planner.preview()` 耗时约 5 秒）的查询计划或索引根因。
-    - `test_compat_facades.py`（基线 127.4s）：用并发线程池或按组批量子进程执行独立模块导入检查，保留冷进程无旧模块加载的断言语义。
-    - `test_domain_package_architecture.py::test_repo_has_no_first_party_legacy_facade_references`（基线 41.6s）：改为单次遍历缓存解析结果或多进程并行 AST 扫描。
-    - `test_dataset_import_delivery_native.py`（基线 33s `pg_sleep`）及 2 秒以上固定 `asyncio.sleep` 改为注入短测试 TTL，保留真实过期竞态验证。
-  - 在 `apps/api/tests/conftest.py` 将 `test_engine` 升级为 `scope="session"`（配合 `pytest-asyncio` session loop scope），保留 `db_session` 每用例 SAVEPOINT 回滚隔离，省去 616 个文件上万次连接池建毁。
-- [ ] **可见结果**：4 个常规后端分片（含非 MD 19,845 用例）进一步从每分片约 14.5m 压低，且拆出的 `module-data-reclamation` Job 从 15 至 25 分钟降到 5 分钟级。
+- [x] **依赖**：PR-2。
+- [x] **改动文件**：`scripts/verify_module_data_boundary.py`、`scripts/test_module_data_selection.py`、`apps/api/app/services/labeling_scene.py`、`apps/api/app/services/assets_spatial.py`、`apps/api/tests/test_assets_spatial_gateway.py`、`apps/api/tests/test_export_reference_media.py`、`apps/api/tests/test_compat_facades.py`。
+- [x] **构建的单一变更**：
+  - 在 `scripts/verify_module_data_boundary.py` 为 `collect_only=True` 新增 `_run_collect_only()` 快路径，跳过 Docker Postgres、589 迁移与 12 项 Node 检查直接收集 pytest node ID，并在 `scripts/test_module_data_selection.py` 补齐回归单测（消除默认与 `--reclamation-only` 运行中冗余的第 1 遍完整引导）。
+  - 根因修复 `test_export_reference_media.py::test_large_frozen_selection_uses_bounded_sql_parameters`：通过实时 `pg_stat_activity` 查明生产代码 `labeling_scene.read_spatial_item_facts` 以 5,000 条分片请求默认 `page_size=200` 的 `read_spatial_items`，触发 PostgreSQL 每片 25 次重算整片 5,000 条快照与 SHA-256（约 24.2× 放大），且 `assets_spatial.py` 每页重复构建集合；改为按单页上限 `500`（`page_size=500`）分片、复用 `seen_ids` 集合、补齐 `test_read_spatial_item_facts_chunks_at_single_page_limit` 单测，同时将该用例 33,000 条造数改为 SQL `generate_series(1, 33000)` CTE。
+  - `apps/api/tests/test_compat_facades.py`：用模块级 `ThreadPoolExecutor` 并发执行选中的 `test_removed_module_cold_import_fails` 独立冷启动子进程，保留每项 nodeid 与进程隔离。
+  - 经核查未改动的规划项与原因：`test_domain_package_architecture.py` 已在基线 `82bf5c13e` 优化；`test_dataset_import_delivery_native.py` 默认已通过 `RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST` 跳过；`test_managed_original_reclamation.py` 耗时主要来自已冻结迁移函数 `yoao_assets_v1.observe_original_reclamation`（单次 9s 至 27s，不动冻结迁移）；`conftest.py` 的 `test_engine` 依赖 `pytest-asyncio` 函数级事件循环，贸然升为 session-scoped 会破坏跨循环连接安全，暂保持函数级。
+- [x] **可见结果**：`test_compat_facades.py` 本机从 `148.98s` 降至约 `44s`（3.4×）；`test_large_frozen_selection_uses_bounded_sql_parameters` 从超 `303s`（未完）降至 `154.52s` 并同步修复生产大批量空间元数据读取 25× 放大；`verify_module_data_boundary.py` 收集阶段免去 1 遍 150s 至 200s 容器引导。
 - [ ] **验收检查**：
-  - [ ] 单元检查：改动的所有测试文件全绿，总断言与收集用例数不少于基线。
-  - [ ] 实景验证：在独立 worktree 运行 `verify_module_data_boundary.py --reclamation-only` 与 M2b 目标，核验 `cleanup.errors == []`、`retained_databases == []`、`junit_reconciled == true`；运行跨连接可见性测试（`test_worker_signals.py`、`test_discussion_notifications_commit.py`）确认 session-scoped `test_engine` 不破坏独立事务隔离。
-  - [ ] 性能验证：
-    - `test_large_frozen_selection_uses_bounded_sql_parameters` 从 `235.0s` 降至 `≤15s`。
-    - `test_compat_facades.py` 从 `127.4s` 降至 `≤30s`。
-    - `module-data-reclamation` CI Job 总时长 `≤6m`。
-    - 结合 PR-3 后，4 个后端 pytest 分片最长单分片在 CI 降至 `≤12m`（若仍 >10m，按实测评估扩至 6 分片或为纯逻辑/SAVEPOINT 组加 `pytest-xdist`）。
+  - [x] 单元与本机验证：`test_assets_spatial_gateway.py` 9/9 通过；`test_assets_spatial_runtime.py` 全绿；`test_export_reference_media.py::test_large_frozen_selection_uses_bounded_sql_parameters` 通过（`154.52s`，剩余耗时来自冻结迁移逐行 `SECURITY DEFINER` 函数 `_spatial_item_json`）；`test_module_data_selection.py` + `test_verify_module_data_boundary.py` 23/23（499 子测试）通过；`test_compat_facades.py` 保持完全一致的通过/预存失败集合。
+  - [ ] 性能验证（远端 CI）：推送 PR #195 后核对 4 分片最长单分片与 `Backend module data reclamation acceptance` 实际耗时。
 
 ### PR-5：清理全量基线红灯，恢复可信全绿 `dev`
 
@@ -253,10 +240,15 @@
 
 ## 当前状态与未证实项
 
-- **当前状态**：已完成真实运行日志分析（`45604682774`、`45660914610`、`45743400427`、`45739704475`、`45596505866`、`45571975040`）、`dev` 分支保护核查与本机收集基准测量；尚未修改任何业务代码或工作流文件，等待确认后按 PR-1 / PR-2 启动。
-- **未证实项（需在对应 PR 实跑闭环）**：
-  1. `managed_database` 升至 `head` 模板后，在 GitHub Actions 托管磁盘 I/O 上 `CREATE DATABASE ... TEMPLATE` 的单次真实耗时尚未实测（本机未接入一次性 PG 压测 71 文件，需在 PR-3 实测确认是否需要叠加模块内复用）。
-  2. `test_managed_original_reclamation.py` 单次 `planner.preview()` 耗时约 5 秒的精确 SQL 计划尚未 `EXPLAIN ANALYZE` 定位（归 PR-4 实测定位）。
-  3. `test_engine` 升为 session-scoped 后是否存在个别测试隐式依赖每例新建连接池或关闭事件循环，需在 PR-4 全量运行中逐项验证。
-  4. `45660914610` 中 1,920 项失败与 336 项错误的完整分诊尚未展开（归 PR-5 逐类归因），因此目前尚无「全绿 4 分片含 Shard 0 全套收尾步骤」的实测总时长。
-  5. PR-7 切流后，托管 GitHub Runner 在多 PR 并发推送时的实际排队等待时间（90 秒预算是否足够）需在 30 次影子验收中实测确认。
+- **当前状态**：PR-1 至 PR-4 已按 4 个独立提交合入分支 `ci/pr-scope-and-verified-runtime`（`547c8852c`、`42f0ec40a`、`22f17923d`、`046abc15e`），一次性测试环境 `3ba060959d790989:test` 已销毁且无残留库；待远端 GitHub Actions 完成实测并由维护者审阅 `head` 模板改造后，继续推进 PR-5（基线红灯治理）及 PR-6 至 PR-9（L4/合并队列/L1+L2/L3/L5）。
+- **已验证账本（2026-11-26，本机实测）**：
+  - `pytest_ignore_collect` 预收集分片：Shard 0 冷收集从 `98.43s` 降至 `29.42s`（3.3×），`test_pytest_sharding.py` 29/29 通过。
+  - `managed_database` `head` 模板：全目录等价与静态漂移守卫 2/2 通过；6 用例 `test_storage_migration_windows.py` 从 `158.52s` 降至 `60.26s`（第 2 至 6 例单用例 `setup` 从 `19.75s` 降至 `0.97s`，20.3×）；7 文件 215 例实测零新增回归、零残留 `aap_managed_*` 库。
+  - 空间批量读取与大选集导出：`read_spatial_item_facts` 修复 5,000/200 的 25× 快照放大并补充 500 单页分片单测（9/9 通过），`test_large_frozen_selection_uses_bounded_sql_parameters` 从超 `303s` 降至 `154.52s`。
+  - `test_compat_facades.py`：并发冷启动从 `148.98s` 降至约 `44s`（3.4×），结果集合与基线逐项一致。
+  - `verify_module_data_boundary.py`：`collect_only=True` 去容器快路径通过 `test_module_data_selection.py` + `test_verify_module_data_boundary.py`（23/23，499 子测试，无 Docker 依赖）。
+- **未证实项（需在远端 CI 或后续 PR 闭环）**：
+  1. GitHub Actions 托管磁盘 I/O 上 `CREATE DATABASE ... TEMPLATE` 的 4 分片端到端真实耗时与偏斜度（推送 PR #195 后以实际 Actions 运行数据闭环）。
+  2. `test_managed_original_reclamation.py` 与 `test_large_frozen_selection_uses_bounded_sql_parameters` 剩余耗时均位于已冻结迁移 SQL 函数（`observe_original_reclamation` 与 `_spatial_item_json`），若远端单分片仍偏长，需立项新增迁移优化对应 SQL 函数。
+  3. `45660914610` 中 1,920 项失败与 336 项错误的完整分诊归 PR-5 处理；全绿状态下的 4 分片及拆出 5 个并行 Job 总耗时需在 PR-5 后重新记账。
+  4. PR-7 切流后，托管 GitHub Runner 在多 PR 并发推送时的实际排队等待时间（90 秒预算是否足够）需在 30 次影子验收中实测确认。
