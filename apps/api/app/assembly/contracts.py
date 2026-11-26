@@ -11,14 +11,13 @@ RouterSurface = Literal["api_v1", "root"]
 ComposeTier = Literal[
     "base",
     "optional_split",
-    "ml_plugin",
     "dev_override",
     "experiment",
 ]
 
 VALID_ROUTER_SURFACES: frozenset[str] = frozenset({"api_v1", "root"})
 VALID_COMPOSE_TIERS: frozenset[str] = frozenset(
-    {"base", "optional_split", "ml_plugin", "dev_override", "experiment"}
+    {"base", "optional_split", "dev_override", "experiment"}
 )
 
 

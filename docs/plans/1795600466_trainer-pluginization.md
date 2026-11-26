@@ -1,6 +1,6 @@
 # 训练器插件化架构与实施计划
 
-> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）与 T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）已完成；按维护者决定先完成 [ADR-0190（推理插件机制升级）](../adr/0190-inference-plugin-generalization-and-direct-tier.md) 并拉齐非容器双轨口径后再修订 ADR-0189 进入 T2。
+> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）、T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）及前置的 [ADR-0190（推理插件机制升级）](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 全部切片（I0–I3）均已完成验收，[ADR-0189](../adr/0189-trainer-extension-point.md) 已同步对齐 `local_process`/`container` 双轨与共享 `ContainerRuntimePort`，具备启动 T2 条件。
 >
 > 创建日期：2026-11-25。
 >
@@ -92,7 +92,7 @@
 }
 ```
 
-> 关键约束：manifest 禁止自报 `source_tier`；`entrypoint` 禁止 shell 解释器与 `python -c`；安装时必须由平台绑定不可变 OCI `@sha256:...` 摘要，并在执行资格核验后由管理员显式启用。
+> 关键约束：manifest 禁止自报 `source_tier`；`entrypoint` 禁止 shell 解释器与 `python -c`；安装时显式声明 `execution_mode = "container" | "local_process"`（`container` 档必须由平台绑定不可变 OCI `@sha256:...` 摘要，`local_process` 档绑定本机受控独立 `venv`/`conda` 入口且 `artifact` 为空），均须在执行资格核验后由管理员显式启用。
 
 #### 命令与文件协议（`yoao-trainer/v1`）
 
@@ -162,7 +162,7 @@
 ### T2：平台训练器注册表、资格门禁与轻量化 `training-supervisor`
 
 - **领域 Owner 注册表（`yoao_learning_v1.trainer_plugins`）**：
-  - 沿用 `notification_channels` 与 `format_adapter_plugins` 的领域 owner 归属模式，在 `yoao_learning_v1` 新增训练器插件安装表（含不可变 `artifact` `@sha256:...`、平台权威 `source_tier: official | third_party`、核验后的 `capabilities_snapshot`、`qualification_report_sha256`、`status: registered | qualified | enabled | disabled | retired`）。
+  - 沿用 `notification_channels` 与 `format_adapter_plugins` 的领域 owner 归属模式，在 `yoao_learning_v1` 新增训练器插件安装表（含 `execution_mode: container | local_process`、容器档必填且进程档为空的不可变 `artifact` `@sha256:...`、平台权威 `source_tier: official | third_party`、核验后的 `capabilities_snapshot`、`qualification_report_sha256`、`status: registered | qualified | enabled | disabled | retired`）。
   - 提供超管 REST 接口与 `yoao plugins` CLI 支持（注册、查看能力、导入资格报告、启用、停用、退役）；同步扩展资源槽位模型，解除 `config.py` 全局单一 `training_gpu_uuid` 对多训练器共存的限制（单张物理 GPU UUID 同一时刻仍严格受单一 `TrainingResourceLease` 互斥保护）。
 - **轻量化 `training-supervisor`**：
   - 剥离 `apps/training-executor` 中所有 ML 框架依赖（`torch`、`torchvision`、`ultralytics`、`libreyolo`、`pycocotools`），并将 `worker.py:70` 的 `import torch` GPU 探测替换为无框架依赖的 `nvidia-smi` / NVML 探测；保留纯净监督层（`/state/gpu-<sha24>.lock`、`assignment.json` 容器身份与启动对账、`ProcessBudget`、`LogCapture`、`ObservationSpool`、预签名传输、以及在容器边界强制 CPU-only 与资源上限的 `PreviewSupervisor`）。
@@ -199,5 +199,5 @@
 - **当前状态**：
   - 已完成 **T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）**，在 `YOAO-Labs/Plugin-SDK` 与主仓 `yoao-sdk` 双向冻结 13 个协议模型与校验原语。
   - 已完成 **T1（Learning Owner 边界收口与前向 SQL 泛化）**：新增前向迁移 `bo0512`（`0512_trainer_extension_generalization.sql` / `.py`）泛化 7 个 Learning SQL 函数而不改动冻结历史文件 `0491`–`0493`（保持冻结 `schema 1–4` 与 Python 契约逐条对等，从 `schema >= 5` 起开放泛化插件契约）；移除 API Schema 与路由中的硬编码框架/桥接 `Literal`，切换至 `training_adapters` 能力检查与动态框架校验，并同步 OpenAPI 快照、SDK 操作目录与 Web 生成客户端（手动前端类型与 Python SDK 包装模型残留 `Literal` 留待 T2/T3 收敛）；收口 Learning 服务中的跨模块 `User`/`Project` ORM、`MLBackendService` 与私有 `MLBackendRouter._build_candidates`/`_router_mode` 直连并补齐 AST 边界守卫与真实 PostgreSQL 迁移测试。
-- **待维护者确认（进入 T2 前）**：
-  - 维护者已选择先推进推理插件机制升级（见 [ADR-0190](../adr/0190-inference-plugin-generalization-and-direct-tier.md) 与 [1795617883_inference-plugin-upgrade.md](1795617883_inference-plugin-upgrade.md)），优先拉齐非容器运行（推理 `direct` / 训练器 `local_process`）与受管容器运行（共享窄 `ContainerRuntimePort`）以及 `yoao-extension-manifest/v1` 口径；完成推理插件升级后再同步修订 [ADR-0189](../adr/0189-trainer-extension-point.md) 并启动 **T2**。
+- **下一步（待维护者确认启动 T2）**：
+  - 前置推理插件机制升级（见已采纳的 [ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 与 [1795617883_inference-plugin-upgrade.md](1795617883_inference-plugin-upgrade.md)）已完成双轨实测与收口，[ADR-0189](../adr/0189-trainer-extension-point.md) 已同步采用双轨运行模式（`local_process` / `container`）与共享窄接口 `ContainerRuntimePort`；经维护者确认后即可进入 **T2（`yoao_learning_v1.trainer_plugins` 注册表与 `training-supervisor`）**。

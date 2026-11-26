@@ -1,9 +1,9 @@
 # 0189 — 训练器扩展点与隔离作业协议
 
 - **Status:** Proposed
-- **Date:** 2026-11-25
-- **Deciders:** 维护者已确认架构方向并授权推进 T1（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
-- **Supersedes:** —（沿用 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md) 单一写入 owner 原则、[ADR-0187](archive/0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 通用清单与安全边界，以及 [ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md) 发现不等于资格原则）
+- **Date:** 2026-11-26
+- **Deciders:** 维护者已确认架构方向并完成 T0/T1；已按已采纳的 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 对齐双轨运行模式（`local_process` / `container`）与共享 `ContainerRuntimePort`（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
+- **Supersedes:** —（沿用 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md) 单一写入 owner 原则、[ADR-0187](archive/0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 通用清单与安全边界、[ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 双轨运行器与只读插件投影口径，以及 [ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md) 发现不等于资格原则）
 
 ## Context
 
@@ -28,12 +28,12 @@
 
 ### 1. 扩展点归属、清单与资格门禁
 
-1. **统一清单**：训练器插件采用 `yoao-extension-manifest/v1`（见 [ADR-0187](archive/0187-notification-channel-extension-point.md)），固定 `extension_point = "trainer"`、`protocol_version = "yoao-trainer/v1"`。
+1. **统一清单与双轨运行模式（对齐 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md)）**：训练器插件采用 `yoao-extension-manifest/v1`（见 [ADR-0187](archive/0187-notification-channel-extension-point.md)），固定 `extension_point = "trainer"`、`protocol_version = "yoao-trainer/v1"`，并在 `yoao_learning_v1.trainer_plugins` 上显式声明 `execution_mode = "container" | "local_process"`（生产隔离默认为 `"container"`；裸机独立 `venv`/`conda` 进程隔离为 `"local_process"`）：
    - `capabilities` 为 `{"train", "evaluate", "preview", "export_weights"}` 的非空无重复子集。
-   - 必须提供 `entrypoint`（禁止 shell 解释器与 `python -c`）与 `resource.memory_mb`（16 至 65536）。
-   - `extension` 禁止自报 `source_tier`；镜像内置清单禁止预填 `artifact`，必须由平台在安装时绑定不可变 OCI 摘要 `@sha256:...`。
-2. **领域 Owner 表归属**：Learning 域是训练器插件注册与资格状态的唯一写入 owner，在 `yoao_learning_v1` schema 下维护私有表 `yoao_learning_v1.trainer_plugins`（撤销 `PUBLIC` 权限，运行账号仅通过固定 `SECURITY DEFINER` 函数访问），记录平台权威 `source_tier`（`official` | `third_party`）、不可变 `artifact`、`capabilities_snapshot`、`qualification_report_sha256` 与状态机（`registered` -> `qualified` -> `enabled` <-> `disabled` -> `retired`）。
-3. **发现不等于资格（[ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md)）**：注册镜像并执行 `describe` 仅产出能力发现快照；只有在平台核验镜像摘要、离线基座资产 SHA-256、能力收据与真实隔离冒烟报告摘要后，管理员才可批准该训练器进入 `qualified` / `enabled`。
+   - `container` 档必须提供 `entrypoint`（禁止 shell 解释器与 `python -c`）与 `resource.memory_mb`（16 至 65536），镜像内置清单禁止预填 `artifact`，必须由平台在安装时绑定不可变 OCI 摘要 `@sha256:...`；`local_process` 档由宿主机管理员在 `training-supervisor` 白名单注册可执行入口向量（同样禁止 shell 解释器与 `python -c`，`artifact` 为 `null`），无需强制容器化。
+   - `extension` 禁止自报 `source_tier`；平台只读投影统一输出与 ADR-0190 同构的展示与治理字段（`plugin_id`、`version`、`extension_point`、`display_name`、`description`、`homepage`、`source_tier`、`execution_mode`、`status`），供后续统一插件市场（M5）直接聚合。
+2. **领域 Owner 表归属**：Learning 域是训练器插件注册与资格状态的唯一写入 owner，在 `yoao_learning_v1` schema 下维护私有表 `yoao_learning_v1.trainer_plugins`（撤销 `PUBLIC` 权限，运行账号仅通过固定 `SECURITY DEFINER` 函数访问），记录平台权威 `source_tier`（`official` | `third_party`）、`execution_mode`（`container` | `local_process`）、展示元数据、不可变 `artifact`（`local_process` 为 `null`）、`capabilities_snapshot`、`qualification_report_sha256` 与状态机（`registered` -> `qualified` -> `enabled` <-> `disabled` -> `retired`）。
+3. **发现不等于资格（[ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md)）**：注册插件并执行 `describe` 仅产出能力发现快照；只有在平台核验镜像摘要（或 `local_process` 可执行入口摘要）、离线基座资产 SHA-256、能力收据与真实隔离冒烟报告摘要后，管理员才可批准该训练器进入 `qualified` / `enabled`。
 
 ### 2. 一次性隔离作业协议（`yoao-trainer/v1`）
 
@@ -56,13 +56,15 @@
    - **跨语言权威摘要边界**：`config_digest`、`dataset_snapshot_digest`、`classes_digest`、`policy_digest` 与 `input_digest` 均由平台/监督器在写入规范载荷时计算并随 `spec.json` / `preview-spec.json` 下发。非 Python 语言插件（如 JS/Go/Rust，其浮点文本格式与 Python `json.dumps` 存在 `0.0`/`0` 或科学计数法差异）在回填 `PreviewReportV1.input_digest` / `policy_digest` 时必须原样回显输入规格中的摘要或对原始规范字节流取哈希，不得对经由本语言 IEEE-754 解析后的浮点对象重新计算平台摘要。
    - `atomic_write_json` 必须在创建父目录前完成规范序列化（禁止 `NaN`/`Infinity`），写入同目录临时文件、设置跨容器 UID 可读的非敏感文件权限（默认 `0o644`，敏感状态文件可显式指定 `mode=0o600`）并 `fsync`，经 `os.replace` 原子替换后 `fsync` 父目录，并在任何 `BaseException` 下清理残留临时文件。
 
-### 3. 容器边界的 GPU 互斥、孤儿回收与租约释放语义
+### 3. 双轨执行边界的 GPU 互斥、孤儿回收与租约释放语义
 
-原单镜像子进程通过继承 `/state/gpu-<sha24>.lock` 文件描述符和 `os.killpg` 防止 supervisor 崩溃后提前释放 GPU。容器运行时（如 `dockerd`）拉起的容器不会继承 supervisor 的文件描述符，也无法由 `os.killpg` 终止。为保证同等强度的互斥与崩溃恢复，无 ML 依赖的 `training-supervisor` 必须执行四条硬规则：
+`training-supervisor` 原生支持受管容器档（`execution_mode = "container"`）与本地独立进程档（`execution_mode = "local_process"`），容器档统一复用已在 `yoao-sdk` 抽离并验收通过的共享窄接口 `ContainerRuntimePort`（`packages/python-sdk/src/yoao/container_runtime.py`，默认 `LocalDockerRuntime` 实现，接口保持 Podman/OCI 可插拔），API 进程永不接触容器 socket。
 
-1. **先落盘后启动**：在调用容器运行时 `create` / `start` 之前，必须将确定性容器身份（绑定 `gpu_resource_id` 与 `attempt_id` 的容器名与标签）和 `spawn_intent` 原子写入并 `fsync` 到 `/state/assignment.json`。
-2. **启动/恢复期先对账容器再申领**：supervisor 重启持有 `/state/gpu-<sha24>.lock` 后，在调用 `POST /claim` 之前必须向容器运行时枚举绑定该 `gpu_resource_id` 的受管容器；凡发现运行中容器，必须先执行运行时强停并确认退出，再执行既有恢复或申领新作业。
-3. **以运行时退出状态作为租约释放前提**：停止、取消、撤权或 `ProcessBudget` 单调时钟预算到期时，必须通过容器运行时 API 执行 `stop`/`kill` 与 `wait` 并复核 `Running == false`，只有确认容器完全退出后才向平台上报 `process_exited: True` 以释放 `TrainingResourceLease`。本地开发隔离进程模式继续保留子进程 `flock` 继承与 `os.killpg`。
+原单镜像子进程通过继承 `/state/gpu-<sha24>.lock` 文件描述符和 `os.killpg` 防止 supervisor 崩溃后提前释放 GPU。容器运行时拉起的容器不会继承 supervisor 的文件描述符，也无法由 `os.killpg` 终止。为保证双轨同等强度的互斥与崩溃恢复，无 ML 依赖的 `training-supervisor` 必须执行四条硬规则：
+
+1. **先落盘后启动**：在调用 `ContainerRuntimePort` 启动容器或拉起 `local_process` 子进程组之前，必须将确定性作业身份（绑定 `gpu_resource_id` 与 `attempt_id` 的容器名/标签或进程组记录）和 `spawn_intent` 原子写入并 `fsync` 到 `/state/assignment.json`。
+2. **启动/恢复期先对账再申领**：supervisor 重启持有 `/state/gpu-<sha24>.lock` 后，在调用 `POST /claim` 之前必须通过 `ContainerRuntimePort`（T2 需在端口补齐按标签过滤的 `list_containers` 能力，或按确定性容器名对账）核查绑定该 `gpu_resource_id` 的受管容器（或在 `local_process` 下确认继承锁释放与残留进程组清理）；凡发现运行中容器，必须先执行强停并确认退出，再执行既有恢复或申领新作业。
+3. **以真实退出状态作为租约释放前提**：停止、取消、撤权或 `ProcessBudget` 单调时钟预算到期时，`container` 档必须通过 `ContainerRuntimePort` 执行强停并复核 `inspect_container` 确认退出，只有确认完全退出后才向平台上报 `process_exited: True` 以释放 `TrainingResourceLease`；`local_process` 档继续使用子进程 `flock` 继承与 `os.killpg` 并确认子进程组全部退出。
 4. **保租约与撤权不退化**：心跳超时置 `lost` 仍保留 `TrainingResourceLease`；项目管理员权限或 API Key 作用域撤销在 admission、claim、heartbeat、finish、resume 五个节点持续复核。
 
 ### 4. 离线断网沙箱与容器/OS 强制预览边界
@@ -106,4 +108,4 @@
 - T0 契约实现位置：
   - 平台侧：`packages/python-sdk/src/training_contract/trainer_plugin.py`、`packages/python-sdk/tests/contracts/training_contract/test_trainer_plugin.py`
   - 独立插件 SDK：`YOAO-Labs/Plugin-SDK` 仓内 `packages/python/src/yoao_plugin_sdk/trainer/__init__.py`、`packages/js/src/trainer.mjs`、`packages/js/src/index.d.ts`
-- 待维护者确认后推进 T1：确认本 ADR 决策，以及 T2 中 `training-supervisor` 默认仅支持受限 Docker Engine API 通道还是同时抽象通用 OCI/Podman 运行时接口。
+- T1（Learning Owner 边界与 `bo0512` SQL 泛化）与 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 推理插件升级均已完成验收；容器运行抽象已收口至共享 `ContainerRuntimePort`（`packages/python-sdk/src/yoao/container_runtime.py`，默认 `LocalDockerRuntime` 实现，Podman/OCI 可插拔），当前具备启动 **T2** 的全部前提。

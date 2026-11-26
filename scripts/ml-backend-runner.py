@@ -18,6 +18,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps/api"))
 from app.services.backend_operations import JobStore, PROVIDERS, TERMINAL  # noqa: E402
 
 PORTS = {"gsam2": 8001, "sam3": 8002, "yolo": 8003, "onnxtools": 8004, "rapidocr": 8005}
+PLUGIN_COMPOSE_DIRS = {
+    "gsam2": "grounded-sam2",
+    "sam3": "sam3",
+    "yolo": "yolo",
+    "onnxtools": "onnxtools",
+    "rapidocr": "rapidocr",
+}
 LIFECYCLE_HASH_LABEL = "com.aap.lifecycle-sha256"
 MODEL_MOUNTS = {
     "gsam2": {"/app/checkpoints", "/app/.cache/huggingface"},
@@ -59,30 +66,44 @@ class TrackingTimeout(RuntimeError):
 
 class Runner:
     def __init__(
-        self, root, project, compose_files, store, *, timeout=1800, runner_id=None
+        self,
+        root,
+        project,
+        compose_files,
+        store,
+        *,
+        plugins_root,
+        timeout=1800,
+        runner_id=None,
     ):
+        if not str(root).strip() or not str(plugins_root).strip():
+            raise ValueError("Both root and plugins_root are required")
         self.root = Path(root).resolve()
+        self.plugins_root = Path(plugins_root).resolve()
         self.project = project
         self.files = tuple(Path(p).resolve() for p in compose_files)
-        allowed = {
+        platform_allowed = {
             self.root / name
             for name in (
                 "docker-compose.yml",
-                "docker-compose.ml.yml",
-                "docker-compose.ml-gsam2.yml",
-                "docker-compose.ml-sam3.yml",
-                "docker-compose.ml-yolo.yml",
-                "docker-compose.ml-onnxtools.yml",
-                "docker-compose.ml-rapidocr.yml",
                 "docker-compose.prod.yml",
                 "docker-compose.hostvols.yml",
                 "docker-compose.lan-prod.yml",
             )
         }
+        plugin_allowed = {
+            self.plugins_root
+            / "plugins"
+            / "inference"
+            / plugin_dir
+            / "docker-compose.yml"
+            for plugin_dir in PLUGIN_COMPOSE_DIRS.values()
+        }
+        allowed = platform_allowed | plugin_allowed
         if (
             not self.files
             or not set(self.files) <= allowed
-            or self.root / "docker-compose.ml.yml" not in self.files
+            or not (set(self.files) & plugin_allowed)
         ):
             raise ValueError("Only deployment-owned Compose files are permitted")
         if not project or any(
@@ -574,9 +595,10 @@ def datetime_epoch(value):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--root", required=True)
+    parser.add_argument("--plugins-root", required=True)
     parser.add_argument("--project", required=True)
-    parser.add_argument("--compose-file", type=Path, action="append", required=True)
+    parser.add_argument("--compose-file", action="append", required=True)
     parser.add_argument("--operations-dir", type=Path, required=True)
     parser.add_argument("--phase-timeout", type=int, default=1800)
     parser.add_argument(
@@ -585,13 +607,37 @@ def main():
     args = parser.parse_args()
     if not 30 <= args.phase_timeout <= 86400:
         parser.error("phase timeout must be 30..86400 seconds")
-    runner = Runner(
-        args.root,
-        args.project,
-        args.compose_file,
-        JobStore(args.operations_dir),
-        timeout=args.phase_timeout,
-    )
+    if not args.root.strip():
+        parser.error("--root must not be empty")
+    root_path = Path(args.root)
+    if not root_path.is_dir():
+        parser.error(f"--root does not exist or is not a directory: {args.root}")
+    if not args.plugins_root.strip():
+        parser.error("--plugins-root must not be empty")
+    plugins_root_path = Path(args.plugins_root)
+    if not plugins_root_path.is_dir():
+        parser.error(
+            f"--plugins-root does not exist or is not a directory: {args.plugins_root}"
+        )
+    compose_paths = []
+    for raw_file in args.compose_file:
+        if not raw_file.strip():
+            parser.error("--compose-file must not be empty")
+        compose_path = Path(raw_file)
+        if not compose_path.is_file():
+            parser.error(f"--compose-file does not exist or is not a file: {raw_file}")
+        compose_paths.append(compose_path)
+    try:
+        runner = Runner(
+            root_path,
+            args.project,
+            compose_paths,
+            JobStore(args.operations_dir),
+            plugins_root=plugins_root_path,
+            timeout=args.phase_timeout,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     runner.run([str(v) for v in args.acknowledge_interrupted])
 
 

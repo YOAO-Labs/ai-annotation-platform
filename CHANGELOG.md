@@ -50,6 +50,7 @@
 
 ### Changed
 
+- 将平台主仓库根目录遗留的 6 个官方推理插件 Compose 叠加文件（`docker-compose.ml*.yml`）迁移收口至独立插件仓库 `YOAO-Plugins`（`plugins/inference/<plugin>/docker-compose.yml`，并将 `yolo_checkpoints` 命名卷合并进 `yolo/docker-compose.yml`）；同步从内建模块装配清单与 `scripts/development-restart.py` 中移除这些文件（叠加插件 Compose 启动时仅指定目标插件服务，避免重建平台 Celery worker），宿主机维护脚本 `scripts/ml-backend-runner.py` 改为通过显式 `--plugins-root` 绑定官方插件仓库。
 - 清除推理插件安装观察器与部署器中的全部 LibreYOLO 特例硬编码，改为框架无关的受控模型兼容回退与资格版本校验，将容器档资产准备收口至通用 OCI 标签 `io.yoao.plugin.prepare-assets-command`，并在 `yoao-sdk` 中抽离后端无关的 `ContainerRuntimePort` 窄接口（默认本地 Docker CLI 实现，为训练器插件化 T2 复用铺路）。
 - 将平台内部 5 个独立便携契约包（`yoao-task-contract`、`yoao-lifecycle-contract`、`yoao-inference-contract`、`yoao-protocol-v2`、`yoao-training-contract`）合并收编至单一 `yoao-sdk` 发行包（`packages/python-sdk`，支持 Python `>=3.10`，原有顶层导入路径保持不变），并通过可选 `yoao-sdk[protocol]` 提供 FastAPI／cryptography／PyJWT 协议运行时依赖；`apps/api`、`apps/inference`、`apps/workspace`、`apps/training-executor`、`scripts/build-plugin-contracts.py` 与 `scripts/test-sdk-distributions.py` 同步切换至单一 `yoao-sdk`。
 - 推理插件安装器与 `yoao-protocol-v2` 路由控制运行时全面切到 YOAO 命名：Docker 所有权标签改为 `yoao.installation`／`yoao.owner`／`yoao.image`／`yoao.config`／`yoao.candidate`，容器名前缀改为 `yoao-plugin-`，挂载目录统一为 `/var/lib/yoao-plugin` 与 `/var/lib/yoao-qualification/*`，容器环境变量改为 `YOAO_PLUGIN_*`、`YOAO_QUALIFICATION_*` 与 `ROUTE_REGISTRY_ID`（旧名 `AAP_ROUTE_REGISTRY_ID` 非空时启动阶段失败关闭）。不保留旧别名；既有插件容器须用原匹配 CLI 停用或退役后再部署，外部 `Plugin-SDK` 与 `YOAO-Plugins` 制品须同步升级以匹配新运行契约。

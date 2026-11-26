@@ -2,7 +2,7 @@
 
 ## 1. 背景与目标
 
-本计划承接 [ADR-0190](../adr/0190-inference-plugin-generalization-and-direct-tier.md)，在推进训练器插件化 T2（[1795600466_trainer-pluginization.md](1795600466_trainer-pluginization.md)）之前，先将既有推理插件机制升级至与通知渠道（[ADR-0187](../adr/archive/0187-notification-channel-extension-point.md)）、格式适配器与训练器一致的架构口径：
+本计划承接 [ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md)，在推进训练器插件化 T2（[1795600466_trainer-pluginization.md](1795600466_trainer-pluginization.md)）之前，先将既有推理插件机制升级至与通知渠道（[ADR-0187](../adr/archive/0187-notification-channel-extension-point.md)）、格式适配器与训练器一致的架构口径：
 
 1. **支持非容器运行（`execution_mode = "direct" | "container"`）**：先在 I1 闭合 D1 非本机仲裁直连档（裸机 `venv`/`conda` CPU 插件、无 Docker 本机独立卡与远端 GPU/CPU 推理服务），让非容器推理服务享有与托管插件一致的注册、能力核验、受控模型兼容性与评估能力审批、来源层级标识与安全退役围栏；本机受管 CUDA 仲裁直连档（D2）单独沉淀为配套受管生命周期资格运行器的可选切片 I4。
 2. **统一 `yoao-extension-manifest/v1` 与全量推理能力词表**：消除主仓 `yoao-sdk` 与独立仓 `YOAO-Labs/Plugin-SDK` 的清单分叉，移除 `Plugin-SDK` 中误植的 `"train"` 能力，解除主仓 `Literal["inference", "detection", "managed_models"]` 限制并对齐全量 `yoao_task_contract.Task`，零破坏兼容旧扁平清单。
@@ -76,7 +76,7 @@
 - **关键改动**：
   1. 在 `apps/web` 模型市场 / 推理集成管理页中补齐直连推理插件（`direct`）注册弹窗（URL、Token、来源层级、能力探测预览与受控模型兼容性/受控评估勾选确认）、插件列表展示（展示 `display_name`、`source_tier`、`execution_mode`、`status`）、只读探活、启用/停用与安全退役操作；既有容器档记录保持完整展示与生命周期操作兼容。
   2. 在一次性测试库与真实本机进程环境下，用不依赖 Docker 的本地 `venv` 推理插件（基于 `yoao-plugin-sdk`，通过显式本地回环白名单）+ 容器推理插件跑通完整端到端验收（注册 -> 探活 -> 项目启用 -> 推理调用 -> 停用 -> 退役），使用 `agent-browser` 核验前端交互与持久状态。
-  3. 同步更新 `CHANGELOG.md`、`YOAO-Labs/YOAO-Docs` 管理与开发指南、更新 [ADR-0190](../adr/0190-inference-plugin-generalization-and-direct-tier.md) 状态，并在本计划末尾补写 `## Outcome`。
+  3. 同步更新 `CHANGELOG.md`、`YOAO-Labs/YOAO-Docs` 管理与开发指南、更新 [ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 状态，并在本计划末尾补写 `## Outcome`。
   4. 按 ADR-0190 已验证的双轨口径修订 [ADR-0189](../adr/0189-trainer-extension-point.md)（支持 `execution_mode = "local_process" | "container"` 与共享 `ContainerRuntimePort`），无缝转入训练器插件化 **T2**。
 
 ### I4（可选独立切片）：D2 本机受管 CUDA GPU 直连档
@@ -98,5 +98,22 @@
 
 ## 5. 当前状态与待决事项
 
-- **当前状态**：已完成 **I0（ADR-0190 确认与双仓统一推理清单契约对齐）**、**I1（前向 SQL 迁移 `bo0513` 与 D1 非容器直连档闭环）**、**I2（清除全部 LibreYOLO 推理插件硬编码、通用 OCI `io.yoao.plugin.prepare-assets-command` 与 `ContainerRuntimePort` 抽离）** 与 **I3 前端（Web 超管直连插件管理页、只读探活与 M5 可复用独立组件）**，均已在隔离工作树实施、合回 `plugin/plugin-opt` 并通过本地全量回归与独立只读审查修复。
-- **下一步**：执行 **I3 收尾验收与收口**（一次性测试库 + 真实无 Docker 本机 `venv` 直连插件与容器插件双轨端到端与 `agent-browser` 验收、将主仓遗留 `docker-compose.ml*.yml` 按方案迁移至 `YOAO-plugins`、更新 ADR-0190 状态与修订 ADR-0189），随后转入训练器插件化 **T2**。
+- **当前状态**：**I0–I3 已全部完成并通过真实双轨与 `agent-browser` 端到端验收**。[ADR-0190](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 已转正并归档至 `docs/adr/archive/`，[ADR-0189](../adr/0189-trainer-extension-point.md) 已按双轨与共享 `ContainerRuntimePort` 口径完成对齐。
+- **后续可选切片**：I4（D2 本机受管 CUDA GPU 非容器直连档）保留为按需排期的独立切片；当前可直接进入训练器插件化 **T2**。
+
+## 6. Outcome
+
+### 已落地切片与提交
+
+- **I0（双仓统一推理清单契约）**：主仓 `10fec5961` + `YOAO-Labs/Plugin-SDK` `253d7fc`，双向冻结 `yoao-extension-manifest/v1`（`extension_point = "inference"`）与完整推理能力词表，移除非法 `"train"`，零破坏兼容旧扁平清单。
+- **I1（前向迁移 `bo0513` 与 D1 非容器直连档闭环）**：主仓 `a7cce1110`，落地 `0513_inference_plugin_direct_mode.sql`、Inference 自有 IP 固定异步 SSRF 守卫、`INFERENCE_PLUGIN_LOOPBACK_HOST_ALLOWLIST` / `INFERENCE_PLUGIN_PRIVATE_HOST_ALLOWLIST`、`managed_evaluation` 审批闭环、`POST /api/v1/admin/ml-integrations/plugins/direct` 与只读 `probe` 端点以及 `yoao plugins register-direct` / `probe` CLI。
+- **I2（清除 LibreYOLO 硬编码与 `ContainerRuntimePort` 抽象）**：主仓 `c9f9287f1` + `cee2c5697`，彻底移除安装观察器与部署器中的 LibreYOLO 特例分支，引入通用 OCI 标签 `io.yoao.plugin.prepare-assets-command` 与可插拔 `ContainerRuntimePort`（默认 `LocalDockerRuntime`），并附 AST 防回流测试。
+- **I3（Web 直连管理 UI、Compose 迁仓与双轨实测收口）**：主仓 `f1f405cb6` + `cee2c5697` + 本次收口提交，`YOAO-Labs/YOAO-Plugins` `aa8eb42`（将主仓根目录 6 个 `docker-compose.ml*.yml` 迁移收口至各官方插件目录 `plugins/inference/<plugin>/docker-compose.yml`，同步更新 `apps/api/app/assembly/modules/inference.py`、`scripts/ml-backend-runner.py --plugins-root` 与 `.env.example`）。
+
+### 真实双轨与浏览器验收留痕（2026-11-26）
+
+- **一次性隔离栈**：独立 `postgres:16-alpine`（全量 `alembic upgrade head` 含 `bo0513` 与 17 个最小权限 `yoao_inference_*_client` 函数角色）、`redis:7-alpine`、`minio/minio:latest`（开启桶版本化）、`registry:2.8.3`、本检出 `yoao_inference` + FastAPI API + Vite SPA，全程不触碰日常开发库与生产库。
+- **轨道 A（零 Docker 独立 Python 3.11 `venv` 直连推理插件）**：独立 `venv` 安装 `YOAO-Labs/Plugin-SDK` 并经 `validate_manifest_dict` 自检 `execution_mode = "direct"`，通过 `INFERENCE_PLUGIN_LOOPBACK_HOST_ALLOWLIST=127.0.0.1` 完成注册 -> 只读探活（`protocol_version = "2.2"`、`boot_id = "venv-a-boot-001"`、`terminal_drain_supported = true`）-> 项目启用 -> 健康与能力查询 -> 真实上传 1x1 PNG 原图后调用 `predict-test` 返回真实检测结果（无需伪造容器资产审批）-> `disable` -> `quiesce`（调用真实 `/lifecycle/terminal-drain`）-> `retire` -> 退役后探活返回 `409`。
+- **轨道 B（真实 Docker OCI 容器推理插件）**：构建携带 `io.yoao.plugin.manifest`（`yoao-extension-manifest/v1`）与 `io.yoao.plugin.prepare-assets-command` 的真实 OCI 镜像并推送至一次性本地仓库取得不可变 `@sha256:...` 摘要；经 `LocalPluginDeployment` + `LocalDockerRuntime`（`ContainerRuntimePort`）完成 `inspect_image` -> `prepare` -> `prepare_assets` -> `install`（独立桥接网 `i3-net` 经 `INFERENCE_PLUGIN_PRIVATE_HOST_ALLOWLIST` 联通）-> 资产审批前 `predict-test` 失败关闭（`503 ml_backend_pool_unavailable`）-> 实测容器内文件并审批资产 -> `predict-test` 返回真实检测结果 -> `uninstall` 停止并删除真实容器且置为 `retired`。
+- **真实浏览器 `agent-browser` 验收**：在独立命名会话中分别以 `super_admin` 与 `project_admin` 实测真实页面控件，验证双轨同屏摘要与筛选、通过 `DirectInferencePluginModal` 实时注册第二个 `venv` 直连插件并经刷新持久化、详情弹窗只读探活与 `Escape` 关闭、完整直连生命周期（`停用 -> 启用 -> 停用 -> 排空 -> 退役` 与刷新持久化）、容器停用后禁用的 CLI 提示、以及非超管深链 `?tab=registry&registry_view=plugins` 自动回退且零插件接口请求、零未捕获控制台错误。
+- **资源退役**：双浏览器会话已关闭，全部 `org.aap.acceptance=i3-dual-track` 标记容器、网络、临时镜像、临时 `venv` 与宿主进程已完整清理并复核归零。

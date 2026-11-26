@@ -141,34 +141,5 @@ MANIFEST = BuiltinModuleManifest(
                 "celery-worker-gpu-control",
             ),
         ),
-        ComposeOverlaySpec(
-            file="docker-compose.ml.yml",
-            tier="ml_plugin",
-        ),
-        ComposeOverlaySpec(
-            file="docker-compose.ml-gsam2.yml",
-            tier="ml_plugin",
-            services=("grounded-sam2-backend",),
-        ),
-        ComposeOverlaySpec(
-            file="docker-compose.ml-onnxtools.yml",
-            tier="ml_plugin",
-            services=("onnxtools-backend",),
-        ),
-        ComposeOverlaySpec(
-            file="docker-compose.ml-rapidocr.yml",
-            tier="ml_plugin",
-            services=("rapidocr-backend",),
-        ),
-        ComposeOverlaySpec(
-            file="docker-compose.ml-sam3.yml",
-            tier="ml_plugin",
-            services=("sam3-backend",),
-        ),
-        ComposeOverlaySpec(
-            file="docker-compose.ml-yolo.yml",
-            tier="ml_plugin",
-            services=("yolo-backend",),
-        ),
     ),
 )
