@@ -216,25 +216,26 @@ async def clean(world, monkeypatch, *, require_records=True):
 
 
 @pytest.mark.parametrize("managed_world", ["direct", "primary", "task"], indirect=True)
-@pytest.mark.parametrize("entry", ["interactive", "test"])
 async def test_both_endpoints_read_saved_original_and_retire_exact_versions(
     httpx_client,
     managed_world,
     super_admin,
-    entry,
     monkeypatch,
 ):
     world = managed_world
-    response = await call(httpx_client, world, auth(super_admin), entry)
-    assert response.status_code == 200, response.text
-    assert len(world.calls) == 1 and len(world.sources.captured) == 1
-    spec = world.sources.captured[0]
-    assert (spec.bucket, spec.object_key) == (
-        world.member.source.bucket,
-        world.member.source.object_key,
-    )
-    assert world.inputs.read_versions == world.inputs.signed_versions
-    await clean(world, monkeypatch)
+    for count, entry in enumerate(("interactive", "test"), start=1):
+        signed_before = len(world.inputs.signed_versions)
+        response = await call(httpx_client, world, auth(super_admin), entry)
+        assert response.status_code == 200, (entry, response.text)
+        assert len(world.calls) == count and len(world.sources.captured) == count, entry
+        spec = world.sources.captured[-1]
+        assert (spec.bucket, spec.object_key) == (
+            world.member.source.bucket,
+            world.member.source.object_key,
+        ), entry
+        assert len(world.inputs.signed_versions) > signed_before, entry
+        assert world.inputs.read_versions == world.inputs.signed_versions, entry
+        await clean(world, monkeypatch)
 
 
 @pytest.mark.parametrize("entry", ["interactive", "test"])
