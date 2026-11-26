@@ -17,7 +17,7 @@ from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
 from sqlalchemy import delete, select, text, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -275,6 +275,16 @@ async def lease(world, identifier):
         return await db.get(Lease, identifier)
 
 
+async def assert_lease_write_rejected(world, statement, case):
+    async with world.factory() as db:
+        try:
+            await db.execute(statement)
+        except IntegrityError as exc:
+            assert exc.orig.sqlstate == "23514", case
+        else:
+            pytest.fail(f"database accepted {case}")
+
+
 def snapshot():
     buffer = io.BytesIO()
     with Image.new("RGB", (3, 2), (4, 5, 6)) as image:
@@ -504,39 +514,25 @@ async def test_legacy_without_pin_is_not_promoted_or_physically_opened(world):
     assert row.error_code == "legacy_unpinned" and not world.clients
 
 
-@pytest.mark.parametrize(
-    "change", ["expiry", "source", "erase", "receipt", "nonce", "delete"]
-)
-async def test_database_freezes_facts_and_verified_inventory(world, change):
+async def test_database_freezes_facts_and_verified_inventory(world):
     current = await inputs(world, source_ref={"source": "immutable"})
     await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
-    async with world.factory() as db:
-        row = await db.get(Lease, current.record.id)
-        if change == "delete":
-            statement = delete(Lease).where(Lease.id == row.id)
-        else:
-            values = {}
-            if change == "expiry":
-                values["expires_at"] = row.expires_at + timedelta(hours=1)
-            elif change == "source":
-                values["source_ref"] = {"source": "changed"}
-            elif change == "erase":
-                values = {
-                    "inventory": {"schema": 1, "objects": {}},
-                    "object_count": 0,
-                    "size_bytes": 0,
-                }
-            else:
-                inventory = deepcopy(row.inventory)
-                field = "write_nonce" if change == "nonce" else "etag"
-                next(iter(inventory["objects"].values()))[field] = (
-                    str(uuid.uuid4()) if change == "nonce" else '"different"'
-                )
-                values["inventory"] = inventory
-            statement = update(Lease).where(Lease.id == row.id).values(**values)
-        with pytest.raises(DBAPIError):
-            await db.execute(statement)
-        await db.rollback()
+    row = await lease(world, current.record.id)
+    update_lease = update(Lease).where(Lease.id == row.id)
+    changes = {
+        "expiry": update_lease.values(expires_at=row.expires_at + timedelta(hours=1)),
+        "source": update_lease.values(source_ref={"source": "changed"}),
+        "erase": update_lease.values(
+            inventory={"schema": 1, "objects": {}}, object_count=0, size_bytes=0
+        ),
+        "delete": delete(Lease).where(Lease.id == row.id),
+    }
+    for field, value in (("etag", '"different"'), ("write_nonce", str(uuid.uuid4()))):
+        inventory = deepcopy(row.inventory)
+        next(iter(inventory["objects"].values()))[field] = value
+        changes[field] = update_lease.values(inventory=inventory)
+    for change, statement in changes.items():
+        await assert_lease_write_rejected(world, statement, change)
     await current.close()
 
 
@@ -761,8 +757,7 @@ async def test_full_readback_publishes_maximum_ascii_header_receipt(world, field
 
 
 @pytest.mark.parametrize("field", ["etag", "version_id"])
-@pytest.mark.parametrize("header", ["a" * 1025, "non-ascii-é", "line\nbreak", ""])
-async def test_database_refuses_out_of_contract_header_receipt(world, field, header):
+async def test_database_refuses_out_of_contract_header_receipt(world, field):
     current = await inputs(world)
     digest = hashlib.sha256(b"crop").hexdigest()
     relative = f"crops/0-{digest}.jpg"
@@ -778,17 +773,22 @@ async def test_database_refuses_out_of_contract_header_receipt(world, field, hea
             write_nonce=str(uuid.uuid4()),
         ),
     )
-    async with world.factory() as db:
-        row = await db.get(Lease, current.record.id)
+    row = await lease(world, current.record.id)
+    for case, header in (
+        ("oversize", "a" * 1025),
+        ("non-ascii", "non-ascii-é"),
+        ("newline", "line\nbreak"),
+        ("empty", ""),
+    ):
         inventory = deepcopy(row.inventory)
         entry = inventory["objects"][relative]
         entry.update(state="verified", etag='"valid-etag"', version_id="valid-version")
         entry[field] = header
-        with pytest.raises(DBAPIError):
-            await db.execute(
-                update(Lease).where(Lease.id == row.id).values(inventory=inventory)
-            )
-        await db.rollback()
+        await assert_lease_write_rejected(
+            world,
+            update(Lease).where(Lease.id == row.id).values(inventory=inventory),
+            f"{field}: {case}",
+        )
     await current.close()
 
 
