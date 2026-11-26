@@ -67,7 +67,10 @@ def test_permanent_api_rejection_publishes_persisted_failure(
     publication, stage, status
 ):
     supervisor, journal, directory, waits = publication
-    (directory / "events.jsonl").write_text('{"kind":"uploading"}\n')
+    (directory / "output").mkdir(parents=True, exist_ok=True)
+    (directory / "output" / "events.jsonl").write_text(
+        '{"seq":1,"kind":"phase","phase":"uploading"}\n'
+    )
     calls = []
     finishes = []
 
@@ -133,7 +136,10 @@ def test_named_authority_lock_conflict_retries_without_failed_terminal(
     publication, stage, reason
 ):
     supervisor, journal, directory, waits = publication
-    (directory / "events.jsonl").write_text('{"kind":"uploading"}\n')
+    (directory / "output").mkdir(parents=True, exist_ok=True)
+    (directory / "output" / "events.jsonl").write_text(
+        '{"seq":1,"kind":"phase","phase":"uploading"}\n'
+    )
     requests = []
     finishes = []
 

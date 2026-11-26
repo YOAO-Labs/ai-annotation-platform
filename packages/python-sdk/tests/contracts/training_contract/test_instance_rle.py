@@ -1,11 +1,10 @@
 """Independent bridge identity, streaming pixel evidence and strict budgets."""
 
-from copy import deepcopy
 import hashlib
 import struct
 
 import pytest
-from training_contract import definition, resolve
+
 from training_contract.dataset import (
     DatasetContractError,
     INSTANCE_RLE_CONTRACT,
@@ -13,11 +12,6 @@ from training_contract.dataset import (
     data_contract,
     instance_rle_budget,
     instance_rle_evidence,
-)
-from training_contract.validation import (
-    configuration_for_data_contract,
-    verify_frozen,
-    CANONICAL,
 )
 
 
@@ -57,37 +51,3 @@ def test_budgets_reject_before_any_decode(args, code):
     with pytest.raises(DatasetContractError) as exc:
         instance_rle_budget(*args)
     assert exc.value.code == code
-
-
-def test_rle_config_workers_is_additive_and_historical_schema_is_unchanged():
-    schema = definition("ultralytics", "yolo11n-seg", version="8.4.177")
-    configuration = resolve(
-        "ultralytics",
-        "yolo11n-seg",
-        {
-            "schema_id": schema["schema_id"],
-            "schema_digest": schema["schema_digest"],
-            "values": {"epochs": 2, "warmup_epochs": 0},
-        },
-    )
-    original = deepcopy(configuration)
-    raster = configuration_for_data_contract(configuration, INSTANCE_RLE_CONTRACT)
-    assert configuration == original
-    assert (
-        configuration_for_data_contract(configuration, SEGMENTATION_CONTRACT)
-        is configuration
-    )
-    assert raster["effective_values"]["workers"] == 0
-    assert raster["identity"] == original["identity"]
-    frozen = {
-        "framework": "ultralytics",
-        "framework_version": "8.4.177",
-        "base_model": {"id": "yolo11n-seg"},
-        "adapter_revision": 2,
-        "configuration": raster,
-        "data_contract": INSTANCE_RLE_CONTRACT,
-        "parameters": {key: raster["effective_values"][key] for key in CANONICAL},
-    }
-    verify_frozen(frozen)
-    with pytest.raises(ValueError, match="Frozen parameter"):
-        verify_frozen({**frozen, "configuration": original})

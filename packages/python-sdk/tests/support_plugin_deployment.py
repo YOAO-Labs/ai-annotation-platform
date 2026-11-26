@@ -67,14 +67,21 @@ def config():
 def build_report(receipt, *, image_id: str | None = None):
     from yoao_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
     from yoao_lifecycle_contract import memory_cycle_evidence
-    from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
     manifest = receipt["config"]["manifest"]
     registry = receipt["registry_id"]
     resource = receipt["config"]["gpu_resource_id"]
     versions = {
-        key: str(value).lower() if isinstance(value, bool) else str(value)
-        for key, value in LIBRE_CUDA_RUNTIME.items()
+        "revision": "1",
+        "libreyolo": "1.6.0",
+        "torch": "2.14.1+cu132",
+        "torchvision": "0.29.1+cu132",
+        "device": "cuda",
+        "cuda_build": "13.2",
+        "precision": "fp32",
+        "half": "false",
+        "amp": "false",
+        "tf32": "false",
     }
     versions.update(
         plugin_id=manifest["plugin_id"],
@@ -317,11 +324,18 @@ class LocalDocker:
             build_managed_lifecycle_evidence,
         )
         from yoao_lifecycle_contract import memory_cycle_evidence
-        from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
         versions = {
-            key: str(value).lower() if isinstance(value, bool) else str(value)
-            for key, value in LIBRE_CUDA_RUNTIME.items()
+            "revision": "1",
+            "libreyolo": "1.6.0",
+            "torch": "2.14.1+cu132",
+            "torchvision": "0.29.1+cu132",
+            "device": "cuda",
+            "cuda_build": "13.2",
+            "precision": "fp32",
+            "half": "false",
+            "amp": "false",
+            "tf32": "false",
         }
         versions.update(
             plugin_id=context["plugin_id"],

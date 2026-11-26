@@ -7,8 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
 from app.schemas.training_run import (
-    BuiltinFrameworkId,
     ExecutorFence,
+    FrameworkId,
     FrameworkSlug,
     TrainingConfiguration,
 )
@@ -18,7 +18,7 @@ class TrainingPreviewRequestOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     dataset_id: uuid.UUID
     framework: FrameworkSlug
-    base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    base_model: str = Field(pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     configuration: TrainingConfiguration
     seed: int = Field(default=42, ge=0, le=2147483647, strict=True)
     epoch: int = Field(default=1, ge=1, le=1000, strict=True)
@@ -27,7 +27,7 @@ class TrainingPreviewRequestOut(BaseModel):
 
 
 class TrainingPreviewCreate(TrainingPreviewRequestOut):
-    framework: BuiltinFrameworkId
+    framework: FrameworkId
 
 
 class PreviewBox(BaseModel):

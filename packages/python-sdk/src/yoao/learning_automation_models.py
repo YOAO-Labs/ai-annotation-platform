@@ -67,16 +67,6 @@ class TrainingStudyCreate(BaseModel):
     def full_configuration(self) -> TrainingStudyCreate:
         if self.base.configuration is None:
             raise ValueError("parameter search requires a complete configuration")
-        if self.base.framework == "libreyolo" and self.objective in {
-            "metrics/precision",
-            "metrics/recall",
-        }:
-            raise ValueError("LibreYOLO evaluation does not report precision or recall")
-        if self.base.framework == "ultralytics" and self.objective in {
-            "metrics/mAP75",
-            "metrics/AR100",
-        }:
-            raise ValueError("Ultralytics evaluation does not report mAP75 or AR100")
         return self
 
 

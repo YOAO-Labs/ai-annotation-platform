@@ -9,8 +9,6 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
-import sys
 import threading
 import time
 from typing import Any
@@ -117,7 +115,17 @@ def _build_plugin_preview_report(
             "source_pool": spec["sources"],
             "pool_summary": spec.get("pool_summary") or {},
             "outputs": outputs,
-            "runtime": {**report.runtime, "cuda_initialized": False},
+            "runtime": {
+                **report.runtime,
+                **(
+                    {"image_digest": spec["config"]["image_digest"]}
+                    if isinstance(spec.get("config"), Mapping)
+                    and spec["config"].get("image_digest") is not None
+                    and "image_digest" not in report.runtime
+                    else {}
+                ),
+                "cuda_initialized": False,
+            },
         }
     dumped = report.model_dump(mode="json")
     for index, item in enumerate(dumped["outputs"]):
@@ -701,7 +709,6 @@ class PreviewSupervisor:
 
     def execute_owned(self, journal, directory, *, recovery):
         assignment = journal["assignment"]
-        process = None
         try:
             if recovery:
                 journal.setdefault("outcome", "failed")
@@ -710,114 +717,11 @@ class PreviewSupervisor:
                 if assignment["stop"]:
                     raise StopTraining()
                 spec = assignment["spec"]
-                if "trainer_plugin" in spec:
-                    self._run_plugin_preview(journal, directory)
-                else:
-                    base = self.models / spec["config"]["base_model"]["filename"]
-                    if (
-                        not base.is_file()
-                        or digest_file(base) != spec["config"]["base_model"]["sha256"]
-                    ):
-                        raise ValueError(
-                            "Controlled preview base weights are missing or changed"
-                        )
-                    for member in spec["sources"]:
-                        image, label = (
-                            directory / member["image_path"],
-                            directory / member["label_path"],
-                        )
-                        for path in (image, label):
-                            if not path.resolve().is_relative_to(directory.resolve()):
-                                raise ValueError("Preview input path escapes its owner")
-                            path.parent.mkdir(parents=True, exist_ok=True)
-                        Supervisor.download(
-                            self,
-                            assignment["source_urls"][member["task_id"]],
-                            image,
-                            member["sha256"],
-                            LIMITS["source_bytes"],
-                            exact_size=member["size_bytes"],
-                        )
-                        label.write_text(member["labels"])
-                    native_spec = {
-                        **spec,
-                        "preview_id": assignment["preview_id"],
-                        "input_digest": assignment["input_digest"],
-                        "base_path": str(base),
-                    }
-                    atomic_json(directory / "spec.json", native_spec)
-                    journal["phase"] = "transforming"
-                    self.save(journal)
-                    if self.shutdown.is_set() or self.stop_training.is_set():
-                        raise StopTraining()
-                    environment = {
-                        key: value
-                        for key, value in os.environ.items()
-                        if not key.startswith("TRAINING_")
-                    }
-                    environment.update(
-                        CUDA_VISIBLE_DEVICES="",
-                        OMP_NUM_THREADS="1",
-                        OPENBLAS_NUM_THREADS="1",
-                        MKL_NUM_THREADS="1",
-                        POLARS_MAX_THREADS="1",
-                        NUMEXPR_MAX_THREADS="1",
-                        YOLO_CONFIG_DIR=str(directory / ".cache/ultralytics"),
-                        MPLCONFIGDIR=str(directory / ".cache/matplotlib"),
+                if "trainer_plugin" not in spec:
+                    raise ValueError(
+                        "Preview assignment is missing trainer_plugin descriptor"
                     )
-                    with (directory / "preview.log").open("ab") as log:
-                        self.process_exited = False
-                        try:
-                            process = self.process = subprocess.Popen(
-                                [
-                                    sys.executable,
-                                    "-m",
-                                    "training_executor.preview",
-                                    "--spec",
-                                    str(directory / "spec.json"),
-                                ],
-                                env=environment,
-                                stdout=log,
-                                stderr=subprocess.STDOUT,
-                                start_new_session=True,
-                                pass_fds=(self.lock.fileno(),),
-                            )
-                        except Exception:
-                            self.process_exited = True
-                            raise
-                        journal["process"] = {
-                            "pid": process.pid,
-                            "started_at": psutil.Process(process.pid).create_time(),
-                        }
-                        self.save(journal)
-                        deadline = time.monotonic() + LIMITS["child_seconds"] + 2
-                        while process.poll() is None:
-                            if (
-                                self.shutdown.is_set()
-                                or self.stop_training.is_set()
-                                or time.monotonic() > deadline
-                            ):
-                                self.stop_reason = (
-                                    self.stop_reason or "原生预览已停止或超过执行时限"
-                                )
-                                self.stop_training.set()
-                                stop_process(process)
-                                break
-                            self.shutdown.wait(0.2)
-                        if live_group(process.pid):
-                            stop_process(process)
-                    journal["outcome"] = (
-                        "cancelled"
-                        if self.stop_training.is_set()
-                        else "succeeded"
-                        if process.returncode == 0
-                        else "failed"
-                    )
-                    if journal["outcome"] != "succeeded":
-                        journal["error"] = (
-                            self.stop_reason
-                            or f"原生预览进程退出码 {process.returncode}；请检查冻结素材与配置"
-                        )
+                self._run_plugin_preview(journal, directory)
         except StopTraining:
             journal["outcome"], journal["error"] = (
                 "cancelled",

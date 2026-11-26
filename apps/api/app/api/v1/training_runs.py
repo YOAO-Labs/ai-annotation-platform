@@ -42,10 +42,9 @@ from app.schemas.training_run import (
 )
 from app.schemas.training_hub import TrainingParameterSchema
 from app.schemas.training_initialization import TrainingInitializationEligibility
-from training_contract import definition
-from training_contract.model_return import registration_eligibility
 from app.application import training_control
 from app.services.project_write_guard import lock_project_manager
+from app.services import trained_models
 from app.services import training_runs as service
 from app.services import training_recipes as recipes
 from app.services import training_observability as observations
@@ -128,51 +127,7 @@ async def parameter_schema(
     db: AsyncSession = Depends(get_db),
 ):
     await adapters.ensure_known_framework(db, framework, require_enabled_plugin=True)
-    from app.services.trainer_plugins_data import TrainerPluginsPostgresData
-
-    enabled_plugin = (
-        await TrainerPluginsPostgresData(db).get_enabled_by_framework(framework)
-        if db is not None and hasattr(db, "scalar")
-        else None
-    )
-    if enabled_plugin is not None:
-        arch = next(
-            (
-                item
-                for item in enabled_plugin.capabilities_snapshot.get(
-                    "architectures", []
-                )
-                if item["id"] == base_model
-            ),
-            None,
-        )
-        if arch is None:
-            raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
-        tasks = arch.get("tasks") or enabled_plugin.capabilities_snapshot.get(
-            "supported_tasks", ["detect"]
-        )
-        return adapters.plugin_parameter_schema_payload(
-            enabled_plugin,
-            base_model=arch["id"],
-            task=tasks[0],
-            model_family=arch["family"],
-        )
-    template = next(
-        (
-            item
-            for item in adapters.catalog()["items"]
-            if item["framework"] == framework
-        ),
-        None,
-    )
-    if not template or not any(
-        base["id"] == base_model for base in template["base_models"]
-    ):
-        raise HTTPException(status_code=422, detail="基础权重不在当前受控目录中")
-    try:
-        return definition(framework, base_model, version=template["version"])
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return await adapters.plugin_parameter_schema(db, framework, base_model)
 
 
 @router.post(
@@ -300,7 +255,7 @@ async def get_run(
     registered_models = await models.run_candidates(db, project.id, run.id)
     return {
         "run": TrainingRunOut.model_validate(run).model_dump(mode="json"),
-        "registration_eligibility": registration_eligibility(run.config),
+        "registration_eligibility": trained_models.registration_eligibility(run.config),
         "registered_models": [
             TrainingRegisteredModel.model_validate(model).model_dump(mode="json")
             for model in registered_models

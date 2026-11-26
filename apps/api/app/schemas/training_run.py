@@ -7,7 +7,6 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -20,17 +19,11 @@ from app.schemas.training_initialization import TrainingInitialization
 from app.services.training_adapters import (
     FRAMEWORK_ID_PATTERN,
     supports_task_evaluation,
-    validate_registered_framework,
 )
 from training_contract.dataset import config_task
 from yoao_task_contract import normalize_task, normalize_task_fields
 
 FrameworkSlug = Annotated[str, Field(pattern=FRAMEWORK_ID_PATTERN)]
-BuiltinFrameworkId = Annotated[
-    str,
-    Field(pattern=FRAMEWORK_ID_PATTERN),
-    AfterValidator(validate_registered_framework),
-]
 FrameworkId = FrameworkSlug
 
 

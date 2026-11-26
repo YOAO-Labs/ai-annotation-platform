@@ -50,7 +50,6 @@ where = ["src"]
 [tool.setuptools.package-data]
 yoao = ["_operation_catalog.generated.json", "AGENT_GUIDE.md"]
 yoao_inference_contract = ["*.schema.json"]
-training_contract = ["native_inventory*.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "yoao._version.__version__" }

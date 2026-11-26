@@ -228,7 +228,6 @@ class Settings(BaseSettings):
     training_gpu_uuid: str = ""
     training_gpu_uuids: str = ""
     training_cpu_slots: int = Field(default=0, ge=0, le=64)
-    training_catalog_json: dict[str, dict] = Field(default_factory=dict)
     training_heartbeat_timeout_seconds: int = Field(default=60, ge=30, le=600)
     minio_use_ssl: bool = False
     minio_public_url: str = ""

@@ -140,8 +140,8 @@ class TrainingRunCreate(_RequestModel):
     dataset_id: uuid.UUID = Field(
         description="Frozen training-version UUID, not an uploaded storage dataset, task stream, or display ordinal."
     )
-    framework: Literal["ultralytics", "libreyolo"] = "ultralytics"
-    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    framework: str = Field(default="ultralytics", pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
     initialization: TrainingInitialization | None = None
@@ -178,8 +178,8 @@ class TrainingRunCreate(_RequestModel):
 
 
 class TrainingConfigurationResolve(_RequestModel):
-    framework: Literal["ultralytics", "libreyolo"]
-    base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    framework: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    base_model: str = Field(pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     configuration: TrainingConfiguration
     initialization: TrainingInitialization | None = None
 
@@ -210,8 +210,8 @@ class TrainingRecipeWrite(_RequestModel):
 
 class TrainingPreviewCreate(_RequestModel):
     dataset_id: uuid.UUID
-    framework: Literal["ultralytics", "libreyolo"]
-    base_model: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    framework: str = Field(pattern=r"^[a-z][a-z0-9_-]{0,63}$")
+    base_model: str = Field(pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     configuration: TrainingConfiguration
     seed: int = Field(default=42, ge=0, le=2_147_483_647, strict=True)
     epoch: int = Field(default=1, ge=1, le=1000, strict=True)
@@ -446,9 +446,9 @@ class TrainingParameterSchema(_SDKModel):
 
 
 class TrainingTemplate(_SDKModel):
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: str
     version: str
-    image_digest: str
+    image_digest: str | None = None
     base_models: list[TrainingBaseModel]
     capabilities: TrainingCapabilities
     compatible: bool | None = None
@@ -715,9 +715,9 @@ class TrainingReuseCandidate(_SDKModel):
 
 
 class TrainingConfigurationSnapshot(_SDKModel):
-    framework: Literal["ultralytics", "libreyolo"]
+    framework: str
     framework_version: str
-    image_digest: str
+    image_digest: str | None = None
     base_model: dict[str, Any]
     configuration: dict[str, Any]
     initialization: dict[str, Any] | None = None

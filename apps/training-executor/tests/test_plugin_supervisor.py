@@ -646,35 +646,33 @@ def _make_plugin_journal(
 def test_core_supervisor_modules_and_packaging_are_ml_free():
     executor_root = Path(__file__).resolve().parents[1]
     package_dir = executor_root / "training_executor"
-    for filename in CORE_SUPERVISOR_MODULES:
-        source = (package_dir / filename).read_text()
-        tree = ast.parse(source, filename=filename)
+    for path in sorted(package_dir.glob("*.py")):
+        source = path.read_text()
+        tree = ast.parse(source, filename=path.name)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     root_name = alias.name.split(".", 1)[0]
                     assert root_name not in FORBIDDEN_ML_MODULES, (
-                        f"{filename} imports forbidden ML package {alias.name}"
+                        f"{path.name} imports forbidden ML package {alias.name}"
                     )
             elif isinstance(node, ast.ImportFrom) and node.module:
                 root_name = node.module.split(".", 1)[0]
                 assert root_name not in FORBIDDEN_ML_MODULES, (
-                    f"{filename} imports from forbidden ML package {node.module}"
+                    f"{path.name} imports from forbidden ML package {node.module}"
                 )
     pyproject = tomllib.loads((executor_root / "pyproject.toml").read_text())
     core_deps = pyproject["project"]["dependencies"]
     assert core_deps == ["yoao-sdk", "httpx==0.28.1", "psutil==7.0.0"]
-    legacy_ml = pyproject["project"]["optional-dependencies"]["legacy-ml"]
-    assert any(dep.startswith("torch==") for dep in legacy_ml)
-    assert any(dep.startswith("ultralytics==") for dep in legacy_ml)
-    assert any(dep.startswith("libreyolo==") for dep in legacy_ml)
+    assert "optional-dependencies" not in pyproject["project"]
     assert pyproject["dependency-groups"]["handoff"] == [
         "httpx",
         "psutil",
         "yoao-sdk",
     ]
-    dockerfile = (executor_root / "Dockerfile.supervisor").read_text()
+    dockerfile = (executor_root / "Dockerfile").read_text()
     assert "FROM python:3.12-slim" in dockerfile
+    assert "USER 10001:10001" in dockerfile
     assert 'ENTRYPOINT ["python", "-m", "training_executor.worker"]' in dockerfile
     for forbidden in ("pytorch", "torch", "cuda", "ultralytics", "libreyolo"):
         assert forbidden not in dockerfile.lower()
@@ -682,7 +680,6 @@ def test_core_supervisor_modules_and_packaging_are_ml_free():
 
 def test_runtime_identity_ml_free_gpu_and_cpu_slots(monkeypatch, tmp_path):
     monkeypatch.setenv("TRAINING_MODELS_DIR", str(tmp_path))
-    monkeypatch.setenv("TRAINING_SUPERVISOR_MODE", "plugin")
     monkeypatch.setenv("TRAINING_GPU_UUID", GPU_UUID)
     monkeypatch.setenv("TRAINING_CONTAINER_RUNTIME", "none")
     monkeypatch.setenv(

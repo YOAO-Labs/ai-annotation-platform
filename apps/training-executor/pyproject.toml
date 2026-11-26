@@ -8,16 +8,6 @@ dependencies = [
   "psutil==7.0.0",
 ]
 
-[project.optional-dependencies]
-legacy-ml = [
-  "ultralytics==8.4.183",
-  "libreyolo==1.6.0",
-  "torch==2.14.1",
-  "torchvision==0.29.1",
-  "pillow>=11,<12",
-  "pyyaml==6.0.2",
-]
-
 [dependency-groups]
 handoff = ["httpx", "psutil", "yoao-sdk"]
 
@@ -33,10 +23,3 @@ testpaths = ["tests"]
 
 [tool.uv.sources]
 yoao-sdk = { path = "../../packages/python-sdk", editable = true }
-torch = { index = "pytorch-cu132" }
-torchvision = { index = "pytorch-cu132" }
-
-[[tool.uv.index]]
-name = "pytorch-cu132"
-url = "https://download.pytorch.org/whl/cu132"
-explicit = true

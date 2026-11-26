@@ -5,7 +5,7 @@ from pathlib import PurePosixPath
 import re
 import uuid
 
-from .catalog import digest
+from .trainer_plugin import canonical_json_digest as digest
 
 MAX_MEMBERS = 20000
 SPLITS = ("train", "val")

@@ -5,17 +5,15 @@ import math
 
 import pytest
 
-from training_contract import definition, resolve
-from training_contract.catalog import supported_identities
 from training_contract.dataset import (
     DatasetContractError,
     SEGMENTATION,
     SEGMENTATION_CONTRACT,
+    SEGMENTATION_OUTPUT_CONTRACT,
     data_contract,
     polygon_points,
     segmentation_labels,
 )
-from training_contract.model_return import registration_eligibility
 
 SQUARE = [[0.1, 0.1], [0.8, 0.1], [0.8, 0.8], [0.1, 0.8]]
 CONCAVE = [[0.1, 0.1], [0.8, 0.1], [0.8, 0.3], [0.4, 0.3], [0.4, 0.8], [0.1, 0.8]]
@@ -139,6 +137,7 @@ def test_polygon_limits_are_checked_before_unbounded_work():
 
 
 def test_data_contract_cannot_reinterpret_legacy_or_unknown_identity():
+    assert SEGMENTATION_OUTPUT_CONTRACT == "aap-instance-rle-1"
     assert data_contract({"schema": 1}) == {"schema": 1, "task": "image-detection"}
     assert data_contract(SEGMENTATION_CONTRACT) == SEGMENTATION_CONTRACT
     for changed in [
@@ -151,57 +150,3 @@ def test_data_contract_cannot_reinterpret_legacy_or_unknown_identity():
     ]:
         with pytest.raises(DatasetContractError):
             data_contract(changed)
-
-
-def test_detection_schema_digests_are_unchanged_and_segmentation_has_no_legacy_alias():
-    assert (
-        definition("ultralytics", legacy=True)["schema_digest"]
-        == "4230ae95a885793c7db77ee4daa69b6d5c32c33d28ff37ea908b077cb0c54d7d"
-    )
-    assert (
-        definition("libreyolo", legacy=True)["schema_digest"]
-        == "fa3a9697401df6ebb6b34929b40b620a6274ce1a50e76e56b5337fdcf22cb5ed"
-    )
-    schema = definition("ultralytics", "yolo11n-seg")
-    assert schema["task"] == SEGMENTATION
-    identities = [
-        i
-        for i in supported_identities({"ultralytics": "8.4.177"})
-        if i["task"] == SEGMENTATION
-    ]
-    assert len(identities) == 2 and all(
-        identity["adapter_revision"] == 2 for identity in identities
-    )
-    with pytest.raises(ValueError):
-        definition("ultralytics", "yolo11s-seg", version="8.4.177")
-    request = {
-        "schema_id": schema["schema_id"],
-        "schema_digest": schema["schema_digest"],
-        "values": {},
-    }
-    resolved = resolve("ultralytics", "yolo11n-seg", request)
-    effective = resolved["effective_values"]
-    assert effective["task"] == "segment" and effective["mask_ratio"] == 1
-    assert effective["overlap_mask"] is False and effective["copy_paste"] == 0
-    assert effective["mosaic"] == effective["translate"] == 0
-    for key in [
-        "overlap_mask",
-        "mask_ratio",
-        "copy_paste",
-        "mosaic",
-        "translate",
-        "flipud",
-    ]:
-        with pytest.raises(ValueError):
-            resolve(
-                "ultralytics",
-                "yolo11n-seg",
-                {**request, "values": {key: effective[key]}},
-            )
-    assert not registration_eligibility(
-        {
-            "framework": "ultralytics",
-            "configuration": resolved,
-            "base_model": {"id": "yolo11n-seg"},
-        }
-    )["qualified"]

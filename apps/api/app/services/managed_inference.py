@@ -10,7 +10,6 @@ from typing import Any
 
 from fastapi import HTTPException
 from pydantic import ValidationError
-from training_contract.models import model_spec
 
 from app.services.learning_models_data import get_deployment
 from app.schemas.sample_evaluation import EvaluationProfile
@@ -42,6 +41,22 @@ def reject(code, message, status=409):
     return HTTPException(status_code=status, detail={"code": code, "message": message})
 
 
+def _declared_end2end(ref: dict[str, Any]) -> bool | None:
+    rt = ref.get("inference_runtime")
+    if isinstance(rt, dict):
+        qual = rt.get("qualification")
+        if isinstance(qual, dict) and type(qual.get("end2end")) is bool:
+            return qual["end2end"]
+    model_return = (ref.get("provenance") or {}).get("model_return")
+    if isinstance(model_return, dict):
+        if type(model_return.get("end2end")) is bool:
+            return model_return["end2end"]
+        qual = model_return.get("runtime_qualification")
+        if isinstance(qual, dict) and type(qual.get("end2end")) is bool:
+            return qual["end2end"]
+    return None
+
+
 async def qualification(db, project, model_id, deployment_id):
     deployment = await get_deployment(db, project.id, model_id, deployment_id)
     if not deployment:
@@ -59,35 +74,24 @@ async def qualification(db, project, model_id, deployment_id):
         trained_models.raise_frozen_model_reference_error(exc)
     if ref["deployment_id"] != str(deployment_id):
         raise reject("deployment_changed", "受控部署身份已变化")
-    if not training_adapters.supports_managed_evaluation(ref["framework"]):
-        registry_facts = await InferenceTopologyData(db).registry_facts(
-            deployment.registry_id
+    registry_facts = await InferenceTopologyData(db).registry_facts(
+        deployment.registry_id
+    )
+    if not training_adapters.supports_managed_evaluation(
+        ref["framework"], backend=registry_facts
+    ):
+        raise reject(
+            "framework_unqualified",
+            "该框架尚未通过共享样本评估资格检查；模型试用与人工发布仍可使用",
+            422,
         )
-        if not training_adapters.supports_managed_evaluation(
-            ref["framework"], backend=registry_facts
-        ):
-            raise reject(
-                "framework_unqualified",
-                "该框架尚未通过共享样本评估资格检查；模型试用与人工发布仍可使用",
-                422,
-            )
     await trained_models.enabled_backend(db, project.id, deployment.registry_id)
     segment = normalize_task(ref.get("task") or "detect") == "segment"
     framework_version = ref.get("framework_version")
-    if framework_version not in {"8.4.177", "8.4.183"}:
+    if not isinstance(framework_version, str) or not framework_version:
         raise reject("runtime_unqualified", "模型缺少已核验的冻结训练器版本")
     runtime_version = trained_models.inference_version(ref)
-    selected_model = None
-    if runtime_version != "8.4.177":
-        try:
-            base_model = ref["provenance"]["base_model"]["id"]
-            selected_model = model_spec("ultralytics", base_model)
-            if selected_model.task != ("segment" if segment else "detect"):
-                raise ValueError("Frozen model task differs")
-        except (KeyError, TypeError, ValueError) as exc:
-            raise reject(
-                "runtime_unqualified", "模型缺少已核验的家族及规格身份"
-            ) from exc
+    declared_end2end = _declared_end2end(ref)
     from app.services import inference_backend_control
 
     try:
@@ -114,12 +118,7 @@ async def qualification(db, project, model_id, deployment_id):
     if (
         checked["profile_digest"]
         != content_digest({k: v for k, v in checked.items() if k != "profile_digest"})
-        or checked["revision"] != {"8.4.177": 1, "8.4.183": 2}.get(runtime_version)
-        or (
-            selected_model is not None
-            and selected_model.end2end
-            and checked["options"].get("nms") is not False
-        )
+        or (declared_end2end is True and checked["options"].get("nms") is not False)
         or checked["implementation"]
         != ("aap-ultralytics-instance-mask" if segment else "aap-ultralytics-detection")
     ):
@@ -168,21 +167,12 @@ def verify_inference(spec, row, inference):
         "conf": spec["confidence"],
         "nms_iou": spec["nms_iou"],
     }
-    expected_end2end = None
-    if spec["profile"]["ultralytics_version"] != "8.4.177":
-        ref = spec["model_ref"]
-        try:
-            native = model_spec("ultralytics", ref["provenance"]["base_model"]["id"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("Frozen inference model identity is unavailable") from exc
-        if (
-            trained_models.inference_version(ref)
-            != spec["profile"]["ultralytics_version"]
-            or native.task != ("segment" if segmentation_spec(spec) else "detect")
-            or (native.end2end and expected["options"].get("nms") is not False)
-        ):
-            raise ValueError("Inference profile differs from the frozen native head")
-        expected_end2end = native.end2end
+    ref = spec["model_ref"]
+    expected_end2end = _declared_end2end(ref)
+    if trained_models.inference_version(ref) != spec["profile"]["ultralytics_version"]:
+        raise ValueError("Inference profile differs from the frozen native head")
+    if expected_end2end is True and expected["options"].get("nms") is not False:
+        raise ValueError("Inference profile differs from the frozen native head")
     if (
         not isinstance(inference, dict)
         or set(inference) != {*expected, "end2end"}

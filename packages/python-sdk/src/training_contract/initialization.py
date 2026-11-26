@@ -1,92 +1,14 @@
-"""Offline qualification for retained-model weights-only initialization."""
+"""Framework-agnostic validation for retained-model weights-only initialization."""
 
 import re
 import uuid
+
 from yoao_task_contract import normalize_task
 
-from .catalog import digest
-from .dataset import SEGMENTATION, config_task, data_contract, data_task
-from .models import (
-    ULTRALYTICS_VERSION,
-    LEGACY_ULTRALYTICS_VERSION,
-    model_spec,
-    supports_version,
-)
+from .dataset import SEGMENTATION, data_contract, data_task
+from .trainer_plugin import canonical_json_digest as digest
 
 MAX_WEIGHTS_BYTES = 2 * 1024**3
-POLICY = {
-    "revision": 1,
-    "purpose": "trained-model-initialization",
-    "framework": "ultralytics",
-    "framework_version": "8.4.177",
-    "torch": "2.14.1",
-    "torchvision": "0.29.1",
-    "python": "3.12",
-    "cuda": "13.2",
-    "task": "image-detection",
-    "model_family": "yolo11",
-    "class_identity": "exact-native-order",
-    "architecture": "same-controlled-variant",
-    "transfer": "all-state-tensors",
-    "state": "fresh-training",
-    "maximum_bytes": MAX_WEIGHTS_BYTES,
-}
-POLICY_DIGEST = digest(POLICY)
-SEGMENTATION_POLICY = {
-    **POLICY,
-    "revision": 2,
-    "task": SEGMENTATION,
-    "qualified_models": ["yolo11n-seg"],
-    "source_data_identity": "exact-frozen-contract-and-bridge",
-    "evaluation_identity": "raw-report-and-normalized-registration-separately-frozen",
-}
-SEGMENTATION_POLICY_DIGEST = digest(SEGMENTATION_POLICY)
-
-
-def policy_for_model(base_model, framework_version):
-    spec = model_spec("ultralytics", base_model)
-    if not supports_version(spec, framework_version):
-        raise ValueError("初始化模型与原生框架版本不兼容")
-    segmentation = spec.task == SEGMENTATION
-    if framework_version == LEGACY_ULTRALYTICS_VERSION:
-        return SEGMENTATION_POLICY if segmentation else POLICY
-    return {
-        **(SEGMENTATION_POLICY if segmentation else POLICY),
-        "revision": 3,
-        "framework_version": ULTRALYTICS_VERSION,
-        "task": spec.task,
-        "model_family": spec.family,
-        "qualified_models": [
-            f"{spec.family}{scale}{'-seg' if segmentation else ''}" for scale in "nsmlx"
-        ],
-    }
-
-
-def supported_policy_digests(framework_version):
-    if framework_version == LEGACY_ULTRALYTICS_VERSION:
-        return [POLICY_DIGEST, SEGMENTATION_POLICY_DIGEST]
-    if framework_version == ULTRALYTICS_VERSION:
-        return [
-            digest(policy_for_model(f"{family}n{suffix}", framework_version))
-            for family in ("yolov8", "yolo11", "yolo26")
-            for suffix in ("", "-seg")
-        ]
-    return []
-
-
-def policy_for_pin(pin):
-    if isinstance(pin, dict) and pin.get("policy_digest") == POLICY_DIGEST:
-        return POLICY
-    if isinstance(pin, dict) and pin.get("policy_digest") == SEGMENTATION_POLICY_DIGEST:
-        return SEGMENTATION_POLICY
-    if isinstance(pin, dict):
-        policy = policy_for_model(pin.get("base_model"), pin.get("framework_version"))
-        if pin.get("policy_digest") == digest(policy):
-            return policy
-    raise ValueError("初始化来源尚未通过当前原生资格验证")
-
-
-VARIANTS = {f"yolo11{scale}" for scale in "nsmlx"}
 PIN_KEYS = {
     "kind",
     "policy_digest",
@@ -158,31 +80,42 @@ def saved_prefix_compatible(config, runtime):
 
 
 def validate_pin(pin):
-    policy = policy_for_pin(pin)
-    segmentation = normalize_task(policy["task"]) == SEGMENTATION
-    if set(pin) != PIN_KEYS | ({"data_contract"} if segmentation else set()):
+    if not isinstance(pin, dict):
+        raise ValueError("初始化来源必须为 JSON 对象")
+    if not isinstance(pin.get("task"), str) or not pin["task"].strip():
+        raise ValueError("初始化来源缺少任务身份")
+    try:
+        normalized_task = normalize_task(pin["task"])
+    except ValueError as exc:
+        raise ValueError("初始化来源任务身份无效") from exc
+    segmentation = normalized_task == SEGMENTATION
+    expected_keys = PIN_KEYS | ({"data_contract"} if segmentation else set())
+    if set(pin) != expected_keys:
         raise ValueError("初始化来源的冻结字段不完整")
-    if (
-        pin["kind"] != "trained_model"
-        or any(
-            pin[key] != policy[key]
-            for key in ("framework", "framework_version", "task", "model_family")
-        )
-        or not isinstance(pin["base_model"], str)
-        or pin["base_model"] not in policy.get("qualified_models", VARIANTS)
-    ):
-        raise ValueError("初始化来源尚未通过当前原生资格验证")
+    if pin["kind"] != "trained_model":
+        raise ValueError("初始化来源类型无效")
+    for key in ("framework", "framework_version", "model_family", "base_model"):
+        value = pin.get(key)
+        if not isinstance(value, str) or not 0 < len(value.strip()) <= 128:
+            raise ValueError(f"初始化来源字段 {key} 无效")
     if segmentation and (
-        data_task(pin["data_contract"]) != SEGMENTATION
+        not isinstance(pin.get("data_contract"), dict)
+        or data_task(pin["data_contract"]) != SEGMENTATION
         or data_contract(pin["data_contract"]) != pin["data_contract"]
     ):
         raise ValueError("分割初始化缺少精确冻结的来源数据桥接")
     for key in ("project_id", "model_version_id", "run_id", "attempt_id", "dataset_id"):
-        if not isinstance(pin[key], str) or str(uuid.UUID(pin[key])) != pin[key]:
+        if not isinstance(pin[key], str):
             raise ValueError("初始化来源标识无效")
+        try:
+            if str(uuid.UUID(pin[key])) != pin[key]:
+                raise ValueError("初始化来源标识无效")
+        except ValueError as exc:
+            raise ValueError("初始化来源标识无效") from exc
     if not isinstance(pin["model_name"], str) or not 0 < len(pin["model_name"]) <= 120:
         raise ValueError("初始化来源名称无效")
     for key in (
+        "policy_digest",
         "source_digest",
         "classes_digest",
         "binding_digest",
@@ -225,67 +158,43 @@ def validate_pin(pin):
     runtime = pin["runtime"]
     if (
         not isinstance(runtime, dict)
-        or set(runtime) != {"python", "torch", "torchvision", "cuda", "image_digest"}
-        or not all(
-            isinstance(value, str) and 0 < len(value) <= 150
-            for value in runtime.values()
+        or not runtime
+        or len(runtime) > 32
+        or any(
+            not isinstance(key, str)
+            or not 0 < len(key) <= 64
+            or (
+                value is not None
+                and (not isinstance(value, str) or not 0 < len(value) <= 200)
+            )
+            for key, value in runtime.items()
         )
-        or runtime["torch"].split("+", 1)[0] != policy["torch"]
-        or runtime["torchvision"].split("+", 1)[0] != policy["torchvision"]
-        or re.fullmatch(r"3\.12\.\d+", runtime["python"]) is None
-        or runtime["cuda"] != policy["cuda"]
-        or not runtime["image_digest"].startswith("sha256:")
-        or not is_sha256(runtime["image_digest"][7:])
     ):
-        raise ValueError("初始化来源运行环境尚未通过资格验证")
+        raise ValueError("初始化来源运行环境无效")
+    image_digest = runtime.get("image_digest")
+    if image_digest is not None and (
+        not isinstance(image_digest, str)
+        or not image_digest.startswith("sha256:")
+        or not is_sha256(image_digest[7:])
+    ):
+        raise ValueError("初始化来源镜像摘要无效")
     evaluation = pin["evaluation"]
+    expected_eval_keys = {"report_sha256", "report_digest", "validation_digest"} | (
+        {"normalized_model_digest", "descriptor_digest", "weights_sha256"}
+        if segmentation
+        else set()
+    )
     if (
         not isinstance(evaluation, dict)
-        or set(evaluation)
-        != (
-            {"report_sha256", "report_digest", "validation_digest"}
-            | (
-                {"normalized_model_digest", "descriptor_digest", "weights_sha256"}
-                if segmentation
-                else set()
-            )
-        )
+        or set(evaluation) != expected_eval_keys
         or not all(is_sha256(value) for value in evaluation.values())
         or evaluation["validation_digest"] != pin["validation_digest"]
-        or segmentation
-        and evaluation["weights_sha256"] != artifact["sha256"]
+        or (segmentation and evaluation["weights_sha256"] != artifact["sha256"])
         or digest({key: value for key, value in pin.items() if key != "source_digest"})
         != pin["source_digest"]
     ):
         raise ValueError("初始化来源或评估证据摘要不匹配")
     return pin
-
-
-def compatible_runtime(config, runtime):
-    pin = validate_pin(config["initialization"])
-    policy = policy_for_pin(pin)
-    return bool(
-        saved_prefix_compatible(config, runtime)
-        and config.get("adapter_revision") == 2
-        and config.get("framework") == pin["framework"]
-        and config.get("framework_version") == pin["framework_version"]
-        and config.get("base_model", {}).get("id") == pin["base_model"]
-        and config.get("classes") == pin["classes"]
-        and (
-            runtime.get("initialization_policy_digest") == pin["policy_digest"]
-            or isinstance(runtime.get("initialization_policy_digests"), list)
-            and pin["policy_digest"] in runtime["initialization_policy_digests"]
-        )
-        and (
-            normalize_task(policy["task"]) != SEGMENTATION
-            or config_task(config) == SEGMENTATION
-            and data_task(config["data_contract"]) == SEGMENTATION
-        )
-        and runtime.get("torch", "").split("+", 1)[0] == policy["torch"]
-        and runtime.get("torchvision", "").split("+", 1)[0] == policy["torchvision"]
-        and re.fullmatch(r"3\.12\.\d+", runtime.get("python", "")) is not None
-        and runtime.get("cuda") == policy["cuda"]
-    )
 
 
 def verify_evidence(config, evidence, *, resumed):
@@ -319,8 +228,7 @@ def verify_evidence(config, evidence, *, resumed):
         or evidence.get("best_weights_present") is not False
     ):
         raise ValueError("原生初始化未完整转移权重或未重置训练状态")
-
-    if normalize_task(policy_for_pin(pin)["task"]) == SEGMENTATION and (
+    if normalize_task(pin["task"]) == SEGMENTATION and (
         not is_sha256(evidence.get("mask_head_tensor_digest"))
         or evidence["mask_head_tensor_digest"]
         != evidence.get("loaded_mask_head_tensor_digest")

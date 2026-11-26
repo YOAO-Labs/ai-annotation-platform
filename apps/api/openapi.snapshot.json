@@ -25649,7 +25649,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -60402,7 +60402,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -63841,7 +63841,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -64145,7 +64145,7 @@
         "additionalProperties": false,
         "properties": {
           "base_model": {
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },

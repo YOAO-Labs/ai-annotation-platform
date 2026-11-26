@@ -14,7 +14,6 @@ import pytest
 from pydantic import ValidationError
 
 from training_contract import trainer_plugin as trainer_plugin_mod
-from training_contract.catalog import digest as catalog_digest
 from training_contract.trainer_plugin import (
     PREVIEW_MAX_POOL_BYTES,
     PREVIEW_MAX_SOURCE_BYTES,
@@ -86,13 +85,20 @@ def test_trainer_plugin_module_is_framework_agnostic() -> None:
     }
 
 
-def test_canonical_digest_matches_training_contract_catalog_digest() -> None:
+def test_canonical_digest_matches_stable_sha256_encoding() -> None:
+    import hashlib
+
     payload = {
         "z": [0.25, True, None],
         "a": {"nested": "中文", "count": 3},
         "format": None,
     }
-    assert canonical_json_digest(payload) == catalog_digest(payload)
+    expected = hashlib.sha256(
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
+    assert canonical_json_digest(payload) == expected
     assert b"-0.0" not in canonical_json_bytes({"zero": -0.0})
     with pytest.raises(ValueError):
         canonical_json_digest({"loss": float("nan")})

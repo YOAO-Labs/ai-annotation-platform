@@ -93,21 +93,21 @@ async def save(
         body.base_model,
         parent.manifest.get("classes"),
     )
-    template = claims.fixed_policy_template(body.framework, body.base_model, task)
-    configuration = (
-        adapters.resolve_configuration(
-            body.framework, body.base_model, body.configuration.model_dump()
-        )
-        if body.configuration is not None
-        else None
+    template = await claims.fixed_policy_template(
+        db, body.framework, body.base_model, task
     )
-    if configuration is not None:
-        from training_contract.validation import configuration_for_data_contract
+    if body.configuration is not None:
         from app.services.training_dataset_bridge import contract_of
 
-        configuration = configuration_for_data_contract(
-            configuration, contract_of(parent.manifest)
+        configuration = await adapters.resolve_plugin_configuration(
+            db,
+            body.framework,
+            body.base_model,
+            body.configuration.model_dump(),
+            data_contract=contract_of(parent.manifest),
         )
+    else:
+        configuration = None
     origin = await recipes.origin_snapshot(
         db,
         project.id,
@@ -160,7 +160,13 @@ async def save(
             **policy.config,
             "configuration": configuration,
             "parameters": {
-                key: configuration["effective_values"][key] for key in CANONICAL
+                **policy.config["parameters"],
+                **{
+                    key: configuration["effective_values"][key]
+                    for key in CANONICAL
+                    if key in configuration["effective_values"]
+                    and configuration["effective_values"][key] is not None
+                },
             },
         }
     if origin is not None:
@@ -391,7 +397,7 @@ async def _reconcile(db, policy, trigger):
         terminal_trigger(trigger, "skipped", reason)
         policy.state, policy.message = "waiting", reason
         return
-    if not claims.policy_template_current(policy):
+    if not await claims.policy_template_current(db, policy):
         policy.enabled = False
         terminal_trigger(trigger, "cancelled", "训练目录已变化，请检查并重新保存策略")
         policy.state, policy.message = "suspended", trigger.message
@@ -516,7 +522,7 @@ async def check_policy(
     policy.next_check_at = runs.now() + timedelta(
         minutes=policy.config["check_interval_minutes"]
     )
-    if not claims.policy_template_current(policy):
+    if not await claims.policy_template_current(db, policy):
         policy.enabled, policy.state, policy.message = (
             False,
             "suspended",
@@ -615,7 +621,7 @@ async def check_policy(
             "项目另一个任务正在构建或运行自动候选，当前任务等待",
         )
         return await _persist_policy(db, policy)
-    if not claims.policy_template_current(policy):
+    if not await claims.policy_template_current(db, policy):
         policy.enabled, policy.state, policy.message = (
             False,
             "suspended",

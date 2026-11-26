@@ -11,6 +11,7 @@ from yoao_task_contract import normalize_task, resolve_task
 DETECTION = "detect"
 SEGMENTATION = "segment"
 LEGACY_DETECTION = "image-detection"
+SEGMENTATION_OUTPUT_CONTRACT = "aap-instance-rle-1"
 LEGACY_SEGMENTATION_CONTRACT = {
     "schema": 2,
     "task": "image-instance-segmentation",

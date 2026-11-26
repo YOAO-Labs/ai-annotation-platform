@@ -51,6 +51,7 @@
 
 ### Changed
 
+- 完成官方训练器插件化拆仓（T3）：将原内建 `ultralytics`（8.4.183）与 `libreyolo`（1.6.0）官方参考训练器提取至独立插件仓库 `YOAO-Plugins`（`plugins/trainer/ultralytics/` 与 `plugins/trainer/libreyolo/`，统一以非 root `USER 10001:10001` 运行并输出完整 `yoao-trainer/v1` 能力与推理回流兼容矩阵）；平台 API、训练监督器、`yoao-sdk` 与 Compose 配置全面切到 `yoao_learning_v1.trainer_plugins` 数据驱动校验与 `yoao-trainer/v1` 协议，并同步刷新 OpenAPI 快照与 SDK 操作目录。
 - 将平台主仓库根目录遗留的 6 个官方推理插件 Compose 叠加文件（`docker-compose.ml*.yml`）迁移收口至独立插件仓库 `YOAO-Plugins`（`plugins/inference/<plugin>/docker-compose.yml`，并将 `yolo_checkpoints` 命名卷合并进 `yolo/docker-compose.yml`）；同步从内建模块装配清单与 `scripts/development-restart.py` 中移除这些文件（叠加插件 Compose 启动时仅指定目标插件服务，避免重建平台 Celery worker），宿主机维护脚本 `scripts/ml-backend-runner.py` 改为通过显式 `--plugins-root` 绑定官方插件仓库。
 - 清除推理插件安装观察器与部署器中的全部 LibreYOLO 特例硬编码，改为框架无关的受控模型兼容回退与资格版本校验，将容器档资产准备收口至通用 OCI 标签 `io.yoao.plugin.prepare-assets-command`，并在 `yoao-sdk` 中抽离后端无关的 `ContainerRuntimePort` 窄接口（默认本地 Docker CLI 实现，为训练器插件化 T2 复用铺路）。
 - 将平台内部 5 个独立便携契约包（`yoao-task-contract`、`yoao-lifecycle-contract`、`yoao-inference-contract`、`yoao-protocol-v2`、`yoao-training-contract`）合并收编至单一 `yoao-sdk` 发行包（`packages/python-sdk`，支持 Python `>=3.10`，原有顶层导入路径保持不变），并通过可选 `yoao-sdk[protocol]` 提供 FastAPI／cryptography／PyJWT 协议运行时依赖；`apps/api`、`apps/inference`、`apps/workspace`、`apps/training-executor`、`scripts/build-plugin-contracts.py` 与 `scripts/test-sdk-distributions.py` 同步切换至单一 `yoao-sdk`。
@@ -94,6 +95,7 @@
 
 ### Removed
 
+- 从主仓库移除所有遗留静态 ML 训练器实现、静态 `TRAINING_CATALOG_JSON` 环境变量及 `apps/training-executor` 与 `packages/python-sdk/src/training_contract` 中的 PyTorch/Ultralytics/LibreYOLO 代码与原生参数清单（同步收紧 `apps/training-executor/Dockerfile` 为无 ML 依赖非 root `10001:10001` 监督器并新增 AST 导入边界守卫）；所有训练任务须经已启用的 `yoao-trainer/v1` 训练器插件执行。
 - 退役仓库内的文档和演示媒体采集自动化及专用夹具；需要截图或录屏时，由 AI 按请求操作真实界面。既有文档、首页和文章媒体保持不变，产品功能和渲染测试照常执行。
 
 ### Fixed

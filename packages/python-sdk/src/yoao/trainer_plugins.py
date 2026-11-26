@@ -9,6 +9,7 @@ from uuid import UUID
 from urllib.parse import quote
 
 from pydantic import BaseModel, ConfigDict, Field
+from training_contract.trainer_plugin import TrainerCapabilitiesV1
 
 from yoao._http import HttpTransport, _drop_none
 
@@ -85,7 +86,7 @@ class TrainerPlugins:
     def register(
         self,
         manifest: dict[str, Any],
-        capabilities_snapshot: dict[str, Any] | BaseModel,
+        capabilities_snapshot: dict[str, Any] | TrainerCapabilitiesV1,
         *,
         execution_mode: TrainerExecutionMode = "container",
         source_tier: TrainerSourceTier = "third_party",

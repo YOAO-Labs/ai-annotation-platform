@@ -12,7 +12,6 @@ from pydantic import (
 )
 
 from app.schemas.training_run import TrainingRunCreate
-from app.services.training_adapters import supported_study_objectives
 
 
 class StudyBudgets(BaseModel):
@@ -49,11 +48,6 @@ class TrainingStudyCreate(BaseModel):
     def full_configuration(self):
         if self.base.configuration is None:
             raise ValueError("参数搜索必须使用完整配置")
-        allowed = supported_study_objectives(self.base.framework)
-        if allowed is not None and self.objective not in allowed:
-            raise ValueError(
-                f"框架 {self.base.framework} 的最终评估不提供目标指标 {self.objective}"
-            )
         return self
 
     def request_payload(self):

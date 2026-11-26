@@ -1,8 +1,6 @@
-"""CPU-only native preview policy, shared without importing any ML framework."""
+"""CPU-only trainer preview bounds and digest contract without ML framework imports."""
 
-from .catalog import digest
-from .validation import native_values as native_training_values, verify_frozen
-from .dataset import DETECTION, config_task
+from .trainer_plugin import canonical_json_digest as digest
 
 PREVIEW_REVISION = 1
 PREVIEW_PURPOSE = "augmentation-preview"
@@ -32,12 +30,8 @@ LIMITS = {
 POLICY = {
     "revision": PREVIEW_REVISION,
     "purpose": PREVIEW_PURPOSE,
-    "frameworks": ["ultralytics"],
-    "task": "image-detection",
-    "model_family": "yolo11",
     "pool_selection": "sha256-seed-task-v1",
     "buffer_policy": "native-sequential-pool-load-v1",
-    "native_detection_defaults": {"copy_paste": 0.0},
     "limits": LIMITS,
 }
 POLICY_DIGEST = digest(POLICY)
@@ -60,33 +54,29 @@ def input_digest(spec):
 
 
 def validate_request(config, seed, epoch, count):
-    frozen = verify_frozen(config)
-    if config["framework"] != "ultralytics" or config_task(config) != DETECTION:
-        raise ValueError("当前仅 Ultralytics YOLO11 图片检测通过原生增强预览验证")
+    if not isinstance(config, dict):
+        raise ValueError("预览训练配置无效")
+    plugin = config.get("trainer_plugin")
+    if isinstance(plugin, dict) and "preview" not in (plugin.get("capabilities") or []):
+        raise ValueError("当前训练器插件未声明增强预览能力")
     if type(seed) is not int or not 0 <= seed <= 2147483647:
         raise ValueError("预览随机种子超出范围")
-    if type(epoch) is not int or not 1 <= epoch <= config["parameters"]["epochs"]:
+    epochs = (config.get("parameters") or {}).get("epochs")
+    if type(epochs) is not int or epochs < 1:
+        raise ValueError("预览训练配置缺少有效训练轮次")
+    if type(epoch) is not int or not 1 <= epoch <= epochs:
         raise ValueError("预览轮次必须位于本次训练轮次内")
     if type(count) is not int or not 1 <= count <= LIMITS["outputs"]:
         raise ValueError("一次最多生成四张预览")
-    values = frozen["effective_values"]
-    if values["imgsz"] * (1 + values["multi_scale"]) > LIMITS["output_edge"]:
+    values = (config.get("configuration") or {}).get("effective_values") or {}
+    imgsz = values.get("imgsz")
+    multi_scale = values.get("multi_scale", 0.0)
+    if (
+        isinstance(imgsz, (int, float))
+        and not isinstance(imgsz, bool)
+        and isinstance(multi_scale, (int, float))
+        and not isinstance(multi_scale, bool)
+        and imgsz * (1 + multi_scale) > LIMITS["output_edge"]
+    ):
         raise ValueError("当前多尺度配置超出原生预览尺寸上限")
-    return frozen
-
-
-def native_values(config):
-    """Freeze the pinned inactive segmentation default and CPU materialization."""
-    return {
-        **native_training_values(verify_frozen(config)),
-        **POLICY["native_detection_defaults"],
-        "device": "cpu",
-        "workers": 0,
-        "task": "detect",
-    }
-
-
-def closed_mosaic(config, epoch):
-    values = config["configuration"]["effective_values"]
-    tail = values["close_mosaic"]
-    return bool(tail and epoch - 1 >= values["epochs"] - tail)
+    return config.get("configuration")

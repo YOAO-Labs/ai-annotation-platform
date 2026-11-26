@@ -213,3 +213,38 @@ def test_ast_boundary_helpers_detect_evasion_patterns() -> None:
     )
     hits = _find_hardcoded_framework_literals(evasion_literal)
     assert hits == [(2, ["libreyolo", "ultralytics"])]
+
+
+def test_main_platform_contains_no_ml_framework_imports() -> None:
+    repo_root = API_APP_DIR.parents[2]
+    scans = (
+        (API_APP_DIR, frozenset({"ultralytics", "libreyolo"})),
+        (
+            repo_root / "packages" / "python-sdk" / "src",
+            frozenset({"ultralytics", "libreyolo", "torch", "torchvision"}),
+        ),
+        (
+            repo_root / "apps" / "training-executor" / "training_executor",
+            frozenset({"ultralytics", "libreyolo", "torch", "torchvision"}),
+        ),
+    )
+    violations: list[str] = []
+    for root, forbidden in scans:
+        assert root.is_dir(), f"Missing scan directory: {root}"
+        for path in sorted(root.rglob("*.py")):
+            tree = _parse(path)
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        top = alias.name.split(".", 1)[0]
+                        if top in forbidden:
+                            violations.append(
+                                f"{path.relative_to(repo_root)}:{node.lineno}: import {alias.name}"
+                            )
+                elif isinstance(node, ast.ImportFrom) and node.module:
+                    top = node.module.split(".", 1)[0]
+                    if top in forbidden:
+                        violations.append(
+                            f"{path.relative_to(repo_root)}:{node.lineno}: from {node.module}"
+                        )
+    assert violations == []

@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-11-26
-- **Deciders:** 维护者已确认架构方向并完成 T0/T1/T2；已按已采纳的 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 对齐双轨运行模式（`local_process` / `container`）与共享 `ContainerRuntimePort`（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
+- **Deciders:** 维护者已确认架构方向并完成 T0/T1/T2/T3；已按已采纳的 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 对齐双轨运行模式（`local_process` / `container`）与共享 `ContainerRuntimePort`（保持 `Proposed` 直至 T4 真实单卡 GPU 验收完成）
 - **Supersedes:** —（沿用 [ADR-0186](archive/0186-modular-monolith-and-on-demand-extraction.md) 单一写入 owner 原则、[ADR-0187](archive/0187-notification-channel-extension-point.md) `yoao-extension-manifest/v1` 通用清单与安全边界、[ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 双轨运行器与只读插件投影口径，以及 [ADR-0090](archive/0090-versioned-yolo-identities-and-content-assets.md) 发现不等于资格原则）
 
 ## Context
@@ -108,4 +108,6 @@
 - T0 契约实现位置：
   - 平台侧：`packages/python-sdk/src/training_contract/trainer_plugin.py`、`packages/python-sdk/tests/contracts/training_contract/test_trainer_plugin.py`
   - 独立插件 SDK：`YOAO-Labs/Plugin-SDK` 仓内 `packages/python/src/yoao_plugin_sdk/trainer/__init__.py`、`packages/js/src/trainer.mjs`、`packages/js/src/index.d.ts`
-- T0–T2 与 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 推理插件升级均已完成验收：`yoao_learning_v1.trainer_plugins`（迁移 `bo0514`）、超管 API/SDK/CLI、多槽位资源模型、共享 `ContainerRuntimePort` 生命周期扩展及无 ML 依赖双轨 `training-supervisor` 已在隔离环境下通过真实 CPU 哑训练器端到端验收，当前具备启动 **T3** 的全部前提。
+- T0–T3 与 [ADR-0190](archive/0190-inference-plugin-generalization-and-direct-tier.md) 推理插件升级均已完成验收：
+  - `yoao_learning_v1.trainer_plugins`（迁移 `bo0514`）、超管 API/SDK/CLI、多槽位资源模型、共享 `ContainerRuntimePort` 生命周期扩展及无 ML 依赖双轨 `training-supervisor` 已在隔离环境下通过真实 CPU 哑训练器端到端验收；
+  - T3 已将官方参考训练器提取至独立插件仓库 `YOAO-Plugins`（`plugins/trainer/ultralytics/` 与 `plugins/trainer/libreyolo/`，非 root `USER 10001:10001`），并从主仓库彻底删除静态 ML 训练器实现、`TRAINING_CATALOG_JSON` 与框架专属契约字典/库存 JSON，同时新增主仓库零 ML 框架导入 AST 边界守卫与跨仓契约对等验证，当前具备启动 **T4** 真实单卡 GPU 验收的全部前提。

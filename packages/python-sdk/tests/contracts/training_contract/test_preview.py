@@ -2,45 +2,47 @@ import copy
 
 import pytest
 
-from training_contract import definition, resolve
-from training_contract.preview import closed_mosaic, native_values, validate_request
+from training_contract.preview import (
+    INPUT_KEYS,
+    POLICY,
+    POLICY_DIGEST,
+    input_digest,
+    validate_request,
+)
 
 
-def configuration(framework="ultralytics", values=None):
-    model = "yolo11n" if framework == "ultralytics" else "LibreYOLO9t"
-    schema = definition(framework, model)
-    frozen = resolve(
-        framework,
-        model,
-        {
-            "schema_id": schema["schema_id"],
-            "schema_digest": schema["schema_digest"],
-            "values": values or {"epochs": 10, "close_mosaic": 2},
-        },
-    )
+def plugin_config(*, capabilities=None, epochs=10, imgsz=640, multi_scale=0.0):
     return {
-        "adapter_revision": 2,
-        "framework": framework,
-        "framework_version": schema["framework_version"],
-        "base_model": {"id": model},
-        "configuration": frozen,
-        "parameters": {
-            key: frozen["effective_values"][key]
-            for key in ("epochs", "batch", "imgsz", "seed", "lr0", "patience")
+        "adapter_revision": 3,
+        "framework": "custom-trainer",
+        "framework_version": "1.0.0",
+        "base_model": {"id": "custom-n"},
+        "trainer_plugin": {
+            "plugin_id": "example.trainer",
+            "capabilities": (
+                ["train", "preview"] if capabilities is None else capabilities
+            ),
         },
+        "configuration": {
+            "effective_values": {
+                "epochs": epochs,
+                "imgsz": imgsz,
+                "multi_scale": multi_scale,
+            }
+        },
+        "parameters": {"epochs": epochs, "imgsz": imgsz},
     }
 
 
-def test_preview_materialization_never_changes_the_frozen_training_contract():
-    config = configuration()
+def test_preview_request_validation_is_framework_agnostic_and_non_mutating():
+    config = plugin_config()
     before = copy.deepcopy(config)
     validate_request(config, 123, 9, 4)
-    actual = native_values(config)
-    assert actual["device"] == "cpu" and actual["workers"] == 0
-    assert actual["seed"] == config["parameters"]["seed"]
     assert config == before
-    assert not closed_mosaic(config, 8)
-    assert closed_mosaic(config, 9) and closed_mosaic(config, 10)
+    assert POLICY["purpose"] == "augmentation-preview"
+    assert len(POLICY_DIGEST) == 64
+    spec = {key: idx for idx, key in enumerate(INPUT_KEYS)}
+    assert len(input_digest(spec)) == 64
 
 
 @pytest.mark.parametrize(
@@ -48,10 +50,11 @@ def test_preview_materialization_never_changes_the_frozen_training_contract():
 )
 def test_preview_request_bounds(seed, epoch, count):
     with pytest.raises(ValueError):
-        validate_request(configuration(), seed, epoch, count)
+        validate_request(plugin_config(), seed, epoch, count)
 
 
-def test_unqualified_native_framework_is_explicit():
-    config = configuration("libreyolo", {"epochs": 10})
-    with pytest.raises(ValueError, match="Ultralytics"):
-        validate_request(config, 1, 1, 1)
+def test_preview_rejects_plugins_without_preview_capability_or_oversized_multiscale():
+    with pytest.raises(ValueError, match="增强预览"):
+        validate_request(plugin_config(capabilities=["train"]), 1, 1, 1)
+    with pytest.raises(ValueError, match="尺寸上限"):
+        validate_request(plugin_config(imgsz=2048, multi_scale=0.5), 1, 1, 1)

@@ -6,7 +6,6 @@ import json
 import os
 import sqlite3
 import subprocess
-import sys
 import threading
 import time
 import uuid
@@ -16,12 +15,10 @@ import psutil
 from training_contract.observability import (
     LOG_LIMIT,
     METRICS,
-    PHASES,
     REQUEST_BYTES,
     SAMPLE_LIMIT,
     SUMMARY_BYTES,
     encoded,
-    eta_basis,
     measurement,
     utc_now,
     validate_sample,
@@ -187,120 +184,6 @@ class ObservationSpool:
     def close(self):
         with self.lock:
             self.db.close()
-
-
-class NativeProgress:
-    """Callback-owned receipt. No thread/CUDA context is created by observation."""
-
-    def __init__(self, spec, output, *, clock=time.monotonic):
-        self.spec, self.output, self.clock = spec, output, clock
-        self.phase_name = "preparing"
-        self.phase_start = self.clock()
-        self.durations = {}
-        self.cycles = []
-        self.cycle_start = None
-        self.completed_epoch = 0
-        self.last_write = float("-inf")
-        self.batch_start = self.clock()
-        self.batch_images = 0
-        self.throughput = measurement(reason="callback_unavailable")
-        self.closing_epochs = None
-
-    def phase(self, name):
-        if name not in PHASES:
-            raise ValueError("Unknown observed native phase")
-        now = self.clock()
-        if name != self.phase_name:
-            self.durations[self.phase_name] = (
-                self.durations.get(self.phase_name, 0) + now - self.phase_start
-            )
-            self.phase_name, self.phase_start = name, now
-        self.write(force=True)
-
-    def started(self, *, closing_epochs=None):
-        if type(closing_epochs) is int and closing_epochs >= 0:
-            self.closing_epochs = min(closing_epochs, self.spec["parameters"]["epochs"])
-        self.cycle_start = self.clock()
-        self.batch_start = self.clock()
-        self.phase("training")
-
-    def batch(self, images):
-        if type(images) is int and images > 0:
-            self.batch_images += images
-        now = self.clock()
-        if now - self.batch_start >= 5:
-            self.throughput = measurement(self.batch_images / (now - self.batch_start))
-            self.batch_images, self.batch_start = 0, now
-        self.write()
-
-    def epoch(self, epoch, *, raw_epoch_seconds=None):
-        now = self.clock()
-        total = self.spec["parameters"]["epochs"]
-        close = self.closing_epochs or 0
-        if self.cycle_start is not None:
-            self.cycles.append(
-                {
-                    "epoch": epoch,
-                    "seconds": now - self.cycle_start,
-                    "comparable": bool(self.cycles),
-                    "closing": bool(close and epoch > total - close),
-                }
-            )
-            self.cycles = self.cycles[-20:]
-        self.cycle_start, self.completed_epoch = now, epoch
-        self.raw_epoch_seconds = raw_epoch_seconds
-        self.write(force=True)
-
-    def write(self, *, force=False):
-        now = self.clock()
-        if not force and now - self.last_write < 5:
-            return
-        try:
-            allocated = reserved = measurement(reason="cuda_uninitialized")
-            torch = sys.modules.get("torch")
-            if torch is not None and torch.cuda.is_initialized():
-                allocated = measurement(torch.cuda.memory_allocated())
-                reserved = measurement(torch.cuda.memory_reserved())
-            total = self.spec["parameters"]["epochs"]
-            progress = {
-                "completed_epoch": self.completed_epoch,
-                "total_epochs": total,
-                "cycles": self.cycles,
-                "phase_durations": self.durations,
-                "eta": eta_basis(
-                    self.cycles,
-                    completed_epoch=self.completed_epoch,
-                    total_epochs=total,
-                    close_mosaic=self.closing_epochs or 0,
-                )
-                if self.closing_epochs is not None
-                else {
-                    "available": False,
-                    "reason": "unobserved_augmentation_regime",
-                    "sample_count": 0,
-                },
-            }
-            raw = getattr(self, "raw_epoch_seconds", None)
-            if type(raw) in {int, float} and raw >= 0:
-                progress["native_raw"] = {"epoch_seconds": raw}
-            atomic_json(
-                self.output / "progress.json",
-                {
-                    "phase": self.phase_name,
-                    "phase_elapsed_seconds": now - self.phase_start,
-                    "captured_monotonic": now,
-                    "captured_at": utc_now(),
-                    "progress": progress,
-                    "allocator": {
-                        "cuda_allocated_bytes": allocated,
-                        "cuda_reserved_bytes": reserved,
-                    },
-                    "images_per_second": self.throughput,
-                },
-            )
-            self.last_write = now
-        except Exception:
-            pass
 
 
 class ProcessSampler:

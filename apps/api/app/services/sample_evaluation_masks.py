@@ -8,10 +8,7 @@ import math
 from collections import Counter
 
 from yoao_protocol_v2.mask_interaction import CocoRlePayload, canonical_rle_bytes
-from training_contract.model_return import (
-    SEGMENTATION_OUTPUT_CONTRACT,
-    segmentation_runtime,
-)
+from training_contract.dataset import SEGMENTATION_OUTPUT_CONTRACT
 
 from app.services import sample_evaluation_engine as detection
 from app.services.training_dataset_bridge import content_digest
@@ -172,23 +169,20 @@ def _checked(items, class_count, predictions):
 def predictions_from_wire(
     items, mapping, *, metadata, width, height, runtime_qualification=None
 ):
+    segmentation = metadata.get("segmentation") if isinstance(metadata, dict) else None
     runtime = (
-        segmentation_runtime("8.4.177")
-        if runtime_qualification is None
+        segmentation.get("runtime_qualification")
+        if runtime_qualification is None and isinstance(segmentation, dict)
         else runtime_qualification
     )
-    if not isinstance(runtime, dict):
+    if (
+        not isinstance(runtime, dict)
+        or not isinstance(runtime.get("decoder"), str)
+        or not runtime["decoder"]
+        or not isinstance(runtime.get("mask_processing"), str)
+        or not runtime["mask_processing"]
+    ):
         raise ValueError("Unqualified frozen mask evaluation runtime")
-    canonical = segmentation_runtime(runtime.get("ultralytics"))
-    if runtime.get("ultralytics") != "8.4.177":
-        if type(runtime.get("end2end")) is not bool:
-            raise ValueError("Frozen mask evaluation head is unavailable")
-        canonical.update(
-            end2end=runtime["end2end"], nms=False if runtime["end2end"] else None
-        )
-    if runtime != canonical:
-        raise ValueError("Unqualified frozen mask evaluation runtime")
-    segmentation = metadata.get("segmentation") if isinstance(metadata, dict) else None
     if (
         not isinstance(segmentation, dict)
         or segmentation.get("dimensions") != [height, width]

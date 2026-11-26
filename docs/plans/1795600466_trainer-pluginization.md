@@ -1,6 +1,6 @@
 # 训练器插件化架构与实施计划
 
-> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）、T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）、前置 [ADR-0190（推理插件机制升级）](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 全部切片（I0–I3）及 **T2（`yoao_learning_v1.trainer_plugins` 注册表、资格门禁、多槽位模型与无 ML 依赖双轨 `training-supervisor`）** 均已完成并通过真实 CPU 哑训练器端到端实测验收，待维护者确认后启动 T3。
+> 状态：T0（ADR-0189 与 `yoao-trainer/v1` 全量契约冻结）、T1（Learning Owner 边界收口与前向 SQL `bo0512` 泛化）、前置 [ADR-0190（推理插件机制升级）](../adr/archive/0190-inference-plugin-generalization-and-direct-tier.md) 全部切片（I0–I3）、T2（`yoao_learning_v1.trainer_plugins` 注册表、资格门禁、多槽位模型与无 ML 依赖双轨 `training-supervisor`）及 **T3（官方参考训练器 `ultralytics` / `libreyolo` 拆仓至 `YOAO-Plugins` 并删除主仓旧静态实现与 ML 依赖）** 均已完成并通过跨仓契约审计与自动化验证，待维护者确认后启动 T4。
 >
 > 创建日期：2026-11-25。
 >
@@ -206,5 +206,9 @@
     - 解除单一 `training_gpu_uuid` 限制（新增 `training_gpu_uuids` 与 `training_cpu_slots` 多槽位资源模型，保留每张物理 GPU 单作业互斥租约），并在 `training_runs` 打通 `adapter_revision = 3`（`yoao-trainer/v1`）目录融合、入队冻结、申领期插件启用复核与 `result.json`（`TrainReceiptV1`）全量回读核验；
     - 将 `apps/training-executor` 核心依赖剥离至无 ML 依赖（`yoao-sdk`、`httpx`、`psutil`），新增 `Dockerfile.supervisor` 与 `plugin_runner.py`，用纯 `nvidia-smi` 替代 `import torch` 探测，实现 `container`（`--network=none`、`--cap-drop ALL`、`no-new-privileges`、有界 `pids_limit`/`shm_size`、`:ro` 挂载、先落盘后启动与启动期孤儿容器回收）和 `local_process` 双轨监督及 CPU-only `PreviewSupervisor`；
     - 在一次性隔离环境（Postgres 16 `bo0514` + 开启版本控制的 MinIO + 私有 Registry + FastAPI + 无 ML 依赖 `training-supervisor`）使用基于 `yoao-plugin-sdk[trainer]` 编写的真实 CPU 哑训练器完成全套 6 场景实测（最小权限 SQL 隔离、RBAC 与资格门禁、受管容器断网训练与产物全量回读、运行中取消与容器退出确认、模拟崩溃孤儿容器启动回收、`ProcessBudget` 单调时钟超时中止及 `local_process` 直跑与退役）。
-- **下一步（待维护者确认启动 T3）**：
-  - 经维护者确认后进入 **T3（官方参考训练器 `ultralytics` / `libreyolo` 拆仓至 `YOAO-Plugins` 并删除主仓旧静态实现）**，随后进入 **T4（真实单卡 GPU 端到端与模型回流资格验收，并转正归档 ADR-0189）**。
+  - 已完成 **T3（官方参考训练器拆仓至 `YOAO-Plugins` 并删除主仓旧静态实现）**：
+    - 在独立插件仓库 `YOAO-Plugins` 提取 `plugins/trainer/ultralytics/`（30 项受控模型规格、6 组 family×task 完整参数 schema、离线字体拦截与首 epoch 禁自动降 batch、`InstanceRLETrainer`、`native_identity`、权重初始化张量指纹校验、`input-membership.json`、评估器源码摘要与增强预览）与 `plugins/trainer/libreyolo/`（4 项受控模型规格、`weights_only=True` 检查点校验、`StrictResumeLogging`、`ObservedTrainer`/`ObservedValidator` 与 `libreyolo-native-state-dict-1.0` 回流描述符），两款插件均以非 root `USER 10001:10001` 运行并集成至 `YOAO-Plugins` CI 矩阵与契约校验；
+    - 在主仓库删除全部遗留静态 ML 训练器实现、`apps/training-executor` 中 67 个 ML/CUDA 依赖、静态 `TRAINING_CATALOG_JSON` 环境变量以及 `packages/python-sdk/src/training_contract` 中所有框架专属参数字典、模型表与原生库存 JSON；全面迁移 `apps/api`、`apps/training-executor`、`packages/python-sdk`、`scripts/`、`docker-compose.training.yml`、CI、OpenAPI 快照与 SDK 操作目录至 `yoao_learning_v1.trainer_plugins` 与 `yoao-trainer/v1`；
+    - 经独立双仓只读安全与正确性审计并完成全部 P0/P1/P2 收口（含 `dataset-identity.json` / `initialization.json` 监督器输入桥接、按 family×task 下发 `fields`、预览策略 5 键摘要对齐、推理 `InstallRequest` 逐字段精确匹配含 `yolo26` `end2end` 与 `libreyolo` `model_family="yolo9"`、非 root `10001:10001` 镜像与监督器加固、单行清洗失败收据、动态 Study 指标校验与 AST 零 ML 导入守卫）。
+- **下一步（待维护者确认启动 T4）**：
+  - 经维护者确认后进入 **T4（真实单卡 GPU 端到端与模型回流资格验收、清理/迁移遗留静态 `TRAINING_CATALOG_JSON` 测试夹具、同步 `YOAO-Docs` 并将 ADR-0189 转正归档）**。

@@ -73314,7 +73314,7 @@
         {
           "name": "capabilities_snapshot",
           "kind": "positional_or_keyword",
-          "annotation": "dict[str, Any] | BaseModel",
+          "annotation": "dict[str, Any] | TrainerCapabilitiesV1",
           "required": true,
           "default": null
         },
@@ -73478,7 +73478,7 @@
         {
           "name": "framework",
           "kind": "positional_or_keyword",
-          "annotation": "Literal['ultralytics', 'libreyolo'] | None",
+          "annotation": "str | None",
           "required": false,
           "default": null
         },
@@ -75121,7 +75121,7 @@
         {
           "name": "framework",
           "kind": "positional_or_keyword",
-          "annotation": "Literal['ultralytics', 'libreyolo']",
+          "annotation": "str",
           "required": true,
           "default": null
         },
@@ -75287,7 +75287,7 @@
         {
           "name": "framework",
           "kind": "positional_or_keyword",
-          "annotation": "Literal['ultralytics', 'libreyolo']",
+          "annotation": "str",
           "required": true,
           "default": null
         },

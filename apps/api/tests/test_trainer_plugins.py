@@ -879,7 +879,6 @@ async def test_enabled_cpu_plugin_catalog_preflight_and_claim(
     monkeypatch.setattr(settings, "training_gpu_uuid", "")
     monkeypatch.setattr(settings, "training_gpu_uuids", "")
     monkeypatch.setattr(settings, "training_cpu_slots", 1)
-    monkeypatch.setattr(settings, "training_catalog_json", {})
     monkeypatch.setattr(
         runs_service,
         "internal_download",
@@ -1231,3 +1230,172 @@ def test_verify_trainer_receipt_artifact_rejects_role_and_empty_tampering(monkey
         runs_service.verify_trainer_receipt_artifact(
             run, attempt, make_artifacts(weight_role="config")
         )
+
+
+def test_plugin_schema_multi_family_and_configuration_resolution():
+    from app.services import trained_models
+
+    multi_schema_record = _record_from_payload(
+        validate_registration_payload(
+            RegisterTrainerPluginRequest(
+                manifest=_manifest(
+                    plugin_id="yoao.trainer.multi",
+                    framework_id="multi_fw",
+                    capabilities=["train", "evaluate", "export_weights"],
+                    extra_ext={"framework_version": "2.0.0"},
+                ),
+                capabilities_snapshot=TrainerCapabilitiesV1(
+                    protocol_version=TRAINER_PROTOCOL_VERSION,
+                    framework_id="multi_fw",
+                    framework_version="2.0.0",
+                    runtime_versions={"python": "3.12"},
+                    supported_tasks=["detect", "segment"],
+                    supported_dataset_contracts=[
+                        "ultralytics-bbox-1",
+                        "ultralytics-instance-rle-1",
+                    ],
+                    architectures=[
+                        TrainerArchitectureV1(
+                            id="fam1n", family="fam1", tasks=["detect"]
+                        ),
+                        TrainerArchitectureV1(
+                            id="fam2n-seg",
+                            family="fam2",
+                            tasks=["segment"],
+                            end2end=True,
+                        ),
+                    ],
+                    parameter_schema={
+                        "schema_id": "multi-default",
+                        "schema_digest": "1" * 64,
+                        "groups": {"basic": "Basic", "platform": "Platform"},
+                        "fields": [
+                            {
+                                "key": "epochs",
+                                "label": "Epochs",
+                                "group": "basic",
+                                "status": "editable",
+                                "native_type": "integer",
+                                "default": 50,
+                                "native_default": 50,
+                                "defined_in": "multi",
+                                "reason": "",
+                                "rules": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 500,
+                                },
+                                "aliases": ["num_epochs"],
+                            },
+                            {
+                                "key": "workers",
+                                "label": "Workers",
+                                "group": "platform",
+                                "status": "platform-managed",
+                                "editable": False,
+                                "native_type": "integer",
+                                "default": 2,
+                                "native_default": 2,
+                                "defined_in": "multi",
+                                "reason": "managed",
+                                "rules": {},
+                                "aliases": [],
+                            },
+                        ],
+                        "schemas": {
+                            "fam1:detect": {
+                                "schema_id": "multi-fam1-detect",
+                                "schema_digest": "a" * 64,
+                                "field_count": 2,
+                                "editable_count": 1,
+                            },
+                            "fam2:segment": {
+                                "schema_id": "multi-fam2-segment",
+                                "schema_digest": "b" * 64,
+                                "field_count": 2,
+                                "editable_count": 1,
+                            },
+                        },
+                    },
+                ),
+                execution_mode="local_process",
+                source_tier="official",
+                artifact=None,
+            )
+        ),
+        status="enabled",
+    )
+
+    item = adapters.plugin_catalog_item(multi_schema_record)
+    assert {s["schema_id"] for s in item["parameter_schemas"]} == {
+        "multi-fam1-detect",
+        "multi-fam2-segment",
+    }
+
+    seg_schema = adapters.plugin_parameter_schema_payload(
+        multi_schema_record,
+        base_model="fam2n-seg",
+        task="segment",
+        model_family="fam2",
+    )
+    assert seg_schema["schema_id"] == "multi-fam2-segment"
+    assert seg_schema["schema_digest"] == "b" * 64
+
+    resolved = adapters.resolve_plugin_configuration_for_schema(
+        seg_schema,
+        {
+            "schema_id": "multi-fam2-segment",
+            "schema_digest": "b" * 64,
+            "values": {"num_epochs": 12},
+        },
+        data_contract={
+            "schema": 3,
+            "task": "segment",
+            "bridge": "ultralytics-instance-rle-1",
+        },
+    )
+    assert resolved["user_values"] == {"epochs": 12}
+    assert resolved["effective_values"]["epochs"] == 12
+    assert resolved["effective_values"]["workers"] == 0
+    assert resolved["origins"]["workers"] == "platform:instance_rle"
+
+    with pytest.raises(ValueError, match="只读"):
+        adapters.resolve_plugin_configuration_for_schema(
+            seg_schema,
+            {
+                "schema_id": "multi-fam2-segment",
+                "schema_digest": "b" * 64,
+                "values": {"workers": 4},
+            },
+        )
+
+    elig = trained_models.registration_eligibility(
+        {
+            "task": "segment",
+            "adapter_revision": 3,
+            "framework": "multi_fw",
+            "framework_version": "2.0.0",
+            "base_model": {"id": "fam2n-seg", "family": "fam2"},
+            "trainer_plugin": {
+                "plugin_id": "yoao.trainer.multi",
+                "capabilities": ["train", "evaluate", "export_weights"],
+            },
+        }
+    )
+    assert elig["qualified"] is True
+    assert elig["qualification"]["output_contract"] == "aap-instance-rle-1"
+
+    no_export = trained_models.registration_eligibility(
+        {
+            "task": "detect",
+            "adapter_revision": 3,
+            "framework": "multi_fw",
+            "framework_version": "2.0.0",
+            "base_model": {"id": "fam1n", "family": "fam1"},
+            "trainer_plugin": {
+                "plugin_id": "yoao.trainer.multi",
+                "capabilities": ["train"],
+            },
+        }
+    )
+    assert no_export["qualified"] is False

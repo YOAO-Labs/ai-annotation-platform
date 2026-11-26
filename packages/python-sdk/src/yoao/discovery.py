@@ -44,7 +44,11 @@ def _operation_names(operation: dict[str, Any]) -> set[str]:
 
 
 def _parameter_schema(annotation: Any) -> type[BaseModel] | None:
-    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+    if (
+        isinstance(annotation, type)
+        and issubclass(annotation, BaseModel)
+        and annotation is not BaseModel
+    ):
         return annotation
     for item in get_args(annotation):
         model = _parameter_schema(item)

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from yoao_task_contract import normalize_task
 from fastapi import HTTPException
 from sqlalchemy import func, select
-from training_contract import definition
+from yoao_task_contract import normalize_task
 
 from app.services import learning_selection_data as data
 from app.services import training_adapters, training_initialization as initialization
@@ -18,25 +17,35 @@ async def project_lock(db, project_id, *, wait=True):
     return True if wait else bool(result)
 
 
-def fixed_policy_template(framework, base_model, task="detect"):
-    template = training_adapters.controlled_template(framework, base_model)
-    if normalize_task(definition(framework, base_model)["task"]) != task or (
-        task == "segment"
-        and (framework != "ultralytics" or base_model != "yolo11n-seg")
-    ):
+async def fixed_policy_template(db, framework, base_model, task="detect"):
+    template = await training_adapters.plugin_template(db, framework, base_model)
+    if normalize_task(template["task"]) != task:
         raise HTTPException(
             status_code=422, detail="基础模型与自动策略任务或受控规格不匹配"
         )
-    return template
+    return {
+        key: template[key]
+        for key in (
+            "framework",
+            "framework_version",
+            "image_digest",
+            "base_model",
+            "resource_id",
+        )
+    }
 
 
-def policy_template_current(policy):
+async def policy_template_current(db, policy):
     try:
         expected = policy.config["template"]
+        task = getattr(policy, "task", "detect")
         pin = policy.config.get("initialization")
         if pin:
             if initialization.compatible_pin(
-                pin, expected["framework"], expected["base_model"]["id"]
+                pin,
+                expected["framework"],
+                expected["base_model"]["id"],
+                expected_task=task,
             ) or getattr(
                 policy, "initialization_model_id", None
             ) != initialization.model_id(pin):
@@ -44,18 +53,21 @@ def policy_template_current(policy):
         elif getattr(policy, "initialization_model_id", None) is not None:
             return False
         if policy.config.get("configuration"):
-            from training_contract.catalog import definition_for_identity
-
-            definition_for_identity(
-                expected["framework"],
-                expected["base_model"]["id"],
-                policy.config["configuration"]["identity"],
+            schema = await training_adapters.plugin_parameter_schema(
+                db, expected["framework"], expected["base_model"]["id"]
             )
+            identity = policy.config["configuration"]["identity"]
+            if (
+                identity.get("schema_id") != schema["schema_id"]
+                or identity.get("schema_digest") != schema["schema_digest"]
+            ):
+                return False
         return (
-            fixed_policy_template(
+            await fixed_policy_template(
+                db,
                 expected["framework"],
                 expected["base_model"]["id"],
-                getattr(policy, "task", "detect"),
+                task,
             )
             == expected
         )
@@ -87,7 +99,7 @@ async def policy_claim_allowed(db, run):
         policy.enabled
         and policy.revision == policy.policy_revision
         and project.status == "in_progress"
-        and policy_template_current(policy)
+        and await policy_template_current(db, policy)
         and run.config.get("initialization") == policy.config.get("initialization")
     )
 

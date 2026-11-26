@@ -20,7 +20,6 @@ from training_contract.observability import (
 
 from training_executor.log_capture import LogCapture
 from training_executor.observability import (
-    NativeProgress,
     ObservationSpool,
     ObservationSession,
     ProcessSampler,
@@ -162,26 +161,6 @@ def test_final_summary_includes_last_native_progress_and_remains_immutable_durin
     session.stop()
 
 
-def test_failure_classification_uses_exception_types_without_forcing_gpu_oom():
-    torch = pytest.importorskip("torch")
-    from training_contract.observability import (
-        InputMismatchError,
-        NativeRuntimeMismatch,
-    )
-    from training_executor.train import native_failure
-
-    spec, progress = {"frozen_config": {}}, SimpleNamespace(phase_name="training")
-    for error, expected in (
-        (torch.cuda.OutOfMemoryError("password=private"), "cuda_oom"),
-        (RuntimeError("CUDA out of memory"), "native_exception"),
-        (InputMismatchError("bad input"), "input_mismatch"),
-        (NativeRuntimeMismatch("bad runtime"), "runtime_mismatch"),
-    ):
-        receipt = native_failure(spec, progress, error)
-        assert receipt["code"] == expected and receipt["source"] == "native"
-        assert "private" not in receipt["diagnostic"]
-
-
 def test_mismatched_ack_cannot_discard_pending_request(tmp_path):
     spool = ObservationSpool(tmp_path / "observations.sqlite")
     boot = str(uuid.uuid4())
@@ -285,43 +264,6 @@ def test_head_tail_order_and_artifact_bound_with_rotations(tmp_path):
     assert evidence["truncated"] and evidence["artifact_bytes"] <= LOG_BYTES
     indexes = [int(line[:4]) for line in text.splitlines() if line[:4].isdigit()]
     assert indexes == sorted(indexes)
-
-
-def test_native_progress_uses_actual_resolved_closing_period_and_comparable_cycles(
-    tmp_path,
-):
-    clock = [0.0]
-    progress = NativeProgress(
-        {"parameters": {"epochs": 8}}, tmp_path, clock=lambda: clock[0]
-    )
-    progress.started(closing_epochs=2)
-    for epoch in range(1, 5):
-        clock[0] += 10
-        progress.epoch(epoch, raw_epoch_seconds=8)
-    receipt = json.loads((tmp_path / "progress.json").read_text())
-    assert not receipt["progress"]["cycles"][0]["comparable"]
-    assert receipt["progress"]["eta"]["reason"] == "unobserved_augmentation_regime"
-    assert receipt["progress"]["native_raw"]["epoch_seconds"] == 8
-    assert receipt["allocator"]["cuda_allocated_bytes"]["value"] is None
-    progress.started(closing_epochs=0)
-    clock[0] += 10
-    progress.epoch(5)
-    assert json.loads((tmp_path / "progress.json").read_text())["progress"]["eta"][
-        "available"
-    ]
-
-
-def test_native_progress_io_failure_does_not_interrupt_training_callback(
-    tmp_path, monkeypatch
-):
-    progress = NativeProgress({"parameters": {"epochs": 8}}, tmp_path)
-    monkeypatch.setattr(
-        "training_executor.observability.atomic_json",
-        lambda *args: (_ for _ in ()).throw(OSError("disk unavailable")),
-    )
-    progress.started(closing_epochs=0)
-    progress.batch(2)
-    progress.epoch(1)
 
 
 def test_sampler_pid_reuse_and_unavailable_device_never_look_like_zero(

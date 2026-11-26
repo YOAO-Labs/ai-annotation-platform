@@ -1,7 +1,8 @@
-import fcntl
 import copy
+import fcntl
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 import threading
@@ -12,72 +13,12 @@ from zipfile import ZipFile
 import httpx
 import pytest
 
+from training_contract.trainer_plugin import (
+    TRAINER_PROTOCOL_VERSION,
+    canonical_json_digest as digest,
+)
 from training_executor.files import digest_file, extract_dataset, immutable_copy
 from training_executor.worker import Supervisor, live_group, stop_process
-from training_executor.train import ultralytics_report
-
-
-def test_report_keeps_observed_class_identity_and_validation_scope():
-    result = SimpleNamespace(
-        box=SimpleNamespace(ap_class_index=[1]),
-        class_result=lambda position: (0.7, 0.6, 0.5, 0.4),
-        results_dict={"metrics/mAP50(B)": 0.5},
-    )
-    report = ultralytics_report(
-        result,
-        {
-            "frozen_config": {
-                "framework_version": "8.4.183",
-                "classes": ["car", "person"],
-                "validation_digest": "fixed",
-            },
-            "parameters": {"imgsz": 128},
-        },
-    )
-    assert report["per_class"] == [
-        {
-            "index": 1,
-            "name": "person",
-            "precision": 0.7,
-            "recall": 0.6,
-            "mAP50": 0.5,
-            "mAP50-95": 0.4,
-        }
-    ]
-    assert report["validation_digest"] == "fixed"
-    assert report["evaluation"]["independent_test_set"] is False
-    assert report["evaluation"]["version"] == "8.4.183"
-
-
-def test_segmentation_report_keeps_box_mask_metrics_and_native_fitness_separate():
-    from training_contract.dataset import SEGMENTATION
-
-    result = SimpleNamespace(
-        box=SimpleNamespace(ap_class_index=[0]),
-        class_result=lambda position: (0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2),
-        results_dict={
-            "metrics/mAP50-95(B)": 0.6,
-            "metrics/mAP50-95(M)": 0.2,
-            "fitness": 0.8,
-        },
-    )
-    report = ultralytics_report(
-        result,
-        {
-            "frozen_config": {
-                "framework_version": "8.4.183",
-                "classes": ["shape"],
-                "validation_digest": "frozen",
-                "configuration": {"identity": {"task": SEGMENTATION}},
-            },
-            "parameters": {"imgsz": 128},
-        },
-    )
-    row = report["per_class"][0]
-    assert row["mAP50-95(B)"] == 0.6 and row["mAP50-95(M)"] == 0.2
-    assert row["precision(B)"] == 0.9 and row["precision(M)"] == 0.5
-    assert "mAP50-95" not in row and report["summary"]["fitness"] == 0.8
-    assert report["evaluation"]["task"] == "instance-segmentation"
 
 
 @pytest.mark.parametrize(
@@ -138,27 +79,37 @@ def test_child_inherits_resource_lock_until_process_group_exits(tmp_path):
 def test_final_events_are_drained_before_artifact_finish(tmp_path, monkeypatch):
     supervisor = object.__new__(Supervisor)
     supervisor.shutdown = threading.Event()
-    supervisor.runtime = {"torch": "verified"}
+    supervisor.runtime = {"executor_protocol": 3}
     supervisor.journal_path = tmp_path / "journal.json"
     journal = {
         "claim": {
             "executor_id": "owned",
             "boot_id": "boot",
-            "runtime": {"torch": "training-runtime"},
+            "runtime": {"executor_protocol": 3, "device_kind": "cpu"},
         },
         "assignment": {
             "attempt_id": "attempt",
             "run_id": "run",
             "lease_token": "secret",
             "config_digest": "digest",
-            "config": {},
+            "config": {"adapter_revision": 3},
         },
         "outcome": "succeeded",
     }
     (tmp_path / "train.log").write_text("finished")
-    (tmp_path / "events.jsonl").write_text(
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    (output_dir / "events.jsonl").write_text(
         "".join(
-            json.dumps({"kind": "epoch", "epoch": index + 1, "metrics": {}}) + "\n"
+            json.dumps(
+                {
+                    "seq": index + 1,
+                    "kind": "epoch",
+                    "epoch": index + 1,
+                    "metrics": {},
+                }
+            )
+            + "\n"
             for index in range(101)
         )
         + '{"unfinished":'
@@ -193,8 +144,8 @@ def test_final_events_are_drained_before_artifact_finish(tmp_path, monkeypatch):
     assert calls[1][1]["events"][0]["sequence"] == 101
     assert "secret" not in (tmp_path / "manifest.json").read_text()
     assert (
-        json.loads((tmp_path / "manifest.json").read_text())["runtime"]["torch"]
-        == "training-runtime"
+        json.loads((tmp_path / "manifest.json").read_text())["runtime"]["device_kind"]
+        == "cpu"
     )
 
 
@@ -227,6 +178,32 @@ def test_claim_request_is_replayable_after_lost_http_response(tmp_path):
     assert "native_budget" not in saved and "initialization" not in saved
 
 
+def _plugin_config(base: Path, archive: Path, entrypoint: list[str]) -> dict:
+    return {
+        "adapter_revision": 3,
+        "trainer_protocol": TRAINER_PROTOCOL_VERSION,
+        "framework": "dummy",
+        "framework_version": "1.0.0",
+        "task": "detect",
+        "dataset_contract": "ultralytics-bbox-1",
+        "dataset_digest": "1" * 64,
+        "dataset_sha256": digest_file(archive),
+        "classes": ["object"],
+        "base_model": {
+            "id": "dummy-n",
+            "filename": base.name,
+            "sha256": digest_file(base),
+        },
+        "parameters": {"epochs": 10},
+        "trainer_plugin": {
+            "plugin_id": "test.local",
+            "execution_mode": "local_process",
+            "entrypoint": entrypoint,
+            "requires_gpu": False,
+        },
+    }
+
+
 def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_path):
     supervisor = object.__new__(Supervisor)
     supervisor.state = tmp_path
@@ -239,22 +216,21 @@ def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_pa
     supervisor.shutdown = threading.Event()
     supervisor.heartbeat_done = threading.Event()
     supervisor.heartbeat = lambda *args: None
+    supervisor.runtime = {"device_kind": "cpu", "gpu_uuid": None}
+    entrypoint = [sys.executable, str(tmp_path / "runner.py")]
+    supervisor.local_plugins = {"test.local": {"entrypoint": entrypoint}}
     archive = tmp_path / "source.zip"
     with ZipFile(archive, "w") as package:
         package.writestr("data.yaml", "train: images/train")
     full_checkpoint = b"previously verified complete native checkpoint"
-    config = {
-        "base_model": {"filename": "base.pt", "sha256": digest_file(base)},
-        "dataset_sha256": digest_file(archive),
-        "framework": "ultralytics",
-        "parameters": {"epochs": 10},
-    }
+    config = _plugin_config(base, archive, entrypoint)
     journal = {
         "phase": "preparing",
         "assignment": {
             "run_id": str(uuid.uuid4()),
             "attempt_id": str(uuid.uuid4()),
             "config": config,
+            "config_digest": digest(config),
             "dataset_url": "dataset",
             "resume": {
                 "url": "resume",
@@ -289,12 +265,10 @@ def test_cancel_after_resume_download_preserves_input_before_child_starts(tmp_pa
 @pytest.fixture
 def controlled_child(tmp_path, monkeypatch):
     """Real local child/process group, with no framework or network workload."""
-    from training_contract.catalog import digest
-
     supervisor = object.__new__(Supervisor)
     supervisor.state = tmp_path
     supervisor.boot = str(uuid.uuid4())
-    supervisor.runtime = {"gpu_uuid": "GPU-owned"}
+    supervisor.runtime = {"device_kind": "cpu", "gpu_uuid": None}
     supervisor.models = tmp_path / "models"
     supervisor.models.mkdir()
     base = supervisor.models / "base.pt"
@@ -302,12 +276,9 @@ def controlled_child(tmp_path, monkeypatch):
     archive = tmp_path / "source.zip"
     with ZipFile(archive, "w") as package:
         package.writestr("data.yaml", "train: images/train")
-    config = {
-        "base_model": {"filename": "base.pt", "sha256": digest_file(base)},
-        "dataset_sha256": digest_file(archive),
-        "framework": "ultralytics",
-        "parameters": {"epochs": 10},
-    }
+    entrypoint = [sys.executable, str(tmp_path / "plugin.py")]
+    supervisor.local_plugins = {"test.local": {"entrypoint": entrypoint}}
+    config = _plugin_config(base, archive, entrypoint)
     journal = {
         "phase": "preparing",
         "claim": {
@@ -337,7 +308,11 @@ def controlled_child(tmp_path, monkeypatch):
     fcntl.flock(supervisor.lock, fcntl.LOCK_EX)
     supervisor.active_process = supervisor.active_capture = None
     supervisor.test_script = (
-        "print('password=private https://store/secret /host/input')"
+        "import json, pathlib, sys; "
+        "out = pathlib.Path(sys.argv[sys.argv.index('--output') + 1]); "
+        "print('password=private https://store/secret /host/input', flush=True); "
+        "(out / 'result.json').write_text(json.dumps("
+        "{'protocol_version':'yoao-trainer/v1','status':'succeeded','artifacts':[]}))"
     )
     supervisor.upload_and_finish = lambda *args: False
     monkeypatch.setattr(
@@ -349,11 +324,14 @@ def controlled_child(tmp_path, monkeypatch):
 
     def spawn(args, **kwargs):
         assert not any(key.startswith("TRAINING_") for key in kwargs["env"])
-        child = original([sys.executable, "-c", supervisor.test_script], **kwargs)
+        extra_args = list(args[len(entrypoint) :])
+        child = original(
+            [sys.executable, "-c", supervisor.test_script, *extra_args], **kwargs
+        )
         children.append(child)
         return child
 
-    monkeypatch.setattr("training_executor.worker.subprocess.Popen", spawn)
+    monkeypatch.setattr("training_executor.plugin_runner.subprocess.Popen", spawn)
     try:
         yield supervisor, journal, children
     finally:
@@ -402,10 +380,11 @@ def test_log_finalize_failure_retries_packaging_without_retraining(
 def test_pid_persist_and_stop_failure_retains_popen_until_same_boot_exit_proof(
     controlled_child, monkeypatch
 ):
+    from training_executor.plugin_runner import stop_process_group
+
     supervisor, journal, children = controlled_child
     supervisor.test_script = "import time; print('started',flush=True); time.sleep(30)"
     original_save = supervisor.save
-    original_stop = stop_process
     failed = []
     stopped = []
 
@@ -415,19 +394,19 @@ def test_pid_persist_and_stop_failure_retains_popen_until_same_boot_exit_proof(
             raise OSError("PID journal write failed")
         original_save(body)
 
-    def stop(child):
+    def stop(child, **kwargs):
         if not stopped:
             stopped.append(True)
             raise RuntimeError("Group exit not yet confirmed")
-        original_stop(child)
+        stop_process_group(child, **kwargs)
 
     monkeypatch.setattr(supervisor, "save", save)
-    monkeypatch.setattr("training_executor.worker.stop_process", stop)
+    monkeypatch.setattr("training_executor.plugin_runner.stop_process_group", stop)
     published = []
     supervisor.upload_and_finish = lambda *args: published.append(True) or False
     with pytest.raises(RuntimeError, match="not yet confirmed"):
         supervisor.execute(journal)
-    assert supervisor.active_process is children[0] and not published
+    assert supervisor.active_process is not None and not published
     assert supervisor.heartbeat_done.is_set()
     supervisor.execute(journal, recovery=True)
     assert len(children) == 1 and supervisor.active_process is None

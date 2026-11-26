@@ -9,7 +9,6 @@ from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from training_contract import definition
 from training_contract.budget import POLICY_DIGEST, validate_receipt
 
 from app.services.learning_context import LearningActorContext, LearningProjectContext
@@ -40,16 +39,36 @@ async def freeze_plan(db, project_id, body):
         raise HTTPException(
             status_code=422, detail="网格组合超过显式试验数量预算，不会截断执行"
         )
-    try:
-        schema = definition(body.base.framework, body.base.base_model)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422, detail="基础权重不在支持的参数目录中"
-        ) from exc
+    schema = await adapters.plugin_parameter_schema(
+        db, body.base.framework, body.base.base_model
+    )
     if schema["task"] != "detect":
         raise HTTPException(
             status_code=422, detail="参数搜索目前仅通过图片检测资格验证"
         )
+    if db is not None and hasattr(db, "scalar"):
+        from app.services.trainer_plugins_data import TrainerPluginsPostgresData
+
+        plugin = await TrainerPluginsPostgresData(db).get_enabled_by_framework(
+            body.base.framework
+        )
+        if plugin is not None:
+            descriptors = plugin.capabilities_snapshot.get("evaluator_descriptors")
+            detect_desc = (
+                descriptors.get("detect") if isinstance(descriptors, dict) else None
+            )
+            allowed_metrics = (
+                detect_desc.get("metrics") if isinstance(detect_desc, dict) else None
+            )
+            if (
+                isinstance(allowed_metrics, list)
+                and allowed_metrics
+                and body.objective not in allowed_metrics
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"框架 {body.base.framework} 的最终评估不提供目标指标 {body.objective}",
+                )
     editable = {
         field["key"] for field in schema["fields"] if field["status"] == "editable"
     }
@@ -82,19 +101,21 @@ async def freeze_plan(db, project_id, body):
         configuration = body.base.configuration.model_copy(
             update={"values": {**body.base.configuration.values, **overrides}}
         )
-        resolved = adapters.resolve_configuration(
-            body.base.framework, body.base.base_model, configuration.model_dump()
+        resolved = await adapters.resolve_plugin_configuration(
+            db, body.base.framework, body.base.base_model, configuration.model_dump()
         )
         config = {
             **baseline,
             "configuration": resolved,
             "parameters": {
-                key: resolved["effective_values"][key] for key in baseline["parameters"]
+                key: resolved["effective_values"][key]
+                for key in baseline["parameters"]
+                if key in resolved["effective_values"]
             },
             "fixed_options": {
                 key: value
                 for key, value in resolved["effective_values"].items()
-                if resolved["origins"][key] == "platform"
+                if resolved["origins"][key].split(":", 1)[0] == "platform"
             },
         }
         trial_id = uuid.uuid5(study_id, str(ordinal))
@@ -338,7 +359,7 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
     }
     if trial.config.get("initialization"):
         value["initialization"] = trial.config["initialization"]
-    compatible, reason = training_recipes.compatibility(value)
+    compatible, reason = await training_recipes.compatibility(db, value)
     if not compatible:
         study.status, study.message = "blocked", reason
         return await _persist_study(db, study)
