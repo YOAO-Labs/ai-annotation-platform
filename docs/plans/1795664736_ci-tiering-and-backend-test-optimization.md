@@ -240,15 +240,25 @@
 
 ## 当前状态与未证实项
 
-- **当前状态**：PR-1 至 PR-4 已按 4 个独立提交合入分支 `ci/pr-scope-and-verified-runtime`（`547c8852c`、`42f0ec40a`、`22f17923d`、`046abc15e`），一次性测试环境 `3ba060959d790989:test` 已销毁且无残留库；待远端 GitHub Actions 完成实测并由维护者审阅 `head` 模板改造后，继续推进 PR-5（基线红灯治理）及 PR-6 至 PR-9（L4/合并队列/L1+L2/L3/L5）。
-- **已验证账本（2026-11-26，本机实测）**：
-  - `pytest_ignore_collect` 预收集分片：Shard 0 冷收集从 `98.43s` 降至 `29.42s`（3.3×），`test_pytest_sharding.py` 29/29 通过。
-  - `managed_database` `head` 模板：全目录等价与静态漂移守卫 2/2 通过；6 用例 `test_storage_migration_windows.py` 从 `158.52s` 降至 `60.26s`（第 2 至 6 例单用例 `setup` 从 `19.75s` 降至 `0.97s`，20.3×）；7 文件 215 例实测零新增回归、零残留 `aap_managed_*` 库。
-  - 空间批量读取与大选集导出：`read_spatial_item_facts` 修复 5,000/200 的 25× 快照放大并补充 500 单页分片单测（9/9 通过），`test_large_frozen_selection_uses_bounded_sql_parameters` 从超 `303s` 降至 `154.52s`。
-  - `test_compat_facades.py`：并发冷启动从 `148.98s` 降至约 `44s`（3.4×），结果集合与基线逐项一致。
-  - `verify_module_data_boundary.py`：`collect_only=True` 去容器快路径通过 `test_module_data_selection.py` + `test_verify_module_data_boundary.py`（23/23，499 子测试，无 Docker 依赖）。
+- **当前状态**：PR-1 至 PR-4 已合入分支 `ci/pr-scope-and-verified-runtime` 并完成远端 CI 实测（Run `45769478317`）；PR-5 第一批基线红灯治理已完成并准备推送，包括修复上一轮全部 3 项非分片失败（`Backend repository script tests`、`Frontend E2E suites (default-15)`、`Backend module data reclamation acceptance`）、修复 2 处真实生产缺陷（预测重试丢失 `identity_principal`、LiDAR 预检误读 SQLAlchemy `DatasetItem.metadata`）以及批量修复约 600+ 例后端分片测试漂移。一次性测试环境 `3ba060959d790989:test` 在验证后销毁且无残留库；后续继续推进 PR-5 剩余基线分诊及 PR-6 至 PR-9（L4/合并队列/L1+L2/L3/L5）。
+- **已验证账本（2026-11-26）**：
+  - **远端 CI 实测（Run `45769478317`，`ca5db0424`）**：
+    - 后端 4 分片端到端总耗时降至 **Shard 0 `20m05s`**、**Shard 1 `33m53s`**、**Shard 2 `29m36s`**、**Shard 3 `23m12s`**；最慢分片关键路径从基线 `88m42s`（`45660914610`）/ `61m36s`（`45743400427`）降至 **`33m53s`**（加速 1.8× 至 2.6×，Shard 0 加速 3.1× 至 4.4×）。
+    - 并行拆分与基础设施 Job 全绿：20 个 Owner 契约套件全绿、Frontend verification `9m00s`、Python SDK `2m27s`、Repository quality `2m54s`、Backend migration & schema checks `2m14s`、M2B ordinary login acceptance `3m40s`、GPU membership activation `4m37s`、Backend worktree & maintenance tests `14m50s`、Frontend E2E 31/32 套件通过（仅 `default-15` 持续创建超时）。
+    - 非分片失败 3 项：`Backend repository script tests`（`0m31s`，缺 `uv` / 依赖 / 脚本断言漂移）、`Frontend E2E suites (default-15)`（`9m28s`，持续创建循环 90s 超时）、`Backend module data reclamation acceptance`（`21m58s`，6/7 profile 通过，仅 `test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck` 发生 `MissingGreenlet` 与缺少 `identity_principal`）。
+  - **本机实测（PR-1 至 PR-4）**：
+    - `pytest_ignore_collect` 预收集分片：Shard 0 冷收集从 `98.43s` 降至 `29.42s`（3.3×），`test_pytest_sharding.py` 29/29 通过。
+    - `managed_database` `head` 模板：全目录等价与静态漂移守卫 2/2 通过；6 用例 `test_storage_migration_windows.py` 从 `158.52s` 降至 `60.26s`（第 2 至 6 例单用例 `setup` 从 `19.75s` 降至 `0.97s`，20.3×）；7 文件 215 例实测零新增回归、零残留 `aap_managed_*` 库。
+    - 空间批量读取与大选集导出：`read_spatial_item_facts` 修复 5,000/200 的 25× 快照放大并补充 500 单页分片单测（9/9 通过），`test_large_frozen_selection_uses_bounded_sql_parameters` 从超 `303s` 降至 `154.52s`。
+    - `test_compat_facades.py`：并发冷启动从 `148.98s` 降至约 `44s`（3.4×），结果集合与基线逐项一致。
+    - `verify_module_data_boundary.py`：`collect_only=True` 去容器快路径通过 `test_module_data_selection.py` + `test_verify_module_data_boundary.py`（23/23，499 子测试，无 Docker 依赖）。
+  - **本机实测（PR-5 第一批红灯修复）**：
+    - 仓库脚本测试：`scripts/test_*.py` 743/743 全绿。
+    - 真实生产缺陷修复：`RetryCredentialAuthority` 保留 `identity_principal`；`lidar_preflight._item_metadata()` 修复误读 SQLAlchemy `DatasetItem.metadata`（`test_lidar_registered_preflight.py` 67/67 全绿）。
+    - 后端分片批量修复并本机一次性测试库验证通过：9 个 `test_*_binding_change.py`（148 例 `503 storage_unavailable` 全清，含 `test_bug_attachment_binding_change` 历史用例）、`test_managed_original_reclaim.py`（29/29）、`test_output_removal_owners.py`（39/39）、`test_lidar_export_worker.py`（12/12）、`test_export_media_migration_reads.py`（45/45）、`test_training_log_migration_reads.py`（22/22）、`test_connector_crypto_guard.py`（30/30）、`test_training_rooted_initialization.py`（29/29）、`test_training_preview_storage_flow.py`（25/25）、`test_ml_client_gpu_shadow.py`（29/29）、`test_video_derivative_api.py`（27/27）、`test_video_prepare_lock_windows.py`（全绿）、`test_managed_image_inference.py`（全绿）、`test_small_object_accounting.py`（全绿）、`test_guide_asset_uploads.py`（全绿）、`test_mask_repair_execution.py`（全绿）、`test_api_keys.py`（全绿）、`test_storage_migration_windows.py`（全绿）、`test_export_output_authority.py`（全绿）、`test_training_input_membership.py`（11/11）、`test_import_prediction_inputs.py`（全绿），以及 10 个部分减负文件（`test_original_binary` 21/23、`test_staged_preannotate_endpoint` 20/21、`test_preannotate_text` 4/5、`test_training_initialization` 16/17、`test_video_export_inputs` 21/24、`test_video_derivative_pipeline` 4/6、`test_dataset_original_reads` 5/8、`test_prediction_reference_actions`、`test_managed_prediction_requests`、`test_video_prediction_routes`、`test_video_prediction_frozen_scope`）。
+    - 质量门禁：`ruff check`、`ruff format --check`、`scripts/check_comments.py`（0 新增注释）、`scripts/check-product-naming.mjs`、`scripts/check-workflow-names.mjs --strict`、`git diff --check` 全过。
 - **未证实项（需在远端 CI 或后续 PR 闭环）**：
-  1. GitHub Actions 托管磁盘 I/O 上 `CREATE DATABASE ... TEMPLATE` 的 4 分片端到端真实耗时与偏斜度（推送 PR #195 后以实际 Actions 运行数据闭环）。
-  2. `test_managed_original_reclamation.py` 与 `test_large_frozen_selection_uses_bounded_sql_parameters` 剩余耗时均位于已冻结迁移 SQL 函数（`observe_original_reclamation` 与 `_spatial_item_json`），若远端单分片仍偏长，需立项新增迁移优化对应 SQL 函数。
-  3. `45660914610` 中 1,920 项失败与 336 项错误的完整分诊归 PR-5 处理；全绿状态下的 4 分片及拆出 5 个并行 Job 总耗时需在 PR-5 后重新记账。
+  1. `test_original_owner_acl_live.py`（reclamation acceptance）因临时 worktree 未安装 `apps/workspace/conformance/node/node_modules`，待远端 CI `Backend module data reclamation acceptance` 验证闭环；`Frontend E2E suites (default-15)` 待远端 CI 复验。
+  2. `test_managed_original_reclamation.py` 与 `test_large_frozen_selection_uses_bounded_sql_parameters` 剩余耗时均位于已冻结迁移 SQL 函数（`observe_original_reclamation` 与 `_spatial_item_json`），若全绿后单分片仍偏长，需立项新增迁移优化对应 SQL 函数。
+  3. 后端 4 分片剩余基线失败（`verify_module_data_boundary` 专用环境变量套件 212 例、`FakeDB` 缺少 `autoflush`/`execute` 约 144 例、剩余私表副本与新旧契约漂移，以及 `apply_prediction_result` 在 `_verify_input_provenance` 前先执行 `preflight_mask_payload_for_write` 的真实顺序问题）归 PR-5 后续批次处理；全绿状态下的 4 分片总耗时需在 PR-5 收口后重新记账。
   4. PR-7 切流后，托管 GitHub Runner 在多 PR 并发推送时的实际排队等待时间（90 秒预算是否足够）需在 30 次影子验收中实测确认。
