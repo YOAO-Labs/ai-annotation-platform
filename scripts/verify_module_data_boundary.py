@@ -7929,6 +7929,89 @@ SELECT 'insights_contract_rolled_back=' || (
     }
 
 
+def _run_collect_only(
+    args: argparse.Namespace,
+    test_files: tuple[str, ...],
+    output: Path,
+    junit: Path,
+    collection_manifest: Path,
+) -> int:
+    """Collect acceptance pytest node IDs without provisioning a Docker runtime."""
+    evidence = {
+        "schema": 1,
+        "acceptance": "module-data-boundary",
+        "status": "running",
+        "phase": "pytest-collection",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "code_root": str(ROOT),
+        "test_files": list(test_files),
+        "collection_manifest": str(collection_manifest),
+        "collected_test_nodes": None,
+        "test_exit_code": None,
+        "cleanup": {"errors": []},
+    }
+    _write_evidence(output, evidence)
+    exit_code = 1
+    try:
+        selected_test_paths = {target.partition("::")[0] for target in test_files}
+        missing_tests = sorted(
+            name
+            for name in selected_test_paths
+            if not (ROOT / "apps/api" / name).is_file()
+        )
+        if missing_tests:
+            raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
+        command = [
+            sys.executable,
+            "-c",
+            "import json,os,sys\n"
+            "args=sys.argv[1:]\n"
+            "os.chdir(args.pop(0))\n"
+            "manifest=args.pop(0)\n"
+            "sys.path.insert(0, os.getcwd())\n"
+            "import pytest\n"
+            "class CollectionManifest:\n"
+            "    def pytest_collection_finish(self, session):\n"
+            "        with open(manifest, 'w', encoding='utf-8') as output:\n"
+            "            json.dump([item.nodeid for item in session.items], output)\n"
+            "raise SystemExit(pytest.main(args, plugins=[CollectionManifest()]))\n",
+            str(ROOT / "apps/api"),
+            str(collection_manifest),
+            "-q",
+            "--tb=short",
+            "--collect-only",
+            *test_files,
+        ]
+        env = os.environ.copy()
+        env["AAP_MODULE_DATA_ROLE_ACCEPTANCE"] = "1"
+        result = subprocess.run(command, env=env, check=False)
+        evidence["test_exit_code"] = result.returncode
+        if result.returncode == 0:
+            collected = json.loads(collection_manifest.read_text(encoding="utf-8"))
+            evidence["collected_test_nodes"] = collected
+        exit_code = result.returncode
+        evidence["status"] = "collected" if exit_code == 0 else "failed"
+    except Exception as error:
+        evidence["status"] = "failed"
+        evidence["failure"] = {
+            "phase": "pytest-collection",
+            "error_type": type(error).__name__,
+        }
+    finally:
+        if exit_code != 0:
+            evidence["status"] = "failed"
+        evidence["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _write_evidence(output, evidence)
+        result_label = "COLLECTED" if exit_code == 0 else "FAIL"
+        scope_label = "selected subset" if args.test_files else "default selection"
+        print(
+            f"{result_label}: module-data {scope_label}; "
+            f"evidence={output} junit={junit}",
+            flush=True,
+        )
+    return exit_code
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -7958,6 +8041,8 @@ def main(
     junit.parent.mkdir(parents=True, exist_ok=True)
     junit.unlink(missing_ok=True)
     collection_manifest.unlink(missing_ok=True)
+    if collect_only:
+        return _run_collect_only(args, test_files, output, junit, collection_manifest)
 
     evidence = {
         "schema": 1,

@@ -345,3 +345,33 @@ async def test_scene_patch_preserves_public_response_and_reuses_idempotency_key(
     assert captured["request"].operation_id == operation_id
     assert captured["request"].patch.name == "renamed"
     assert response.headers["Idempotency-Key"] == str(operation_id)
+
+
+@pytest.mark.asyncio
+async def test_read_spatial_item_facts_chunks_at_single_page_limit(monkeypatch):
+    from app.services import labeling_scene
+    from yoao_assets_catalog.spatial_contract import ItemFactsPage
+
+    seen_requests = []
+
+    class Gateway:
+        async def read_items(self, request, *, same_session_native=False):
+            seen_requests.append((request, same_session_native))
+            return ItemFactsPage(
+                dataset_id=None,
+                item_ids=request.item_ids,
+                after_item_id=None,
+                next_item_id=None,
+                snapshot_digest="0" * 64,
+                total=len(request.item_ids),
+                complete=True,
+                items=[],
+                scenes=[],
+            )
+
+    monkeypatch.setattr(labeling_scene, "AssetsSpatialGateway", lambda _db: Gateway())
+    ids = [uuid.uuid4() for _ in range(501)]
+    await labeling_scene.read_spatial_item_facts(object(), [*ids, ids[0]])
+    assert [len(req.item_ids) for req, _ in seen_requests] == [500, 1]
+    assert all(req.page_size == 500 for req, _ in seen_requests)
+    assert all(len(req.item_ids) <= req.page_size for req, _ in seen_requests)

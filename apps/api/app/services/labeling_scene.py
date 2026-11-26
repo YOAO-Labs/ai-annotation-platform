@@ -22,6 +22,7 @@ from yoao_assets_catalog.spatial_contract import (
 
 
 _RESOLVE_CHUNK_SIZE = 5000
+_READ_ITEMS_PAGE_SIZE = 500
 
 
 @dataclass(frozen=True)
@@ -107,9 +108,12 @@ async def read_spatial_item_facts(
     items: dict[uuid.UUID, SpatialItem] = {}
     scenes: dict[uuid.UUID, SpatialScene] = {}
     unique_ids = list(dict.fromkeys(item_ids))
-    for start in range(0, len(unique_ids), _RESOLVE_CHUNK_SIZE):
+    for start in range(0, len(unique_ids), _READ_ITEMS_PAGE_SIZE):
         page = await gateway.read_items(
-            ReadItemsRequest(item_ids=unique_ids[start : start + _RESOLVE_CHUNK_SIZE]),
+            ReadItemsRequest(
+                item_ids=unique_ids[start : start + _READ_ITEMS_PAGE_SIZE],
+                page_size=_READ_ITEMS_PAGE_SIZE,
+            ),
             same_session_native=same_session_native,
         )
         items.update((item.id, item) for item in page.items)

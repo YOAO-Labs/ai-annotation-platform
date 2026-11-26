@@ -9,6 +9,7 @@ subprocesses verify those replacements still import without the retired module l
 from __future__ import annotations
 
 import ast
+from concurrent.futures import ThreadPoolExecutor
 import os
 import subprocess
 import sys
@@ -1017,35 +1018,72 @@ def test_removed_module_not_importable(spec: FacadeSpec) -> None:
         __import__(old, fromlist=[first_symbol])
 
 
-@pytest.mark.parametrize("spec", REMOVED_MODULE_SPECS, ids=lambda s: s.facade_module)
-def test_removed_module_cold_import_fails(spec: FacadeSpec) -> None:
-    """A cold subprocess confirms the module is gone without test-order side effects."""
+def _run_removed_module_cold_probe(
+    spec: FacadeSpec,
+) -> subprocess.CompletedProcess[str]:
     old = spec.facade_module
     probe = textwrap.dedent(
         f"""
         import importlib, importlib.util, sys
-        # The old module must not be importable.
         assert importlib.util.find_spec("{old}") is None
         try:
             importlib.import_module("{old}")
             raise SystemExit("import should have failed")
         except ModuleNotFoundError:
             pass
-        # Positive control: the replacement modules must still import.
         for module in {[g.module for g in spec.exports]}:
             importlib.import_module(module)
-        # Positive control: a real consumer must still import.
         for consumer in {list(spec.consumer_modules)}:
             importlib.import_module(consumer)
         """
     )
-    result = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-c", probe],
         cwd=_PROJECT_ROOT_PYTHONPATH,
         capture_output=True,
         text=True,
         env=_child_env(),
     )
+
+
+@pytest.fixture(scope="module")
+def _removed_module_cold_results(
+    request: pytest.FixtureRequest,
+) -> dict[str, subprocess.CompletedProcess[str]]:
+    selected: list[FacadeSpec] = []
+    seen: set[str] = set()
+    for item in request.session.items:
+        if item.originalname != "test_removed_module_cold_import_fails":
+            continue
+        callspec = getattr(item, "callspec", None)
+        if callspec is None or "spec" not in callspec.params:
+            continue
+        spec = callspec.params["spec"]
+        if spec.facade_module not in seen:
+            seen.add(spec.facade_module)
+            selected.append(spec)
+    if not selected:
+        return {}
+    workers = min(len(selected), max(2, min(4, os.cpu_count() or 2)))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return {
+            spec.facade_module: result
+            for spec, result in zip(
+                selected, pool.map(_run_removed_module_cold_probe, selected)
+            )
+        }
+
+
+@pytest.mark.parametrize("spec", REMOVED_MODULE_SPECS, ids=lambda s: s.facade_module)
+def test_removed_module_cold_import_fails(
+    spec: FacadeSpec,
+    _removed_module_cold_results: dict[str, subprocess.CompletedProcess[str]],
+) -> None:
+    """A cold subprocess confirms the module is gone without test-order side effects."""
+    old = spec.facade_module
+    result = _removed_module_cold_results.get(old)
+    if result is None:
+        result = _run_removed_module_cold_probe(spec)
     assert result.returncode == 0, (
         f"cold import probe for removed module {old} failed:\n"
         f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"

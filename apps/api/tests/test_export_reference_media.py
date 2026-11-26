@@ -17,13 +17,12 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import insert, select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
-from app.db.models.dataset import DatasetItem
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -975,34 +974,57 @@ async def test_large_frozen_selection_uses_bounded_sql_parameters(
     from app.services.exporting.service import ExportService
 
     _, project, task, content = reference_world
-    identities = [uuid.uuid4() for _ in range(33000)]
-    await db_session.execute(
-        insert(DatasetItem),
-        [
-            {
-                "id": identity,
-                "dataset_id": content[3].id,
-                "file_name": "bulk.png",
-                "file_path": f"bulk/{identity}.png",
-                "file_type": "image",
-            }
-            for identity in identities
-        ],
+    identities = list(
+        await db_session.scalars(
+            text(
+                """
+                WITH generated AS (
+                    SELECT public.gen_random_uuid() AS id
+                    FROM generate_series(1, 33000)
+                ),
+                inserted_items AS (
+                    INSERT INTO public.dataset_items (
+                        id, dataset_id, file_name, file_path, file_type, metadata
+                    )
+                    SELECT
+                        id,
+                        :dataset_id,
+                        'bulk.png',
+                        'bulk/' || id::text || '.png',
+                        'image',
+                        '{}'::jsonb
+                    FROM generated
+                ),
+                inserted_tasks AS (
+                    INSERT INTO public.tasks (
+                        id, project_id, display_id, file_name, file_path, file_type,
+                        tags, status, is_labeled, overlap, total_annotations,
+                        total_predictions, annotation_contributor_ids
+                    )
+                    SELECT
+                        id,
+                        :project_id,
+                        'bulk-' || left(replace(id::text, '-', ''), 20),
+                        'bulk.png',
+                        'bulk/' || id::text || '.png',
+                        'image',
+                        '[]'::jsonb,
+                        'pending',
+                        false,
+                        1,
+                        0,
+                        0,
+                        '[]'::jsonb
+                    FROM generated
+                    RETURNING id
+                )
+                SELECT id FROM inserted_tasks
+                """
+            ),
+            {"dataset_id": content[3].id, "project_id": project.id},
+        )
     )
-    await db_session.execute(
-        insert(Task),
-        [
-            {
-                "id": identity,
-                "project_id": project.id,
-                "display_id": f"bulk-{identity.hex[:20]}",
-                "file_name": "bulk.png",
-                "file_path": f"bulk/{identity}.png",
-                "file_type": "image",
-            }
-            for identity in identities
-        ],
-    )
+    assert len(identities) == 33000
     identities.append(task.id)
     assert (
         len(list(await db_session.scalars(task_query(project.id, task_ids=identities))))
