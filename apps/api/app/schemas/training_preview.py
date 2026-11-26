@@ -7,8 +7,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, model_validator
 
 from app.schemas.training_run import (
+    BuiltinFrameworkId,
     ExecutorFence,
-    FrameworkId,
     FrameworkSlug,
     TrainingConfiguration,
 )
@@ -27,7 +27,7 @@ class TrainingPreviewRequestOut(BaseModel):
 
 
 class TrainingPreviewCreate(TrainingPreviewRequestOut):
-    framework: FrameworkId
+    framework: BuiltinFrameworkId
 
 
 class PreviewBox(BaseModel):

@@ -26,11 +26,12 @@ from training_contract.dataset import config_task
 from yoao_task_contract import normalize_task, normalize_task_fields
 
 FrameworkSlug = Annotated[str, Field(pattern=FRAMEWORK_ID_PATTERN)]
-FrameworkId = Annotated[
+BuiltinFrameworkId = Annotated[
     str,
     Field(pattern=FRAMEWORK_ID_PATTERN),
     AfterValidator(validate_registered_framework),
 ]
+FrameworkId = FrameworkSlug
 
 
 class TrainingConfiguration(BaseModel):
@@ -77,10 +78,10 @@ class TrainingOrigin(BaseModel):
 class TrainingRunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=120)
-    task: Literal["detect", "segment"] | None = None
+    task: str | None = None
     dataset_id: uuid.UUID
     framework: FrameworkId = "ultralytics"
-    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    base_model: str = Field(default="yolo11n", pattern=r"^[a-zA-Z0-9._-]{1,128}$")
     parameters: TrainingParameters = Field(default_factory=TrainingParameters)
     configuration: TrainingConfiguration | None = None
     initialization: TrainingInitialization | None = None
@@ -145,13 +146,16 @@ class TrainingRunOut(BaseModel):
     study_id: uuid.UUID | None = None
     name: str
     status: str
-    task: Literal["detect", "segment"] = "detect"
+    task: str = "detect"
     media_type: Literal["image"] = "image"
     config: dict
 
     @model_validator(mode="after")
     def canonical_task_view(self):
-        self.task = config_task(self.config)
+        try:
+            self.task = config_task(self.config)
+        except ValueError:
+            self.task = str(self.config.get("task") or "detect")
         return self
 
     config_digest: str

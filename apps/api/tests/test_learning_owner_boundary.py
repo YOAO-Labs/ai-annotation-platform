@@ -13,6 +13,7 @@ ROUTES_DIR = API_APP_DIR / "api" / "v1"
 LEARNING_SERVICE_PATTERNS = (
     "training_*.py",
     "trained_model*.py",
+    "trainer_plugins*.py",
     "learning_*.py",
     "sample_evaluation*.py",
     "active_learning*.py",
@@ -35,6 +36,7 @@ FORBIDDEN_SERVICE_IMPORTS = ("app.services.ml_backend",)
 FORBIDDEN_ROUTER_PRIVATE_SYMBOLS = frozenset({"_build_candidates", "_router_mode"})
 
 DELITERALIZED_SCHEMAS = (
+    "trainer_plugin.py",
     "training_run.py",
     "training_hub.py",
     "training_study.py",
@@ -47,6 +49,7 @@ DELITERALIZED_SCHEMAS = (
 
 DELITERALIZED_ROUTES = (
     "active_learning.py",
+    "admin_trainer_plugins.py",
     "learning_policies.py",
     "sample_evaluations.py",
     "trained_models.py",

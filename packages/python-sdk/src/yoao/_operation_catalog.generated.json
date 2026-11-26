@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 789,
+  "operation_count": 796,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -4327,6 +4327,136 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/SystemHealthResponse"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/trainer-plugins",
+      "method": "GET",
+      "path": "/api/v1/admin/trainer-plugins",
+      "operation_id": "list_trainer_plugins_api_v1_admin_trainer_plugins_get",
+      "summary": "List Trainer Plugins",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.list"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.list"
+      ],
+      "parameters": [
+        {
+          "name": "include_retired",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Include Retired",
+            "type": "boolean",
+            "default": false
+          }
+        },
+        {
+          "name": "status",
+          "in": "query",
+          "required": false,
+          "schema": {
+            "title": "Status",
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "registered",
+                  "qualified",
+                  "enabled",
+                  "disabled",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "title": "Response List Trainer Plugins Api V1 Admin Trainer Plugins Get",
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/admin/trainer-plugins/{plugin_id}",
+      "method": "GET",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}",
+      "operation_id": "get_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__get",
+      "summary": "Get Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.get"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.get"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
               }
             }
           }
@@ -20394,7 +20524,7 @@
             "title": "Base Model",
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 128
           }
         },
         {
@@ -20484,7 +20614,7 @@
             "title": "Base Model",
             "type": "string",
             "minLength": 1,
-            "maxLength": 64
+            "maxLength": 128
           }
         }
       ],
@@ -32981,6 +33111,301 @@
           "application/json": {
             "schema": {
               "$ref": "#/components/schemas/BulkClearRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins",
+      "operation_id": "register_trainer_plugin_api_v1_admin_trainer_plugins_post",
+      "summary": "Register Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.register"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.register"
+      ],
+      "parameters": [],
+      "responses": {
+        "201": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/RegisterTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/disable",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/disable",
+      "operation_id": "disable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__disable_post",
+      "summary": "Disable Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.disable"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.disable"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/enable",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/enable",
+      "operation_id": "enable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__enable_post",
+      "summary": "Enable Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.enable"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.enable"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/qualify",
+      "operation_id": "qualify_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__qualify_post",
+      "summary": "Qualify Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.qualify"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.qualify"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/QualifyTrainerPluginRequest"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/admin/trainer-plugins/{plugin_id}/retire",
+      "method": "POST",
+      "path": "/api/v1/admin/trainer-plugins/{plugin_id}/retire",
+      "operation_id": "retire_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__retire_post",
+      "summary": "Retire Trainer Plugin",
+      "description": null,
+      "tags": [
+        "admin-trainer-plugins"
+      ],
+      "status": "covered",
+      "sdk_methods": [
+        "trainer_plugins.retire"
+      ],
+      "cli_aliases": [
+        "plugins.trainer.retire"
+      ],
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Plugin Id",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrainerPluginRecord"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
             }
           }
         }
@@ -72687,6 +73112,286 @@
       ]
     },
     {
+      "name": "trainer_plugins.disable",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "disable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/disable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/disable"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.disable"
+      ]
+    },
+    {
+      "name": "trainer_plugins.enable",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "enable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/enable"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/enable"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.enable"
+      ]
+    },
+    {
+      "name": "trainer_plugins.get",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "get",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/trainer-plugins/{plugin_id}"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/trainer-plugins/{plugin_id}"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.get"
+      ]
+    },
+    {
+      "name": "trainer_plugins.list",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "list",
+      "parameters": [
+        {
+          "name": "include_retired",
+          "kind": "keyword_only",
+          "annotation": "bool",
+          "required": false,
+          "default": false
+        },
+        {
+          "name": "status",
+          "kind": "keyword_only",
+          "annotation": "TrainerPluginStatus | None",
+          "required": false,
+          "default": null
+        }
+      ],
+      "return_type": "list[TrainerPluginRecord]",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "GET /api/v1/admin/trainer-plugins"
+      ],
+      "api_operations": [
+        "GET /api/v1/admin/trainer-plugins"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.list"
+      ]
+    },
+    {
+      "name": "trainer_plugins.qualify",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "qualify",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "qualification_report_sha256",
+          "kind": "keyword_only",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "qualification_report",
+          "kind": "keyword_only",
+          "annotation": "dict[str, Any]",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.qualify"
+      ]
+    },
+    {
+      "name": "trainer_plugins.register",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "register",
+      "parameters": [
+        {
+          "name": "manifest",
+          "kind": "positional_or_keyword",
+          "annotation": "dict[str, Any]",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "capabilities_snapshot",
+          "kind": "positional_or_keyword",
+          "annotation": "dict[str, Any] | BaseModel",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "execution_mode",
+          "kind": "keyword_only",
+          "annotation": "TrainerExecutionMode",
+          "required": false,
+          "default": "container"
+        },
+        {
+          "name": "source_tier",
+          "kind": "keyword_only",
+          "annotation": "TrainerSourceTier",
+          "required": false,
+          "default": "third_party"
+        },
+        {
+          "name": "artifact",
+          "kind": "keyword_only",
+          "annotation": "str | None",
+          "required": false,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.register"
+      ]
+    },
+    {
+      "name": "trainer_plugins.retire",
+      "module": "yoao.trainer_plugins",
+      "class": "TrainerPlugins",
+      "method": "retire",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "positional_or_keyword",
+          "annotation": "str",
+          "required": true,
+          "default": null
+        },
+        {
+          "name": "expected_revision",
+          "kind": "keyword_only",
+          "annotation": "int",
+          "required": true,
+          "default": null
+        }
+      ],
+      "return_type": "TrainerPluginRecord",
+      "python_only": false,
+      "constructed_models": [],
+      "direct_api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/retire"
+      ],
+      "api_operations": [
+        "POST /api/v1/admin/trainer-plugins/{plugin_id}/retire"
+      ],
+      "calls": [],
+      "external_http": false,
+      "cli_aliases": [
+        "plugins.trainer.retire"
+      ]
+    },
+    {
       "name": "training.catalog",
       "module": "yoao.training",
       "class": "Training",
@@ -95924,6 +96629,377 @@
       ],
       "sdk_methods": [],
       "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer disable",
+      "alias": "plugins.trainer.disable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Enabled trainer plugin_id"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Confirm disabling this trainer plugin"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.disable"
+      ],
+      "confirmation": true
+    },
+    {
+      "path": "yoao plugins trainer enable",
+      "alias": "plugins.trainer.enable",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Qualified or disabled trainer plugin_id"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Confirm enabling this trainer plugin"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.enable"
+      ],
+      "confirmation": true
+    },
+    {
+      "path": "yoao plugins trainer get",
+      "alias": "plugins.trainer.get",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Registered trainer plugin_id"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.get"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer list",
+      "alias": "plugins.trainer.list",
+      "parameters": [
+        {
+          "name": "include_retired",
+          "kind": "option",
+          "options": [
+            "--include-retired"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Include retired trainer plugins"
+        },
+        {
+          "name": "status",
+          "kind": "option",
+          "options": [
+            "--status"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Filter by lifecycle status (registered|qualified|enabled|disabled|retired)"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.list"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer qualify",
+      "alias": "plugins.trainer.qualify",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Registered trainer plugin_id"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "report",
+          "kind": "option",
+          "options": [
+            "--report"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Path to trainer qualification report JSON file"
+        },
+        {
+          "name": "report_sha256",
+          "kind": "option",
+          "options": [
+            "--report-sha256"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Optional canonical SHA-256 digest of the qualification report"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.qualify"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer register",
+      "alias": "plugins.trainer.register",
+      "parameters": [
+        {
+          "name": "manifest",
+          "kind": "option",
+          "options": [
+            "--manifest"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Path to yoao-extension-manifest/v1 JSON file"
+        },
+        {
+          "name": "capabilities",
+          "kind": "option",
+          "options": [
+            "--capabilities"
+          ],
+          "required": true,
+          "default": null,
+          "type": "Path",
+          "description": "Path to TrainerCapabilitiesV1 JSON file"
+        },
+        {
+          "name": "execution_mode",
+          "kind": "option",
+          "options": [
+            "--execution-mode"
+          ],
+          "required": false,
+          "default": "container",
+          "type": "str",
+          "description": "Execution mode (container or local_process)"
+        },
+        {
+          "name": "source_tier",
+          "kind": "option",
+          "options": [
+            "--source-tier"
+          ],
+          "required": false,
+          "default": "third_party",
+          "type": "str",
+          "description": "Authoritative source tier (official or third_party)"
+        },
+        {
+          "name": "artifact",
+          "kind": "option",
+          "options": [
+            "--artifact"
+          ],
+          "required": false,
+          "default": null,
+          "type": "str | None",
+          "description": "Digest-pinned OCI image reference (required for container mode)"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.register"
+      ],
+      "confirmation": false
+    },
+    {
+      "path": "yoao plugins trainer retire",
+      "alias": "plugins.trainer.retire",
+      "parameters": [
+        {
+          "name": "plugin_id",
+          "kind": "argument",
+          "options": [],
+          "required": true,
+          "default": null,
+          "type": "str",
+          "description": "Trainer plugin_id to retire"
+        },
+        {
+          "name": "expected_revision",
+          "kind": "option",
+          "options": [
+            "--expected-revision"
+          ],
+          "required": true,
+          "default": null,
+          "type": "int",
+          "description": "Current plugin revision for CAS"
+        },
+        {
+          "name": "yes",
+          "kind": "option",
+          "options": [
+            "--yes",
+            "-y"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": "Confirm permanently retiring this trainer plugin"
+        },
+        {
+          "name": "json_output",
+          "kind": "option",
+          "options": [
+            "--json"
+          ],
+          "required": false,
+          "default": false,
+          "type": "bool",
+          "description": null
+        }
+      ],
+      "sdk_methods": [
+        "trainer_plugins.retire"
+      ],
+      "confirmation": true
     },
     {
       "path": "yoao plugins uninstall",

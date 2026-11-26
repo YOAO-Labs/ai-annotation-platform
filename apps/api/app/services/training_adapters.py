@@ -22,10 +22,16 @@ from training_contract.models import (
     model_spec,
     supports_version,
 )
+from training_contract.trainer_plugin import (
+    TRAINER_PROTOCOL_VERSION,
+    canonical_json_digest,
+)
 from yoao_inference_contract.topology import to_record
 from yoao_task_contract import normalize_task
 
 from app.config import settings
+from app.schemas.trainer_plugin import TrainerPluginRecord
+from app.services.trainer_plugins_data import TrainerPluginsPostgresData
 
 FRAMEWORK_ID_PATTERN = r"^[a-z][a-z0-9_-]{0,63}$"
 BRIDGE_ID_PATTERN = r"^[a-z][a-z0-9_-]{0,127}$"
@@ -185,16 +191,295 @@ def fixed_options(framework):
     return common
 
 
+def configured_resource_slots() -> tuple[dict[str, Any], ...]:
+    node = settings.training_node_id
+    slots: list[dict[str, Any]] = []
+    seen_gpu: set[str] = set()
+    candidates: list[str] = []
+    primary = settings.training_gpu_uuid.strip()
+    if primary:
+        candidates.append(primary)
+    for item in settings.training_gpu_uuids.split(","):
+        cleaned = item.strip()
+        if cleaned:
+            candidates.append(cleaned)
+    for gpu_uuid in candidates:
+        if gpu_uuid.startswith("GPU-") and gpu_uuid not in seen_gpu:
+            seen_gpu.add(gpu_uuid)
+            slots.append(
+                {
+                    "resource_id": f"{node}/{gpu_uuid}",
+                    "device_kind": "gpu",
+                    "gpu_uuid": gpu_uuid,
+                }
+            )
+    for index in range(max(0, int(settings.training_cpu_slots))):
+        slots.append(
+            {
+                "resource_id": f"{node}/cpu-{index}",
+                "device_kind": "cpu",
+                "gpu_uuid": None,
+            }
+        )
+    return tuple(slots)
+
+
+def training_executor_configured() -> bool:
+    return bool(
+        settings.training_enabled
+        and len(settings.training_executor_token) >= 32
+        and configured_resource_slots()
+    )
+
+
+def select_resource_slot(*, requires_gpu: bool) -> dict[str, Any] | None:
+    slots = configured_resource_slots()
+    if requires_gpu:
+        return next((slot for slot in slots if slot["device_kind"] == "gpu"), None)
+    cpu_slot = next((slot for slot in slots if slot["device_kind"] == "cpu"), None)
+    if cpu_slot is not None:
+        return cpu_slot
+    return next((slot for slot in slots if slot["device_kind"] == "gpu"), None)
+
+
 def resource_id():
+    primary = settings.training_gpu_uuid.strip()
+    if primary.startswith("GPU-"):
+        return f"{settings.training_node_id}/{primary}"
+    slots = configured_resource_slots()
+    if slots:
+        return slots[0]["resource_id"]
     return f"{settings.training_node_id}/{settings.training_gpu_uuid}"
+
+
+def plugin_requires_gpu(record: TrainerPluginRecord) -> bool:
+    extension = (
+        record.manifest.get("extension") if isinstance(record.manifest, dict) else None
+    )
+    if isinstance(extension, dict) and isinstance(extension.get("requires_gpu"), bool):
+        return extension["requires_gpu"]
+    return True
+
+
+def plugin_parameter_schema_payload(
+    record: TrainerPluginRecord,
+    *,
+    base_model: str,
+    task: str,
+    model_family: str,
+) -> dict[str, Any]:
+    caps = record.capabilities_snapshot
+    framework_version = str(caps.get("framework_version") or record.version)
+    raw = caps.get("parameter_schema")
+    source_label = f"{record.plugin_id}@{record.version}"
+    if isinstance(raw, dict) and isinstance(raw.get("fields"), list):
+        schema_id = str(
+            raw.get("schema_id") or f"{record.framework_id}/{task}/{model_family}/v1"
+        )
+        schema_digest = str(raw.get("schema_digest") or canonical_json_digest(raw))
+        return {
+            "schema_id": schema_id,
+            "schema_digest": schema_digest,
+            "framework": record.framework_id,
+            "framework_version": framework_version,
+            "adapter_revision": 3,
+            "task": task,
+            "model_family": model_family,
+            "source": str(raw.get("source") or source_label),
+            "source_sha256": str(
+                raw.get("source_sha256") or record.capabilities_digest
+            ),
+            "groups": (
+                dict(raw["groups"])
+                if isinstance(raw.get("groups"), dict)
+                else {"general": "General"}
+            ),
+            "fields": list(raw["fields"]),
+        }
+    fields: list[dict[str, Any]] = []
+    if isinstance(raw, dict) and isinstance(raw.get("properties"), dict):
+        for key, prop in raw["properties"].items():
+            if not isinstance(prop, dict):
+                continue
+            rules = {
+                rule_key: prop[rule_key]
+                for rule_key in (
+                    "minimum",
+                    "maximum",
+                    "exclusiveMinimum",
+                    "exclusiveMaximum",
+                    "enum",
+                    "multipleOf",
+                )
+                if rule_key in prop
+            }
+            default_value = prop.get("default")
+            fields.append(
+                {
+                    "key": str(key),
+                    "label": str(prop.get("title") or key),
+                    "group": "general",
+                    "status": "editable",
+                    "native_type": str(prop.get("type") or "string"),
+                    "default": default_value,
+                    "native_default": default_value,
+                    "defined_in": source_label,
+                    "reason": str(prop.get("description") or ""),
+                    "rules": rules,
+                    "aliases": [],
+                }
+            )
+    schema_digest = (
+        canonical_json_digest(raw)
+        if isinstance(raw, dict) and raw
+        else record.capabilities_digest
+    )
+    return {
+        "schema_id": f"{record.framework_id}/{task}/{model_family}/v1",
+        "schema_digest": schema_digest,
+        "framework": record.framework_id,
+        "framework_version": framework_version,
+        "adapter_revision": 3,
+        "task": task,
+        "model_family": model_family,
+        "source": source_label,
+        "source_sha256": record.capabilities_digest,
+        "groups": {"general": "General"},
+        "fields": fields,
+    }
+
+
+def plugin_catalog_item(record: TrainerPluginRecord) -> dict[str, Any]:
+    caps = record.capabilities_snapshot
+    framework_id = record.framework_id
+    version = str(caps.get("framework_version") or record.version)
+    requires_gpu = plugin_requires_gpu(record)
+    image_digest = (
+        record.artifact.split("@", 1)[1]
+        if record.artifact and "@sha256:" in record.artifact
+        else None
+    )
+    supported_dataset_contracts = list(caps.get("supported_dataset_contracts", []))
+    can_register = bool(caps.get("serving_compatibility")) or (
+        "export_weights" in record.capabilities
+    )
+    base_models: list[dict[str, Any]] = []
+    schemas: dict[str, dict[str, Any]] = {}
+    has_schema = isinstance(caps.get("parameter_schema"), dict) and bool(
+        caps.get("parameter_schema")
+    )
+    for arch in caps.get("architectures", []):
+        tasks = list(arch.get("tasks", []))
+        primary_task = tasks[0] if tasks else DETECTION
+        base_models.append(
+            {
+                "id": arch["id"],
+                "sha256": arch.get("base_asset_sha256"),
+                "filename": arch.get("base_asset_filename"),
+                "task": primary_task,
+                "model_family": arch["family"],
+                "model_size": None,
+                "capabilities": {
+                    "tasks": tasks,
+                    "resume": True,
+                    "artifact_download": True,
+                    "model_registration": can_register,
+                },
+            }
+        )
+        if has_schema:
+            schema = plugin_parameter_schema_payload(
+                record,
+                base_model=arch["id"],
+                task=primary_task,
+                model_family=arch["family"],
+            )
+            schemas[schema["schema_id"]] = {
+                "schema_id": schema["schema_id"],
+                "schema_digest": schema["schema_digest"],
+                "framework": schema["framework"],
+                "framework_version": schema["framework_version"],
+                "adapter_revision": schema["adapter_revision"],
+                "task": schema["task"],
+                "model_family": schema["model_family"],
+                "field_count": len(schema["fields"]),
+                "editable_count": sum(
+                    field.get("status") == "editable" for field in schema["fields"]
+                ),
+            }
+    return {
+        "framework": framework_id,
+        "version": version,
+        "image_digest": image_digest,
+        "plugin_id": record.plugin_id,
+        "execution_mode": record.execution_mode,
+        "protocol_version": record.protocol_version or TRAINER_PROTOCOL_VERSION,
+        "requires_gpu": requires_gpu,
+        "supported_dataset_contracts": supported_dataset_contracts,
+        "base_models": base_models,
+        "capabilities": {
+            "tasks": list(caps.get("supported_tasks", [])),
+            "resume": True,
+            "artifact_download": True,
+            "model_registration": can_register,
+        },
+        "parameter_schemas": list(schemas.values()),
+    }
+
+
+async def resolve_catalog(db: Any) -> dict[str, Any]:
+    legacy = catalog()
+    plugin_items: list[dict[str, Any]] = []
+    if db is not None and hasattr(db, "scalar"):
+        enabled_plugins = await TrainerPluginsPostgresData(db).list_plugins(
+            include_retired=False, status="enabled"
+        )
+        plugin_items = [plugin_catalog_item(record) for record in enabled_plugins]
+    plugin_frameworks = {item["framework"] for item in plugin_items}
+    merged_items = [
+        *plugin_items,
+        *[
+            item
+            for item in legacy["items"]
+            if item["framework"] not in plugin_frameworks
+        ],
+    ]
+    configured = training_executor_configured()
+    return {
+        "enabled": bool(configured and merged_items),
+        "resource_id": resource_id() if configured else None,
+        "items": merged_items,
+    }
+
+
+async def ensure_known_framework(
+    db: Any, framework: str, *, require_enabled_plugin: bool = False
+) -> None:
+    if framework in ADAPTERS:
+        return
+    if db is None or not hasattr(db, "scalar"):
+        raise HTTPException(status_code=422, detail=f"未注册的训练框架: {framework}")
+    store = TrainerPluginsPostgresData(db)
+    if require_enabled_plugin:
+        if await store.get_enabled_by_framework(framework) is None:
+            raise HTTPException(
+                status_code=422, detail=f"未注册的训练框架: {framework}"
+            )
+        return
+    plugins = await store.list_plugins(include_retired=True)
+    if not any(record.framework_id == framework for record in plugins):
+        raise HTTPException(status_code=422, detail=f"未注册的训练框架: {framework}")
 
 
 def catalog():
     configured = settings.training_catalog_json
+    gpu_configured = any(
+        slot["device_kind"] == "gpu" for slot in configured_resource_slots()
+    )
     enabled = bool(
         settings.training_enabled
         and len(settings.training_executor_token) >= 32
-        and settings.training_gpu_uuid.startswith("GPU-")
+        and gpu_configured
     )
     items = []
     for framework, entry in configured.items():

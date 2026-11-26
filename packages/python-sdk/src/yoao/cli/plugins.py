@@ -690,3 +690,215 @@ def uninstall(
         with get_client(json_output) as client:
             result = _deployment(client, state_dir).uninstall()
     print_learning_result(result, json_output)
+
+
+trainer_app = typer.Typer(
+    help="Manage registered yoao-trainer/v1 trainer plugins.", no_args_is_help=True
+)
+app.add_typer(trainer_app, name="trainer")
+
+
+@trainer_app.command("list")
+def trainer_list(
+    include_retired: bool = typer.Option(
+        False, "--include-retired", help="Include retired trainer plugins"
+    ),
+    status: str | None = typer.Option(
+        None,
+        "--status",
+        help="Filter by lifecycle status (registered|qualified|enabled|disabled|retired)",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """List registered trainer plugins."""
+    with cli_errors(json_output):
+        if status is not None and status not in {
+            "registered",
+            "qualified",
+            "enabled",
+            "disabled",
+            "retired",
+        }:
+            raise SDKError(f"Unsupported trainer plugin status: {status}")
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.list(
+                include_retired=include_retired, status=status
+            )
+    print_learning_result(result, json_output)
+
+
+@trainer_app.command("get")
+def trainer_get(
+    plugin_id: str = typer.Argument(..., help="Registered trainer plugin_id"),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Get a registered trainer plugin record."""
+    with cli_errors(json_output):
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.get(plugin_id)
+    print_learning_result(result, json_output)
+
+
+@trainer_app.command("register")
+def trainer_register(
+    manifest: Path = typer.Option(
+        ..., "--manifest", help="Path to yoao-extension-manifest/v1 JSON file"
+    ),
+    capabilities: Path = typer.Option(
+        ..., "--capabilities", help="Path to TrainerCapabilitiesV1 JSON file"
+    ),
+    execution_mode: str = typer.Option(
+        "container",
+        "--execution-mode",
+        help="Execution mode (container or local_process)",
+    ),
+    source_tier: str = typer.Option(
+        "third_party",
+        "--source-tier",
+        help="Authoritative source tier (official or third_party)",
+    ),
+    artifact: str | None = typer.Option(
+        None,
+        "--artifact",
+        help="Digest-pinned OCI image reference (required for container mode)",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Register a trainer plugin in registered status."""
+    with cli_errors(json_output):
+        if execution_mode not in {"container", "local_process"}:
+            raise SDKError("execution_mode must be 'container' or 'local_process'")
+        if source_tier not in {"official", "third_party"}:
+            raise SDKError("source_tier must be 'official' or 'third_party'")
+        manifest_payload = read_strict_json_object(
+            manifest, error_message="Unable to read trainer manifest JSON file"
+        )
+        capabilities_payload = read_strict_json_object(
+            capabilities,
+            error_message="Unable to read trainer capabilities JSON file",
+        )
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.register(
+                manifest_payload,
+                capabilities_payload,
+                execution_mode=execution_mode,
+                source_tier=source_tier,
+                artifact=artifact,
+            )
+    print_learning_result(result, json_output)
+
+
+@trainer_app.command("qualify")
+def trainer_qualify(
+    plugin_id: str = typer.Argument(..., help="Registered trainer plugin_id"),
+    expected_revision: int = typer.Option(
+        ..., "--expected-revision", min=1, help="Current plugin revision for CAS"
+    ),
+    report: Path = typer.Option(
+        ..., "--report", help="Path to trainer qualification report JSON file"
+    ),
+    report_sha256: str | None = typer.Option(
+        None,
+        "--report-sha256",
+        help="Optional canonical SHA-256 digest of the qualification report",
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Attach a verified qualification report to a registered trainer plugin."""
+    with cli_errors(json_output):
+        from training_contract.trainer_plugin import canonical_json_digest
+
+        report_payload = read_strict_json_object(
+            report,
+            error_message="Unable to read trainer qualification report JSON file",
+        )
+        digest = (
+            report_sha256
+            if report_sha256 is not None
+            else canonical_json_digest(report_payload)
+        )
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.qualify(
+                plugin_id,
+                expected_revision=expected_revision,
+                qualification_report_sha256=digest,
+                qualification_report=report_payload,
+            )
+    print_learning_result(result, json_output)
+
+
+@trainer_app.command("enable")
+def trainer_enable(
+    plugin_id: str = typer.Argument(
+        ..., help="Qualified or disabled trainer plugin_id"
+    ),
+    expected_revision: int = typer.Option(
+        ..., "--expected-revision", min=1, help="Current plugin revision for CAS"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Confirm enabling this trainer plugin"
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Enable a qualified or disabled trainer plugin for training admission."""
+    with cli_errors(json_output):
+        confirm_destructive(
+            f"Enable trainer plugin {plugin_id} at revision {expected_revision}?",
+            yes,
+            json_output,
+        )
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.enable(
+                plugin_id, expected_revision=expected_revision
+            )
+    print_learning_result(result, json_output)
+
+
+@trainer_app.command("disable")
+def trainer_disable(
+    plugin_id: str = typer.Argument(..., help="Enabled trainer plugin_id"),
+    expected_revision: int = typer.Option(
+        ..., "--expected-revision", min=1, help="Current plugin revision for CAS"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Confirm disabling this trainer plugin"
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Disable an enabled trainer plugin."""
+    with cli_errors(json_output):
+        confirm_destructive(
+            f"Disable trainer plugin {plugin_id} at revision {expected_revision}?",
+            yes,
+            json_output,
+        )
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.disable(
+                plugin_id, expected_revision=expected_revision
+            )
+    print_learning_result(result, json_output)
+
+
+@trainer_app.command("retire")
+def trainer_retire(
+    plugin_id: str = typer.Argument(..., help="Trainer plugin_id to retire"),
+    expected_revision: int = typer.Option(
+        ..., "--expected-revision", min=1, help="Current plugin revision for CAS"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Confirm permanently retiring this trainer plugin"
+    ),
+    json_output: bool = typer.Option(False, "--json"),
+) -> None:
+    """Permanently retire a trainer plugin while preserving history."""
+    with cli_errors(json_output):
+        confirm_destructive(
+            f"Permanently retire trainer plugin {plugin_id} at revision {expected_revision}?",
+            yes,
+            json_output,
+        )
+        with get_client(json_output) as client:
+            result = client.trainer_plugins.retire(
+                plugin_id, expected_revision=expected_revision
+            )
+    print_learning_result(result, json_output)

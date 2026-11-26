@@ -45265,6 +45265,33 @@
         "title": "ProtocolTaskItem",
         "type": "object"
       },
+      "QualifyTrainerPluginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "qualification_report": {
+            "additionalProperties": true,
+            "title": "Qualification Report",
+            "type": "object"
+          },
+          "qualification_report_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Qualification Report Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "qualification_report_sha256",
+          "qualification_report"
+        ],
+        "title": "QualifyTrainerPluginRequest",
+        "type": "object"
+      },
       "QualityReviewBatchList": {
         "properties": {
           "items": {
@@ -46406,6 +46433,54 @@
           "user"
         ],
         "title": "RegisterResponse",
+        "type": "object"
+      },
+      "RegisterTrainerPluginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
+          },
+          "capabilities_snapshot": {
+            "$ref": "#/components/schemas/TrainerCapabilitiesV1"
+          },
+          "execution_mode": {
+            "default": "container",
+            "enum": [
+              "container",
+              "local_process"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "source_tier": {
+            "default": "third_party",
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "manifest",
+          "capabilities_snapshot"
+        ],
+        "title": "RegisterTrainerPluginRequest",
         "type": "object"
       },
       "RegisteredReferenceOut": {
@@ -49983,6 +50058,49 @@
           }
         },
         "title": "ServicePoolPatchRequest",
+        "type": "object"
+      },
+      "ServingCompatibilityV1": {
+        "additionalProperties": false,
+        "properties": {
+          "compatible_serving_runtimes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Compatible Serving Runtimes",
+            "type": "array"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "framework": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Framework",
+            "type": "string"
+          },
+          "training_runtime": {
+            "additionalProperties": true,
+            "title": "Training Runtime",
+            "type": "object"
+          }
+        },
+        "required": [
+          "framework",
+          "format"
+        ],
+        "title": "ServingCompatibilityV1",
         "type": "object"
       },
       "ShortcutBinding": {
@@ -59191,6 +59309,415 @@
         "title": "TrainedModelOut",
         "type": "object"
       },
+      "TrainerArchitectureV1": {
+        "additionalProperties": false,
+        "properties": {
+          "base_asset_filename": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Asset Filename"
+          },
+          "base_asset_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Asset Sha256"
+          },
+          "end2end": {
+            "default": false,
+            "title": "End2End",
+            "type": "boolean"
+          },
+          "family": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Family",
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "family",
+          "tasks"
+        ],
+        "title": "TrainerArchitectureV1",
+        "type": "object"
+      },
+      "TrainerCapabilitiesV1": {
+        "additionalProperties": false,
+        "properties": {
+          "architectures": {
+            "items": {
+              "$ref": "#/components/schemas/TrainerArchitectureV1"
+            },
+            "minItems": 1,
+            "title": "Architectures",
+            "type": "array"
+          },
+          "evaluator_descriptors": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Evaluator Descriptors",
+            "type": "object"
+          },
+          "framework_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Framework Id",
+            "type": "string"
+          },
+          "framework_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Framework Version",
+            "type": "string"
+          },
+          "parameter_schema": {
+            "additionalProperties": true,
+            "title": "Parameter Schema",
+            "type": "object"
+          },
+          "policy_digests": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Policy Digests",
+            "type": "object"
+          },
+          "protocol_version": {
+            "const": "yoao-trainer/v1",
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "runtime_versions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Runtime Versions",
+            "type": "object"
+          },
+          "serving_compatibility": {
+            "items": {
+              "$ref": "#/components/schemas/ServingCompatibilityV1"
+            },
+            "title": "Serving Compatibility",
+            "type": "array"
+          },
+          "supported_dataset_contracts": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supported Dataset Contracts",
+            "type": "array"
+          },
+          "supported_tasks": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Supported Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "framework_id",
+          "framework_version",
+          "supported_tasks",
+          "supported_dataset_contracts",
+          "architectures"
+        ],
+        "title": "TrainerCapabilitiesV1",
+        "type": "object"
+      },
+      "TrainerPluginRecord": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "capabilities_digest": {
+            "title": "Capabilities Digest",
+            "type": "string"
+          },
+          "capabilities_snapshot": {
+            "additionalProperties": true,
+            "title": "Capabilities Snapshot",
+            "type": "object"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disabled At"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "enabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled At"
+          },
+          "entrypoint": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entrypoint",
+            "type": "array"
+          },
+          "execution_mode": {
+            "enum": [
+              "container",
+              "local_process"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "extension_point": {
+            "const": "trainer",
+            "default": "trainer",
+            "title": "Extension Point",
+            "type": "string"
+          },
+          "framework_id": {
+            "title": "Framework Id",
+            "type": "string"
+          },
+          "homepage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Homepage"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "title": "Manifest",
+            "type": "object"
+          },
+          "plugin_id": {
+            "title": "Plugin Id",
+            "type": "string"
+          },
+          "protocol_version": {
+            "title": "Protocol Version",
+            "type": "string"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "qualification_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualification Report"
+          },
+          "qualification_report_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualification Report Sha256"
+          },
+          "qualified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Qualified At"
+          },
+          "resource": {
+            "additionalProperties": true,
+            "title": "Resource",
+            "type": "object"
+          },
+          "retired_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retired At"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_tier": {
+            "enum": [
+              "official",
+              "third_party"
+            ],
+            "title": "Source Tier",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "registered",
+              "qualified",
+              "enabled",
+              "disabled",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "plugin_id",
+          "version",
+          "framework_id",
+          "display_name",
+          "source_tier",
+          "execution_mode",
+          "status",
+          "revision",
+          "protocol_version",
+          "entrypoint",
+          "capabilities",
+          "manifest",
+          "capabilities_snapshot",
+          "capabilities_digest",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "TrainerPluginRecord",
+        "type": "object"
+      },
       "TrainingArtifactSpec": {
         "additionalProperties": false,
         "properties": {
@@ -59428,8 +59955,15 @@
             "title": "Compatible"
           },
           "filename": {
-            "title": "Filename",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename"
           },
           "id": {
             "title": "Id",
@@ -59469,8 +60003,15 @@
             "title": "Object Key"
           },
           "sha256": {
-            "title": "Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           },
           "size_bytes": {
             "anyOf": [
@@ -59487,10 +60028,6 @@
           },
           "task": {
             "default": "detect",
-            "enum": [
-              "detect",
-              "segment"
-            ],
             "title": "Task",
             "type": "string"
           },
@@ -59507,9 +60044,7 @@
           }
         },
         "required": [
-          "id",
-          "sha256",
-          "filename"
+          "id"
         ],
         "title": "TrainingBaseModel",
         "type": "object"
@@ -62867,6 +63402,13 @@
               }
             ],
             "title": "Resource Id"
+          },
+          "resource_slots": {
+            "items": {
+              "$ref": "#/components/schemas/TrainingResourceSlot"
+            },
+            "title": "Resource Slots",
+            "type": "array"
           }
         },
         "required": [
@@ -64242,6 +64784,72 @@
         "title": "TrainingRegisteredModel",
         "type": "object"
       },
+      "TrainingResourceSlot": {
+        "properties": {
+          "busy": {
+            "default": false,
+            "title": "Busy",
+            "type": "boolean"
+          },
+          "device_kind": {
+            "enum": [
+              "gpu",
+              "cpu"
+            ],
+            "title": "Device Kind",
+            "type": "string"
+          },
+          "executor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executor Id"
+          },
+          "gpu_uuid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gpu Uuid"
+          },
+          "last_seen_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Seen At"
+          },
+          "online": {
+            "default": false,
+            "title": "Online",
+            "type": "boolean"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_id",
+          "device_kind"
+        ],
+        "title": "TrainingResourceSlot",
+        "type": "object"
+      },
       "TrainingReuseCandidate": {
         "properties": {
           "compatible": {
@@ -64304,7 +64912,7 @@
         "properties": {
           "base_model": {
             "default": "yolo11n",
-            "pattern": "^[a-zA-Z0-9_-]{1,64}$",
+            "pattern": "^[a-zA-Z0-9._-]{1,128}$",
             "title": "Base Model",
             "type": "string"
           },
@@ -64378,10 +64986,6 @@
           "task": {
             "anyOf": [
               {
-                "enum": [
-                  "detect",
-                  "segment"
-                ],
                 "type": "string"
               },
               {
@@ -64595,10 +65199,6 @@
           },
           "task": {
             "default": "detect",
-            "enum": [
-              "detect",
-              "segment"
-            ],
             "title": "Task",
             "type": "string"
           }
@@ -64770,20 +65370,82 @@
             ],
             "title": "Compatible"
           },
+          "execution_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "container",
+                  "local_process"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Mode"
+          },
           "framework": {
             "pattern": "^[a-z][a-z0-9_-]{0,63}$",
             "title": "Framework",
             "type": "string"
           },
           "image_digest": {
-            "title": "Image Digest",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Digest"
           },
           "parameter_schemas": {
             "items": {
               "$ref": "#/components/schemas/TrainingSchemaSummary"
             },
             "title": "Parameter Schemas",
+            "type": "array"
+          },
+          "plugin_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plugin Id"
+          },
+          "protocol_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Protocol Version"
+          },
+          "requires_gpu": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requires Gpu"
+          },
+          "supported_dataset_contracts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Dataset Contracts",
             "type": "array"
           },
           "version": {
@@ -64794,7 +65456,6 @@
         "required": [
           "framework",
           "version",
-          "image_digest",
           "base_models",
           "capabilities"
         ],
@@ -64836,6 +65497,21 @@
           "expected_revision"
         ],
         "title": "TransitionFormatAdapterRequest",
+        "type": "object"
+      },
+      "TransitionTrainerPluginRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "TransitionTrainerPluginRequest",
         "type": "object"
       },
       "TriViewFloatState": {
@@ -74931,6 +75607,400 @@
         "summary": "Get System Health",
         "tags": [
           "admin-system-health"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins": {
+      "get": {
+        "operationId": "list_trainer_plugins_api_v1_admin_trainer_plugins_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_retired",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Retired",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "registered",
+                    "qualified",
+                    "enabled",
+                    "disabled",
+                    "retired"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TrainerPluginRecord"
+                  },
+                  "title": "Response List Trainer Plugins Api V1 Admin Trainer Plugins Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Trainer Plugins",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      },
+      "post": {
+        "operationId": "register_trainer_plugin_api_v1_admin_trainer_plugins_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}": {
+      "get": {
+        "operationId": "get_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/disable": {
+      "post": {
+        "operationId": "disable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disable Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/enable": {
+      "post": {
+        "operationId": "enable_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__enable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Enable Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/qualify": {
+      "post": {
+        "operationId": "qualify_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__qualify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QualifyTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Qualify Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
+        ]
+      }
+    },
+    "/api/v1/admin/trainer-plugins/{plugin_id}/retire": {
+      "post": {
+        "operationId": "retire_trainer_plugin_api_v1_admin_trainer_plugins__plugin_id__retire_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "plugin_id",
+            "required": true,
+            "schema": {
+              "title": "Plugin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TransitionTrainerPluginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrainerPluginRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retire Trainer Plugin",
+        "tags": [
+          "admin-trainer-plugins"
         ]
       }
     },
@@ -105054,7 +106124,7 @@
             "name": "base_model",
             "required": true,
             "schema": {
-              "maxLength": 64,
+              "maxLength": 128,
               "minLength": 1,
               "title": "Base Model",
               "type": "string"
@@ -105140,7 +106210,7 @@
             "name": "base_model",
             "required": true,
             "schema": {
-              "maxLength": 64,
+              "maxLength": 128,
               "minLength": 1,
               "title": "Base Model",
               "type": "string"

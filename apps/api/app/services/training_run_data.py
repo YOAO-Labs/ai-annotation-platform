@@ -438,6 +438,21 @@ async def get_lease(db, resource_id, *, lock=False) -> GpuLeaseFacts | None:
     )
 
 
+async def list_leases(db) -> list[GpuLeaseFacts]:
+    rows = (await _execute(db, "training_list_gpu_leases")).mappings().all()
+    return [
+        GpuLeaseFacts(
+            resource_id=row["resource_id"],
+            attempt_id=row["attempt_id"],
+            executor_id=row["executor_id"],
+            boot_id=row["boot_id"],
+            runtime=row["runtime"],
+            last_seen_at=row["last_seen_at"],
+        )
+        for row in rows
+    ]
+
+
 async def observe_executor(db, body, at) -> None:
     await _scalar(
         db,

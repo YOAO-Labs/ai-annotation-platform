@@ -29,6 +29,7 @@ from app.schemas.trained_model import (
 )
 from app.application import trained_model_deployment
 from app.services import trained_models as service
+from app.services import training_adapters as adapters
 from app.services import model_lineage as lineage
 from app.schemas.model_lineage import ArchiveFilter
 from app.schemas._jsonb_types import CocoRleContent
@@ -81,6 +82,8 @@ async def list_models(
         None, description="创建日期上界，UTC 日期（含整天）"
     ),
 ) -> dict:
+    if framework is not None:
+        await adapters.ensure_known_framework(db, framework)
     start, end = created_date_bounds(created_from, created_to)
     total, items = await data.list_models(
         db,

@@ -6752,4 +6752,19 @@ GRANT USAGE, CREATE ON SCHEMA yoao_diagnostics_v1 TO :"diagnostics_owner";
 ALTER FUNCTION yoao_diagnostics_v1.bug_report_visible_to_actor(uuid,uuid)
     OWNER TO :"diagnostics_owner";
 REVOKE CREATE ON SCHEMA yoao_diagnostics_v1 FROM :"diagnostics_owner";
+
+GRANT USAGE, CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+ALTER TABLE yoao_learning_v1.trainer_plugins OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1._trainer_plugin_projection(
+    yoao_learning_v1.trainer_plugins
+) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.list_trainer_plugins(boolean, text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.get_trainer_plugin(text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.get_enabled_trainer_plugin_by_framework(text)
+    OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.register_trainer_plugin(jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.qualify_trainer_plugin(jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.transition_trainer_plugin(jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_list_gpu_leases() OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
 COMMIT;

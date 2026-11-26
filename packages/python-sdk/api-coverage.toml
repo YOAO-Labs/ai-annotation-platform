@@ -2,6 +2,13 @@ snapshot = "0.26.1"
 watched_tags = ["*"]
 
 [operations]
+"GET /api/v1/admin/trainer-plugins" = { status = "covered" }
+"GET /api/v1/admin/trainer-plugins/{plugin_id}" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/qualify" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/enable" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/disable" = { status = "covered" }
+"POST /api/v1/admin/trainer-plugins/{plugin_id}/retire" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/direct" = { status = "covered" }
 "POST /api/v1/admin/ml-integrations/plugins/installations" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/plugins/installations" = { status = "covered" }

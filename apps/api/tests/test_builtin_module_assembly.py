@@ -467,7 +467,7 @@ def test_orm_models_and_native_schema_relations_match_manifests() -> None:
     assert NATIVE_MANAGED_TABLES == collect_native_managed_tables()
     assert NATIVE_MANAGED_RELATIONS == collect_native_managed_relations()
     assert len(NATIVE_MANAGED_TABLES) == 53
-    assert len(NATIVE_MANAGED_RELATIONS) == 78
+    assert len(NATIVE_MANAGED_RELATIONS) == 79
 
 
 def test_every_compose_file_and_service_matches_module_declarations() -> None:

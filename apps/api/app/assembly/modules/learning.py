@@ -70,6 +70,10 @@ MANIFEST = BuiltinModuleManifest(
         RouterMount(
             module_path="app.api.v1.training_recipes", tags=("training-recipes",)
         ),
+        RouterMount(
+            module_path="app.api.v1.admin_trainer_plugins",
+            tags=("admin-trainer-plugins",),
+        ),
     ),
     celery_includes=(
         "app.workers.training_dataset",
@@ -129,6 +133,7 @@ MANIFEST = BuiltinModuleManifest(
             "training_storage_deletion",
             "training_study",
         ),
+        native_managed_tables=(("yoao_learning_v1", "trainer_plugins"),),
     ),
     compose_overlays=(
         ComposeOverlaySpec(

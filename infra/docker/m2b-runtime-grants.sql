@@ -1737,3 +1737,14 @@ GRANT EXECUTE ON FUNCTION
     yoao_labeling_v1.notification_target_visible_to_actor(uuid,text,uuid,uuid,uuid),
     yoao_diagnostics_v1.bug_report_visible_to_actor(uuid,uuid)
     TO :"application_role";
+
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION
+    yoao_learning_v1.list_trainer_plugins(boolean, text),
+    yoao_learning_v1.get_trainer_plugin(text),
+    yoao_learning_v1.get_enabled_trainer_plugin_by_framework(text),
+    yoao_learning_v1.register_trainer_plugin(jsonb),
+    yoao_learning_v1.qualify_trainer_plugin(jsonb),
+    yoao_learning_v1.transition_trainer_plugin(jsonb),
+    yoao_learning_v1.training_list_gpu_leases()
+    TO :"application_role";
