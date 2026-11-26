@@ -248,6 +248,12 @@ class ReferencePredictionJob:
             originals.validate_credentials(
                 proof.get("credentials"), actor_id, proof.get("api_key_id")
             )
+        self.reference_tasks = frozenset(
+            task_id for task_id, row in self.bindings.items() if "reference" in row
+        )
+        self.authority_digest = (
+            originals.digest(proof) if self.reference_tasks else None
+        )
         self.contexts = {}
         self.deliveries = {}
         self.sources = {}
@@ -300,7 +306,7 @@ class ReferencePredictionJob:
             else access.is_manager
         ):
             raise ContentError("prediction_authority_revoked", 403)
-        if any("reference" in row for row in self.bindings.values()) and (
+        if self.reference_tasks and (
             await key_authority(db, actor, self.proof["api_key_id"], "tasks:read")
             != self.proof["key_proof"]
         ):
@@ -507,11 +513,7 @@ class ReferencePredictionJob:
             facts = await IdentityAccountLockData(self.db).read_accepted_api_key_facts(
                 self.actor_id, uuid.UUID(key_id)
             )
-            required = (
-                ("tasks:read",)
-                if any("reference" in row for row in self.bindings.values())
-                else ()
-            )
+            required = ("tasks:read",) if self.reference_tasks else ()
             if facts is None or any(
                 "*" not in facts.scopes and scope not in facts.scopes
                 for scope in required

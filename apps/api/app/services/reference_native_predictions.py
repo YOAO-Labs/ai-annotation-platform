@@ -47,7 +47,9 @@ def has_native_payload(write):
     return (
         (write.get("token_meta") or {}).get("mask_objects") is not None
         or bool(collect_mask_geometries(write["result"]))
-        or any(shape.get("type") == "brushlabels" for shape in write["result"])
+        or any(
+            shape.get("type") in {"brushlabels", "mask"} for shape in write["result"]
+        )
     )
 
 

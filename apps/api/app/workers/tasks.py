@@ -165,6 +165,9 @@ def batch_predict(
             run_preannotation(
                 request,
                 execution_id=self.request.id,
+                worker_node_id=(
+                    f"worker:{self.request.hostname}" if self.request.hostname else None
+                ),
                 frame_dispatcher=frame_dispatcher,
             )
         )

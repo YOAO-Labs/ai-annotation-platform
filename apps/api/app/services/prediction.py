@@ -594,7 +594,7 @@ def _portable_mask_meta(request: ApplyPredictionResultRequest) -> dict | None:
     return meta if (meta or {}).get("mask_objects") is not None else None
 
 
-def _provenance_write_facts(request: ApplyPredictionResultRequest, result: list[dict]):
+def prediction_write_facts(request: ApplyPredictionResultRequest, result: list[dict]):
     """Exactly the frozen write facts the native qualification digest covers."""
     return dict(
         task_id=request.task_id,
@@ -747,7 +747,7 @@ async def _verify_input_provenance(
             request.task_id,
             request.project_id,
             video_result,
-            _provenance_write_facts(request, result),
+            prediction_write_facts(request, result),
         )
         return (
             {"original_video_input": public_provenance(evidence)},
@@ -777,7 +777,7 @@ async def _verify_input_provenance(
             request.task_id,
             request.project_id,
             native,
-            _provenance_write_facts(request, result),
+            prediction_write_facts(request, result),
         )
         return {"reference_input": evidence}, qualification, None
     if reference is not None:

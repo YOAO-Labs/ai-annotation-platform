@@ -1103,6 +1103,7 @@ async def run_preannotation(
     request: BatchPredictionRequest,
     *,
     execution_id: str | None,
+    worker_node_id: str | None = None,
     frame_dispatcher: FramePreannotationDispatcher | None = None,
 ) -> None:
     """Execute a batch prediction with an application-owned database lifecycle."""
@@ -1127,6 +1128,7 @@ async def run_preannotation(
                 await _execute_preannotation(
                     request,
                     execution_id=execution_id,
+                    worker_node_id=worker_node_id,
                     frame_dispatcher=frame_dispatcher,
                     SessionLocal=session_factory,
                     batch_results=batch_results,
@@ -1144,6 +1146,7 @@ async def run_preannotation(
                         await _execute_preannotation(
                             request,
                             execution_id=execution_id,
+                            worker_node_id=worker_node_id,
                             frame_dispatcher=frame_dispatcher,
                             SessionLocal=session_factory,
                             accepted_input=accepted_input,
@@ -1306,6 +1309,7 @@ async def _execute_preannotation(
     execution_id: str | None,
     frame_dispatcher: FramePreannotationDispatcher | None,
     SessionLocal,
+    worker_node_id: str | None = None,
     accepted_input: _PreparedAcceptedInput | None = None,
     accepted_manifest: _PreparedAcceptedManifest | None = None,
     accepted_video_manifest: _PreparedAcceptedVideoManifest | None = None,
@@ -1619,6 +1623,15 @@ async def _execute_preannotation(
                     raise ValueError(
                         "prediction authority requires a frozen execution snapshot"
                     )
+                node_id = worker_node_id if batch_results is not None else None
+                if not node_id:
+                    if batch_results is not None and any(
+                        "reference" in binding for binding in image_authority["tasks"]
+                    ):
+                        raise ValueError(
+                            "reference prediction requires the actual worker node"
+                        )
+                    node_id = api_node_id()
                 reference_job = ReferencePredictionJob(
                     db,
                     precreated_job.id,
@@ -1631,7 +1644,7 @@ async def _execute_preannotation(
                     predict_mode=predict_mode,
                     snapshot_id=execution_snapshot_id,
                     snapshot_digest=execution_snapshot_digest,
-                    node_id=api_node_id(),
+                    node_id=node_id,
                     execution_unit=execution_unit,
                 )
                 if batch_results is None:
@@ -2759,6 +2772,16 @@ async def _execute_preannotation(
             from app.application.durable_preannotation import run_durable_batch
             from app.services.prediction import remap_prediction_track_ids
 
+            reference_snapshot = None
+            if reference_job is not None and reference_job.reference_tasks:
+                from app.services.prediction_execution import execution_summary
+
+                reference_snapshot = {
+                    "id": str(execution_snapshot_id),
+                    "digest": execution_snapshot_digest,
+                    "stages": execution_summary(execution_snapshot_payload["stages"]),
+                }
+
             def durable_failure_facts(frozen_member, ordinal, task_id, execution=None):
                 record = (
                     frozen_member.get("input") if frozen_member is not None else None
@@ -2820,11 +2843,21 @@ async def _execute_preannotation(
                             if manifest_facts is not None
                             else {}
                         ),
+                        **(
+                            {"reference_input": reference_job.failure_binding(task_id)}
+                            if reference_job is not None
+                            and task_id in reference_job.reference_tasks
+                            and (
+                                accepted_input_manifest_protocol is None
+                                or (frozen_member or {}).get("state") == "reference"
+                            )
+                            else {}
+                        ),
                     },
                 }
 
             async def infer_batch_member(
-                task, write_scope, retained, frozen_member, ordinal
+                task, write_scope, retained, frozen_member, ordinal, *, reference_inputs
             ):
                 task_identity = inspect(task).identity
                 if not task_identity:
@@ -2849,24 +2882,47 @@ async def _execute_preannotation(
                     input_facts["accepted_input"] = input_metadata
                 if manifest_facts is not None:
                     input_facts["accepted_input_manifest"] = manifest_facts
-                legacy_url = (
-                    await resolve_task_url(db, task) if retained is None else None
-                )
+                if reference_inputs is not None:
+                    resolve_url = reference_job.resolve_url
+
+                    async def upload_crop(_task_id, box_index, content):
+                        return await reference_inputs.upload_crop(
+                            task, box_index, content
+                        )
+
+                    async def dispatch_boundary(_stage, _dispatch):
+                        await db.commit()
+                        await reference_job.before_dispatch(task)
+                        await db.commit()
+
+                else:
+                    source_url = (
+                        retained.reference.url
+                        if retained is not None
+                        else await resolve_task_url(db, task)
+                    )
+
+                    def resolve_url(_task):
+                        return source_url
+
+                    upload_crop = crop_uploader
+                    dispatch_boundary = release_inference_locks
                 output = await _run_task_pipeline(
                     task,
                     stages,
                     model_ports,
                     stage_contexts,
-                    resolve_url=(
-                        (lambda _task: retained.reference.url)
-                        if retained is not None
-                        else (lambda _task: legacy_url)
-                    ),
-                    upload_crop=crop_uploader,
-                    dispatch_boundary=release_inference_locks,
+                    resolve_url=resolve_url,
+                    upload_crop=upload_crop,
+                    dispatch_boundary=dispatch_boundary,
                     stage_modes=stage_modes,
                     input_image_path=(
                         retained.local_path if retained is not None else None
+                    ),
+                    load_image=(
+                        reference_inputs.load_image
+                        if reference_inputs is not None
+                        else None
                     ),
                     project_id=project_uuid,
                     owner_prefix=f"batch:{async_job_id}",
@@ -2878,16 +2934,10 @@ async def _execute_preannotation(
                 results, pipeline_extra, stage_stats = _plain_pipeline_output(output)
                 if not results:
                     raise ValueError("Model returned no result for the selected task")
-                if input_metadata is not None:
-                    pipeline_extra = {
-                        **(pipeline_extra or {}),
-                        "accepted_input": input_metadata,
-                    }
-                if manifest_facts is not None:
-                    pipeline_extra = {
-                        **(pipeline_extra or {}),
-                        "accepted_input_manifest": manifest_facts,
-                    }
+                if input_facts or reference_inputs is not None:
+                    pipeline_extra = {**(pipeline_extra or {}), **input_facts}
+                    if reference_inputs is not None:
+                        pipeline_extra["execution_snapshot"] = reference_snapshot
                 executed_backend_id, executed_pool_id = _execution_selection(
                     output,
                     requested_registry_id=requested_backend_id,
@@ -2910,17 +2960,19 @@ async def _execute_preannotation(
                         write_scope=write_scope,
                         accepted_input_job_id=(
                             batch_results.scope["job_id"]
-                            if input_metadata is not None
-                            and accepted_input_manifest_protocol is not None
+                            if accepted_input_manifest_protocol is not None
                             else None
                         ),
                         model_provenance=frozen_model_ref,
                     )
                     for result in results
                 )
+                facts = durable_failure_facts(frozen_member, ordinal, task_id, output)
+                if pipeline_extra and "pipeline" in pipeline_extra:
+                    facts["failure_extra"]["pipeline"] = pipeline_extra["pipeline"]
                 return requests, {
                     "task_id": str(task_id),
-                    **durable_failure_facts(frozen_member, ordinal, task_id, output),
+                    **facts,
                     "pipeline_partial": (
                         (pipeline_extra or {}).get("pipeline", {}).get("partial")
                         is True
@@ -2941,31 +2993,6 @@ async def _execute_preannotation(
                         ),
                         "f",
                     ),
-                    "failure_extra": {
-                        "execution_scope": execution_scope,
-                        "execution_unit": execution_unit,
-                        "task": visual_task,
-                        **(
-                            {"pipeline": pipeline_extra["pipeline"]}
-                            if pipeline_extra and "pipeline" in pipeline_extra
-                            else {}
-                        ),
-                        **(
-                            {"request_context": retry_request_context}
-                            if retry_request_context is not None
-                            else {}
-                        ),
-                        **(
-                            {"accepted_input": input_metadata}
-                            if input_metadata is not None
-                            else {}
-                        ),
-                        **(
-                            {"accepted_input_manifest": manifest_facts}
-                            if manifest_facts is not None
-                            else {}
-                        ),
-                    },
                 }
 
             async def finish_durable_batch():
@@ -3013,9 +3040,7 @@ async def _execute_preannotation(
                 writer=pred_svc,
                 job_meta=job_meta_base,
                 result_extra=summary,
-                authorize=reference_job.authorize
-                if reference_job is not None
-                else None,
+                reference_job=reference_job,
                 finish_batch=finish_durable_batch,
                 failure_context=lambda member, error=None: durable_failure_facts(
                     member.manifest_member,
