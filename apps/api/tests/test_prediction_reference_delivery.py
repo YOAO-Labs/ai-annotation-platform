@@ -5,13 +5,14 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 import uuid
 from unittest.mock import Mock
 
+import httpx
 from PIL import Image
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import select
 from starlette.requests import Request
 
 from yoao_assets_input_manifests.contract import ManifestPageRequest
@@ -24,7 +25,7 @@ from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.prediction_input import PredictionInputLease
 from app.services import prediction_references as refs, async_job as jobs
-from app.deps import bearer_scheme, get_current_principal
+from app.deps import bearer_scheme, get_current_principal, get_db
 from app.services.accepted_input_manifests import SqlAlchemyManifestDatabase
 from app.services.content_snapshot import ContentError
 from app.services.identity_gateway import IdentityGateway
@@ -34,17 +35,32 @@ from app.services.jobs_lifecycle_data import job_lock_statement
 from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction import PredictionService
 from app.services.prediction_execution import create_snapshot, validate_task_scope
-from app.services.prediction_inputs import PredictionInputs
 from app.workers import tasks as worker
 from tests.inference_execution_test_ports import (
     PredictionClientExecutionPort,
-    run_batch_request,
+    patch_batch_execution,
     run_client_task_pipeline,
 )
 from tests.conftest import create_registry_with_pool
-from tests.factory import create_api_key, create_task
-from tests.test_dataset_content import content_world as content_world, headers
-from tests.test_dataset_references import reference_world as reference_world
+from tests.factory import create_api_key, create_task, create_user
+from tests.managed_prediction_worker_fixtures import (
+    managed_worker_world as managed_worker_world,
+    worker_engine,
+)
+from tests.test_dataset_content import (
+    content_world as content_world,
+    create_content_world,
+    headers,
+)
+from tests.test_dataset_references import (
+    create_reference_world,
+    reference_world as reference_world,
+)
+from tests.test_prediction_commit_boundary import (
+    frame_publication_login as frame_publication_login,
+    image_executor_logins as image_executor_logins,
+    retained_image_storage as retained_image_storage,
+)
 from tests.test_prediction_inputs import input_world as input_world
 from tests.test_prediction_jobs_worker import _passthrough_engine_and_factory
 
@@ -147,74 +163,147 @@ async def enqueue(
     return job, backend, body, dispatch
 
 
-@pytest.mark.parametrize("scope", ["bulk", "workbench"])
-@pytest.mark.parametrize("stages", [False, True])
-@pytest.mark.parametrize("mutation", [None, "version", "source", "cancel", "physical"])
+@pytest.fixture
+async def committed_reference_delivery(
+    app_module,
+    tmp_path,
+    monkeypatch,
+    managed_worker_world,
+    image_executor_logins,
+    frame_publication_login,
+):
+    async with managed_worker_world.factory() as db:
+        actor = await create_user(db, "super_admin", "delivery@test.local", "Delivery")
+        assignee = await create_user(db, "employee", "assignee@test.local", "Assignee")
+        content = await create_content_world(db, actor, tmp_path, monkeypatch)
+        world = await create_reference_world(db, content, assignee)
+        await db.commit()
+        token = create_access_token(subject=str(actor.id), role=actor.role)
+
+        async def request_db():
+            yield db
+
+        monkeypatch.setitem(app_module.dependency_overrides, get_db, request_db)
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+            ) as client,
+            worker_engine(managed_worker_world),
+        ):
+            yield db, client, world, (actor, token)
+
+
+async def run_dispatched(dispatch):
+    envelope = dispatch.call_args.kwargs
+    await run_preannotation(
+        BatchPredictionRequest(*envelope["args"], **envelope["kwargs"]),
+        execution_id=envelope["task_id"],
+        worker_node_id="worker:content@test",
+    )
+
+
+def delivered_image(storage, payload):
+    url = urlsplit(payload["file_path"])
+    assert url.hostname == "ml-objects.test"
+    bucket, key = url.path.lstrip("/").split("/", 1)
+    (version,) = parse_qs(url.query)["versionId"]
+    raw, _metadata = storage.versions[bucket, key][version]
+    return key, raw
+
+
+@pytest.mark.parametrize(
+    ("mutation", "stages", "scope"),
+    [
+        (mutation, stages, scope)
+        for mutation in (None, "version", "source", "cancel", "physical")
+        for stages in (False, True)
+        for scope in ("bulk", "workbench")
+    ]
+    + [("revoke_key", False, "workbench")],
+)
 async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
-    db_session,
-    httpx_client,
-    reference_world,
-    super_admin,
+    committed_reference_delivery,
+    embedded_revocations,
     monkeypatch,
     input_world,
     scope,
     stages,
     mutation,
 ):
-    _, project, task, content = reference_world
-    old = Prediction(
-        id=uuid.uuid4(),
-        task_id=task.id,
-        project_id=project.id,
-        result=[rectangle()],
-        model_version="previous",
-        source="batch",
+    db, client, world, admin = committed_reference_delivery
+    registered, project, task, content = world
+    task_id, project_id = task.id, project.id
+    previous_job, backend, body, dispatch = await enqueue(
+        db, client, world, admin, monkeypatch, scope=scope
     )
-    db_session.add(old)
-    task.total_predictions = 1
-    await db_session.flush()
-    old_id = old.id
-    job, backend, _, dispatch = await enqueue(
-        db_session,
-        httpx_client,
-        reference_world,
-        super_admin,
-        monkeypatch,
-        scope=scope,
-        stages=stages,
+
+    def previous_response(_operation, payload):
+        _, raw = delivered_image(input_world, payload)
+        assert raw == content[1]
+        return [{**rectangle(), "score": 0.4}]
+
+    patch_batch_execution(monkeypatch, previous_response)
+    await run_dispatched(dispatch)
+    await db.refresh(previous_job)
+    assert previous_job.status == "completed", (
+        await db.scalars(
+            select(FailedPrediction.message).where(FailedPrediction.task_id == task_id)
+        )
+    ).all()
+    old_id, old_result = (
+        await db.execute(
+            select(Prediction.id, Prediction.result).where(
+                Prediction.task_id == task_id
+            )
+        )
+    ).one()
+    previous_deletions = len(input_world.deletions)
+    assert not input_world.objects
+
+    auth = headers(admin)
+    if mutation == "revoke_key":
+        issued = await client.post(
+            "/api/v1/me/api-keys",
+            headers=auth,
+            json={"name": "Reference delivery", "scopes": ["*"]},
+        )
+        assert issued.status_code == 201, issued.text
+        key_id = issued.json()["id"]
+        auth = {"Authorization": "Bearer " + issued.json()["plaintext"]}
+    if stages:
+        body["pipeline_stages"] = pipeline(backend)
+    response = await client.post(
+        f"/api/v1/projects/{project_id}/preannotate", json=body, headers=auth
     )
-    proof = deepcopy(job.payload["prediction_authority"])
-    task_id, project_id, job_id = task.id, project.id, job.id
-    assert (
-        proof["tasks"][0]["reference"]["sha256"]
-        == hashlib.sha256(content[1]).hexdigest()
-    )
+    assert response.status_code == 200, response.text
+    job_id = uuid.UUID(response.json()["job_id"])
+    assert job_id != previous_job.id
+    job = await jobs.get_job(db, job_id)
+    proof = job.payload["prediction_authority"]
+    assert proof["actor_id"] == str(admin[0].id)
+    if mutation == "revoke_key":
+        assert proof["api_key_id"] == key_id
+    (binding,) = proof["tasks"]
+    assert binding["task_id"] == str(task_id)
+    assert binding["reference"]["sha256"] == hashlib.sha256(content[1]).hexdigest()
     assert job.execution_snapshot_id is not None
-    original_create = PredictionInputs.create.__func__
-
-    async def create(cls, factory, **kwargs):
-        return await original_create(cls, input_world.factory, **kwargs)
-
-    monkeypatch.setattr(PredictionInputs, "create", classmethod(create))
+    await db.commit()
     seen = []
+    inference_finished = False
+    original = content[0] / content[7].relative_path
 
     class Client:
-        def __init__(self, *a, **kw):
-            pass
-
         async def predict(self, tasks, context=None):
             for payload in tasks:
-                bucket, object_key = (
-                    urlsplit(payload["file_path"]).path.lstrip("/").split("/", 1)
-                )
-                raw = input_world.objects[bucket, object_key]
+                object_key, raw = delivered_image(input_world, payload)
                 seen.append((object_key, raw))
-                if "/original/" in object_key:
-                    assert raw == content[1]
-                else:
+                if "/crops/" in object_key:
                     with Image.open(io.BytesIO(raw)) as image:
                         assert image.size == (48, 32)
-                        assert image.getpixel((10, 10))[0] > 240
+                        red, green, blue = image.getpixel((10, 10))
+                        assert red > 240 and max(green, blue) < 10
+                else:
+                    assert "/original/" in object_key and raw == content[1]
             if "/crops/" in seen[-1][0]:
                 await mutate_after_inference()
                 return [
@@ -229,7 +318,7 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
             if not stages:
                 await mutate_after_inference()
             elif len(seen) == 1 and mutation == "physical":
-                (content[0] / "图片 空格.png").write_bytes(b"replaced")
+                original.write_bytes(b"replaced")
             return [
                 PredictionResult(
                     task_id=tasks[0]["id"], result=[shape], meta={"total_cost": 0.25}
@@ -237,113 +326,222 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
             ]
 
     async def mutate_after_inference():
+        nonlocal inference_finished
         if mutation == "version":
+            await db.refresh(task)
             task.version += 1
+            await db.commit()
         elif mutation == "source":
-            content[5].enabled = False
+            source_url = f"/api/v1/dataset-sources/{content[5].id}"
+            impact = await client.get(source_url + "/lifecycle-impact", headers=auth)
+            assert impact.status_code == 200, impact.text
+            change = await client.post(
+                source_url + "/lifecycle",
+                headers=auth,
+                json={
+                    "action": "pause",
+                    "expected_revision": impact.json()["expected_revision"],
+                    "impact_proof": impact.json()["proof"],
+                },
+            )
+            assert change.status_code == 200, change.text
+            assert change.json()["enabled"] is False
         elif mutation == "cancel":
-            job.payload = {**job.payload, "cancel_requested": True}
-        elif mutation == "physical":
-            (content[0] / "图片 空格.png").write_bytes(b"replaced")
-        await db_session.commit()
+            cancel = await client.post(
+                f"/api/v1/async-jobs/{job_id}/cancel", headers=auth
+            )
+            assert cancel.status_code == 200, cancel.text
+            assert cancel.json()["status"] == "cancel_requested"
+        elif mutation == "revoke_key":
+            revoked = await client.delete(
+                f"/api/v1/me/api-keys/{key_id}", headers=headers(admin)
+            )
+            assert revoked.status_code == 204, revoked.text
+        elif mutation == "physical" and not stages:
+            original.write_bytes(b"replaced")
+        inference_finished = True
 
     monkeypatch.setattr(
         "app.application.preannotation_execution._model_execution_port",
         lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
     )
-    monkeypatch.setattr(
-        "app.services.prediction_context",
-        "_load_task_image",
-        lambda *a: pytest.fail("reference ROI reread original"),
-    )
-    fake_engine, fake_factory = _passthrough_engine_and_factory(db_session)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", fake_engine)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", fake_factory)
-    monkeypatch.setattr(
-        "app.services.prediction_progress.publish_progress", lambda *a, **kw: None
-    )
-    args = dispatch.call_args.kwargs["args"]
-    kwargs = dict(dispatch.call_args.kwargs["kwargs"])
-    await run_batch_request(
-        project_id=args[0],
-        ml_backend_id=args[1],
-        task_ids=args[2],
-        **kwargs,
-        celery_task_id=str(job_id),
-        worker_node_id="worker:content@test",
-    )
-    job = await db_session.get(AsyncJob, job_id, populate_existing=True)
+    await run_dispatched(dispatch)
+    job = await jobs.get_job(db, job_id, populate_existing=True)
     failures = (
-        await db_session.execute(
+        await db.execute(
             select(FailedPrediction.error_type, FailedPrediction.message).where(
                 FailedPrediction.project_id == project_id
             )
         )
     ).all()
-    if mutation in {"version", "source", "cancel"}:
-        assert job.status == ("cancelled" if mutation == "cancel" else "failed"), (
-            failures
-        )
-        assert (
-            await db_session.scalars(
-                select(Prediction.id).where(Prediction.task_id == task_id)
+    assert len(seen) == (3 if stages else 1), failures
+    assert inference_finished, failures
+    if stages:
+        assert seen[0] == seen[1]
+        assert "/crops/" in seen[2][0]
+    (lease_id,) = {uuid.UUID(key.split("/")[1]) for key, _ in seen}
+    assert not input_world.objects
+    assert set(input_world.deletions[previous_deletions:]) == {
+        (input_world.bucket, key) for key, _ in seen
+    }
+    assert all(body.closed for body in input_world.bodies)
+    assert all(storage.closed for storage in input_world.storages)
+    async with input_world.factory() as independent:
+        record = (
+            await independent.scalars(
+                select(PredictionInputLease).where(
+                    PredictionInputLease.owner_id == job_id
+                )
             )
-        ).all() == [old_id]
-        assert not input_world.objects
-        assert set(input_world.deletions) == {
-            (input_world.bucket, key) for key, _ in seen
-        }
+        ).one()
+        assert (record.id, record.task_id, record.state) == (
+            lease_id,
+            task_id,
+            "deleted",
+        )
+        assert record.deleted_at is not None
+    public = await client.get(f"/api/v1/async-jobs/{job_id}", headers=headers(admin))
+    assert public.status_code == 200, public.text
+    detail = public.json()
+    assert (detail["id"], detail["status"]) == (str(job_id), job.status)
+    assert "prediction_authority" not in detail["payload"]
+    prediction = (
+        await db.scalars(
+            select(Prediction)
+            .where(Prediction.task_id == task_id)
+            .execution_options(populate_existing=True)
+        )
+    ).one()
+    if mutation in {"version", "source", "cancel", "revoke_key"}:
+        expected = "cancelled" if mutation == "cancel" else "failed"
+        assert job.status == expected, failures
+        assert job.result["success_count"] == 0
+        assert (prediction.id, prediction.result) == (old_id, old_result)
         return
-    assert job.status == "completed", failures
-    prediction = await db_session.scalar(
-        select(Prediction).where(Prediction.task_id == task_id)
-    )
-    assert prediction is not None
+    assert job.status == "completed" and job.result["success_count"] == 1, failures
+    assert not failures
     assert prediction.id != old_id
-    meta = await db_session.scalar(
+    (shape,) = prediction.result
+    assert shape["type"] == "rectanglelabels" and shape["value"] == rectangle()["value"]
+    meta = await db.scalar(
         select(PredictionMeta).where(PredictionMeta.prediction_id == prediction.id)
     )
     evidence = meta.extra["reference_input"]
-    assert evidence["sha256"] == proof["tasks"][0]["reference"]["sha256"]
-    assert evidence["item_id"] == proof["tasks"][0]["item_id"]
+    assert evidence["sha256"] == binding["reference"]["sha256"]
+    assert evidence["item_id"] == str(registered["item_id"])
+    assert evidence["actor_id"] == proof["actor_id"]
+    assert evidence["job_id"] == str(job_id)
     assert evidence["execution_snapshot_id"] == str(job.execution_snapshot_id)
     assert evidence["node_id"] == "worker:content@test"
     assert "key_proof" not in str(meta.extra) and "signature" not in str(meta.extra)
-    assert not input_world.objects
-    assert set(input_world.deletions) == {(input_world.bucket, key) for key, _ in seen}
-    assert all(body.closed for body in input_world.bodies)
-    assert all(storage.closed for storage in input_world.storages)
-    assert len({key.split("/")[1] for key, _ in seen}) == 1
-    assert len(seen) == (3 if stages else 1)
     if stages:
         assert [
             row["stage"]
             for row in meta.extra["pipeline"]["selections"]
             if row["executed"]
         ] == [7, 9, 11]
-    async with input_world.factory() as independent:
-        records = list(
-            await independent.scalars(
-                select(PredictionInputLease).where(
-                    PredictionInputLease.owner_id == job_id
-                )
-            )
-        )
-        assert len(records) == 1 and records[0].state == "deleted"
-        assert records[0].deleted_at is not None
-    public = await httpx_client.get(
-        f"/api/v1/async-jobs/{job_id}", headers=headers(super_admin)
+
+
+async def test_implicit_mixed_bulk_redelivery_writes_both_original_inputs_once(
+    committed_reference_delivery,
+    managed_worker_world,
+    retained_image_storage,
+    input_world,
+    monkeypatch,
+):
+    from app.application.preannotation_results import (
+        BatchResultExecution,
+        PreannotationResultDeferred,
     )
-    assert public.status_code == 200
-    assert "prediction_authority" not in public.json()["payload"]
+    from app.services import prediction_originals
+    from tests.test_managed_prediction_requests import managed_task
+
+    db, client, world, admin = committed_reference_delivery
+    _, project, reference, content = world
+    managed = await managed_task(db, project, admin[0])
+    source = await prediction_originals.resolve(db, managed.task.id)
+    managed_worker_world.source_bytes[source.bucket, source.object_key] = managed.raw
+    job, _, _, dispatch = await enqueue(
+        db, client, world, admin, monkeypatch, extra={"task_ids": None}
+    )
+    reference_id, managed_id = reference.id, managed.task.id
+    calls = []
+
+    def predict(_operation, payload):
+        task_id = uuid.UUID(payload["id"])
+        if task_id == reference_id:
+            _, raw = delivered_image(input_world, payload)
+            assert raw == content[1]
+        else:
+            assert task_id == managed_id
+            assert urlsplit(payload["file_path"]).hostname == "retained.test"
+        calls.append((task_id, payload["file_path"]))
+        return [rectangle()]
+
+    patch_batch_execution(monkeypatch, predict)
+    capture = BatchResultExecution.capture
+
+    async def lose_reference_ack(execution, ordinal, requests, *, stage, context):
+        receipt = await capture(
+            execution, ordinal, requests, stage=stage, context=context
+        )
+        if stage == "prepared" and context["task_id"] == str(reference_id):
+            raise PreannotationResultDeferred("storage_unavailable")
+        return receipt
+
+    with monkeypatch.context() as interrupted:
+        interrupted.setattr(BatchResultExecution, "capture", lose_reference_ack)
+        with pytest.raises(PreannotationResultDeferred, match="^storage_unavailable$"):
+            await run_dispatched(dispatch)
+    assert [task_id for task_id, _ in calls].count(reference_id) == 1
     assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(FailedPrediction)
-            .where(FailedPrediction.project_id == project_id)
-        )
-        == 0
+        await db.scalar(select(Prediction.id).where(Prediction.task_id == reference_id))
+        is None
     )
+    await run_dispatched(dispatch)
+
+    job = await jobs.get_job(db, job.id, populate_existing=True)
+    assert job.status == "completed", job.error_message
+    assert (job.result["success_count"], job.result["failed_count"]) == (2, 0)
+    assert sorted(task_id for task_id, _ in calls) == sorted((reference_id, managed_id))
+    page = await SqlAlchemyManifestDatabase(db, commit=False).call(
+        "read_accepted_image_input_manifest_page",
+        ManifestPageRequest(
+            job_id=job.id,
+            actor_id=job.user_id,
+            project_id=project.id,
+            selection_digest=dispatch.call_args.kwargs["kwargs"][
+                "accepted_input_manifest_digest"
+            ],
+            sealed_digest=job.result["manifest"]["sealed_digest"],
+        ),
+    )
+    assert page.manifest.status == "sealed" and page.manifest.selection.task_ids is None
+    members = {member.task_id: member for member in page.members}
+    assert members[reference_id].state == "reference"
+    assert members[reference_id].input is None and members[reference_id].error is None
+    assert members[managed_id].state == "ready"
+    accepted = members[managed_id].input
+    assert accepted.sha256 == hashlib.sha256(managed.raw).hexdigest()
+    managed_url = urlsplit(dict(calls)[managed_id])
+    assert managed_url.path.startswith(f"/accepted-inputs/{accepted.input_id}/")
+    assert parse_qs(managed_url.query)["versionId"]
+    rows = (
+        await db.execute(
+            select(Prediction.task_id, PredictionMeta.extra)
+            .join(PredictionMeta, PredictionMeta.prediction_id == Prediction.id)
+            .where(Prediction.project_id == project.id)
+        )
+    ).all()
+    assert len(rows) == 2
+    saved = dict(rows)
+    assert (
+        saved[reference_id]["reference_input"]["sha256"]
+        == hashlib.sha256(content[1]).hexdigest()
+    )
+    assert "accepted_input" not in saved[reference_id]
+    assert saved[managed_id]["accepted_input"]["input_id"] == str(accepted.input_id)
+    assert "reference_input" not in saved[managed_id]
 
 
 async def implicit_manifest_tasks(db, job, dispatch):
