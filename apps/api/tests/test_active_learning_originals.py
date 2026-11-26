@@ -525,6 +525,7 @@ def output(world, monkeypatch):
         id=uuid.uuid4(),
         project_id=world.authority.project_id,
         creator_id=world.authority.actor_id,
+        current_attempt_id=None,
         spec={"original_contract": 1},
         authorization={},
     )

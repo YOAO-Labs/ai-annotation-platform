@@ -100,6 +100,12 @@
 
 ### Fixed
 
+- 修复持久化失败预测重试在目录引用图原生分割场景下漏调用 `qualify_native_results` 签发 `background_native_reference_receipt` 导致重试失败（`reference_prediction_geometry_not_supported`）的问题。
+- 修复后台原生引用分割预测在核验私有资格回执前提前将 Mask 对象写入对象存储的问题，确保无效、过期、已取消或跨事务回执在任何对象写入前即被拒绝。
+- 修复原图读取校验在已过期 API 密钥下未立即拒绝的问题，恢复返回 403 `api_key_authority_revoked`。
+- 修复导出打包计算样本相对路径时误读 SQLAlchemy ORM 类级 `MetaData` 对象而触发 `AttributeError` 的问题。
+- 修复任务序列化未加载已核验来源引用时回退当前存储桶签发缩略图链接的问题，仅消费已核验的派生与金字塔缩略图结果。
+- 修复审核仪表盘视频批次封面回退旧派生路径的问题，恢复通过媒体网关统一读取视频海报。
 - 修复栅格 Mask 像素编辑在对象存储返回可重试冲突或暂时不可用（409／503）时误降级为 422 几何错误并丢失 `retryable` 提示的问题。
 - 修复失败预测重试（单条与批量）未保留已认证主体凭据而返回 403 `prediction_authority_revoked` 的问题；重试仍继续执行原有的账号、密钥和范围复核。
 - 修复点云导出预检读取 SQLAlchemy ORM 样本元数据时误取类级 `MetaData` 对象导致标定读取异常的问题。

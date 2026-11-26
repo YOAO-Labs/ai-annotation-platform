@@ -9,6 +9,7 @@ from yoao_assets_media.contract import ReadSourceRequest
 from app.api.v1.dashboard import annotator as annotator_dashboard
 from app.api.v1.dashboard import reviewer as reviewer_dashboard
 from app.db.enums import UserRole
+from app.services.storage import storage_service
 
 
 @pytest.mark.asyncio
@@ -70,12 +71,14 @@ async def test_annotator_video_batch_cover_never_signs_legacy_poster(
         posters,
     )
     monkeypatch.setattr(
-        annotator_dashboard.storage_service,
+        storage_service,
         "generate_download_url",
         lambda *args, **kwargs: signed.append(args) or "legacy-poster",
     )
 
     result = await annotator_dashboard.my_batches(
+        limit=100,
+        offset=0,
         db=FakeDb(),
         current_user=SimpleNamespace(id=actor_id, role=UserRole.SUPER_ADMIN),
     )
@@ -168,7 +171,7 @@ async def test_reviewer_video_batch_cover_never_signs_legacy_poster(
     signed = []
     monkeypatch.setattr(reviewer_dashboard, "video_poster_urls", posters)
     monkeypatch.setattr(
-        reviewer_dashboard.storage_service,
+        storage_service,
         "generate_download_url",
         lambda *args, **kwargs: signed.append(args) or "legacy-poster",
     )

@@ -369,8 +369,14 @@ def test_media_identity_failure_never_reads_the_current_bucket(frozen, invalid):
 
 @pytest.mark.parametrize("extra", [None, "resume", "initialization"])
 async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
-    frozen, extra
+    frozen, monkeypatch, extra
 ):
+    from app.services import (
+        learning_models_data,
+        training_dataset_data,
+        training_run_data,
+    )
+
     run, attempt = run_for(frozen)
     source_run, source_attempt, model = source_model(frozen)
     parent = SimpleNamespace(
@@ -406,6 +412,27 @@ async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
         assert model_type is TrainedModelVersion and identifier == model.id
         return model
 
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=frozen.version),
+    )
+    monkeypatch.setattr(
+        training_run_data,
+        "get_attempt",
+        AsyncMock(
+            side_effect=lambda _db, aid, **_kw: (
+                parent if aid == parent.id else source_attempt
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        training_run_data, "get_run", AsyncMock(return_value=source_run)
+    )
+    monkeypatch.setattr(
+        learning_models_data, "get_version", AsyncMock(return_value=model)
+    )
+
     config_before = deepcopy(run.config)
     result = await training_runs.assignment(
         SimpleNamespace(
@@ -432,7 +459,11 @@ async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
 
 
 @pytest.mark.parametrize("invalid", ["missing-pin", "foreign-package", "other-project"])
-async def test_run_assignment_does_not_sign_an_unresolved_dataset(frozen, invalid):
+async def test_run_assignment_does_not_sign_an_unresolved_dataset(
+    frozen, monkeypatch, invalid
+):
+    from app.services import training_dataset_data
+
     run, attempt = run_for(frozen)
     if invalid == "missing-pin":
         frozen.version.storage_ref = None
@@ -440,6 +471,11 @@ async def test_run_assignment_does_not_sign_an_unresolved_dataset(frozen, invali
         frozen.version.package_key = "another-version/dataset.zip"
     else:
         frozen.version.project_id = uuid.uuid4()
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=frozen.version),
+    )
     db = SimpleNamespace(get=AsyncMock(return_value=frozen.version), commit=AsyncMock())
     with pytest.raises(HTTPException) as error:
         await training_runs.assignment(db, run, attempt, "token")
@@ -464,9 +500,18 @@ def preview_for(frozen):
     )
 
 
-async def test_preview_assignment_resolves_owner_without_rewriting_spec(frozen):
+async def test_preview_assignment_resolves_owner_without_rewriting_spec(
+    frozen, monkeypatch
+):
+    from app.services import training_dataset_data
+
     preview = preview_for(frozen)
     original_spec = deepcopy(preview.spec)
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=frozen.version),
+    )
     db = SimpleNamespace(get=AsyncMock(return_value=frozen.version), commit=AsyncMock())
     result = await training_previews.assignment(db, preview)
     assert result["source_urls"][frozen.sample.task_id].startswith(
@@ -479,7 +524,11 @@ async def test_preview_assignment_resolves_owner_without_rewriting_spec(frozen):
 @pytest.mark.parametrize(
     "invalid", ["missing-pin", "other-project", "foreign-source", "wrong-kind"]
 )
-async def test_preview_cannot_sign_a_source_outside_its_frozen_sample(frozen, invalid):
+async def test_preview_cannot_sign_a_source_outside_its_frozen_sample(
+    frozen, monkeypatch, invalid
+):
+    from app.services import training_dataset_data
+
     preview = preview_for(frozen)
     if invalid == "missing-pin":
         frozen.version.storage_ref = None
@@ -489,6 +538,11 @@ async def test_preview_cannot_sign_a_source_outside_its_frozen_sample(frozen, in
         preview.spec["sources"][0]["media_key"] = "another-version/media/image"
     else:
         preview.spec["sources"][0]["media_key"] = frozen.version.package_key
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=frozen.version),
+    )
     db = SimpleNamespace(get=AsyncMock(return_value=frozen.version))
     with pytest.raises(HTTPException) as error:
         await training_previews.assignment(db, preview)
@@ -536,7 +590,9 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
     project = SimpleNamespace(id=frozen.version.project_id)
     run, attempt, model = source_model(frozen)
     registry_id, deployment_id = uuid.uuid4(), uuid.uuid4()
-    deployment = SimpleNamespace(registry_id=registry_id, id=deployment_id)
+    deployment = SimpleNamespace(
+        registry_id=registry_id, id=deployment_id, trial=None, receipt=None
+    )
     reference = {
         "model_version_id": str(model.id),
         "sha256": model.artifact["sha256"],
@@ -586,7 +642,9 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
         return reference
 
     monkeypatch.setattr(
-        trained_models, "enabled_backend", AsyncMock(return_value=object())
+        trained_models,
+        "enabled_backend",
+        AsyncMock(return_value=SimpleNamespace(extra_params={}, health_meta={})),
     )
 
     def expected_receipt(version):
@@ -610,7 +668,15 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
 
     db = SimpleNamespace(get=get, scalar=AsyncMock(return_value=run))
     from app.services import inference_backend_control, inference_model_execution
-    from app.services import trained_model_backend as backend_io
+    from app.services import trained_model_backend as backend_io, training_run_data
+
+    monkeypatch.setattr(training_run_data, "get_run", AsyncMock(return_value=run))
+    monkeypatch.setattr(
+        training_run_data, "get_attempt", AsyncMock(return_value=attempt)
+    )
+    monkeypatch.setattr(
+        backend_io, "read_version", AsyncMock(return_value=frozen.version)
+    )
 
     monkeypatch.setattr(
         inference_backend_control,
@@ -711,6 +777,33 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
         if outcome == "failed"
         else None
     )
+
+    async def start_version(_db, item):
+        item.status = "running"
+        return True
+
+    async def publish_version(_db, item, *, package_key, **kwargs):
+        item.status = "ready"
+        item.package_key = package_key
+        return True
+
+    async def fail_version(_db, item, _job_id, **kwargs):
+        item.status = "failed"
+        return True
+
+    async def read_facts(_db, _vid, **_kwargs):
+        if published_key is not None:
+            return SimpleNamespace(**{**vars(version), "package_key": published_key})
+        return version
+
+    monkeypatch.setattr(worker.data, "read_version", AsyncMock(return_value=version))
+    monkeypatch.setattr(worker.data, "read_version_facts", read_facts)
+    monkeypatch.setattr(worker.data, "start_version", start_version)
+    monkeypatch.setattr(worker.data, "publish_version", publish_version)
+    monkeypatch.setattr(worker.data, "fail_version", fail_version)
+    monkeypatch.setattr(
+        worker.storage_access, "operation_is_open", AsyncMock(return_value=False)
+    )
     monkeypatch.setattr(worker, "require_authority", AsyncMock(side_effect=authority))
     monkeypatch.setattr(worker, "guard_execution", AsyncMock(return_value=version))
     monkeypatch.setattr(worker.originals, "delegated", AsyncMock(return_value=object()))
@@ -786,6 +879,10 @@ async def test_model_detail_signs_the_trial_image_from_the_pinned_bucket(
         return f"https://owned-storage/{kwargs['bucket']}/{key}"
 
     monkeypatch.setattr(storage_service, "generate_download_url", download)
+    monkeypatch.setattr(
+        api.data, "deployments_for_versions", AsyncMock(return_value=[deployment])
+    )
+    monkeypatch.setattr(api, "read_version", AsyncMock(return_value=frozen.version))
     db = SimpleNamespace(
         get=AsyncMock(return_value=frozen.version),
         scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [deployment])),

@@ -79,7 +79,7 @@ def dispatch(monkeypatch):
 
     async def run(db, owner, purpose, callback, *args, **kwargs):
         calls.append((purpose, owner.ref))
-        return callback(transports[owner.location_id], *args, **kwargs)
+        return callback(transports[owner.location_id], *args)
 
     monkeypatch.setattr(storage_io, "run", run)
     return calls, transports
@@ -98,9 +98,13 @@ def transport(client):
 
 @pytest.mark.parametrize("resume", [False, True])
 async def test_assignment_uses_distinct_rooted_version_and_run_targets(
-    run_owned, dispatch, resume
+    run_owned, dispatch, monkeypatch, resume
 ):
+    from app.services import training_dataset_data, training_run_data
+
     world = run_owned
+    world.run.creator_id = uuid.uuid4()
+    world.run.authorization = {}
     world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
     world.dataset.storage_ref = rooted(world.dataset.storage_ref, "dataset-c")
     world.dataset.package_key = world.dataset.storage_ref["prefix"] + "dataset.zip"
@@ -116,6 +120,14 @@ async def test_assignment_uses_distinct_rooted_version_and_run_targets(
             "role": "checkpoint",
             "key": world.run.storage_ref["prefix"] + f"attempts/{parent.id}/last.pt",
         }
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=world.dataset),
+    )
+    monkeypatch.setattr(
+        training_run_data, "get_attempt", AsyncMock(return_value=parent)
+    )
     db = Database([(TrainingDatasetVersion, world.dataset), (TrainingAttempt, parent)])
     frozen = deepcopy(world.run.config)
     result = await runs.assignment(db, world.run, world.attempt, "lease")
@@ -132,23 +144,31 @@ async def test_rooted_upload_commits_inventory_before_signing(
     run_owned, dispatch, monkeypatch
 ):
     world = run_owned
+    world.run.creator_id = uuid.uuid4()
+    world.run.authorization = {}
     world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
     spec = artifact(world)
     calls, transports = dispatch
     owner = runs.storage_owner(world.run)
     transports[owner.location_id] = transport(world.client)
+
+    async def authorize_attempt_upload(_db, _run_id, _attempt_id, _body, inventory):
+        world.attempt.upload_inventory = inventory
+
     monkeypatch.setattr(
         runs, "fenced", AsyncMock(return_value=(None, world.run, world.attempt))
     )
+    monkeypatch.setattr(runs.data, "authorize_attempt_upload", authorize_attempt_upload)
     monkeypatch.setattr(runs.jobs, "update_progress", AsyncMock())
     db = Database()
     db.commit.side_effect = lambda: world.attempt.upload_inventory and None
     body = SimpleNamespace(
+        boot_id=uuid.uuid4(),
         artifacts=[
             TrainingArtifactSpec(
                 **{key: value for key, value in spec.items() if key != "key"}
             )
-        ]
+        ],
     )
     result = await runs.authorize_upload(db, world.attempt.id, body)
     db.commit.assert_awaited_once()
@@ -158,8 +178,10 @@ async def test_rooted_upload_commits_inventory_before_signing(
 
 
 async def test_preview_input_and_output_owners_are_independent_without_new_capability_gate(
-    preview_owned, dispatch
+    preview_owned, dispatch, monkeypatch
 ):
+    from app.services import training_dataset_data
+
     world = preview_owned
     world.preview.storage_ref = rooted(world.preview.storage_ref, "preview-b")
     world.dataset.storage_ref = rooted(world.dataset.storage_ref, "dataset-c")
@@ -169,6 +191,11 @@ async def test_preview_input_and_output_owners_are_independent_without_new_capab
     )
     calls, transports = dispatch
     transports[owners.resolve(world.dataset).location_id] = transport(world.client)
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=world.dataset),
+    )
     db = Database([(TrainingDatasetVersion, world.dataset)])
     result = await previews.assignment(db, world.preview)
     assert calls[0][1] == world.dataset.storage_ref
@@ -283,6 +310,8 @@ def test_active_learning_png_put_and_conditional_readback_share_transport(run_ow
 
 def test_redacted_log_derived_write_uses_same_rooted_owner(run_owned):
     world = run_owned
+    world.run.creator_id = uuid.uuid4()
+    world.run.authorization = {}
     world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
     receipt = artifact(world, "stdout.log", "log", b"safe retained output\n")
     source = deepcopy(receipt)
@@ -303,6 +332,8 @@ def test_redacted_log_derived_write_uses_same_rooted_owner(run_owned):
 
 def test_redacted_log_content_only_reads_the_saved_rooted_owner(run_owned):
     world = run_owned
+    world.run.creator_id = uuid.uuid4()
+    world.run.authorization = {}
     world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
     receipt = artifact(world, "stdout.log", "log", b"password=private\n")
     saved = deepcopy((world.run.storage_ref, receipt))
@@ -325,6 +356,8 @@ async def test_durable_cleanup_deletes_saved_prefix_and_retains_intent_on_failur
     run_owned, dispatch, fails
 ):
     world = run_owned
+    world.run.creator_id = uuid.uuid4()
+    world.run.authorization = {}
     world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
     owner = runs.storage_owner(world.run)
     intent = SimpleNamespace(
@@ -334,9 +367,18 @@ async def test_durable_cleanup_deletes_saved_prefix_and_retains_intent_on_failur
         prefix=owner.prefix,
         last_attempted_at=None,
     )
-    db = SimpleNamespace(
-        scalar=AsyncMock(return_value=intent), commit=AsyncMock(), delete=AsyncMock()
-    )
+    completed = []
+
+    async def execute(statement):
+        sql = str(statement)
+        if "training_storage_claim_deletion" in sql:
+            return SimpleNamespace(one_or_none=lambda: intent)
+        if "training_storage_complete_deletion" in sql:
+            completed.append(intent.id)
+            return SimpleNamespace(scalar_one_or_none=lambda: True)
+        raise AssertionError(f"Unexpected statement: {sql}")
+
+    db = SimpleNamespace(execute=execute, commit=AsyncMock())
     deleted = []
 
     def delete_prefix(prefix, *, bucket):
@@ -350,16 +392,16 @@ async def test_durable_cleanup_deletes_saved_prefix_and_retains_intent_on_failur
     if fails:
         with pytest.raises(OSError):
             await cleanup.purge_requested(db, intent.id)
-        db.delete.assert_not_awaited()
+        assert completed == []
     else:
         assert await cleanup.purge_requested(db, intent.id)
-        db.delete.assert_awaited_once_with(intent)
+        assert completed == [intent.id]
     assert deleted == [(owner.prefix, owner.bucket)]
     assert calls[0][1] == owner.ref
 
 
 async def test_candidate_cleanup_parses_logical_project_but_deletes_full_saved_key(
-    run_owned, dispatch
+    run_owned, dispatch, monkeypatch
 ):
     world = run_owned
     ref = world.run.storage_ref
@@ -374,7 +416,12 @@ async def test_candidate_cleanup_parses_logical_project_but_deletes_full_saved_k
         "key": owner.prefix + f"{world.attempt.id}/" + "a" * 64 + ".json",
     }
     world.run.status, world.run.deletion_requested_at = "succeeded", None
+    world.run.current_attempt_id = None
     world.attempt.report = None
+    monkeypatch.setattr(worker.data, "get_run", AsyncMock(return_value=world.run))
+    monkeypatch.setattr(
+        worker.data, "get_attempt", AsyncMock(return_value=world.attempt)
+    )
     db = SimpleNamespace(
         scalar=AsyncMock(return_value=world.run),
         get=AsyncMock(return_value=world.attempt),
@@ -410,6 +457,8 @@ async def test_success_readback_cannot_publish_after_attempt_or_inventory_change
     from fastapi import HTTPException
 
     world = run_owned
+    world.run.creator_id = uuid.uuid4()
+    world.run.authorization = {}
     world.run.storage_ref = rooted(world.run.storage_ref, "run-b")
     roles = {
         "best.pt": "weights",
@@ -441,9 +490,21 @@ async def test_success_readback_cannot_publish_after_attempt_or_inventory_change
     monkeypatch.setattr(runs, "authority", AsyncMock())
     terminal = AsyncMock()
     monkeypatch.setattr(runs, "mark_terminal", terminal)
+    finish_body = SimpleNamespace(
+        status="succeeded",
+        process_exited=True,
+        error_message=None,
+        failure=None,
+        native_accounting=None,
+        boot_id=uuid.uuid4(),
+        request_payload=lambda: {"status": "succeeded"},
+    )
     with pytest.raises(HTTPException) as error:
         await runs.finish(
-            Database(), world.attempt.id, run_flow.finish_body("succeeded")
+            Database(),
+            world.attempt.id,
+            finish_body,
+            training_authority=SimpleNamespace(assert_authority=AsyncMock()),
         )
     assert error.value.status_code == 409
     terminal.assert_not_awaited()
@@ -463,7 +524,11 @@ async def test_model_detail_trial_sample_signs_saved_dataset_target(
     deployment = SimpleNamespace(status="ready", trial={"task_id": str(uuid.uuid4())})
     db = Database([(TrainingDatasetVersion, world.dataset)])
     db.scalars = AsyncMock(return_value=SimpleNamespace(all=lambda: [deployment]))
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
+    monkeypatch.setattr(api, "lock_project_manager", AsyncMock())
+    monkeypatch.setattr(
+        api.data, "deployments_for_versions", AsyncMock(return_value=[deployment])
+    )
+    monkeypatch.setattr(api, "read_version", AsyncMock(return_value=world.dataset))
     monkeypatch.setattr(api.service, "load_version", AsyncMock(return_value=version))
     monkeypatch.setattr(
         api.lineage, "model_metadata", AsyncMock(return_value={version.id: {}})
@@ -495,7 +560,10 @@ async def test_model_detail_trial_sample_signs_saved_dataset_target(
         )
     )
     result = await api.model_detail(
-        version.id, SimpleNamespace(id=world.run.project_id), db, SimpleNamespace()
+        version.id,
+        SimpleNamespace(id=world.run.project_id),
+        db,
+        SimpleNamespace(id=uuid.uuid4()),
     )
     assert (
         result["deployments"][0]["trial"]["sample_url"]
@@ -511,7 +579,6 @@ async def test_first_missing_b_png_is_classified_inside_current_target_client(
     from contextlib import asynccontextmanager, contextmanager
     from botocore.exceptions import ClientError
     from app.services import storage_access
-    from app.services.managed_s3_target import Target
     from app.services.filesystem_storage import FilesystemStorageError
 
     world = run_owned
@@ -520,6 +587,7 @@ async def test_first_missing_b_png_is_classified_inside_current_target_client(
     ref["prefix"] = f"projects/{world.run.project_id}/active-learning/{world.run.id}/"
     world.run.storage_ref = rooted(ref, "round-b")
     world.run.spec = {"original_contract": 1}
+    world.run.current_attempt_id = None
     owner = learning.owners.resolve(world.run)
     raw = b"bounded source PNG"
     sample = {
@@ -565,7 +633,7 @@ async def test_first_missing_b_png_is_classified_inside_current_target_client(
                         OSError("client close uncertain")
                     )
 
-    target = Target(
+    target = SimpleNamespace(
         location_id=owner.location_id,
         config_revision=3,
         connection_revision=2,
@@ -573,9 +641,11 @@ async def test_first_missing_b_png_is_classified_inside_current_target_client(
         bucket=owner.bucket,
         key_prefix=owner.key_prefix,
         purpose="training",
-        _access=Access(),
+        is_registered=False,
+        client=Access().client,
     )
     monkeypatch.setattr(storage_io, "prepare", AsyncMock(return_value=target))
+    monkeypatch.setattr(storage_io, "source_for", lambda *_a, **_k: None)
     context = SimpleNamespace(proof=None, key=None)
     monkeypatch.setattr(
         learning.originals, "delegated", AsyncMock(return_value=context)

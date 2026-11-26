@@ -224,7 +224,13 @@ def relative_path_from_file_path(
     )
 
     if item is not None and item.file_path == file_path:
-        logical_path = item.metadata.get("storage_relative_path")
+        raw_meta = getattr(item, "metadata_", None)
+        meta = (
+            raw_meta
+            if isinstance(raw_meta, dict)
+            else (item.metadata if isinstance(item.metadata, dict) else {})
+        )
+        logical_path = meta.get("storage_relative_path")
         if isinstance(logical_path, str):
             try:
                 return normalize_dataset_relative_path(logical_path)

@@ -67,7 +67,7 @@ async def run_secondary_inference(db, *, task, annotation, **kwargs):
     """Exercise the managed-original owner for every image-task case."""
     if (
         task is not None
-        and task.file_type == "image"
+        and getattr(task, "file_type", None) == "image"
         and kwargs.get("original_operation") is None
     ):
         kwargs["original_operation"] = _FakeManagedOperation(task)
@@ -644,22 +644,25 @@ def test_text_output_mode_follows_model_capability(text_outputs, expected):
     回归守卫: 曾硬编码 "polygon" (非法值), 令一切带 prompt 的二次推理必挂 —— yolo
     backend 严格 pydantic 校验暴露成 500, gsam2/sam3 显式 422。
     """
-    from app.services.secondary_inference import _resolve_text_output_mode
+    from yoao_inference.secondary import select_text_output_mode
 
     backend = _fake_backend([{"id": "m-1", "supported_text_outputs": text_outputs}])
-    mode = _resolve_text_output_mode(backend, "m-1")
+    mode = select_text_output_mode(backend.health_meta, "m-1")
     assert mode == expected
     assert mode in ("box", "mask", "both")
 
 
 def test_text_output_mode_defaults_without_capability_snapshot():
     """能力快照缺失 / model_id 不匹配 → 回落协议默认, 而非发出非法值。"""
-    from app.services.secondary_inference import _resolve_text_output_mode
+    from yoao_inference.secondary import select_text_output_mode
 
-    assert _resolve_text_output_mode(_fake_backend(), "m-1") == "mask"
+    assert select_text_output_mode(_fake_backend().health_meta, "m-1") == "mask"
     assert (
-        _resolve_text_output_mode(
-            _fake_backend([{"id": "other", "supported_text_outputs": ["box"]}]), "m-1"
+        select_text_output_mode(
+            _fake_backend(
+                [{"id": "other", "supported_text_outputs": ["box"]}]
+            ).health_meta,
+            "m-1",
         )
         == "mask"
     )

@@ -427,6 +427,11 @@ class Permit:
 
 @pytest.fixture
 def media_setup(monkeypatch):
+    from app.services import fixture_original_read
+
+    monkeypatch.setattr(
+        fixture_original_read, "is_fixture", AsyncMock(return_value=False)
+    )
     monkeypatch.setattr(
         service.original_sources, "read_options", AsyncMock(return_value={})
     )
@@ -451,7 +456,9 @@ def media_setup(monkeypatch):
     async def acquire(_db, location_id, purpose, *, expected_revision):
         assert location_id == state.source.location_id
         assert expected_revision == state.source.maintenance_revision
-        assert purpose == "image_pyramid_original"
+        assert purpose == service.original_sources.media_permit_purpose(
+            state.source, "image"
+        )
         return state.permit
 
     def create_client(**options):

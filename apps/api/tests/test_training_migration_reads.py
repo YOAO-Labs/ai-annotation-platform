@@ -22,6 +22,7 @@ def owner():
     return SimpleNamespace(
         ref=ref,
         bucket=ref["bucket"],
+        key_prefix="",
         contains=lambda key: key == "saved/object" or owners._reject(),
     )
 
@@ -143,8 +144,11 @@ async def test_route_failures_keep_safe_training_error(monkeypatch, stage):
 
 @pytest.mark.parametrize("resume", [False, True])
 async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, resume):
-    from app.services import training_runs
-    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.services import (
+        training_dataset_data,
+        training_run_data,
+        training_runs,
+    )
     from tests.test_training_run_storage_flow import owned
 
     world = owned.__wrapped__(monkeypatch)
@@ -165,13 +169,20 @@ async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, 
         calls.append((saved.ref, kwargs))
         return callback(io.storage_service)
 
-    async def get(model, identifier):
-        return world.dataset if model is TrainingDatasetVersion else parent
-
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=world.dataset),
+    )
+    monkeypatch.setattr(
+        training_run_data,
+        "get_attempt",
+        AsyncMock(return_value=parent),
+    )
     monkeypatch.setattr(io, "read", read)
     before = deepcopy(world.run.config)
     result = await training_runs.assignment(
-        SimpleNamespace(get=get, commit=AsyncMock()),
+        SimpleNamespace(autoflush=False, commit=AsyncMock()),
         world.run,
         world.attempt,
         "lease",
@@ -263,7 +274,7 @@ async def test_preview_image_reads_two_objects_and_owns_undelivered_file(monkeyp
         calls.append(kwargs)
         return callback(io.storage_service)
 
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
+    monkeypatch.setattr(api, "lock_project_manager", AsyncMock())
     monkeypatch.setattr(api, "load", AsyncMock(return_value=preview))
     monkeypatch.setattr(previews, "storage_owner", lambda value: saved)
     monkeypatch.setattr(
@@ -277,7 +288,7 @@ async def test_preview_image_reads_two_objects_and_owns_undelivered_file(monkeyp
         uuid.uuid4(),
         0,
         project=SimpleNamespace(id=uuid.uuid4()),
-        user=object(),
+        user=SimpleNamespace(id=uuid.uuid4()),
         db=SimpleNamespace(commit=AsyncMock()),
     )
     try:

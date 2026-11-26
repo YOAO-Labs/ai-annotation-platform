@@ -802,6 +802,29 @@ async def _verify_input_provenance(
     return {}, None, None
 
 
+async def _preflight_background_native_receipt(
+    db, request: ApplyPredictionResultRequest, result: list[dict]
+) -> None:
+    native = request.background_native_reference_receipt
+    if native is None:
+        return
+    if (
+        request.reference_receipt is None
+        or request.accepted_video_input is not None
+        or request.source != "ml_backend"
+    ):
+        raise ContentError("background_native_reference_receipt_invalid")
+    from app.services.reference_native_predictions import validate_receipt
+
+    await validate_receipt(
+        db,
+        request.task_id,
+        request.project_id,
+        native,
+        prediction_write_facts(request, result),
+    )
+
+
 class PredictionService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
@@ -871,6 +894,7 @@ class PredictionService:
             self.db, task_row, request.task_id, populate_existing=True
         )
         try:
+            await _preflight_background_native_receipt(self.db, request, result)
             verified_content = await preflight_mask_payload_for_write(
                 self.db,
                 preflight_task,
@@ -984,6 +1008,8 @@ class PredictionService:
         ]
         verified_contents = []
         try:
+            for request, result in zip(requests, normalized_results, strict=True):
+                await _preflight_background_native_receipt(self.db, request, result)
             for request, result in zip(requests, normalized_results, strict=True):
                 verified_contents.append(
                     await preflight_mask_payload_for_write(

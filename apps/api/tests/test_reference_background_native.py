@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 import uuid
@@ -22,6 +22,12 @@ from app.services import async_job as jobs, prediction_references as refs
 from app.services import reference_native_predictions as native, trained_models
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultRequest,
+    BatchResultPredictionIdentity,
+)
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction import PredictionService
 from app.services.prediction_execution import execution_summary, load_snapshot
@@ -393,6 +399,21 @@ async def prepared(native_world, httpx_client, super_admin, monkeypatch):
     w = native_world
     job, _ = await enqueue(w, httpx_client, super_admin, monkeypatch)
     await jobs.mark_running(w.db, job.id)
+    if job.payload.get("accepted_input_manifest_protocol") is not None:
+        from yoao_assets_input_manifests.contract import SealManifestRequest
+        from yoao_assets_input_manifests_runtime.control import ManifestControl
+        from app.services.accepted_input_manifests import SqlAlchemyManifestDatabase
+
+        await ManifestControl(
+            SqlAlchemyManifestDatabase(w.db, commit=False), None
+        ).seal(
+            SealManifestRequest(
+                job_id=job.id,
+                actor_id=w.actor.id,
+                project_id=w.project.id,
+                selection_digest=job.payload["accepted_input_manifest_digest"],
+            )
+        )
     await w.db.commit()
     payload, digest = await load_snapshot(w.db, job.execution_snapshot_id, w.project.id)
     owner = refs.ReferencePredictionJob(
@@ -483,6 +504,32 @@ async def prepare_writes(w, job, owner, payload, digest):
         for r in results
     ]
     return anchor, writes
+
+
+async def _apply_native_prediction(w, job, anchor, write, receipt):
+    scope = capture_labeling_write_scope(
+        w.task,
+        actor_id=w.actor.id,
+        actor_known=True,
+        operation="preannotation",
+        execution_scope="bulk",
+        execution_scope_known=True,
+        job_id=job.id,
+        job_id_known=True,
+    )
+    request = ApplyPredictionResultRequest(
+        **write,
+        write_scope=scope,
+        accepted_input_job_id=job.id,
+        batch_result_identity=BatchResultPredictionIdentity(
+            prediction_id=uuid.uuid4(),
+            prediction_created_at=datetime.now(timezone.utc),
+        ),
+        reference_receipt=anchor,
+        background_native_reference_receipt=receipt,
+    )
+    applied = await PredictionService(w.db).apply_prediction_result(request)
+    return await w.db.get(Prediction, (applied.id, applied.created_at))
 
 
 @pytest.mark.parametrize(
@@ -577,15 +624,11 @@ async def test_private_receipt_rejects_changed_payload_owner_and_transaction(
                 )
     elif fault == "nested":
         async with w.db.begin_nested():
-            with pytest.raises(ContentError):
-                await PredictionService(w.db).create_from_ml_result(
-                    **write, background_native_reference_receipt=receipt
-                )
+            with pytest.raises((ContentError, ApplyPredictionResultError)):
+                await _apply_native_prediction(w, job, anchor, write, receipt)
     else:
-        with pytest.raises(ContentError):
-            await PredictionService(w.db).create_from_ml_result(
-                **write, background_native_reference_receipt=receipt
-            )
+        with pytest.raises((ContentError, ApplyPredictionResultError)):
+            await _apply_native_prediction(w, job, anchor, write, receipt)
     assert not w.puts
 
 
@@ -611,9 +654,7 @@ async def test_native_acceptance_checks_current_content_and_self_contained_proof
     job, owner, anchor, writes = prepared
     task_id, project_id = w.task.id, w.project.id
     receipt = (await owner.qualify_native_results(w.task, anchor, writes))[0]
-    prediction = await PredictionService(w.db).create_from_ml_result(
-        **writes[0], background_native_reference_receipt=receipt
-    )
+    prediction = await _apply_native_prediction(w, job, anchor, writes[0], receipt)
     await w.db.commit()
     await owner.close_inputs(task_id)
     metadata = await w.db.scalar(
@@ -691,7 +732,7 @@ async def test_pruned_root_retains_original_noncontiguous_instance_index(
     native_world, prepared
 ):
     w = native_world
-    _, owner, anchor, writes = prepared
+    job, owner, anchor, writes = prepared
     task_id = w.task.id
     write = writes[0]
     ident = str(
@@ -708,9 +749,7 @@ async def test_pruned_root_retains_original_noncontiguous_instance_index(
         }
     )
     receipt = (await owner.qualify_native_results(w.task, anchor, [write]))[0]
-    prediction = await PredictionService(w.db).create_from_ml_result(
-        **write, background_native_reference_receipt=receipt
-    )
+    prediction = await _apply_native_prediction(w, job, anchor, write, receipt)
     assert prediction.result[0]["instance_index"] == 1
     assert prediction.result[0]["class_name"] == "car"
 
@@ -776,9 +815,7 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
     w = native_world
     original, owner, anchor, writes = prepared
     receipt = (await owner.qualify_native_results(w.task, anchor, writes))[0]
-    previous = await PredictionService(w.db).create_from_ml_result(
-        **writes[0], background_native_reference_receipt=receipt
-    )
+    previous = await _apply_native_prediction(w, original, anchor, writes[0], receipt)
     previous_id = previous.id
     failure = FailedPrediction(
         project_id=w.project.id,
@@ -815,7 +852,7 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
     response = await httpx_client.post(url, headers=headers(super_admin))
     assert response.status_code == 202, response.text
     options = dispatch.call_args.kwargs
-    job_id = options["kwargs"]["async_job_id"]
+    job_id = options["kwargs"]["job_id"]
 
     class Client:
         def __init__(self, *args, **kw):
@@ -832,9 +869,18 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
                 w.ref,
             )
 
+    from app.db.models.ml_backend_registry import ProjectMLBackendPool
+
+    pool_id = await w.db.scalar(
+        select(ProjectMLBackendPool.pool_id).where(
+            ProjectMLBackendPool.project_id == w.project.id
+        )
+    )
     monkeypatch.setattr(
         "app.application.durable_prediction_retry._model_execution_port",
-        lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
+        lambda *_args, **_kwargs: PredictionClientExecutionPort(
+            Client(), instance_id=w.backend.id, pool_id=pool_id
+        ),
     )
 
     @asynccontextmanager

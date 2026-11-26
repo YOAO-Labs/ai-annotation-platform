@@ -69,6 +69,8 @@ class Objects:
 
 
 class Database:
+    autoflush = False
+
     def __init__(self, world):
         self.world = world
         self.added = []
@@ -195,6 +197,45 @@ def world(monkeypatch):
         bucket=ref["bucket"],
     )
     value.db = Database(value)
+    from app.services import (
+        learning_models_data,
+        training_adapters,
+        training_dataset_data,
+        training_run_data,
+    )
+
+    async def get_run(_db, pid, rid, **_kwargs):
+        return (
+            run if str(run.project_id) == str(pid) and str(run.id) == str(rid) else None
+        )
+
+    async def get_attempt(_db, aid, **_kwargs):
+        return attempt if str(attempt.id) == str(aid) else None
+
+    async def get_version(_db, pid, vid, **_kwargs):
+        return (
+            version
+            if str(version.project_id) == str(pid) and str(version.id) == str(vid)
+            else None
+        )
+
+    async def read_version(_db, vid, *, project_id=None, **_kwargs):
+        if str(dataset.id) != str(vid):
+            return None
+        if project_id is not None and str(dataset.project_id) != str(project_id):
+            return None
+        return dataset
+
+    monkeypatch.setattr(training_run_data, "get_run", get_run)
+    monkeypatch.setattr(training_run_data, "get_attempt", get_attempt)
+    monkeypatch.setattr(learning_models_data, "get_version", get_version)
+    monkeypatch.setattr(training_dataset_data, "read_version", read_version)
+    monkeypatch.setattr(training_dataset_data, "read_version_facts", read_version)
+    monkeypatch.setattr(
+        training_adapters,
+        "plugin_template",
+        AsyncMock(return_value={"framework_version": "test-version", "task": "detect"}),
+    )
     monkeypatch.setattr(storage, "client", client)
     monkeypatch.setattr(storage, "training_bucket", "new-current-training")
     return value
@@ -377,7 +418,9 @@ async def test_model_install_weights_and_trial_inputs_keep_distinct_owners(
     sample = world.dataset.manifest["samples"][0]
     project = SimpleNamespace(id=world.run.project_id)
     registry_id, deployment_id = uuid.uuid4(), uuid.uuid4()
-    deployment = SimpleNamespace(registry_id=registry_id, id=deployment_id)
+    deployment = SimpleNamespace(
+        registry_id=registry_id, id=deployment_id, trial=None, receipt=None
+    )
     reference = {
         "model_version_id": str(world.version.id),
         "sha256": world.version.artifact["sha256"],
@@ -426,7 +469,11 @@ async def test_model_install_weights_and_trial_inputs_keep_distinct_owners(
         assert kwargs == {"include_runtime": False, "runtime": None}
         return reference
 
-    monkeypatch.setattr(models, "enabled_backend", AsyncMock(return_value=object()))
+    monkeypatch.setattr(
+        models,
+        "enabled_backend",
+        AsyncMock(return_value=SimpleNamespace(extra_params={}, health_meta={})),
+    )
 
     def expected_receipt(version):
         return {
@@ -443,6 +490,9 @@ async def test_model_install_weights_and_trial_inputs_keep_distinct_owners(
     from app.services import inference_backend_control, inference_model_execution
     from app.services import trained_model_backend as backend_io
 
+    monkeypatch.setattr(
+        backend_io, "read_version", AsyncMock(return_value=world.dataset)
+    )
     monkeypatch.setattr(
         inference_backend_control,
         "backend_control_service",
@@ -494,6 +544,14 @@ async def test_registration_checks_weights_and_metrics_in_the_run_bucket(
         models,
         "registration_eligibility",
         lambda _: {"qualified": True, "qualification": None},
+    )
+    monkeypatch.setattr(
+        models.data, "registration_replay", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        models.data,
+        "register_candidate",
+        AsyncMock(side_effect=lambda _db, **kw: SimpleNamespace(**kw)),
     )
 
     def verify(key, spec, attempt_id, *, bucket, transport=None):

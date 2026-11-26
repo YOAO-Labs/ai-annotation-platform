@@ -143,7 +143,12 @@ async def test_retry_upload_url_keeps_first_creation_deadline(
     adapter.prepare_upload_url = AsyncMock(return_value="signed")
     assert await creation.prepare_upload_url(None, allocated) == "signed"
     adapter.prepare_upload_url.assert_awaited_once_with(
-        None, owner, "payload", content_type="image/png", expires_in=600
+        None,
+        owner,
+        "payload",
+        content_type="image/png",
+        source_owner=("creation", allocated["id"]),
+        expires_in=600,
     )
 
 
@@ -226,16 +231,28 @@ async def test_source_client_close_never_skips_destination_close(
     monkeypatch.setattr(creation, "async_sessionmaker", lambda *_, **__: object())
     monkeypatch.setattr(creation.accounting, "publish", publication)
     if source_close_failure:
-        with pytest.raises(ContentError) as caught:
+        with pytest.raises(ExceptionGroup) as caught:
             await creation._physical(
-                None, row, io.BytesIO(), source_target=SimpleNamespace(client=client)
+                None,
+                row,
+                io.BytesIO(),
+                permit=object(),
+                source_target=SimpleNamespace(client=client),
             )
-        assert caught.value.code == "managed_original_close_unknown"
+        assert any(
+            isinstance(exc, ContentError)
+            and exc.code == "managed_original_close_unknown"
+            for exc in caught.value.exceptions
+        )
         assert caught.value.storage_operation_unsettled
     else:
         assert (
             await creation._physical(
-                None, row, io.BytesIO(), source_target=SimpleNamespace(client=client)
+                None,
+                row,
+                io.BytesIO(),
+                permit=object(),
+                source_target=SimpleNamespace(client=client),
             )
             == b"original"
         )

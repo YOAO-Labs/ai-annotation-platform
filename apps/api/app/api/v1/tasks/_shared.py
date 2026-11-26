@@ -311,21 +311,13 @@ def _task_with_url(
                 )
             except Exception:
                 pass
-    elif thumbnail_path:
-        thumb_bucket = storage_service.bucket_for_cache_key(
-            thumbnail_path, default=bucket
-        )
-        try:
-            thumbnail_url = storage_service.generate_download_url(
-                thumbnail_path, bucket=thumb_bucket
-            )
-        except Exception:
-            pass
 
     if task.file_type == "video":
         checked = getattr(task, "_video_derivative_thumbnail", None)
         if thumbnail_path and checked is not None and checked[0] == thumbnail_path:
             thumbnail_url = checked[1]
+        elif not owner_source_reference_loaded:
+            thumbnail_url = None
         blurhash = None
     elif thumbnail_path:
         for name in ("_image_pyramid_thumbnail", "_media_cache_thumbnail"):

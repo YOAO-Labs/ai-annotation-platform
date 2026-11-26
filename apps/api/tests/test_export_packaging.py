@@ -395,7 +395,14 @@ async def _run_video_zip_with_size(project, chunks, targets):
                 lambda _db: _FakeMediaGateway(items),
             )
             ret_path, file_count, size_bytes = await _build_video_export_zip(
-                SimpleNamespace(db=object()),
+                SimpleNamespace(
+                    db=object(),
+                    item_for_task=lambda task, mapping: (
+                        mapping.get(task.dataset_item_id)
+                        if task.dataset_item_id
+                        else None
+                    ),
+                ),
                 project,
                 replay,
                 tmp_path=tmp_path,

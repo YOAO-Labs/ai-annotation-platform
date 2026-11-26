@@ -607,15 +607,30 @@ async def _attach_input_receipts(db, attempt, payload, session_factory, requests
         await owner.open_inputs(task, session_factory)
         try:
             receipt = await owner.final_receipt(task)
+            native_receipts = await owner.qualify_native_results(
+                task,
+                receipt,
+                [_video_write_facts(request) for request in requests],
+            )
+            key = (
+                "original_receipt" if owner.is_managed(task_id) else "reference_receipt"
+            )
+            prepared = tuple(
+                replace(
+                    request,
+                    **{key: receipt},
+                    **(
+                        {"background_native_reference_receipt": native}
+                        if native is not None
+                        else {}
+                    ),
+                )
+                for request, native in zip(requests, native_receipts, strict=True)
+            )
         except BaseException:
             await owner.close_inputs(task_id)
             raise
-        key = "original_receipt" if owner.is_managed(task_id) else "reference_receipt"
-        return (
-            tuple(replace(request, **{key: receipt}) for request in requests),
-            owner,
-            task_id,
-        )
+        return prepared, owner, task_id
     owner = _video_retry_owner(db, attempt, video_proof, task)
     await owner.authorize(db)
     await owner.open_inputs(task, session_factory)

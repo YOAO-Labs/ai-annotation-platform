@@ -247,6 +247,7 @@ def _bind_adapter(monkeypatch, case, *, reject_readiness):
             identity_url=None,
             timeout_seconds=5,
             signing_secret="readiness-test-secret",
+            require_signing_secret=lambda: "readiness-test-secret",
         ),
     )
     request = SimpleNamespace(operation="create_invitation")

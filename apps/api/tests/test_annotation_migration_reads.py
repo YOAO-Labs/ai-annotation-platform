@@ -15,7 +15,6 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete
 
-from app.db.models.raster_mask_object import RasterMaskPublication
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.services import (
     comment_attachment_storage as comments,
@@ -310,7 +309,9 @@ async def session(db):
 def patch_rle_session(monkeypatch, row):
     db = SimpleNamespace(
         scalar=AsyncMock(return_value=row),
-        execute=AsyncMock(return_value=SimpleNamespace(rowcount=1)),
+        execute=AsyncMock(
+            return_value=SimpleNamespace(rowcount=1, one_or_none=lambda: row)
+        ),
         commit=AsyncMock(),
         add=Mock(),
         flush=AsyncMock(),
@@ -369,13 +370,17 @@ async def test_rle_dedup_and_load_use_winners_stored_gzip_and_source_guard_fact(
             receipt.stored_sha256,
             receipt.stored_size_bytes,
         )
-    publication = db.add.call_args.args[0]
-    assert isinstance(publication, RasterMaskPublication)
-    assert publication.gate_revision == 12 != route.maintenance_revision
+    open_calls = [
+        call.args[1]
+        for call in db.execute.await_args_list
+        if "open_raster_publication" in str(call.args[0])
+    ]
+    assert len(open_calls) == 1
+    assert open_calls[0]["revision"] == 12 != route.maintenance_revision
     guard = next(
         iter(db.info[rle_owners.PUBLICATIONS_INFO][receipt.logical_key].values())
     )
-    assert guard.revision == publication.gate_revision
+    assert guard.revision == open_calls[0]["revision"]
     assert guard.read_route is route
     assert all(operation in ("head", "get") for operation, _ in provider.calls)
     assert all(body.closed for body in provider.bodies)
@@ -445,7 +450,16 @@ async def test_rle_competing_candidate_transfers_guard_to_routed_winner(monkeypa
         db, candidate_receipt, 2, guard, True, object()
     )
     assert actual == winner_receipt
-    assert candidate.state == "retired" and candidate.retired_at is not None
+    retired_calls = [
+        call.args[1]
+        for call in db.scalar.await_args_list
+        if "retire_raster_object" in str(call.args[0])
+    ]
+    assert len(retired_calls) == 1
+    assert (
+        retired_calls[0]["id"] == candidate.id
+        and retired_calls[0]["state"] == "pending"
+    )
     assert replacement.receipt == winner_receipt
     assert replacement.revision == 12 != route.maintenance_revision
     assert replacement.read_route is route
@@ -472,18 +486,18 @@ async def test_rle_guard_binding_rechecks_route_and_retains_guard_on_withdrawal(
     receipt = rle.snapshot(row)
     route = route_for(rle, receipt, data)
     guard = rle_owners._Guard(uuid.uuid4(), receipt, 12, route)
-    publication = RasterMaskPublication(
-        id=guard.id, object_id=receipt.id, gate_revision=12
+    locked = SimpleNamespace(
+        **{
+            **vars(row),
+            "publication_id": guard.id,
+            "object_id": receipt.id,
+            "gate_revision": 12,
+        }
     )
     db = SimpleNamespace(
         info={rle_owners.PUBLICATIONS_INFO: {receipt.logical_key: {guard.id: guard}}},
-        scalars=AsyncMock(
-            side_effect=[
-                SimpleNamespace(all=lambda: [publication]),
-                SimpleNamespace(all=lambda: [row]),
-            ]
-        ),
-        execute=AsyncMock(),
+        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [locked])),
+        scalar=AsyncMock(return_value=1),
         no_autoflush=nullcontext(),
     )
     source_gate = AsyncMock(
@@ -497,10 +511,10 @@ async def test_rle_guard_binding_rechecks_route_and_retains_guard_on_withdrawal(
     if withdrawn:
         with pytest.raises(ContentError, match="read_publication_changed"):
             await rle_owners.bind_publications(db, rle.reference(receipt))
-        db.execute.assert_not_awaited()
+        db.scalar.assert_not_awaited()
     else:
         assert await rle_owners.bind_publications(db, rle.reference(receipt)) == 1
-        db.execute.assert_awaited_once()
+        db.scalar.assert_awaited_once()
     recheck.assert_awaited_once_with(db, route, lock=True)
     source_gate.assert_not_awaited()
     assert db.info[rle_owners.PUBLICATIONS_INFO][receipt.logical_key][guard.id] is guard

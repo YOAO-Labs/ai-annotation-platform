@@ -87,14 +87,30 @@ async def test_task_batch_rechecks_and_clears_previous_pyramid_thumbnail(monkeyp
     monkeypatch.setattr(objects, "thumbnail_url", checked)
     monkeypatch.setattr(pyramids, "task_pyramid_assets", AsyncMock(return_value={}))
     db = object()
+    actor_id = uuid.uuid4()
 
-    assert await shared._attach_image_pyramids_batch(db, [task], dimensions) == {}
+    assert (
+        await shared._attach_image_pyramids_batch(
+            db, [task], dimensions, actor_id=actor_id
+        )
+        == {}
+    )
     assert task._image_pyramid_thumbnail == (path, "pinned-url")
-    assert await shared._attach_image_pyramids_batch(db, [task], dimensions) == {}
+    assert (
+        await shared._attach_image_pyramids_batch(
+            db, [task], dimensions, actor_id=actor_id
+        )
+        == {}
+    )
     assert task._image_pyramid_thumbnail == (path, None)
-    checked.assert_awaited_with(db, "task", task.id, path)
+    checked.assert_awaited_with(db, "task", task.id, path, actor_id=actor_id)
     dimensions[task.id] = (100, 200, None, None, None)
-    assert await shared._attach_image_pyramids_batch(db, [task], dimensions) == {}
+    assert (
+        await shared._attach_image_pyramids_batch(
+            db, [task], dimensions, actor_id=actor_id
+        )
+        == {}
+    )
     assert task._image_pyramid_thumbnail is None
 
 
@@ -126,11 +142,13 @@ async def test_rooted_pyramid_thumbnail_uses_active_owner_not_key_prefix(monkeyp
 
     task = _task()
     path = "company/_aap_managed/media-cache/image-pyramids/objects/owned/overview.webp"
-    generation = SimpleNamespace(overview_key=path)
+    generation = SimpleNamespace(overview_key=path, job_id=None)
     monkeypatch.setattr(
         pyramids,
         "task_pyramid_assets",
-        AsyncMock(return_value={task.id: (object(), generation)}),
+        AsyncMock(
+            return_value={task.id: (SimpleNamespace(profile_version=1), generation)}
+        ),
     )
     monkeypatch.setattr(pyramids, "pyramid_summary", lambda *a, **k: None)
     checked = AsyncMock(
@@ -145,12 +163,17 @@ async def test_rooted_pyramid_thumbnail_uses_active_owner_not_key_prefix(monkeyp
         ),
     )
     dimensions = {task.id: (100, 200, path, None, None)}
-    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    actor_id = uuid.uuid4()
+    await shared._attach_image_pyramids_batch(
+        object(), [task], dimensions, actor_id=actor_id
+    )
     assert task._image_pyramid_thumbnail == (
         path,
         "/api/v1/media-cache/image-pyramid/owned/overview.webp",
     )
-    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    await shared._attach_image_pyramids_batch(
+        object(), [task], dimensions, actor_id=actor_id
+    )
     assert task._image_pyramid_thumbnail == (path, None)
     assert task._media_cache_thumbnail is None
 
@@ -164,12 +187,19 @@ async def test_regular_thumbnail_sidecar_replaces_and_clears_checked_url(monkeyp
     checked = AsyncMock(side_effect=["verified-url", None])
     monkeypatch.setattr(thumbnail_outputs, "thumbnail_url", checked)
     dimensions = {task.id: (100, 200, path, None, None)}
-    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    actor_id = uuid.uuid4()
+    await shared._attach_image_pyramids_batch(
+        object(), [task], dimensions, actor_id=actor_id
+    )
     assert task._media_cache_thumbnail == (path, "verified-url")
-    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    await shared._attach_image_pyramids_batch(
+        object(), [task], dimensions, actor_id=actor_id
+    )
     assert task._media_cache_thumbnail == (path, None)
     dimensions[task.id] = (100, 200, None, None, None)
-    await shared._attach_image_pyramids_batch(object(), [task], dimensions)
+    await shared._attach_image_pyramids_batch(
+        object(), [task], dimensions, actor_id=actor_id
+    )
     assert task._media_cache_thumbnail is None
 
 
@@ -185,10 +215,12 @@ async def test_dataset_list_uses_async_saved_thumbnail_without_a_fallback(
         file_type="image",
         file_path="source.jpg",
         thumbnail_path="company/_aap_managed/media-cache/thumbnails/objects/owned/thumbnail.webp",
+        directory_owned=False,
     )
-    rows = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [item]))
     db = SimpleNamespace(
-        execute=AsyncMock(side_effect=[SimpleNamespace(scalar=lambda: 1), rows])
+        autoflush=False,
+        scalar=AsyncMock(return_value=1),
+        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [item])),
     )
     monkeypatch.setattr(datasets, "_item_dict", lambda row: {})
     monkeypatch.setattr(directory_policy, "owns_media", AsyncMock(return_value=False))
