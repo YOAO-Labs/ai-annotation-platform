@@ -167,8 +167,25 @@ class InMemoryContainerRuntime:
                 dead=False,
                 started_at=record["started_at"],
                 finished_at=record["finished_at"],
+                exit_code=record.get("exit_code", 0),
             ),
         )
+
+    def list_containers(
+        self,
+        *,
+        labels=None,
+    ) -> tuple[ContainerInspection, ...]:
+        matched: list[ContainerInspection] = []
+        for cid, record in self.containers.items():
+            if labels is not None and any(
+                record["labels"].get(k) != v for k, v in labels.items()
+            ):
+                continue
+            info = self.inspect_container(container_id=cid)
+            if info is not None:
+                matched.append(info)
+        return tuple(matched)
 
     def exec_in_container(
         self,
@@ -178,6 +195,30 @@ class InMemoryContainerRuntime:
         input_text: str | None = None,
     ) -> str:
         return "[]"
+
+    def kill_container(self, container_id: str, *, signal: str = "KILL") -> None:
+        record = self.containers.get(container_id)
+        if record is not None:
+            record["running"] = False
+            record["exit_code"] = 137 if signal in {"KILL", "SIGKILL"} else 143
+
+    def wait_container(
+        self,
+        container_id: str,
+        *,
+        timeout: float | None = None,
+    ) -> int:
+        record = self.containers.get(container_id)
+        if record is None:
+            raise SDKError("Container not found")
+        record["running"] = False
+        return int(record.get("exit_code", 0))
+
+    def remove_container(self, container_id: str, *, force: bool = False) -> None:
+        self.containers.pop(container_id, None)
+
+    def open_log_stream(self, container_id: str):
+        raise NotImplementedError("InMemoryContainerRuntime has no subprocess stream")
 
     def stop_and_remove(
         self,
@@ -617,3 +658,85 @@ def test_plugin_deployment_modules_have_no_framework_hardcodings():
                 if any(token in lowered for token in forbidden):
                     violations.append((path.name, text))
     assert violations == []
+
+
+def test_local_docker_runtime_list_kill_wait_remove_and_log_stream(monkeypatch):
+    import subprocess
+    from types import SimpleNamespace
+
+    runtime = LocalDockerRuntime()
+    cid_a = "a" * 64
+    cid_b = "b" * 64
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        if argv[1:3] == ["container", "ls"]:
+            return SimpleNamespace(
+                returncode=0, stdout=f"{cid_a}\n{cid_b}\n", stderr=""
+            )
+        if argv[1:3] == ["container", "inspect"]:
+            cid = argv[-1]
+            payload = {
+                "Name": f"/trainer-{cid[:4]}",
+                "Image": f"sha256:{cid}",
+                "Config": {
+                    "Image": f"registry.example/trainer@sha256:{cid}",
+                    "User": "1000:1000",
+                    "Labels": {"yoao.trainer.managed": "true", "slot": "gpu-0"},
+                    "Entrypoint": ["python3", "/app/trainer.py"],
+                    "Cmd": None,
+                },
+                "HostConfig": {"NetworkMode": "none"},
+                "Mounts": [],
+                "State": {
+                    "Running": cid == cid_a,
+                    "Restarting": False,
+                    "Paused": False,
+                    "Dead": False,
+                    "StartedAt": "2026-11-26T00:00:00Z",
+                    "FinishedAt": "0001-01-01T00:00:00Z",
+                    "ExitCode": 0 if cid == cid_a else 137,
+                },
+            }
+            return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+        if argv[1:3] == ["container", "kill"]:
+            return SimpleNamespace(returncode=0, stdout=cid_a + "\n", stderr="")
+        if argv[1:3] == ["container", "wait"]:
+            return SimpleNamespace(returncode=0, stdout="143\n", stderr="")
+        if argv[1:3] == ["container", "rm"]:
+            return SimpleNamespace(returncode=1, stdout="", stderr="No such container")
+        raise AssertionError(f"Unexpected docker command: {argv}")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    listed = runtime.list_containers(
+        labels={"yoao.trainer.managed": "true", "slot": "gpu-0"}
+    )
+    assert [item.container_id for item in listed] == [cid_a, cid_b]
+    assert listed[0].state.running is True
+    assert listed[0].state.exit_code == 0
+    assert listed[1].state.running is False
+    assert listed[1].state.exit_code == 137
+
+    runtime.kill_container(cid_a, signal="TERM")
+    assert runtime.wait_container(cid_a, timeout=5.0) == 143
+    runtime.remove_container(cid_a, force=True)
+
+    with pytest.raises(SDKError, match="Invalid container kill signal"):
+        runtime.kill_container(cid_a, signal="HUP")
+    with pytest.raises(SDKError, match="Invalid container label"):
+        runtime.list_containers(labels={"bad=key": "value"})
+    with pytest.raises(SDKError, match="Invalid container wait timeout"):
+        runtime.wait_container(cid_a, timeout=0)
+
+    popen_calls: list[list[str]] = []
+
+    def fake_popen(argv, **kwargs):
+        popen_calls.append(list(argv))
+        return SimpleNamespace(stdout=object(), poll=lambda: 0)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    proc = runtime.open_log_stream(cid_a)
+    assert proc.stdout is not None
+    assert popen_calls == [["docker", "container", "logs", "--follow", cid_a]]
+    assert isinstance(runtime, ContainerRuntimePort)

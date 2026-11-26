@@ -24,6 +24,22 @@ _USER = re.compile(r"^[a-zA-Z0-9_.-]+(?::[a-zA-Z0-9_.-]+)?$")
 
 
 _FORBIDDEN_SOCKET_NAMES = ("docker.sock", "podman.sock", "containerd.sock")
+_ALLOWED_SIGNALS = frozenset({"INT", "TERM", "KILL", "SIGINT", "SIGTERM", "SIGKILL"})
+
+
+def _validate_labels(labels: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    validated: list[tuple[str, str]] = []
+    for key, value in labels.items():
+        if (
+            not isinstance(key, str)
+            or not key
+            or "=" in key
+            or not isinstance(value, str)
+            or any(ch in key or ch in value for ch in "\x00\r\n")
+        ):
+            raise SDKError("Invalid container label")
+        validated.append((key, value))
+    return tuple(validated)
 
 
 class _ContainerNotFoundError(SDKError):
@@ -257,6 +273,7 @@ class ContainerStateInfo:
     dead: bool
     started_at: str
     finished_at: str
+    exit_code: int = 0
 
 
 @dataclass(frozen=True)
@@ -297,6 +314,12 @@ class ContainerRuntimePort(Protocol):
         container_id: str | None = None,
     ) -> ContainerInspection | None: ...
 
+    def list_containers(
+        self,
+        *,
+        labels: Mapping[str, str] | None = None,
+    ) -> tuple[ContainerInspection, ...]: ...
+
     def exec_in_container(
         self,
         container_id: str,
@@ -304,6 +327,32 @@ class ContainerRuntimePort(Protocol):
         *,
         input_text: str | None = None,
     ) -> str: ...
+
+    def kill_container(
+        self,
+        container_id: str,
+        *,
+        signal: str = "KILL",
+    ) -> None: ...
+
+    def wait_container(
+        self,
+        container_id: str,
+        *,
+        timeout: float | None = None,
+    ) -> int: ...
+
+    def remove_container(
+        self,
+        container_id: str,
+        *,
+        force: bool = False,
+    ) -> None: ...
+
+    def open_log_stream(
+        self,
+        container_id: str,
+    ) -> subprocess.Popen[bytes]: ...
 
     def stop_and_remove(
         self,
@@ -384,6 +433,9 @@ class LocalDockerRuntime:
             or not isinstance(raw_state.get("FinishedAt"), str)
         ):
             raise SDKError("Unable to verify container process state")
+        raw_exit_code = raw_state.get("ExitCode", 0)
+        if type(raw_exit_code) is not int:
+            raise SDKError("Unable to verify container exit code")
         return ContainerStateInfo(
             running=raw_state["Running"],
             restarting=raw_state["Restarting"],
@@ -391,6 +443,7 @@ class LocalDockerRuntime:
             dead=raw_state["Dead"],
             started_at=raw_state["StartedAt"],
             finished_at=raw_state["FinishedAt"],
+            exit_code=raw_exit_code,
         )
 
     def inspect_image(self, image: str) -> ContainerImageInfo:
@@ -608,6 +661,30 @@ class LocalDockerRuntime:
             state=state,
         )
 
+    def list_containers(
+        self,
+        *,
+        labels: Mapping[str, str] | None = None,
+    ) -> tuple[ContainerInspection, ...]:
+        args = ["container", "ls", "-a", "--no-trunc"]
+        if labels is not None:
+            for key, value in _validate_labels(labels):
+                args.extend(["--filter", f"label={key}={value}"])
+        args.extend(["--format", "{{.ID}}"])
+        raw = self._run(*args)
+        if not raw:
+            return ()
+        inspections: list[ContainerInspection] = []
+        for line in raw.splitlines():
+            cid = line.strip()
+            if not cid:
+                continue
+            validated = self._validate_container_id(cid)
+            info = self.inspect_container(container_id=validated)
+            if info is not None:
+                inspections.append(info)
+        return tuple(inspections)
+
     def exec_in_container(
         self,
         container_id: str,
@@ -625,6 +702,108 @@ class LocalDockerRuntime:
             args.append("--interactive")
         args.extend([validated, *command])
         return self._run(*args, input=input_text)
+
+    def kill_container(
+        self,
+        container_id: str,
+        *,
+        signal: str = "KILL",
+    ) -> None:
+        validated = self._validate_container_id(container_id)
+        if not isinstance(signal, str) or signal not in _ALLOWED_SIGNALS:
+            raise SDKError("Invalid container kill signal")
+        try:
+            result = subprocess.run(
+                [self.executable, "container", "kill", "--signal", signal, validated],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            raise SDKError("Container runtime CLI is unavailable") from exc
+        if result.returncode:
+            stderr = (result.stderr or "").strip().lower()
+            if (
+                "is not running" in stderr
+                or "no such" in stderr
+                or "not found" in stderr
+            ):
+                return
+            raise SDKError(f"Container runtime kill failed (exit {result.returncode})")
+
+    def wait_container(
+        self,
+        container_id: str,
+        *,
+        timeout: float | None = None,
+    ) -> int:
+        validated = self._validate_container_id(container_id)
+        if timeout is not None and (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            raise SDKError("Invalid container wait timeout")
+        try:
+            result = subprocess.run(
+                [self.executable, "container", "wait", validated],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except OSError as exc:
+            raise SDKError("Container runtime CLI is unavailable") from exc
+        if result.returncode:
+            raise SDKError(f"Container runtime wait failed (exit {result.returncode})")
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines:
+            raise SDKError("Container runtime did not return an exit code")
+        try:
+            return int(lines[-1])
+        except ValueError as exc:
+            raise SDKError("Container runtime returned an invalid exit code") from exc
+
+    def remove_container(
+        self,
+        container_id: str,
+        *,
+        force: bool = False,
+    ) -> None:
+        validated = self._validate_container_id(container_id)
+        args = [self.executable, "container", "rm"]
+        if force:
+            args.append("--force")
+        args.append(validated)
+        try:
+            result = subprocess.run(
+                args,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            raise SDKError("Container runtime CLI is unavailable") from exc
+        if result.returncode:
+            stderr = (result.stderr or "").strip().lower()
+            if "no such" in stderr or "not found" in stderr:
+                return
+            raise SDKError(f"Container runtime rm failed (exit {result.returncode})")
+
+    def open_log_stream(
+        self,
+        container_id: str,
+    ) -> subprocess.Popen[bytes]:
+        validated = self._validate_container_id(container_id)
+        try:
+            return subprocess.Popen(
+                [self.executable, "container", "logs", "--follow", validated],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+            )
+        except OSError as exc:
+            raise SDKError("Container runtime CLI is unavailable") from exc
 
     def stop_and_remove(
         self,
