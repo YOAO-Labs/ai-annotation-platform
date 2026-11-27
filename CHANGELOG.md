@@ -100,6 +100,9 @@
 
 ### Fixed
 
+- 修复多目标视频追踪跨窗口关联计算边界框交并比时仅识别 `dict` 而不识别只读 `MappingProxyType` 几何对象的问题，恢复跨窗口目标重关联与新实例编号分配。
+- 修复原件来源解析在任务关系查询阶段整行回填 `Task` ORM 导致加载大体积 `tags` 字段并覆盖调用方内存态对象的问题，改为仅投影来源归属所需的 7 个标量列。
+- 修复 `assets-source` 的 S3 连接器适配器在 `close()` 时未关闭自建 `boto3` 客户端的问题，确保物理存储维护门禁关闭时及时释放底层连接池。
 - 修复持久化失败预测重试在目录引用图原生分割场景下漏调用 `qualify_native_results` 签发 `background_native_reference_receipt` 导致重试失败（`reference_prediction_geometry_not_supported`）的问题。
 - 修复后台原生引用分割预测在核验私有资格回执前提前将 Mask 对象写入对象存储的问题，确保无效、过期、已取消或跨事务回执在任何对象写入前即被拒绝。
 - 修复原图读取校验在已过期 API 密钥下未立即拒绝的问题，恢复返回 403 `api_key_authority_revoked`。

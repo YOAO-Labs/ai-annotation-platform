@@ -35,8 +35,10 @@ from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task_batch import TaskBatch
-from app.services import scene as scene_svc
+from app.services import labeling_scene
+from app.services.assets_spatial import SameSessionAssetsSpatialGateway
 from app.services.exporting.packaging import build_export_zip
+from yoao_assets_catalog.spatial_contract import CreateSceneRequest, ReadPosesRequest
 from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.storage import storage_service
 from app.workers.export import _nuscenes_scope_digest
@@ -570,10 +572,9 @@ async def test_import_nuscenes_two_scenes(
         assert [r.frame_index for r in lidar_rows] == [0, 1, 2]
         assert all(r.scene_id == scene.id for r in lidar_rows)
 
-    from app.services import scene_pose as scene_pose_svc
-
+    spatial = SameSessionAssetsSpatialGateway(db_session)
     for scene in scenes:
-        traj = await scene_pose_svc.get_trajectory(db_session, scene.id)
+        traj = await spatial.read_poses(ReadPosesRequest(scene_id=scene.id))
         assert [p.frame_index for p in traj] == [0, 1, 2]
         ts = [p.timestamp_us for p in traj]
         assert ts == sorted(ts) and len(set(ts)) == 3
@@ -599,7 +600,7 @@ async def test_import_nuscenes_two_scenes(
         )
     ).scalar_one()
 
-    neighbors = await scene_svc.get_neighbors_for_task(
+    neighbors = await labeling_scene.get_neighbors_for_task(
         db_session, task_id=last_task.id, k=1
     )
     assert neighbors is not None
@@ -776,7 +777,6 @@ async def test_backfill_frame_poses_restores_deleted_rows(
     from sqlalchemy import delete
 
     from app.db.models.scene_pose import SceneFramePose
-    from app.services import scene_pose as scene_pose_svc
     from scripts.backfill_frame_poses import backfill_frame_poses
 
     user, _ = super_admin
@@ -805,7 +805,8 @@ async def test_backfill_frame_poses_restores_deleted_rows(
             select(Scene).where(Scene.dataset_id == result["dataset_id"])
         )
     ).scalar_one()
-    traj = await scene_pose_svc.get_trajectory(db_session, scene.id)
+    spatial = SameSessionAssetsSpatialGateway(db_session)
+    traj = await spatial.read_poses(ReadPosesRequest(scene_id=scene.id))
     assert [p.frame_index for p in traj] == [0, 1, 2]
     assert [p.ego_translation[0] for p in traj] == [0.0, 2.0, 4.0]
 
@@ -813,7 +814,7 @@ async def test_backfill_frame_poses_restores_deleted_rows(
         db_session, dataset_ref="DS-NU-nu-lite-bf", nuscenes_root=root
     )
     assert report2 == [{"name": "scene-0000", "poses": 3}]
-    assert len(await scene_pose_svc.get_trajectory(db_session, scene.id)) == 3
+    assert len(await spatial.read_poses(ReadPosesRequest(scene_id=scene.id))) == 3
 
 
 async def test_manifest_exposes_ego_pose(
@@ -971,14 +972,17 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
     )
     db_session.add(dataset)
     await db_session.flush()
-    scene = await scene_svc.create_scene(
-        db_session,
-        dataset_id=dataset.id,
-        name="scene-0000",
-        source_format="nuscenes",
-        source_metadata={"frame": "ego"},
-        created_by=user.id,
+    created_scene = await SameSessionAssetsSpatialGateway(db_session).create_scene(
+        CreateSceneRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            name="scene-0000",
+            source_format="nuscenes",
+            source_metadata={"frame": "ego"},
+            created_by=user.id,
+        )
     )
+    scene_id = created_scene.scene_id
     legacy = (
         b"# .PCD v0.7 - Point Cloud Data file format\n"
         b"VERSION 0.7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
@@ -999,7 +1003,7 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         row = DatasetItem(
             id=uuid.uuid4(),
             dataset_id=dataset.id,
-            scene_id=scene.id,
+            scene_id=scene_id,
             frame_index=0,
             file_name=Path(path).name,
             file_path=path,

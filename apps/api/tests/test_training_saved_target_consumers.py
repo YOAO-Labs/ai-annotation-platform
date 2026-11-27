@@ -65,6 +65,8 @@ def rooted(ref, name):
 
 
 class Database:
+    autoflush = False
+
     def __init__(self, rows=()):
         self.rows = {(type_, row.id): row for type_, row in rows}
         self.commit = AsyncMock()

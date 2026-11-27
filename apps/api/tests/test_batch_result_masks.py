@@ -100,9 +100,15 @@ async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
     geometry_checks = []
 
     class Session:
+        autoflush = False
+
         async def get(self, model, identity, **_kwargs):
             lookups.append((model.__name__, identity))
             return task if model.__name__ == "Task" else project
+
+        async def execute(self, _statement, *_args, **_kwargs):
+            lookups.append(("Task", request.task_id))
+            return SimpleNamespace(scalar_one_or_none=lambda: task)
 
     async def read_project(_db, *, project_id, populate_existing):
         assert project_id == request.project_id and populate_existing
@@ -226,8 +232,13 @@ async def test_normalize_propagates_content_fence_without_mutating_or_committing
     )
 
     class Session:
+        autoflush = False
+
         async def get(self, model, *_args, **_kwargs):
             return task if model.__name__ == "Task" else project
+
+        async def execute(self, _statement, *_args, **_kwargs):
+            return SimpleNamespace(scalar_one_or_none=lambda: task)
 
         async def commit(self):
             pytest.fail("mask normalization must not commit caller state")

@@ -25,13 +25,13 @@ from app.schemas.export import (
 )
 from app.services import export_execution_context
 from app.services.content_snapshot import ContentError
-from app.services.sensor_calibration import (
+from app.services.exporting.lidar_frozen import (
     SensorCalibrationState,
     _metadata_calibration,
-    calibration_digest,
 )
 from app.services.project_access import get_workspace_project
 from yoao_assets_catalog.axis_convention import R_NORM
+from yoao_assets_catalog.spatial_values import calibration_digest
 from yoao_workspace_contract import derive_classes_list
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.assets_spatial import AssetsSpatialGateway

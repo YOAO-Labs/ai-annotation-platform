@@ -99,7 +99,8 @@ async def test_unknown_hash_and_placeholder_remain_unverified(db_session, super_
     assert item.updated_at == before
     assert asset.verification_state == "unverified"
     assert asset.checksum_value is None
-    assert asset.legacy_hash_hint == "f" * 32
+    stored_asset = await db_session.get(DatasetAsset, asset.id)
+    assert stored_asset is not None and stored_asset.legacy_hash_hint == "f" * 32
     replica = await db_session.scalar(
         select(DatasetAssetLocation).where(DatasetAssetLocation.asset_id == asset.id)
     )
@@ -290,12 +291,10 @@ async def test_legacy_hash_is_only_a_candidate_until_bytes_match(
     )
     assert await db_session.scalar(select(func.count()).select_from(DatasetAsset)) == 0
     fake.objects[item.file_path] = data
-    assert (
-        await find_verified_content(
-            db_session, dataset.id, hashlib.sha256(data).hexdigest(), legacy_md5=md5
-        )
-        is item
+    found = await find_verified_content(
+        db_session, dataset.id, hashlib.sha256(data).hexdigest(), legacy_md5=md5
     )
+    assert found is not None and found.id == item.id
     await db_session.refresh(item)
     assert item.updated_at == before and item.content_hash == md5
     asset = await db_session.scalar(
@@ -325,7 +324,8 @@ def test_changed_head_get_identity_is_rejected_and_stream_closed(monkeypatch):
 async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
     db_session, super_admin, monkeypatch
 ):
-    from app.services.scene_inference import _split_into_scene_groups
+    from yoao_assets_source.frame_layout import PreparedDatasetItem
+    from yoao_assets_source.scene_layout import _split_into_scene_groups
     from app.services.pointcloud_import import group_frames
     from app.services.exporting.packaging import relative_path_from_file_path
 
@@ -364,7 +364,19 @@ async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
         relative_path_from_file_path(item.file_path, "renamed", item)
         for item in facts.values()
     } == expected
-    groups = _split_into_scene_groups(items, "renamed")
+    prepared_items = tuple(
+        PreparedDatasetItem(
+            id=item.id,
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type=item.file_type,
+            logical_path=dataset_item_relative_path(item),
+            scene_id=item.scene_id,
+            frame_index=item.frame_index,
+        )
+        for item in items
+    )
+    groups = _split_into_scene_groups(prepared_items, "renamed")
     assert set(groups) == {"scene_a", scene_uuid}
     frames, _ = group_frames(groups["scene_a"])
     assert set(frames) == {"000001", "000001-1"}

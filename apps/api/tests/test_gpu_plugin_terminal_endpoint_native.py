@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import asyncpg
 import pytest
+
 from sqlalchemy import text
 
 from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -24,6 +26,15 @@ from tests.test_inference_routing_native import (
     _identity_hash,
     _step as _routing_step,
 )
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @asynccontextmanager

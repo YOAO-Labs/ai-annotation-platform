@@ -64,7 +64,9 @@ async def test_rooted_training_bytes_require_exact_owner_root_endpoint_and_ident
 ):
     index, data, key = saved_case(service_name)
     family = categories.FAMILIES[index]
-    db = SimpleNamespace(execute=AsyncMock(return_value=[(f"ref:{index}", data)]))
+    db = SimpleNamespace(
+        autoflush=False, execute=AsyncMock(return_value=[(f"ref:{index}", data)])
+    )
     wrong_root = key.replace("公司/训练/", "其他/训练/", 1)
     objects = [{"key": key, "size": 7}, {"key": wrong_root, "size": 11}]
     result = await categories.classify(db, "listed-training", objects)
@@ -81,7 +83,9 @@ async def test_a_different_record_cannot_claim_the_same_saved_training_prefix(
 ):
     index, data, key = saved_case(service_name)
     data["project_id"] = str(uuid.uuid4())
-    db = SimpleNamespace(execute=AsyncMock(return_value=[(f"ref:{index}", data)]))
+    db = SimpleNamespace(
+        autoflush=False, execute=AsyncMock(return_value=[(f"ref:{index}", data)])
+    )
     result = await categories.classify(db, "listed-training", [{"key": key, "size": 7}])
     assert result["categories"]["unclassified"] == {"object_count": 1, "size_bytes": 7}
 
@@ -94,7 +98,9 @@ async def test_training_deletion_keeps_its_saved_endpoint_after_business_row_is_
 ):
     _, data, key = saved_case(service_name)
     data = {"storage_ref": data["storage_ref"], "prefix": data["storage_ref"]["prefix"]}
-    db = SimpleNamespace(execute=AsyncMock(return_value=[("training_deletion", data)]))
+    db = SimpleNamespace(
+        autoflush=False, execute=AsyncMock(return_value=[("training_deletion", data)])
+    )
     result = await categories.classify(db, "listed-training", [{"key": key, "size": 7}])
     expected = (
         "training_version"

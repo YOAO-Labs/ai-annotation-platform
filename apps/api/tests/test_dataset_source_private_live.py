@@ -9,7 +9,12 @@ from sqlalchemy import delete, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from yoao_assets_catalog import CreateDatasetRequest, GetDatasetRequest
-from yoao_assets_catalog.spatial_contract import CreateSceneRequest, ReadPosesRequest
+from yoao_assets_catalog.spatial_contract import (
+    CreateSceneRequest,
+    ReadPosesRequest,
+    UpsertPosesRequest,
+)
+from yoao_assets_catalog.spatial_values import FramePose
 
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.config import settings
@@ -18,12 +23,11 @@ from app.db.models.project import Project
 from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.db.models.user import User
 from app.schemas.dataset_source import DatasetSourceCreate
-from app.schemas.scene_pose import FramePose
 from app.schemas.storage_location import FilesystemLocationCreate
 from app.services import async_job as jobs
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as filesystem
-from app.services import scene_pose, storage_location
+from app.services import storage_location
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.services.assets_dataset_data import project_dataset_exists
 from app.services.assets_spatial import SameSessionAssetsSpatialGateway
@@ -116,21 +120,18 @@ async def test_catalog_project_link_and_pose_evidence_under_ordinary_login(test_
                 ego_rotation=[0.0, 0.0, 1.0, 0.0],
                 source_metadata={"sample": "camera-track-0"},
             )
-            assert (
-                await scene_pose.upsert_frame_poses(db, scene_id=scene_id, poses=[pose])
-                == 1
+            upserted = await spatial.upsert_poses(
+                UpsertPosesRequest(
+                    operation_id=uuid4(), scene_id=scene_id, poses=[pose]
+                )
             )
-            assert (
-                await scene_pose.get_frame_pose(db, scene_id=scene_id, frame_index=0)
-                == pose
-            )
+            assert upserted.upserted == 1
+            assert await spatial.read_frame_pose(scene_id, 0, actor_id=actor.id) == pose
             native_trajectory = await spatial.read_poses(
                 ReadPosesRequest(actor_id=actor.id, scene_id=scene_id)
             )
-            trajectory = await scene_pose.get_trajectory(db, scene_id)
             expected = [pose.model_dump()]
             assert [entry.model_dump() for entry in native_trajectory] == expected
-            assert [entry.model_dump() for entry in trajectory] == expected
     finally:
         async with maker.begin() as owner:
             await owner.execute(delete(Project).where(Project.id == project.id))

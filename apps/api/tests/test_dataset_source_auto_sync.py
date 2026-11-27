@@ -81,7 +81,12 @@ async def test_pure_additions_automatic_and_pending_publish_recovery(
     await wake(db, row)
     assert (
         row.state == "idle"
-        and await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+        and await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == world[3].id)
+        )
+        == 1
     )
     row.next_run_at = await scans.now(db) - timedelta(seconds=1)
     await wake(db, row)
@@ -90,7 +95,14 @@ async def test_pure_additions_automatic_and_pending_publish_recovery(
     unchanged = await finish_preflight(db, row)
     await wake(db, row)
     assert row.state == "idle" and unchanged.phase == "preflight"
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == world[3].id)
+        )
+        == 1
+    )
 
 
 @pytest.mark.parametrize("unsafe", ["changed", "not_seen", "unreadable", "excluded"])
@@ -98,6 +110,7 @@ async def test_one_unsafe_difference_holds_whole_cycle(
     db_session, content_world, unsafe
 ):
     db, world = db_session, content_world
+    dataset_id = world[3].id
     await accept_all_files(db, world)
     path = world[0] / "图片 空格.png"
     if unsafe == "changed":
@@ -113,11 +126,19 @@ async def test_one_unsafe_difference_holds_whole_cycle(
     row, run = await automatic_preflight(db, world)
     await wake(db, row)
     assert row.state == "awaiting_review" and run.phase == "preflight"
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+        )
+        == 1
+    )
 
 
 async def test_enabling_policy_does_not_adopt_manual_cycle(db_session, content_world):
     db, world = db_session, content_world
+    dataset_id = world[3].id
     row = await sync.configure(
         db, world[5].id, Update(expected_revision=0, enabled=True), world[2]
     )
@@ -145,7 +166,14 @@ async def test_enabling_policy_does_not_adopt_manual_cycle(db_session, content_w
         row.state == "awaiting_review"
         and run.snapshot["sync_new_file_policy"] == "manual"
     )
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+        )
+        == 0
+    )
 
 
 @pytest.mark.parametrize("change", ["pause", "key_rotation"])
@@ -154,6 +182,7 @@ async def test_pause_during_automatic_confirmation_fences_attempt(
     db_session, content_world, monkeypatch, barrier, change
 ):
     db, world = db_session, content_world
+    dataset_id = world[3].id
     from app.db.models.api_key import ApiKey
 
     key = ApiKey(
@@ -213,7 +242,14 @@ async def test_pause_during_automatic_confirmation_fences_attempt(
     current = await db.get(DatasetRegistrationRun, run_id, populate_existing=True)
     assert current.phase == "preflight" and current.async_job_id == old_job
     assert not captures
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+        )
+        == 0
+    )
 
 
 def test_timezone_is_validated_and_manual_is_default():

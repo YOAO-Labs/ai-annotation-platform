@@ -162,6 +162,36 @@ async def lock_task_for_core_read(
     return result.scalar_one_or_none()
 
 
+async def lock_task_source_facts_for_core_read(
+    db: AsyncSession,
+    task_id: uuid.UUID,
+    *,
+    project_id: uuid.UUID | None = None,
+    lock_mode: str = "share",
+    nowait: bool = True,
+    bounded: bool = False,
+):
+    locked = func.yoao_labeling_v1.lock_task_for_core_read(
+        task_id, lock_mode, nowait, project_id
+    ).table_valued(
+        *(
+            column(name, Task.__table__.c[name].type)
+            for name in CORE_READ_COLUMNS["task_rows"]
+        )
+    )
+    statement = select(
+        locked.c.id,
+        locked.c.project_id,
+        locked.c.batch_id,
+        locked.c.file_path,
+        locked.c.file_type,
+        locked.c.original_id,
+        locked.c.dataset_item_id,
+    )
+    result = await _execute_core_row_lock(db, statement, bounded=bounded)
+    return result.one_or_none()
+
+
 class VideoTaskDecisionBusy(RuntimeError):
     pass
 

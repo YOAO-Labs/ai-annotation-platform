@@ -26,8 +26,9 @@ from app.services import (
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.labeling_core_read_relations import (
-    get_core_row,
+    execute_core_read,
     lock_task_for_core_read,
+    lock_task_source_facts_for_core_read,
     lock_task_dataset_item_links_for_core_read,
     task_dataset_item_link_row,
     task_row,
@@ -193,9 +194,28 @@ async def _relation(
     wait_for_task=False,
 ):
     if lock:
-        task = await lock_task_for_original_read(db, task_id, wait=wait_for_task)
+        task = await lock_task_source_facts_for_core_read(
+            db,
+            task_id,
+            lock_mode="share",
+            nowait=not wait_for_task,
+            bounded=wait_for_task,
+        )
     else:
-        task = await get_core_row(db, task_row, task_id, populate_existing=True)
+        task = (
+            await execute_core_read(
+                db,
+                select(
+                    task_row.id,
+                    task_row.project_id,
+                    task_row.batch_id,
+                    task_row.file_path,
+                    task_row.file_type,
+                    task_row.original_id,
+                    task_row.dataset_item_id,
+                ).where(task_row.id == task_id),
+            )
+        ).one_or_none()
     if task is None:
         raise ContentError("content_task_missing", 404)
     if lock:

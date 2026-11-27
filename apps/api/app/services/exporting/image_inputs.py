@@ -27,7 +27,7 @@ from app.services.labeling_core_read_relations import (
     task_dataset_item_link_row as TaskDatasetItemLink,
     task_row as Task,
 )
-from app.services.exporting.image_media_paths import TARGETS
+from app.services.exporting.image_media_paths import TARGETS, logical_sources
 from app.services.raster_mask_storage import collect_mask_references
 from app.services.reference_keys import is_reference
 from app.services.task_scope import ids_clause
@@ -574,8 +574,6 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
         select(cast(bindparam("frozen_image_inputs", frozen, type_=JSONB), JSONB))
     )
     digest(frozen)
-    from app.services.exporting.image_media_paths import logical_sources
-
     logical_sources(frozen)
     return Inputs(frozen, sources)
 

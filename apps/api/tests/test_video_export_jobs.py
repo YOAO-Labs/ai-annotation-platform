@@ -113,7 +113,12 @@ def test_changed_delivery_never_replaces_original_inputs(mutation):
 async def test_capture_flushes_once_and_repeat_preserves_original_proof(monkeypatch):
     job, receipt, args = world(selected=True)
     original = deepcopy(job.payload)
-    db = SimpleNamespace(flush=AsyncMock(), get=AsyncMock(return_value=receipt))
+    db = SimpleNamespace(
+        autoflush=False,
+        flush=AsyncMock(),
+        get=AsyncMock(return_value=receipt),
+        execute=AsyncMock(return_value=SimpleNamespace(one_or_none=lambda: receipt)),
+    )
     project = SimpleNamespace(id=job.project_id, data_type="video")
     collected = SimpleNamespace(
         snapshot=receipt.input_snapshot, digest=receipt.input_digest

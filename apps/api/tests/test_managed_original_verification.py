@@ -54,13 +54,18 @@ async def attempt(db, actor, **fields):
 
 async def claimed(db, actor):
     anchor, row, job = await attempt(db, actor)
-    assert await service.claim(db, job.id, row.task_id) is row
-    return anchor, row, job
+    claimed_row = await service.claim(db, job.id, row.task_id)
+    assert claimed_row is not None and claimed_row.id == row.id
+    return anchor, claimed_row, job
 
 
 async def settled_receipt(db, row):
     """Model the state after a real permit settled; worker integration owns I/O."""
-    row.operation_id = uuid.uuid4()
+    await db.execute(
+        update(Verification)
+        .where(Verification.id == row.id)
+        .values(operation_id=uuid.uuid4())
+    )
     await db.flush()
 
 
@@ -166,7 +171,11 @@ async def test_zero_byte_is_eligible_and_local_or_persisted_configuration_change
     assert not history.items[0].context_matches and row.input_fingerprint == original
     assert "platform_configuration_changed" in history.blockers
     assert await service.claim(db, job.id, row.task_id) is None
-    assert row.status == "failed" and row.error_code == "verification_context_changed"
+    current = await service.by_job(db, job.id)
+    assert (
+        current.status == "failed"
+        and current.error_code == "verification_context_changed"
+    )
 
 
 async def test_policy_and_declared_holds_do_not_rewrite_content_context(
@@ -197,7 +206,8 @@ async def test_duplicate_start_reuses_pending_and_running_without_ttl(
     anchor, row, job = await attempt(db, actor)
     for claimed_status in (False, True):
         if claimed_status:
-            assert await service.claim(db, job.id, row.task_id) is row
+            claimed_row = await service.claim(db, job.id, row.task_id)
+            assert claimed_row is not None and claimed_row.id == row.id
             assert await service.claim(db, job.id, row.task_id) is None
         second, same_job, existing = await service.start(db, anchor.id, actor)
         assert existing and second.id == row.id and same_job.id == job.id
@@ -211,16 +221,17 @@ async def test_exact_task_claim_and_pre_read_configuration_fence(
     db, actor = db_session, super_admin[0]
     _, row, job = await attempt(db, actor)
     assert await service.claim(db, job.id, "other-task") is None
-    assert row.status == "pending"
+    assert (await service.by_job(db, job.id)).status == "pending"
     await db.execute(
         update(StorageBinding)
         .where(StorageBinding.purpose == "datasets")
         .values(generation=2)
     )
     assert await service.claim(db, job.id, row.task_id) is None
+    current = await service.by_job(db, job.id)
     assert (
-        row.status == job.status == "failed"
-        and row.error_code == "verification_context_changed"
+        current.status == job.status == "failed"
+        and current.error_code == "verification_context_changed"
     )
 
 
@@ -247,13 +258,18 @@ async def test_running_cancel_is_a_request_until_reader_settles(
     anchor, row, job = await claimed(db, actor)
     await settled_receipt(db, row)
     assert await service.cancel(db, job.id) == "cancel_requested"
+    current = await service.by_job(db, job.id)
     assert (
-        row.status == job.status == "running" and job.result["cancel_requested"] is True
+        current.status == job.status == "running"
+        and job.result["cancel_requested"] is True
     )
-    assert row.completed_at is None
+    assert current.completed_at is None
     assert await service.publish(db, job.id, row.task_id, result=matched(row))
-    assert row.status == job.status == "cancelled" and row.outcome == "cancelled"
-    assert row.observed_sha256 is None
+    current = await service.by_job(db, job.id)
+    assert (
+        current.status == job.status == "cancelled" and current.outcome == "cancelled"
+    )
+    assert current.observed_sha256 is None
     history = await service.history(db, anchor.id, actor)
     assert history.can_start and not history.items[0].unsettled_operation
 
@@ -266,9 +282,10 @@ async def test_pending_cancel_and_wrong_signal_are_safe_and_terminal(
     assert not await service.signal_interrupted(
         db, job.id, "other-task", cancelled=True
     )
-    assert row.status == "pending"
+    assert (await service.by_job(db, job.id)).status == "pending"
     assert await service.cancel(db, job.id) == "cancelled"
-    assert row.status == job.status == "cancelled" and row.operation_id is None
+    current = await service.by_job(db, job.id)
+    assert current.status == job.status == "cancelled" and current.operation_id is None
     assert await service.claim(db, job.id, row.task_id) is None
 
 
@@ -288,12 +305,17 @@ async def test_lost_running_reader_keeps_unsettled_receipt_and_rejects_late_resu
     )
     db.add(operation)
     await db.flush()
-    row.operation_id = operation.id
+    await db.execute(
+        update(Verification)
+        .where(Verification.id == row.id)
+        .values(operation_id=operation.id)
+    )
     await db.flush()
     assert await service.signal_interrupted(db, job.id, row.task_id, cancelled=False)
+    current = await service.by_job(db, job.id)
     assert (
-        row.status == job.status == "failed"
-        and row.error_code == "verification_interrupted"
+        current.status == job.status == "failed"
+        and current.error_code == "verification_interrupted"
     )
     assert not await service.publish(db, job.id, row.task_id, result=matched(row))
     history = await service.history(db, anchor.id, actor)
@@ -333,8 +355,9 @@ async def test_settled_results_are_historical_and_cannot_be_republished(
     check.assert_awaited_once_with(
         db, LEGACY_LOCATION_ID, expected_revision=1, lock=True
     )
-    assert row.status == ("failed" if outcome == "failed" else "completed")
-    assert row.outcome == outcome and job.result["execution_permission"] is False
+    current = await service.by_job(db, job.id)
+    assert current.status == ("failed" if outcome == "failed" else "completed")
+    assert current.outcome == outcome and job.result["execution_permission"] is False
     assert not await service.publish(db, job.id, row.task_id, result=matched(row))
     history = await service.history(db, anchor.id, actor)
     assert history.can_start and history.items[0].context_matches
@@ -347,8 +370,10 @@ async def test_result_without_receipt_and_changed_context_are_discarded(
     anchor, row, job = await claimed(db, actor)
     monkeypatch.setattr(service.storage_access, "check", AsyncMock(return_value=1))
     assert await service.publish(db, job.id, row.task_id, result=matched(row))
+    current = await service.by_job(db, job.id)
     assert (
-        row.error_code == "verification_operation_missing" and row.outcome == "failed"
+        current.error_code == "verification_operation_missing"
+        and current.outcome == "failed"
     )
     row2, job2, _ = await service.start(db, anchor.id, actor)
     await service.claim(db, job2.id, row2.task_id)
@@ -359,9 +384,10 @@ async def test_result_without_receipt_and_changed_context_are_discarded(
         .values(generation=2)
     )
     assert await service.publish(db, job2.id, row2.task_id, result=matched(row2))
+    current2 = await service.by_job(db, job2.id)
     assert (
-        row2.error_code == "verification_context_changed"
-        and row2.observed_sha256 is None
+        current2.error_code == "verification_context_changed"
+        and current2.observed_sha256 is None
     )
 
 
@@ -483,14 +509,13 @@ async def test_acquired_receipt_must_belong_to_expected_gate_and_revision(
                 ),
             )
         assert error.value.detail["code"] == "verification_operation_mismatch"
-        assert row.operation_id is None
+        assert (await service.verification_facts(db, row.id)).operation_id is None
     await service.acquired(
         db,
         row.id,
         SimpleNamespace(id=operation.id, location_id=LEGACY_LOCATION_ID, revision=1),
     )
-    await db.refresh(row)
-    assert row.operation_id == operation.id
+    assert (await service.verification_facts(db, row.id)).operation_id == operation.id
     assert await db.get(StorageOperation, operation.id)
 
 

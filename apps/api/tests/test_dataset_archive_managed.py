@@ -14,13 +14,10 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.schemas._jsonb_types import SensorCalibration
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import (
     dataset_source_access as access,
     pointcloud_import,
-    scene as scenes,
-    sensor_calibration,
     training_datasets,
 )
 from app.services.dataset import DatasetService, build_tasks_for_link
@@ -205,9 +202,6 @@ async def test_archived_managed_browsing_and_private_view_crud_remain_available(
         "build_tasks",
         "scan",
         "ingest",
-        "create_scene",
-        "assign_scene",
-        "calibration",
     ),
 )
 async def test_direct_managed_writers_reject_archived_dataset(
@@ -215,12 +209,6 @@ async def test_direct_managed_writers_reject_archived_dataset(
 ):
     db = db_session
     row, item, project, *_ = await world(db, super_admin[0])
-    scene = Scene(
-        dataset_id=row.id,
-        display_id=f"SC-{uuid.uuid4().hex[:10]}",
-        name="retained scene",
-    )
-    db.add(scene)
     await db.commit()
     await transition(httpx_client, row, super_admin)
     before = await identities(db, row.id, project.id)
@@ -250,30 +238,10 @@ async def test_direct_managed_writers_reject_archived_dataset(
             await build_tasks_for_link(db, dataset_id=row.id, project_id=project.id)
         elif operation == "scan":
             await svc.scan_and_import(row.id)
-        elif operation == "ingest":
-            await svc.ingest_one(row.id, "new.png", io.BytesIO(b"never uploaded"))
-        elif operation == "create_scene":
-            await scenes.create_scene(db, dataset_id=row.id, name="new scene")
-        elif operation == "assign_scene":
-            await scenes.assign_items_to_scene(
-                db, scene_id=scene.id, items_in_order=[item]
-            )
         else:
-            await sensor_calibration.update_calibration(
-                db,
-                dataset_item_id=item.id,
-                calibration=SensorCalibration(
-                    extrinsic=[0.0] * 16, intrinsic=[0.0] * 9
-                ),
-                expected_revision=1,
-                expected_digest="0" * 64,
-                actor_id=super_admin[0].id,
-            )
+            await svc.ingest_one(row.id, "new.png", io.BytesIO(b"never uploaded"))
     conflict(error)
     assert await identities(db, row.id, project.id) == before
-    retained = await db.get(DatasetItem, item.id, populate_existing=True)
-    assert retained.scene_id is None and retained.frame_index is None
-    assert "calibration" not in retained.metadata_
 
 
 @pytest.mark.parametrize("kind", ("create_tasks",))

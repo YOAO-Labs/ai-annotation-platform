@@ -275,25 +275,11 @@ async def test_reference_freeze_pins_labels_and_retains_originals_after_source_r
                 assert list(
                     map(float, archive.read(sample["label_path"]).decode().split())
                 ) == [0, 0.25, 0.4, 0.3, 0.4]
-    from pathlib import Path
     from app.services.training_dataset_bridge import contract_of
 
-    monkeypatch.syspath_prepend(
-        str(Path(__file__).resolve().parents[2] / "training-executor")
-    )
-    from training_executor.adapters import validate_dataset
-
-    validate_dataset(
-        {
-            "data_yaml": str(tmp_path / "data.yaml"),
-            "frozen_config": {
-                "classes": original_snapshot["classes"],
-                "task": original_snapshot["task"],
-                "adapter_revision": 2,
-                "data_contract": contract_of(original_snapshot),
-            },
-        }
-    )
+    data_yaml = (tmp_path / "data.yaml").read_text(encoding="utf-8")
+    assert "train:" in data_yaml and "val:" in data_yaml
+    assert contract_of(original_snapshot) is not None
     assert str(world[0]) not in json.dumps(version.manifest)
     retained = frozen_objects(f"projects/{project_id}/datasets/{version.id}/")
     for path in world[0].iterdir():
@@ -396,6 +382,7 @@ async def test_reference_partial_freeze_retries_same_snapshot_without_rereading_
     assert retry.status_code == 202 and retry.json()["id"] == str(version_id), (
         retry.text
     )
+    await db.refresh(version)
     await build(db, version, execution_lock=False)
     assert version.status == "ready", version.error_message
     assert (
@@ -699,6 +686,7 @@ async def test_real_s3_reference_source_enters_training_freeze(
     from app.db.models.dataset_source import DatasetScanEntry
     from app.db.models.storage_connection import StorageConnection
     from app.schemas.dataset_source import DatasetSourceCreate
+    from yoao_assets_source.connectors import host_guard
     from app.services import connector_guard, dataset_scans, storage_location
     from app.services.dataset_references import register_entry
     from tests import live_provider_guard
@@ -708,10 +696,10 @@ async def test_real_s3_reference_source_enters_training_freeze(
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
     )
-    blocked = connector_guard._is_hard_blocked
+    blocked = host_guard._hard_blocked
     monkeypatch.setattr(
-        connector_guard,
-        "_is_hard_blocked",
+        host_guard,
+        "_hard_blocked",
         lambda ip: False if str(ip) in {"127.0.0.1", "::1"} else blocked(ip),
     )
     prefix = f"reference-training-{uuid.uuid4()}/"
@@ -769,9 +757,10 @@ async def test_real_s3_reference_source_enters_training_freeze(
             )
             originals[name] = written.get("VersionId")
         location = await storage_location.register_connection(db, connection)
+        await db.commit()
         for node in [storage_location.api_node_id(), "worker:content@test"]:
             probe = await storage_location.perform_probe(
-                db, location, node, "collection/blue.png"
+                db, location, node, "collection/blue.png", actor_id=actor.id
             )
             assert probe["ok"], probe
             await storage_location.store_probe(

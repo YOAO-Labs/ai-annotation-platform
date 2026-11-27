@@ -308,7 +308,7 @@ async def world(monkeypatch, *, raster=False):
     )
     monkeypatch.setattr(service, "read_version", AsyncMock(return_value=version))
     spec = await service.frozen_spec(
-        SimpleNamespace(get=AsyncMock(return_value=version)),
+        SimpleNamespace(autoflush=False, get=AsyncMock(return_value=version)),
         SimpleNamespace(id=ids["project"]),
         body,
         ids["evaluation"],

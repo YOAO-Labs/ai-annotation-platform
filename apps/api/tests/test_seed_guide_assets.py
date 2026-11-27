@@ -2,10 +2,12 @@
 
 from datetime import datetime, timezone
 import hashlib
+import os
 from types import SimpleNamespace
 import uuid
 
 import pytest
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -32,6 +34,15 @@ from tests.identity_e2e_support import (
     owner_fault_http as owner_fault_http,
 )
 from tests.seed_attachment_support import upload as upload_comment
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @pytest.fixture

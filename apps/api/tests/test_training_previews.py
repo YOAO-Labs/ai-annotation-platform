@@ -191,7 +191,12 @@ def evidence(row, objects, *, change=None):
     if change:
         change(report)
     blobs = {"preview-0.png": png, "report.json": json.dumps(report).encode()}
-    bucket, prefix = row.storage_ref["bucket"], row.storage_ref["prefix"]
+    if row.storage_ref is None:
+        from app.services.storage import storage_service
+
+        bucket, prefix = storage_service.training_bucket, service.prefix(row)
+    else:
+        bucket, prefix = row.storage_ref["bucket"], row.storage_ref["prefix"]
     inventory = []
     for name, raw in blobs.items():
         sha = hashlib.sha256(raw).hexdigest()

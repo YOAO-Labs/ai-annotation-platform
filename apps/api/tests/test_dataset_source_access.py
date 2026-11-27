@@ -629,7 +629,7 @@ async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
 ):
     import io
     import zipfile
-    from app.services import scene_inference
+    from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.storage import storage_service
     from tests.test_dataset_assets import ObjectClient
     from app.services.dataset import DatasetService
@@ -647,7 +647,7 @@ async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
     async def no_enqueue(*args, **kwargs):
         pass
 
-    monkeypatch.setattr(scene_inference, "infer_and_apply", unexpected)
+    monkeypatch.setattr(AssetsSpatialGateway, "backfill_scenes", unexpected)
     monkeypatch.setattr(DatasetService, "enqueue_media_for_items", no_enqueue)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:

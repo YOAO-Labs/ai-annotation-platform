@@ -49,6 +49,11 @@ async def _run_batch(**kwargs):
                     user_id=uuid.UUID(kwargs["user_id"]),
                     project_id=uuid.UUID(kwargs["project_id"]),
                     celery_task_id=execution_id,
+                    payload={
+                        "execution_scope": kwargs.get("execution_scope", "bulk"),
+                        "batch_id": kwargs.get("batch_id"),
+                        "task_ids": kwargs.get("task_ids"),
+                    },
                 )
                 kwargs["async_job_id"] = str(job.id)
                 await db.commit()
@@ -236,6 +241,15 @@ async def test_legacy_frame_execution_rejects_missing_retained_manifest_before_o
         "app.services.video_frame_service.build_context_from_task",
         metadata,
     )
+    from app.services import async_job as jobs
+
+    admitted_job = await jobs.create_job(
+        db_session,
+        kind="batch_predict",
+        user_id=user.id,
+        project_id=project.id,
+        payload={"execution_scope": "bulk"},
+    )
     dispatch = AsyncMock()
     with pytest.raises(ValueError, match="requires a retained video manifest"):
         await run_preannotation(
@@ -246,6 +260,7 @@ async def test_legacy_frame_execution_rejects_missing_retained_manifest_before_o
                 task_ids=[str(task.id)],
                 execution_unit="frame",
                 predict_mode=predict_mode,
+                async_job_id=str(admitted_job.id),
             ),
             execution_id=None,
             frame_dispatcher=dispatch,

@@ -172,8 +172,10 @@ async def _seed_mask_track(
     return task, backend, model_id, model_key, annotation, reference
 
 
-async def _passthrough_enqueue(db, row_id, *, dispatcher, fail_closed=False):
-    del dispatcher, fail_closed
+async def _passthrough_enqueue(
+    db, row_id, *, dispatcher, fail_closed=False, dispatch_lease=None
+):
+    del dispatcher, fail_closed, dispatch_lease
     row = await db.get(VideoTrackerJob, row_id)
     assert row is not None
     return VideoTrackerJobOut.model_validate(row, from_attributes=True)
@@ -280,7 +282,14 @@ async def test_save_mask_keyframe_holds_task_lock_before_rle_lock(
             "outside": [],
         },
     )
-    task = SimpleNamespace(id=task_id, project_id=uuid.uuid4())
+    task = SimpleNamespace(
+        id=task_id,
+        project_id=uuid.uuid4(),
+        dataset_item_id=uuid.uuid4(),
+        batch_id=None,
+        status="in_progress",
+        review_round_id=None,
+    )
     user = SimpleNamespace(id=uuid.uuid4())
     ctx = SimpleNamespace(metadata=SimpleNamespace(frame_count=12))
     events: list[str] = []
@@ -292,22 +301,40 @@ async def test_save_mask_keyframe_holds_task_lock_before_rle_lock(
         def scalar_one_or_none(self):
             return self.value
 
-    results = iter([task, annotation, annotation])
-
     async def execute(_statement):
-        value = next(results)
-        if value is task:
-            events.append("task")
-        elif events == ["task", "task-edit-lock"]:
-            events.append("annotation-read")
-        else:
-            events.append("annotation-lock")
-        return _Result(value)
+        events.append("task")
+        return _Result(task)
+
+    async def control_command(_db, request):
+        if request.operation == "read_annotations":
+            events.append(
+                "annotation-lock" if request.lock_for_update else "annotation-read"
+            )
+            return [
+                {
+                    "id": str(annotation.id),
+                    "task_id": str(annotation.task_id),
+                    "is_active": annotation.is_active,
+                    "is_locked": annotation.is_locked,
+                    "version": annotation.version,
+                    "track_id": annotation.track_id,
+                    "geometry": annotation.geometry,
+                }
+            ]
+        return {
+            "version": annotation.version + 1,
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
 
     db = SimpleNamespace(
+        autoflush=False,
         execute=AsyncMock(side_effect=execute),
         flush=AsyncMock(),
         refresh=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "app.services.video_tracking.jobs.video_control_command",
+        control_command,
     )
     monkeypatch.setattr(
         "app.services.video_tracking.jobs._is_privileged",
@@ -620,7 +647,14 @@ async def test_operate_mask_keyframe_lock_order_is_task_segment_annotation(
     task_id = uuid.uuid4()
     annotation_id = uuid.uuid4()
     reference = build_rle_reference(RLE)
-    task = SimpleNamespace(id=task_id, project_id=uuid.uuid4())
+    task = SimpleNamespace(
+        id=task_id,
+        project_id=uuid.uuid4(),
+        dataset_item_id=uuid.uuid4(),
+        batch_id=None,
+        status="in_progress",
+        review_round_id=None,
+    )
     annotation = SimpleNamespace(
         id=annotation_id,
         task_id=task_id,
@@ -653,23 +687,40 @@ async def test_operate_mask_keyframe_lock_order_is_task_segment_annotation(
         def scalar_one_or_none(self):
             return self.value
 
-    results = iter([task, annotation, annotation])
-
     async def execute(_statement):
-        value = next(results)
-        events.append(
-            "task"
-            if value is task
-            else "annotation-read"
-            if events[-1] == "task-edit-lock"
-            else "annotation-lock"
-        )
-        return _Result(value)
+        events.append("task")
+        return _Result(task)
+
+    async def control_command(_db, request):
+        if request.operation == "read_annotations":
+            events.append(
+                "annotation-lock" if request.lock_for_update else "annotation-read"
+            )
+            return [
+                {
+                    "id": str(annotation.id),
+                    "task_id": str(annotation.task_id),
+                    "is_active": annotation.is_active,
+                    "is_locked": annotation.is_locked,
+                    "version": annotation.version,
+                    "track_id": annotation.track_id,
+                    "geometry": annotation.geometry,
+                }
+            ]
+        return {
+            "version": annotation.version + 1,
+            "updated_at": "2026-01-01T00:00:00Z",
+        }
 
     db = SimpleNamespace(
+        autoflush=False,
         execute=AsyncMock(side_effect=execute),
         flush=AsyncMock(),
         refresh=AsyncMock(),
+    )
+    monkeypatch.setattr(
+        "app.services.video_tracking.jobs.video_control_command",
+        control_command,
     )
 
     async def task_write_lock(*_args, **_kwargs):
@@ -996,11 +1047,11 @@ async def test_correction_cancel_preserves_manual_frame_and_blocks_bulk_review(
 
     dispatched: list[uuid.UUID] = []
 
-    def dispatch_with_lost_ack(job_id: uuid.UUID) -> str:
+    def dispatch_with_lost_ack(job_id: uuid.UUID, *, execution_id: str) -> str:
         dispatched.append(job_id)
         if len(dispatched) == 1:
             raise RuntimeError("simulated accepted dispatch with lost acknowledgement")
-        return str(uuid.uuid4())
+        return execution_id
 
     monkeypatch.setitem(
         app_module.dependency_overrides,

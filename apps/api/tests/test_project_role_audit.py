@@ -18,6 +18,7 @@ import sys
 import uuid
 
 import pytest
+
 from tests.identity_role_audit_helpers import audit_reader, historical_audit_database
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,6 +37,15 @@ from scripts.audit_project_roles import (
     read_only_audit_session,
 )
 from tests.factory import create_project, create_task, create_user
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 _API_ROOT = Path(__file__).resolve().parents[1]
 _SENSITIVE_KEYS = {"password_hash", "token", "email", "invite_url", "signed_url"}

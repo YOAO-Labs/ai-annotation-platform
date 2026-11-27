@@ -117,8 +117,10 @@ from app.services.video_tracking.recovery import (
     retire_terminal_tracker_execution,
 )
 from app.services.video_tracking.backend_identity import (
-    build_video_backend_compatibility,
+    VideoBackendIdentityError,
+    _selected_model,
     bind_video_normalization_policy,
+    build_video_backend_compatibility,
 )
 from app.services.mask_gc import read_mask_write_epochs
 from app.services.video_tracks import is_polygon_track
@@ -865,9 +867,11 @@ def _combo_seeds_from_discovery(
     return seeds
 
 
-def _bbox_of_geometry(geom: dict) -> tuple[float, float, float, float]:
+def _bbox_of_geometry(
+    geom: Mapping[str, object] | dict,
+) -> tuple[float, float, float, float]:
     """任意 geometry → 归一化 (x, y, w, h) 外接框; 取不到 → 零框。"""
-    if not isinstance(geom, dict):
+    if not isinstance(geom, Mapping):
         return (0.0, 0.0, 0.0, 0.0)
     if geom.get("type") == "polygon":
         pts = geom.get("points") or []
@@ -877,7 +881,9 @@ def _bbox_of_geometry(geom: dict) -> tuple[float, float, float, float]:
             return (0.0, 0.0, 0.0, 0.0)
         return (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
     if geom.get("type") == "mask":
-        bbox = geom.get("bbox") or {}
+        bbox = geom.get("bbox")
+        if not isinstance(bbox, Mapping):
+            bbox = {}
         return (
             float(bbox.get("x", 0.0)),
             float(bbox.get("y", 0.0)),
@@ -3547,10 +3553,6 @@ async def _run_tracker_job_claimed(
             )
             from app.services.inference_topology_data import InferenceTopologyData
             from app.services.model_catalog import backend_reason, pool_has_plugin
-            from app.services.video_tracking.backend_identity import (
-                VideoBackendIdentityError,
-                _selected_model,
-            )
 
             approved_registry_ids = None
             if await pool_has_plugin(db, backend):

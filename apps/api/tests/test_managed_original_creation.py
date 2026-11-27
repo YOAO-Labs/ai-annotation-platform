@@ -13,7 +13,7 @@ from alembic.operations import Operations
 import pytest
 from sqlalchemy import delete, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
@@ -154,25 +154,33 @@ async def _clone_creation_schema(connection, schema):
 
 
 @pytest.fixture
-async def creation_db(test_engine):
-    schema = "creation_test_" + uuid.uuid4().hex
-    engine = None
-    try:
-        async with test_engine.begin() as connection:
-            await _clone_creation_schema(connection, schema)
-        engine = create_async_engine(
-            test_engine.url,
-            connect_args={"server_settings": {"search_path": schema + ",public"}},
-        )
+async def creation_db(managed_database):
+    from app.db.models.dataset import Dataset
+    from app.db.models.user import User
+
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            owner = User(
+                id=uuid.uuid4(),
+                name="Creation fixture owner",
+                email=f"creation-{uuid.uuid4().hex}@example.test",
+                password_hash="unused",
+                role="project_admin",
+                is_active=True,
+            )
+            db.add(owner)
+            await db.flush()
+            dataset = Dataset(
+                id=uuid.uuid4(),
+                display_id=f"cr-{uuid.uuid4().hex[:12]}",
+                name="Creation fixture dataset",
+                created_by=owner.id,
+            )
+            db.add(dataset)
             await ensure_legacy_bindings(db)
             await db.commit()
+            db.info["dataset_id"] = dataset.id
             yield db
-    finally:
-        if engine is not None:
-            await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
 
 @pytest.fixture
@@ -188,7 +196,7 @@ async def allocation(db, **fields):
         db,
         **(
             {
-                "dataset_id": uuid.uuid4(),
+                "dataset_id": db.info.get("dataset_id") or uuid.uuid4(),
                 "logical_path": "images/original.bin",
                 "origin": "zip",
                 "max_bytes": 10,
@@ -213,7 +221,7 @@ async def operations(db):
 async def test_allocate_survives_business_rollback_without_committing_it(creation_db):
     db = creation_db
     pending = DatasetItem(
-        dataset_id=uuid.uuid4(),
+        dataset_id=db.info["dataset_id"],
         file_name="pending",
         file_path="pending",
         file_type="image",

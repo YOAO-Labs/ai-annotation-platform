@@ -18,7 +18,7 @@ from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.schemas.export import LidarExportOptions
 from app.services.content_snapshot import ContentError
 from app.services.exporting import lidar_preflight as preflight
-from app.services.sensor_calibration import calibration_digest
+from yoao_assets_catalog.spatial_values import calibration_digest
 from app.schemas._jsonb_types import SensorCalibration
 from tests.test_lidar_export_inputs import (
     lidar_database as lidar_database,

@@ -60,7 +60,7 @@ async def saved(db, *, kind="map", dataset_id=None, data=b"map"):
     source = map_source() if kind == "map" else raw_source()
     allocation = await creation.allocate_auxiliary(
         db,
-        dataset_id=dataset_id or uuid.uuid4(),
+        dataset_id=dataset_id or db.info.get("dataset_id") or uuid.uuid4(),
         kind=kind,
         source_contract=source,
         logical_path="aux/original",

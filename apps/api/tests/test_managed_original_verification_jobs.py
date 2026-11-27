@@ -200,9 +200,10 @@ async def test_verification_signal_boundary_notifies_without_raw_error(
     await signals._apply_terminal(
         task_id, cancelled=cancelled, error="late private error"
     )
-    await db_session.refresh(row)
+    current = await verification.by_job(db_session, job_id)
+    assert current is not None
     expected = "cancelled" if cancelled and not running else "failed"
-    assert row.status == expected
+    assert current.status == expected
     rows = list(
         await db_session.scalars(
             select(Notification).where(Notification.target_id == job_id)
@@ -210,6 +211,6 @@ async def test_verification_signal_boundary_notifies_without_raw_error(
     )
     assert len(rows) == 1 and rows[0].type == "job." + expected
     assert "private" not in str(rows[0].payload)
-    assert row.error_code == (
+    assert current.error_code == (
         None if expected == "cancelled" else "verification_interrupted"
     )

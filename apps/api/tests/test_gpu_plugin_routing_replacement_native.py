@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4, uuid5
 
@@ -19,6 +20,15 @@ from tests.test_gpu_arbiter_proof_recovery import (
 from tests.test_gpu_plugin_admission_native import _step as _gpu_step
 from tests.test_gpu_plugin_terminal_endpoint_native import _owner_connection
 from tests.test_inference_routing_native import _step as _routing_step
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 _AUTH = "SELECT yoao_inference_topology_v1.authorize_plugin_routing_replacement($1,$2,$3,$4,$5,$6)"

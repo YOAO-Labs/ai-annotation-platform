@@ -289,7 +289,7 @@ async def test_preview_image_reads_two_objects_and_owns_undelivered_file(monkeyp
         0,
         project=SimpleNamespace(id=uuid.uuid4()),
         user=SimpleNamespace(id=uuid.uuid4()),
-        db=SimpleNamespace(commit=AsyncMock()),
+        db=SimpleNamespace(autoflush=False, commit=AsyncMock()),
     )
     try:
         assert [
@@ -319,7 +319,7 @@ async def test_mapped_active_learning_png_never_opens_original_write_target(
     saved.key = lambda relative: "saved/object"
     sample = {"ordinal": 0, "derived_sha256": "a" * 64}
     context = SimpleNamespace(proof=None, key=None)
-    db = SimpleNamespace(commit=AsyncMock())
+    db = SimpleNamespace(autoflush=False, commit=AsyncMock())
     monkeypatch.setattr(learning.owners, "resolve", lambda value: saved)
     monkeypatch.setattr(
         learning.originals, "delegated", AsyncMock(return_value=context)

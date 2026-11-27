@@ -25,8 +25,16 @@ from app.services.raster_mask_storage import COCO_RLE_REF_ENCODING
 from tests.factory import build_tool_bindings
 from tests.test_dataset_content import content_world as content_world
 from tests.test_dataset_references import reference_world as reference_world
-from tests.test_lidar_export_inputs import input_db as input_db
+from tests.test_lidar_export_inputs import (
+    lidar_database as lidar_database,
+    lidar_input_db as lidar_input_db,
+)
 from tests.test_original_sources import add_link, dataset_rows
+
+
+@pytest.fixture
+def input_db(lidar_input_db):
+    return lidar_input_db
 
 
 async def registered_dataset_image(
@@ -212,6 +220,7 @@ async def test_fresh_source_guard_returns_the_actual_matching_owner(monkeypatch)
 
 
 async def setup(db, *, direct=True, primary=False):
+    owner_id = db.info.get("lidar_input_owner_id") or uuid.uuid4()
     project = Project(
         id=uuid.uuid4(),
         display_id="im-" + uuid.uuid4().hex[:15],
@@ -219,7 +228,7 @@ async def setup(db, *, direct=True, primary=False):
         data_type="image",
         type_key="image-detection",
         type_label="Image",
-        owner_id=uuid.uuid4(),
+        owner_id=owner_id,
         tool_bindings=build_tool_bindings(["car"]),
     )
     dataset = Dataset(
@@ -227,11 +236,14 @@ async def setup(db, *, direct=True, primary=False):
         display_id="ds-" + uuid.uuid4().hex[:15],
         name="Images",
         data_type="image",
-        created_by=uuid.uuid4(),
+        created_by=owner_id,
         metadata_={"axis_convention": "iso8855"},
     )
     db.add_all([project, dataset])
     await db.flush()
+    db.info["original_fixture"] = SimpleNamespace(
+        actor_id=owner_id, project_id=project.id, dataset_id=dataset.id
+    )
     item, asset, replica, task = await dataset_rows(db)
     item.dataset_id, task.project_id = dataset.id, project.id
     item.file_name = task.file_name = "same.jpg"
@@ -341,7 +353,13 @@ async def test_db_final_check_rejects_changed_format_inputs(input_db, mutation):
     elif mutation == "filename":
         task.file_name = "changed.jpg"
     elif mutation == "original":
-        asset.checksum_value = "b" * 64
+        await db.execute(
+            text(
+                "UPDATE dataset_asset_locations SET bucket = 'changed-bucket' "
+                "WHERE asset_id = :asset_id"
+            ),
+            {"asset_id": asset.id},
+        )
     else:
         prediction.result = [{"changed": True}]
     await db.commit()

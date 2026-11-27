@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 
 import pytest
+
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
@@ -19,6 +21,15 @@ from tests.identity_e2e_support import (
     fixture_and_fenced_http as fixture_and_fenced_http,
 )
 from tests.test_identity_admission_live import _dsn
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @pytest.fixture

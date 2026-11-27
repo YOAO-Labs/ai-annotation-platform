@@ -436,7 +436,10 @@ async def test_run_assignment_pins_dataset_but_keeps_other_artifact_owners(
     config_before = deepcopy(run.config)
     result = await training_runs.assignment(
         SimpleNamespace(
-            get=get, scalar=AsyncMock(return_value=source_run), commit=AsyncMock()
+            autoflush=False,
+            get=get,
+            scalar=AsyncMock(return_value=source_run),
+            commit=AsyncMock(),
         ),
         run,
         attempt,
@@ -476,7 +479,9 @@ async def test_run_assignment_does_not_sign_an_unresolved_dataset(
         "read_version_facts",
         AsyncMock(return_value=frozen.version),
     )
-    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version), commit=AsyncMock())
+    db = SimpleNamespace(
+        autoflush=False, get=AsyncMock(return_value=frozen.version), commit=AsyncMock()
+    )
     with pytest.raises(HTTPException) as error:
         await training_runs.assignment(db, run, attempt, "token")
     assert error.value.status_code == 409
@@ -512,7 +517,9 @@ async def test_preview_assignment_resolves_owner_without_rewriting_spec(
         "read_version_facts",
         AsyncMock(return_value=frozen.version),
     )
-    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version), commit=AsyncMock())
+    db = SimpleNamespace(
+        autoflush=False, get=AsyncMock(return_value=frozen.version), commit=AsyncMock()
+    )
     result = await training_previews.assignment(db, preview)
     assert result["source_urls"][frozen.sample.task_id].startswith(
         f"https://owned-storage/{frozen.bucket}/"
@@ -543,7 +550,7 @@ async def test_preview_cannot_sign_a_source_outside_its_frozen_sample(
         "read_version_facts",
         AsyncMock(return_value=frozen.version),
     )
-    db = SimpleNamespace(get=AsyncMock(return_value=frozen.version))
+    db = SimpleNamespace(autoflush=False, get=AsyncMock(return_value=frozen.version))
     with pytest.raises(HTTPException) as error:
         await training_previews.assignment(db, preview)
     assert error.value.status_code == 409
@@ -666,7 +673,7 @@ async def test_model_install_keeps_weights_separate_from_the_trial_input(
         assert model_type is TrainingDatasetVersion and identifier == frozen.version.id
         return frozen.version
 
-    db = SimpleNamespace(get=get, scalar=AsyncMock(return_value=run))
+    db = SimpleNamespace(autoflush=False, get=get, scalar=AsyncMock(return_value=run))
     from app.services import inference_backend_control, inference_model_execution
     from app.services import trained_model_backend as backend_io, training_run_data
 
@@ -734,6 +741,8 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
     deletions = []
 
     class Session:
+        autoflush = False
+
         async def get(self, model, identifier):
             return version
 
@@ -884,6 +893,7 @@ async def test_model_detail_signs_the_trial_image_from_the_pinned_bucket(
     )
     monkeypatch.setattr(api, "read_version", AsyncMock(return_value=frozen.version))
     db = SimpleNamespace(
+        autoflush=False,
         get=AsyncMock(return_value=frozen.version),
         scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [deployment])),
     )

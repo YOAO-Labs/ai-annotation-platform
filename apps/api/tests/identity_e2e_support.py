@@ -47,6 +47,8 @@ def scenario_rle_bindings(request):
 
 @pytest.fixture
 async def e2e_consumer(test_engine):
+    if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the owned module-data PostgreSQL verifier")
     async with _world(test_engine, apply=True) as (_owner, consumer, role, _url):
         async with test_engine.begin() as db:
             await db.execute(
@@ -60,6 +62,8 @@ async def e2e_consumer(test_engine):
 @pytest.fixture
 async def fixture_operator(test_engine):
     """A separate operator LOGIN for explicit fixture capability tests only."""
+    if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the owned module-data PostgreSQL verifier")
     async with _world(test_engine, apply=True) as (_owner, consumer, role, _url):
         result = await _grants(
             test_engine,
