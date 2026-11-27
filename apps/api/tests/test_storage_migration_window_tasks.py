@@ -27,6 +27,7 @@ from app.schemas.storage_migration_window import (
     StorageMigrationWindowRequest,
     StorageMigrationWindowTransition,
 )
+from app.services.dataset_assets import PURPOSE_BUCKET_ATTRIBUTES
 from app.services import storage_access, storage_migration_copies as copies
 from app.services import (
     storage_migration_inventories as inventories,
@@ -111,7 +112,7 @@ def install_source(monkeypatch, world):
             client=client,
             **{
                 attribute: world.source["purpose_buckets"][purpose]
-                for purpose, attribute in inventories.PURPOSE_BUCKET_ATTRIBUTES.items()
+                for purpose, attribute in PURPOSE_BUCKET_ATTRIBUTES.items()
             },
         ),
     )

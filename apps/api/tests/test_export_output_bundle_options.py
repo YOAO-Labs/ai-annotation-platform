@@ -308,8 +308,8 @@ async def test_snapshot_compares_real_bundle_identity_and_preserves_old_simple_f
     row = ExportOutput(**persisted._mapping)
     old_fake = SimpleNamespace(
         **{
-            name: getattr(receipt, name)
-            for name in outputs._FACTS
+            name: value
+            for name, value in persisted._mapping.items()
             if name != "media_bundle_id"
         }
     )

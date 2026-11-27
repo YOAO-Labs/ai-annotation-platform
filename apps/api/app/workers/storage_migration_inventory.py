@@ -11,6 +11,7 @@ from botocore.config import Config
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.storage_migration_inventory import REPORT_LIMIT
+from app.services.dataset_assets import PURPOSE_BUCKET_ATTRIBUTES
 from app.services import storage_access, storage_migration_inventories as service
 from app.services import storage_migration_source_read as source_read
 from app.services import storage_job_progress as progress
@@ -85,7 +86,7 @@ def scan(source, limits, handling, observations, checkpoint, *, on_progress=None
     with storage_access.closing_registered(configured.client):
         actual = {
             purpose: getattr(configured, attribute)
-            for purpose, attribute in service.PURPOSE_BUCKET_ATTRIBUTES.items()
+            for purpose, attribute in PURPOSE_BUCKET_ATTRIBUTES.items()
         }
         if actual != source[
             "purpose_buckets"
