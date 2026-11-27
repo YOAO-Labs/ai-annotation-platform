@@ -332,7 +332,6 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in (
             "yoao_assets_v1._native_pyramid_retirement_policy_valid(jsonb)",
             "yoao_assets_v1._native_pyramid_retirement_grace(jsonb)",
-            "yoao_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
             "yoao_assets_v1.guard_native_pyramid_retirement_target()",
             "yoao_assets_v1.guard_native_pyramid_retirement_page()",
             "yoao_assets_v1.record_native_pyramid_retirement()",
@@ -449,7 +448,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)": "0399_plugin_terminal_hold.sql",
     "yoao_inference_backend_endpoint_v1.backend_endpoint_policy()": "0399_plugin_terminal_hold.sql",
     "yoao_inference_routing_v1._routing_registry_before_change()": "0399_plugin_terminal_hold.sql",
-    "yoao_inference_gpu_v1.gpu_authority_step(text,text)": "0399_plugin_terminal_hold.sql",
+    "yoao_inference_gpu_v1.gpu_authority_step(text,text)": "0519_sql_bug_and_lifecycle_fixes.sql",
     "yoao_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb)": "0391_gpu_plugin_transition.sql",
     "yoao_inference_gpu_v1.gpu_plugin_prepared_cancellation_valid(uuid,jsonb)": "0392_plugin_prepared_cancellation.sql",
     "yoao_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
@@ -487,8 +486,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
     "yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
     "yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
-    "yoao_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
-    "yoao_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
+    "yoao_labeling_v1.mask_qc_command(jsonb)": "0519_sql_bug_and_lifecycle_fixes.sql",
+    "yoao_labeling_v1.mask_repair_command(jsonb)": "0519_sql_bug_and_lifecycle_fixes.sql",
     "yoao_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
     "yoao_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
     "yoao_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
@@ -1286,6 +1285,18 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_learning_v1.training_gpu_queue()",
         )
     },
+    **{
+        signature: "0519_sql_bug_and_lifecycle_fixes.sql"
+        for signature in (
+            "yoao_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
+            "yoao_assets_v1.observe_original_reclamation(text,uuid,text,text,text,jsonb,uuid,uuid,integer,integer)",
+            "yoao_inference_topology_v1.patch_registry_plugin_legacy(uuid,text)",
+            "yoao_labeling_v1.accept_dataset_task_creation(uuid,uuid,uuid,uuid,uuid,uuid,text,integer)",
+            "yoao_labeling_v1.read_dataset_task_creation(uuid)",
+            "yoao_labeling_v1.prepare_dataset_task_creation(uuid,jsonb)",
+            "yoao_labeling_v1.advance_dataset_task_creation(uuid,integer)",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "yoao_audit_append_client"
 AUDIT_QUERY_ROLE = "yoao_audit_query_client"
@@ -1950,6 +1961,7 @@ CURRENT_NAMESPACE_SQL = (
     "0516_image_reference_manifest_members.sql",
     "0517_jobs_list_platform_storage.sql",
     "0518_sql_collation_and_query_fixes.sql",
+    "0519_sql_bug_and_lifecycle_fixes.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",

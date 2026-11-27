@@ -1521,6 +1521,7 @@ GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_query_step(
 GRANT EXECUTE ON FUNCTION yoao_identity_v1.workspace_template_query_org_ids(uuid)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_dataset_reference(uuid),
+    yoao_assets_v1.read_dataset_source_authority(uuid, boolean),
     yoao_assets_v1.lock_current_association(uuid, uuid),
     yoao_assets_v1.lock_append_sources(uuid, uuid[]),
     yoao_assets_v1.lock_task_creation_items(uuid, uuid[])
