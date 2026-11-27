@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 
 from app.services.prediction import to_internal_shape
@@ -128,7 +130,7 @@ def test_legacy_class_field_fallback():
 
 
 def test_already_internal_shape_passthrough():
-    """已是内部 schema 时保留原对象，仅补缺失的 tool_unit_id。"""
+    """保留内部几何，并补齐缺失的工具单元。"""
     raw = {
         "type": "rectanglelabels",
         "class_name": "cat",
@@ -155,9 +157,9 @@ def test_internal_shape_passthrough_derives_geometry_unit():
         },
         "confidence": 0.9,
     }
-    out = to_internal_shape(raw)
-    assert out is raw
-    assert out["tool_unit_id"] == "rotated_bbox"
+    original = deepcopy(raw)
+    assert to_internal_shape(raw) == {**original, "tool_unit_id": "rotated_bbox"}
+    assert raw == original
 
 
 def test_internal_shape_passthrough_keeps_explicit_tool_unit_id():
@@ -349,9 +351,7 @@ def test_geometry_passthrough_preserves_unknown_fields():
         "confidence": 0.5,
         "extra_meta": {"hint": "from-sam"},
     }
-    out = to_internal_shape(raw)
-    assert out is raw
-    assert out["extra_meta"] == {"hint": "from-sam"}
+    assert to_internal_shape(raw)["extra_meta"] == {"hint": "from-sam"}
 
 
 def test_polygonlabels_with_holes_field():
