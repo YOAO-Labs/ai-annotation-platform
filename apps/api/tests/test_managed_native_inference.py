@@ -370,11 +370,11 @@ async def test_native_receipt_is_bound_to_one_exact_mask(receipt_world, result):
 async def test_native_receipt_is_bound_to_request_and_idempotency_key(
     receipt_world, monkeypatch
 ):
-    from app.services import ai_mask_accept
+    from app.services import ai_mask_receipt
 
     world = receipt_world
     monkeypatch.setattr(
-        ai_mask_accept, "ai_mask_accept_request_digest", lambda data: "digest"
+        ai_mask_receipt, "ai_mask_accept_request_digest", lambda data: "digest"
     )
     for key in ("one-request", "different-request"):
         data = SimpleNamespace(idempotency_key=key)
