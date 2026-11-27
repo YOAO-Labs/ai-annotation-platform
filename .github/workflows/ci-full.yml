@@ -110,6 +110,7 @@ jobs:
             if [ -f /etc/apt/apt-mirrors.txt ]; then
               printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
             fi
+            sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends postgresql-client-16
           fi
@@ -367,6 +368,10 @@ jobs:
             packages+=(icc-profiles-free)
           fi
           if [ "${#packages[@]}" -gt 0 ]; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
+            sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends "${packages[@]}"
           fi
@@ -543,6 +548,10 @@ jobs:
       - name: Install native tools
         if: matrix.system_packages != ''
         run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ${{ matrix.system_packages }}
       - name: Run owner tests in their own environment

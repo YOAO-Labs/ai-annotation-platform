@@ -74,6 +74,7 @@ jobs:
             if [ -f /etc/apt/apt-mirrors.txt ]; then
               printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
             fi
+            sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends "${packages[@]}"
           fi
