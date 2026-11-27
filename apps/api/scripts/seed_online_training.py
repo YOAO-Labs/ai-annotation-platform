@@ -352,9 +352,9 @@ async def _add_segmentation(
     """Extend an untouched fixture once, keeping all detection history immutable."""
     from app.services.raster_mask_storage import (
         assert_raster_mask_write_enabled,
-        prepare_mask_payload_for_write,
         store_coco_rle,
     )
+    from app.services.raster_mask_validation import prepare_mask_payload_for_write
 
     masks = _read_segmentation(root, samples)
     classes = [{"name": name, "order": i} for i, name in enumerate(COCO_NAMES)]

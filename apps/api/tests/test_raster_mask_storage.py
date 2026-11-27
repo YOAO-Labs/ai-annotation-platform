@@ -28,8 +28,8 @@ from app.services.raster_mask_storage import (
     lock_raster_mask_references,
     store_coco_rle,
     store_coco_rle_gzip,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from tests._owned_s3 import patch_owned_client
 
 

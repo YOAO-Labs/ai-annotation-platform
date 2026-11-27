@@ -493,7 +493,8 @@ async def test_legacy_native_mask_provenance_uses_initial_epoch(
     from types import SimpleNamespace
     from app.services import (
         reference_inference as inference,
-        ai_mask_accept,
+        ai_mask_decisions,
+        ai_mask_receipt,
         raster_mask_storage,
     )
 
@@ -547,17 +548,17 @@ async def test_legacy_native_mask_provenance_uses_initial_epoch(
     monkeypatch.setattr(inference, "ReferenceImageOperation", Owner)
     monkeypatch.setattr(inference, "get_workspace_project", get)
     monkeypatch.setattr(inference, "resolve_project_access", get)
-    monkeypatch.setattr(ai_mask_accept, "_find_decision", find_decision)
+    monkeypatch.setattr(ai_mask_decisions, "find_decision", find_decision)
     monkeypatch.setattr(
-        ai_mask_accept,
-        "_validate_receipt",
+        ai_mask_receipt,
+        "validate_acceptance_receipt",
         lambda *args, **kwargs: {"reference_input": identity},
     )
     monkeypatch.setattr(
-        ai_mask_accept, "_validate_replay", lambda *args, **kwargs: None
+        ai_mask_decisions, "validate_replay", lambda *args, **kwargs: None
     )
     monkeypatch.setattr(
-        ai_mask_accept, "ai_mask_accept_request_digest", lambda data: "request"
+        ai_mask_receipt, "ai_mask_accept_request_digest", lambda data: "request"
     )
     monkeypatch.setattr(
         raster_mask_storage, "build_rle_reference", lambda data: {"sha256": "a" * 64}

@@ -5,13 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
 
-from yoao_inference_contract.topology import to_record
 from sqlalchemy import select
 
 from app.services.content_snapshot import ContentError
 from app.services import jobs_lifecycle_data as jobs
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.inference_topology_data import InferenceTopologyData
 from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
@@ -21,15 +19,19 @@ from app.services.labeling_core_read_relations import (
 )
 from app.services.dataset_content import key_authority
 from app.services.dataset_references import reference_context, reference_snapshot
-from app.services.mask_repair import (
+from app.services.mask_repair_model import declared_model, freeze_model, lock_model
+from app.services.mask_repair_ledger import (
     canonical_digest,
     load_repair_batch,
     load_repair_batch_source,
 )
-from app.services.mask_repair_execution import authorize_repair_task
+from app.services.mask_repair_authority import (
+    authorize_repair_task,
+    pending_reference_items,
+    unit_items as unit_items,
+    unwrap_authority,
+)
 from app.services.ml_backend import MLBackendService
-from app.services.ml_interaction_proxy import prepare_interactive_context
-from app.services.prediction_execution import freeze_builtin_defaults
 from app.services.prediction_inputs import PredictionInputs
 from app.services.project_write_guard import (
     lock_actor_project_authority,
@@ -47,32 +49,6 @@ from app.services.task_scope import lock_task_scope
 
 SCOPES = ("tasks:read", "annotations:read", "annotations:write")
 _ISSUER = object()
-
-
-def _model(capabilities, model_id):
-    capabilities = to_record(capabilities)
-    return next(
-        (
-            row
-            for row in (capabilities or {}).get("models", [])
-            if row.get("id") == model_id
-        ),
-        None,
-    )
-
-
-def _prompt(item):
-    box = item.get("region_bbox") or {}
-    return {
-        "type": "interactive_box",
-        "bbox": [box.get(k) for k in ("x0", "y0", "x1", "y1")],
-        "output_geometry": "mask",
-        **(
-            {"model_id": item["action"]["model_id"]}
-            if item["action"].get("model_id")
-            else {}
-        ),
-    }
 
 
 async def freeze_item(db, task, actor, item, request):
@@ -105,76 +81,6 @@ async def freeze_item(db, task, actor, item, request):
     if item["kind"] != "rerun_local_sam":
         return
     item["reference_model"] = await freeze_model(db, task, item)
-
-
-async def freeze_model(db, task, item):
-    """Freeze the declared model and effective defaults for either source kind."""
-    service = MLBackendService(db)
-    backend = await service.get_registry(uuid.UUID(str(item["action"]["backend_id"])))
-    if backend is None or not await service.is_enabled(task.project_id, backend.id):
-        raise ContentError("sam_backend_unavailable")
-    capabilities = to_record((backend.health_meta or {}).get("capabilities") or {})
-    context, model_id = prepare_interactive_context(
-        _prompt(item),
-        capabilities,
-        task_id=str(task.id),
-        requested_backend_id=str(backend.id),
-    )
-    model = _model(capabilities, model_id)
-    stage = {
-        "model_variants": context.get("model_variants"),
-        "params": context.get("params"),
-    }
-    freeze_builtin_defaults(backend, model, stage)
-    context.update(
-        {key: stage[key] for key in ("model_variants", "params") if stage.get(key)}
-    )
-    return {
-        "backend_id": str(backend.id),
-        "pool_id": str(pool)
-        if (pool := await service.pool_id_for_registry(backend.id))
-        else None,
-        "model_id": model_id,
-        "context": context,
-        "model_digest": canonical_digest(model),
-        "identity_guarantee": "declared_configuration",
-    }
-
-
-def unit_items(batch, section, unit):
-    if section == "candidates":
-        return [unit]
-    return [
-        (batch.plan_json or {})["items"][int(index)]
-        for index in unit.get("item_indexes") or []
-    ]
-
-
-def pending_reference_items(batch, *, rollback=False):
-    plan, result = batch.plan_json or {}, batch.result_json or {}
-    items = plan.get("items") or []
-    selected = []
-    for shard in plan.get("shards") or []:
-        completed = ((result.get("shards") or {}).get(str(shard["id"])) or {}).get(
-            "status"
-        ) == "completed"
-        undone = (
-            ((result.get("rollback") or {}).get("shards") or {}).get(str(shard["id"]))
-            or {}
-        ).get("status") != "completed"
-        if (rollback and completed and undone) or (not rollback and not completed):
-            selected.extend(
-                items[int(index)] for index in shard.get("item_indexes") or []
-            )
-    if not rollback:
-        selected.extend(
-            item
-            for index, item in enumerate(items)
-            if item.get("kind") in {"rerun_local_sam", "rerun_tracker"}
-            and ((result.get("candidates") or {}).get(str(index)) or {}).get("status")
-            != "completed"
-        )
-    return selected
 
 
 async def _capture_reference_authority(
@@ -216,23 +122,6 @@ async def _capture_reference_authority(
         "rollback": rollback,
         "bindings": bindings,
     }
-
-
-def unwrap_authority(value, source):
-    """An explicit mixed envelope never upgrades an old managed delegation."""
-    if not isinstance(value, dict):
-        return None
-    if type(value.get("schema")) is int and value["schema"] == 2:
-        if set(value) != {"schema", "reference", "managed"}:
-            raise ContentError("repair_authority_revoked", 403)
-        return value[source]
-    if (
-        source == "reference"
-        and type(value.get("schema")) is int
-        and value["schema"] == 1
-    ):
-        return value
-    return None
 
 
 async def capture_job_authority(
@@ -372,7 +261,7 @@ class ReferenceRepairUnit:
 
     def validate_capabilities(self, capabilities):
         if (
-            canonical_digest(_model(capabilities, self.model["model_id"]))
+            canonical_digest(declared_model(capabilities, self.model["model_id"]))
             != self.model["model_digest"]
         ):
             raise ContentError("repair_model_changed")
@@ -424,7 +313,7 @@ class ReferenceRepairUnit:
         await lock_task_for_core_read(self.db, self.task_id, nowait=True)
         await lock_reference_bindings(self.db, [self.binding], self.node_id)
         if self.ai:
-            await self._lock_model()
+            await lock_model(self.db, self.project_id, self.model, self.route)
         await self.validate()
         if (
             self.snapshot is None
@@ -433,25 +322,6 @@ class ReferenceRepairUnit:
         ):
             raise ContentError("repair_reference_receipt_invalid")
         self.transaction = self.db.sync_session.get_transaction()
-
-    async def _lock_model(self):
-        """Keep enablement and routing identity stable through the short write."""
-        pool_id = uuid.UUID(self.model["pool_id"]) if self.model["pool_id"] else None
-        if (
-            pool_id is None
-            or self.route is None
-            or self.route["pool_id"] != str(pool_id)
-        ):
-            raise ContentError("repair_model_changed")
-        status = await InferenceTopologyData(self.db).lock_repair_model_rows(
-            self.project_id,
-            pool_id,
-            (uuid.UUID(self.model["backend_id"]), uuid.UUID(self.route["instance_id"])),
-        )
-        if status == "backend_unavailable":
-            raise ContentError("sam_backend_unavailable")
-        if status != "ready":
-            raise ContentError("repair_model_changed")
 
     def receipt(self, kind, payload):
         if (
@@ -551,10 +421,8 @@ async def qualify_repair_candidate(
 ):
     """Qualify only a persisted SAM candidate owned by its committed repair unit."""
     from fastapi import HTTPException
-    from app.services.raster_mask_storage import (
-        prepare_mask_payload_for_write,
-        RasterMaskContractError,
-    )
+    from app.services.raster_mask_storage import RasterMaskContractError
+    from app.services.raster_mask_validation import prepare_mask_payload_for_write
 
     extra = (metadata.extra or {}) if metadata else {}
     info, evidence = extra.get("mask_repair"), extra.get("reference_input")

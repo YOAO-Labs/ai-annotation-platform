@@ -27,18 +27,21 @@ from app.services import training_run_data
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
-from app.services import training_run_storage
-from app.services.training_runs import verify_artifact
+from app.services.training_artifacts import verify_saved_artifact as verify_artifact
 from app.services.training_artifacts import read_json_artifact
 from app.services.training_evaluations import parse_evaluation
+from app.services.trained_model_artifacts import (
+    owner_for_attempt as owner_for_attempt,
+    owner_for_model as owner_for_model,
+)
 from app.services.project_access import get_workspace_project
 from app.services.trained_model_reference_contract import (
     FreezeModelReferenceError,
     FreezeModelReferencePort,
     FreezeModelReferenceRequest,
     FrozenModelReference,
-    RegistryLearningUsage,
     ValidateFrozenModelReferenceRequest,
+    validate_inference_runtime as validate_inference_runtime,
 )
 
 
@@ -86,72 +89,6 @@ def _match_serving_entry(
             continue
         return entry
     return None
-
-
-def validate_inference_runtime(ref, runtime):
-    if not isinstance(runtime, Mapping):
-        raise ValueError("Inference runtime must be an object")
-    framework = runtime.get("framework")
-    version = runtime.get("version")
-    qualification = runtime.get("qualification")
-    if (
-        not isinstance(framework, str)
-        or not framework
-        or not isinstance(version, str)
-        or not version
-        or not isinstance(qualification, Mapping)
-    ):
-        raise ValueError("Inference runtime is missing required identity fields")
-    expected_framework = ref.get("framework") if isinstance(ref, Mapping) else None
-    if expected_framework and framework != expected_framework:
-        raise ValueError("Inference runtime framework differs from frozen model")
-    training_version = runtime.get("training_version")
-    expected_version = (
-        ref.get("framework_version") if isinstance(ref, Mapping) else None
-    )
-    if (
-        training_version is not None
-        and expected_version is not None
-        and training_version != expected_version
-    ):
-        raise ValueError("Inference runtime training_version differs from frozen model")
-    runtime_task = runtime.get("task")
-    expected_task = ref.get("task") if isinstance(ref, Mapping) else None
-    if (
-        runtime_task is not None
-        and expected_task is not None
-        and normalize_task(runtime_task) != normalize_task(expected_task)
-    ):
-        raise ValueError("Inference runtime task differs from frozen model")
-    device = qualification.get("device")
-    if device is not None and device not in {"cpu", "cuda"}:
-        raise ValueError("Inference runtime device is invalid")
-    if "end2end" in qualification and type(qualification["end2end"]) is not bool:
-        raise ValueError("Inference runtime end2end flag must be boolean")
-    if qualification.get("end2end") is True and qualification.get("nms") is not False:
-        raise ValueError("End-to-end inference runtime requires nms=False")
-    pinned_qual = (
-        ref.get("runtime_qualification")
-        if isinstance(ref, Mapping)
-        and isinstance(ref.get("runtime_qualification"), Mapping)
-        else None
-    )
-    if pinned_qual is not None:
-        if (
-            "end2end" in pinned_qual
-            and "end2end" in qualification
-            and qualification["end2end"] != pinned_qual["end2end"]
-        ):
-            raise ValueError("Inference runtime end2end differs from frozen model")
-    if expected_task is not None and normalize_task(expected_task) == "segment":
-        if (
-            not isinstance(qualification.get("decoder"), str)
-            or not qualification["decoder"]
-            or not isinstance(qualification.get("mask_processing"), str)
-            or not qualification["mask_processing"]
-        ):
-            raise ValueError("Segmentation inference runtime missing decoder metadata")
-    return dict(runtime)
 
 
 def registration_eligibility(config):
@@ -303,49 +240,6 @@ def validate_project_class_bindings(allowed, classes, bindings):
         )
 
 
-def owner_for_attempt(run, attempt, *artifacts):
-    """Resolve physical ownership without changing any frozen model payload."""
-    if run is None or attempt is None or attempt.run_id != run.id:
-        raise HTTPException(status_code=409, detail="训练产物的来源执行不一致")
-    try:
-        owner = training_run_storage.resolve(run)
-        for artifact in artifacts:
-            training_run_storage.expect_attempt(owner, attempt.id, artifact["key"])
-        return owner
-    except TrainingDatasetError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": str(exc)},
-        ) from None
-    except (KeyError, TypeError):
-        raise HTTPException(
-            status_code=409, detail="训练产物缺少固定对象定位"
-        ) from None
-
-
-async def owner_for_model(db, version):
-    """Models retain the referenced run namespace instead of duplicating it."""
-    run = await training_run_data.get_run(db, version.project_id, version.run_id)
-    attempt = await training_run_data.get_attempt(db, version.attempt_id)
-    if (
-        run is None
-        or attempt is None
-        or run.id != version.run_id
-        or run.project_id != version.project_id
-        or attempt.id != version.attempt_id
-        or attempt.run_id != run.id
-        or not isinstance(version.artifact, dict)
-        or not isinstance(attempt.artifacts, dict)
-        or version.artifact.get("role") != "weights"
-        or not any(
-            artifact == version.artifact
-            for artifact in (attempt.artifacts or {}).values()
-        )
-    ):
-        raise HTTPException(status_code=409, detail="模型缺少一致的保留权重来源")
-    return owner_for_attempt(run, attempt, version.artifact)
-
-
 async def register(db, project, user, body):
     if db.autoflush:
         await db.flush()
@@ -493,34 +387,6 @@ async def load_version(db, project_id, version_id):
 async def lock_deployment(db, project_id, version_id, registry_id):
     return await data.lock_deployment_for_registry(
         db, project_id, version_id, registry_id
-    )
-
-
-async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
-    """Lock Learning deployments and report live release and frozen-work facts.
-
-    The caller must first hold Inference's registry lock in this transaction.
-    """
-    from yoao_jobs.domain_query_contract import FrozenDeploymentUsageRequest
-    from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
-
-    deployments = await data.lock_registry_deployments(db, registry_id)
-    ids = [deployment.id for deployment in deployments]
-    if not ids:
-        return RegistryLearningUsage(active_releases=0, frozen_executions=0)
-    active_releases = await data.count_active_releases(db, ids)
-    frozen = 0
-    for deployment in deployments:
-        usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
-            FrozenDeploymentUsageRequest(
-                deployment_id=deployment.id,
-                registry_id=deployment.registry_id,
-                model_version_id=deployment.model_version_id,
-            )
-        )
-        frozen += usage.active_jobs + usage.retryable_failures
-    return RegistryLearningUsage(
-        active_releases=int(active_releases), frozen_executions=frozen
     )
 
 
@@ -1210,6 +1076,20 @@ def bind_frozen_model_reference(db) -> FreezeModelReferencePort:
     return _SqlFreezeModelReferencePort(db)
 
 
+async def live_receipt(
+    db, registry_id: uuid.UUID, model_version_id: str
+) -> dict | None:
+    """Read the immutable installation receipt reported by an inference backend."""
+    from app.services import inference_backend_control
+
+    try:
+        return await inference_backend_control.backend_control_service(
+            db
+        ).trained_model_receipt(registry_id, model_version_id)
+    except inference_backend_control.BackendControlOperationError as exc:
+        raise backend_control_http_exception(exc) from exc
+
+
 async def publish(db, project, user, body):
     digest = content_digest(body.request_payload())
     existing = await data.release_replay(db, project.id, body.request_id)
@@ -1267,8 +1147,6 @@ async def publish(db, project, user, body):
             backend, version, (deployment.trial or {}).get("inference_runtime")
         )
         await assert_routable_backend(db, project.id, deployment.registry_id)
-        from app.services.trained_model_backend import live_receipt
-
         live = await live_receipt(db, deployment.registry_id, str(version.id))
         check_receipt(version, live)
         check_trial_runtime(version, deployment, live)

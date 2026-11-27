@@ -77,9 +77,9 @@ from app.services.raster_mask_storage import (
     load_coco_rle,
     store_coco_rle,
     store_generated_mask_content,
-    validate_mask_geometry_for_task,
     lock_raster_mask_references,
 )
+from app.services.raster_mask_storage import validate_task_mask_dimensions
 from app.services.mask_qc.service import load_mask_qc_issue
 from app.services.mask_qc.topology import rle_and, rle_replace_region, rle_xor
 from app.services.video_collaboration import segment_work_bounds_for_task
@@ -2325,7 +2325,7 @@ async def _decide_tracker_issue_region(
             "mask",
             override_manual_frames={frame_index} if override_manual else None,
         )
-        await validate_mask_geometry_for_task(
+        await validate_task_mask_dimensions(
             db,
             task,
             annotation.geometry or {},
@@ -2791,7 +2791,7 @@ async def decide_tracker_job(
             touched.append(annotation)
         try:
             for annotation in touched:
-                await validate_mask_geometry_for_task(
+                await validate_task_mask_dimensions(
                     db,
                     task,
                     annotation.geometry or {},
@@ -3019,7 +3019,7 @@ async def accept_tracker_job(
     )
     try:
         for src in source_map.values():
-            await validate_mask_geometry_for_task(
+            await validate_task_mask_dimensions(
                 db,
                 task,
                 src.geometry or {},
@@ -3028,7 +3028,7 @@ async def accept_tracker_job(
                 ),
             )
         for created_annotation in created:
-            await validate_mask_geometry_for_task(
+            await validate_task_mask_dimensions(
                 db,
                 task,
                 created_annotation.geometry or {},

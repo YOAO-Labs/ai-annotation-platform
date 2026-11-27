@@ -573,9 +573,9 @@ class InferenceTopologyData:
         if action == "retire":
             if await self.lock_plugin_registry(installation_id) is None:
                 raise ValueError("plugin installation not found")
-            from app.services import trained_models
+            from app.services.learning_registry_usage import registry_usage
 
-            usage = await trained_models.registry_usage(self.db, installation_id)
+            usage = await registry_usage(self.db, installation_id)
             if usage.active_releases or usage.frozen_executions:
                 raise ValueError("plugin installation has active Learning dependencies")
         row = await self._plugin_scalar(

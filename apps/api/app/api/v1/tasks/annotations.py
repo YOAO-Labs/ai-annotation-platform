@@ -72,10 +72,8 @@ from app.services.annotation_conversion import (
 )
 from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
-from app.services.raster_mask_storage import (
-    RasterMaskContractError,
-    preflight_mask_payload_for_write,
-)
+from app.services.raster_mask_storage import RasterMaskContractError
+from app.services.raster_mask_validation import preflight_mask_payload_for_write
 from app.services.labeling_write_scope import (
     capture_task_source_binding,
     task_source_binding_matches,

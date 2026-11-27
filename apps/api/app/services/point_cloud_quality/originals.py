@@ -28,7 +28,7 @@ from app.services.project_access import (
     assert_capability,
     resolve_project_access,
 )
-from app.services.sample_evaluation_originals import bounded_thread
+from app.services.bounded_thread import bounded_thread
 
 MAX_BYTES = 256 * 1024 * 1024
 AUTHORITY = "point_cloud_quality_authority"

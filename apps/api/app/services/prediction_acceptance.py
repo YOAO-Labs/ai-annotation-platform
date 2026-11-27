@@ -22,7 +22,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 from app.services.project_access import get_workspace_project
-from app.services.prediction import to_internal_shape
+from app.services.prediction_shapes import to_internal_shape
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_actor_scope,
@@ -146,7 +146,17 @@ async def _check_content(db, task, binding, prediction, metadata, *, final=False
     if metadata and (metadata.extra or {}).get("reference_native") is not None:
         from app.services.reference_native_predictions import qualify_candidate
 
-        await qualify_candidate(db, task, binding, prediction, metadata, final=final)
+        qualify_candidate(task, binding, prediction, metadata)
+        if final:
+            from app.services.raster_mask_validation import (
+                prepare_mask_payload_for_write,
+            )
+            from app.services.raster_mask_storage import RasterMaskContractError
+
+            try:
+                await prepare_mask_payload_for_write(db, task, prediction.result)
+            except RasterMaskContractError as exc:
+                raise HTTPException(exc.status_code, detail=exc.detail) from None
         return
     from app.services.reference_native_predictions import require_reference_vectors
 

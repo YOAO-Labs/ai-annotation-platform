@@ -211,7 +211,7 @@ async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, 
 
 async def test_initialization_keeps_weight_and_report_reads_separate(monkeypatch):
     from app.services import training_initialization as initialization
-    from app.services import training_artifacts, training_runs, training_run_storage
+    from app.services import training_artifacts, training_run_storage
     from app.services.training_dataset_bridge import content_digest
     from tests.test_training_run_storage_flow import owned, artifact
 
@@ -236,7 +236,9 @@ async def test_initialization_keeps_weight_and_report_reads_separate(monkeypatch
         return callback(io.storage_service)
 
     monkeypatch.setattr(io, "read", read)
-    monkeypatch.setattr(training_runs, "verify_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        training_artifacts, "verify_saved_artifact", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         training_artifacts, "read_json_artifact", lambda *args, **kwargs: report
     )

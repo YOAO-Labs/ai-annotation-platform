@@ -41,10 +41,8 @@ from app.services.annotation_evidence import (
     task_contributor_snapshot,
 )
 from app.services.labeling_tasks import LabelingTaskService
-from app.services.raster_mask_storage import (
-    build_rle_reference,
-    prepare_mask_payload_for_write,
-)
+from app.services.raster_mask_storage import build_rle_reference
+from app.services.raster_mask_validation import prepare_mask_payload_for_write
 from app.services.task_access import resolve_task_access
 from tests.factory import create_membership, create_user
 from tests.video_derivative_fixtures import owned_metadata

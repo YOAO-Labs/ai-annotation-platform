@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from PIL import Image, UnidentifiedImageError
 import pytest
 
+from app.services import bounded_thread as bounded
 from app.services import sample_evaluation_originals as service
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
@@ -331,7 +332,7 @@ async def test_interruption_waits_for_real_decode_or_classification_before_retir
     if phase == "decode":
         monkeypatch.setattr(service, "inspect_image", blocked)
     if finish == "timeout":
-        monkeypatch.setattr(service, "THREAD_SECONDS", 0.03)
+        monkeypatch.setattr(bounded, "THREAD_SECONDS", 0.03)
 
     async def operation():
         async with service.current_media(world.db, world.authority, world.snapshot) as (
@@ -382,7 +383,7 @@ async def test_late_unsettled_work_remains_marked_after_interruption(
         raise storage_access.mark_unsettled(OSError("unknown physical close"))
 
     if finish == "timeout":
-        monkeypatch.setattr(service, "THREAD_SECONDS", 0.03)
+        monkeypatch.setattr(bounded, "THREAD_SECONDS", 0.03)
     pending = asyncio.create_task(service.bounded_thread(unknown_close))
     try:
         assert await asyncio.to_thread(entered.wait, 2)

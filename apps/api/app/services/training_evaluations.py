@@ -234,7 +234,7 @@ async def read_evaluation(run, attempt, offset, limit, *, db):
         raise HTTPException(
             status_code=409, detail="本次执行缺少唯一的已验证评估与最佳权重"
         )
-    from app.services.trained_models import owner_for_attempt
+    from app.services.trained_model_artifacts import owner_for_attempt
 
     owner = owner_for_attempt(run, attempt, metrics[0], weights[0])
     try:

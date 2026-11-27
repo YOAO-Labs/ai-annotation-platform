@@ -27,6 +27,7 @@ from app.services import training_runs as runs, training_observability as observ
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.training_artifacts import verify_saved_summary
 from app.services.training_dataset_bridge import content_digest
 from app.services.training_datasets import bind_training_authority
 from tests.factory import create_project
@@ -412,7 +413,7 @@ def test_summary_and_checkpoint_use_exact_attempt_in_saved_bucket(owned):
         }
     ).encode()
     summary = artifact(owned, "telemetry.json", "telemetry", raw)
-    observations.verify_summary(owned.run, owned.attempt, summary)
+    verify_saved_summary(owned.run, owned.attempt, summary)
     checkpoint = artifact(owned, "last.pt", "checkpoint")
     assert observations.checkpoint_available(owned.run, owned.attempt, checkpoint)
     assert {call[1] for call in owned.client.calls} == {owned.bucket}

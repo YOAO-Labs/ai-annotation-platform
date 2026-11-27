@@ -31,11 +31,13 @@ class _NativeReceipt:
 
 
 async def qualify_native_acceptance(db, task, actor, request, data):
-    from app.services.ai_mask_accept import (
-        _find_decision,
+    from app.services.ai_mask_decisions import (
+        find_decision as _find_decision,
+        validate_replay as _validate_replay,
+    )
+    from app.services.ai_mask_receipt import (
         AiMaskAcceptError,
-        _validate_receipt,
-        _validate_replay,
+        validate_acceptance_receipt as _validate_receipt,
         ai_mask_accept_request_digest,
     )
     from app.services.managed_image_inference import (
@@ -185,7 +187,7 @@ async def validate_native_receipt(
     if originals.encoded(binding) != receipt.binding:
         raise ContentError("content_binding_changed")
     if data is not None:
-        from app.services.ai_mask_accept import ai_mask_accept_request_digest
+        from app.services.ai_mask_receipt import ai_mask_accept_request_digest
 
         if (
             data.idempotency_key != receipt.idempotency_key

@@ -279,7 +279,7 @@ async def test_direct_plugin_api_lifecycle_ssrf_rollback_and_read_only_probe(
 ):
     from app.api.v1 import admin_plugin_installations as routes
     from app.services import plugin_installation_observation as obs_mod
-    from app.services import trained_models
+    from app.services import learning_registry_usage
 
     _, admin_jwt = super_admin
     super_admin_headers = {"Authorization": f"Bearer {admin_jwt}"}
@@ -526,7 +526,7 @@ async def test_direct_plugin_api_lifecycle_ssrf_rollback_and_read_only_probe(
     async def busy_usage(_db, _registry_id):
         return SimpleNamespace(active_releases=1, frozen_executions=0)
 
-    monkeypatch.setattr(trained_models, "registry_usage", busy_usage)
+    monkeypatch.setattr(learning_registry_usage, "registry_usage", busy_usage)
     blocked_retire = await client.post(
         f"{INSTALLATIONS_URL}/{inst_id}/retire",
         headers=super_admin_headers,
@@ -538,7 +538,7 @@ async def test_direct_plugin_api_lifecycle_ssrf_rollback_and_read_only_probe(
     async def empty_usage(_db, _registry_id):
         return SimpleNamespace(active_releases=0, frozen_executions=0)
 
-    monkeypatch.setattr(trained_models, "registry_usage", empty_usage)
+    monkeypatch.setattr(learning_registry_usage, "registry_usage", empty_usage)
     retired = await client.post(
         f"{INSTALLATIONS_URL}/{inst_id}/retire",
         headers=super_admin_headers,
@@ -574,7 +574,7 @@ async def test_direct_plugin_quiesce_with_terminal_drain_endpoint(
 ):
     from app.api.v1 import admin_plugin_installations as routes
     from app.services import plugin_installation_observation as obs_mod
-    from app.services import trained_models
+    from app.services import learning_registry_usage
 
     _, admin_jwt = super_admin
     super_admin_headers = {"Authorization": f"Bearer {admin_jwt}"}
@@ -671,7 +671,7 @@ async def test_direct_plugin_quiesce_with_terminal_drain_endpoint(
     async def empty_usage(_db, _registry_id):
         return SimpleNamespace(active_releases=0, frozen_executions=0)
 
-    monkeypatch.setattr(trained_models, "registry_usage", empty_usage)
+    monkeypatch.setattr(learning_registry_usage, "registry_usage", empty_usage)
     ret = await client.post(
         f"{INSTALLATIONS_URL}/{inst_id}/retire",
         headers=super_admin_headers,

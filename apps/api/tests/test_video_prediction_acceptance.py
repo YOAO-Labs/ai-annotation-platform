@@ -566,6 +566,15 @@ async def test_geometry_receipt_only_authorizes_its_reviewed_geometry(monkeypatc
         await accept.validate_geometry_receipt(
             current.db, current.task, receipt, current.prediction.result[0]["geometry"]
         )
+    from app.services.raster_mask_validation import validate_mask_geometry_for_task
+
+    with pytest.raises(ContentError, match="prediction_video_result_receipt_invalid"):
+        await validate_mask_geometry_for_task(
+            current.db,
+            current.task,
+            {"type": "video_track_mask"},
+            video_result_receipt=receipt,
+        )
 
 
 async def test_source_close_unknown_is_sticky_and_never_reaches_final_locks(

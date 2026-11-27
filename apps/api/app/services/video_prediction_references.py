@@ -490,7 +490,7 @@ class _ResultReceipt:
 
 
 def _geometry_digests(result):
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     digests = []
     for shape in result:

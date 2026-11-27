@@ -61,8 +61,8 @@ from app.services.raster_mask_storage import (
     reserve_raster_mask_upload,
     store_coco_rle,
     store_coco_rle_gzip,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.video_tracks import resolve_track_at_frame
 from app.services.project_access import get_workspace_project
 from app.utils.raster_mask_rle import (
@@ -82,7 +82,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 
-from app.services.reference_access import reference_task_guard
+from app.api.v1.reference_task_guard import reference_task_guard
 from app.services.content_snapshot import ContentError
 
 router = APIRouter(

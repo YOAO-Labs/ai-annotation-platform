@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import secrets
 import uuid
 from copy import deepcopy
@@ -41,6 +40,12 @@ from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.content_snapshot import ContentError
+from app.services.mask_repair_ledger import (
+    canonical_digest as canonical_digest,
+    load_repair_batch as load_repair_batch,
+    load_repair_batch_for_job as load_repair_batch_for_job,
+    load_repair_batch_source as load_repair_batch_source,
+)
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
 from app.services.mask_qc.service import (
@@ -78,11 +83,9 @@ from yoao_labeling.quality_data_contract import (
     FinishRepairRollback,
     RecordRepairCandidate,
     RecordRepairRollbackShard,
-    ReadMaskRepairBatchForSource,
     RecordRepairShard,
     ReconcileRepairBatch,
     ReadMaskRepairBatchById,
-    ReadMaskRepairBatchByJob,
     ReadMaskRepairBatchByToken,
     ReadMaskRepairTargets,
     ReadMaskVideoSegment,
@@ -139,17 +142,6 @@ class MaskRepairError(RuntimeError):
         self.detail = {"reason": reason, "message": message, **detail}
 
 
-def canonical_digest(value: Any) -> str:
-    raw = json.dumps(
-        value,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    ).encode()
-    return hashlib.sha256(raw).hexdigest()
-
-
 def result_digest(batch: MaskRepairBatch) -> str:
     return canonical_digest(batch.result_json or {})
 
@@ -172,62 +164,6 @@ def batch_out(batch: MaskRepairBatch) -> MaskRepairBatchOut:
         created_at=batch.created_at,
         completed_at=batch.completed_at,
         rolled_back_at=batch.rolled_back_at,
-    )
-
-
-async def load_repair_batch(
-    db: AsyncSession, *, batch_id: uuid.UUID, lock: bool = False
-) -> MaskRepairBatch | None:
-    row = await quality_data_command(
-        db,
-        ReadMaskRepairBatchById(
-            schema=QUALITY_DATA_PROTOCOL,
-            operation="read_batch_by_id",
-            batch_id=batch_id,
-            lock=lock,
-        ),
-    )
-    return (
-        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
-    )
-
-
-async def load_repair_batch_source(
-    db: AsyncSession, *, batch_id: uuid.UUID, lock: bool = False
-) -> MaskRepairBatch | None:
-    row = await quality_data_command(
-        db,
-        ReadMaskRepairBatchForSource(
-            schema=QUALITY_DATA_PROTOCOL,
-            operation="read_batch_for_source",
-            batch_id=batch_id,
-            lock=lock,
-        ),
-    )
-    return (
-        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
-    )
-
-
-async def load_repair_batch_for_job(
-    db: AsyncSession,
-    *,
-    job_id: uuid.UUID,
-    rollback: bool = False,
-    lock: bool = False,
-) -> MaskRepairBatch | None:
-    row = await quality_data_command(
-        db,
-        ReadMaskRepairBatchByJob(
-            schema=QUALITY_DATA_PROTOCOL,
-            operation="read_batch_by_job",
-            job_id=job_id,
-            terminal_kind="mask_repair_rollback" if rollback else "mask_repair",
-            lock=lock,
-        ),
-    )
-    return (
-        model_from_quality_row(MaskRepairBatch, row) if isinstance(row, dict) else None
     )
 
 

@@ -1,9 +1,7 @@
 """Qualify frozen reference inputs and issue transaction-bound prediction receipts."""
 
 from copy import deepcopy
-from dataclasses import dataclass
 from datetime import datetime, timezone
-import json
 import uuid
 
 from sqlalchemy import select
@@ -33,6 +31,10 @@ from app.services.reference_bindings import (
     task_binding,
 )
 from app.services.reference_keys import is_reference, PREFIX
+from app.services.reference_prediction_receipt import (
+    issue_receipt as issue_reference_receipt,
+    validate_receipt as validate_receipt,
+)
 from app.services.task_scope import ids_clause
 
 MAX_TASKS = originals.MAX_TASKS
@@ -144,43 +146,6 @@ async def capture_authority(
 
 
 managed_binding = originals.managed_binding
-
-
-_ISSUER = object()
-
-
-@dataclass(frozen=True, slots=True)
-class _Receipt:
-    issuer: object
-    session: object
-    transaction: object
-    task_id: uuid.UUID
-    binding: str
-    evidence: str
-
-
-async def validate_receipt(db, task_id, project_id, receipt):
-    if (
-        type(receipt) is not _Receipt
-        or receipt.issuer is not _ISSUER
-        or receipt.session is not db.sync_session
-        or receipt.transaction is None
-        or receipt.transaction is not db.sync_session.get_transaction()
-        or db.sync_session.in_nested_transaction()
-        or receipt.task_id != task_id
-    ):
-        raise ContentError("prediction_reference_receipt_invalid")
-    task = await get_core_row(db, task_row, task_id, populate_existing=True)
-    if (
-        task is None
-        or task.project_id != project_id
-        or not is_reference(task.file_path)
-    ):
-        raise ContentError("prediction_reference_receipt_invalid")
-    binding = {**task_binding(task), "reference": await reference_binding(db, task)}
-    if binding != normalize_binding(json.loads(receipt.binding)):
-        raise ContentError("content_binding_changed")
-    return json.loads(receipt.evidence)
 
 
 class ReferencePredictionJob:
@@ -588,11 +553,4 @@ class ReferencePredictionJob:
             execution_snapshot_id=self.proof["snapshot_id"],
             execution_digest=digest,
         )
-        return _Receipt(
-            _ISSUER,
-            self.db.sync_session,
-            self.db.sync_session.get_transaction(),
-            task.id,
-            json.dumps(binding, sort_keys=True),
-            json.dumps(evidence, sort_keys=True),
-        )
+        return issue_reference_receipt(self.db, task.id, binding, evidence)

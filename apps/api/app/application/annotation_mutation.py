@@ -37,6 +37,8 @@ from app.services.audit import AuditAction, AuditService
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
+)
+from app.services.raster_mask_validation import (
     prepare_mask_geometry_for_annotation_write,
 )
 from app.services.video_collaboration import (

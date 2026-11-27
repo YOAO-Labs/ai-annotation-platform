@@ -77,9 +77,11 @@ from app.services.mask_mutation_contract import MaskMutationError as _MaskMutati
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
+    raster_mask_storage_contract_error,
+)
+from app.services.raster_mask_validation import (
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
-    raster_mask_storage_contract_error,
 )
 from app.services.labeling_write_scope import (
     capture_task_source_binding,

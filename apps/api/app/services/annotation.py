@@ -68,6 +68,8 @@ from yoao_inference_contract.execution import thaw_json
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
+)
+from app.services.raster_mask_validation import (
     prepare_mask_geometry_for_annotation_write,
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,

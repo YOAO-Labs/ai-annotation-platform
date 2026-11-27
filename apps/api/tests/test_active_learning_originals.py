@@ -18,7 +18,7 @@ import pytest
 from app.services import active_learning as learning
 from app.services import active_learning_originals as service
 from app.services import managed_original_reclaim_fence
-from app.services import sample_evaluation_originals as bounded
+from app.services import bounded_thread as bounded
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID

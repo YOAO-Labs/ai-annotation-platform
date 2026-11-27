@@ -48,8 +48,8 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
     lock_raster_mask_references,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_storage import validate_task_mask_dimensions
 from app.services.video_context import VideoContext, derive_step
 from app.services.video_tracking.adapters import registered_tracker_models
 from app.services.video_tracking import runner as _runner
@@ -451,9 +451,7 @@ async def save_video_mask_keyframe(
         ),
     }
     try:
-        await validate_mask_geometry_for_task(
-            db, task, next_geometry, video_context=ctx
-        )
+        await validate_task_mask_dimensions(db, task, next_geometry, video_context=ctx)
         await lock_raster_mask_references(
             db, next_geometry, task_id=task.id, require_raster_foreground=False
         )

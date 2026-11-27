@@ -45,11 +45,11 @@ from app.services.raster_mask_storage import (
     build_rle_reference,
     load_coco_rle,
     lock_raster_mask_references,
-    prepare_mask_payload_for_write,
     raster_mask_storage_contract_error,
     reserve_raster_mask_upload,
     store_coco_rle,
 )
+from app.services.raster_mask_validation import prepare_mask_payload_for_write
 from app.services.raster_object_storage import RasterObjectStorageError
 from app.services.project_access import is_privileged_for_project
 from app.services.video_collaboration import (

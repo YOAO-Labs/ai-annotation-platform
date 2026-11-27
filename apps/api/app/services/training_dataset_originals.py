@@ -1,12 +1,11 @@
 """Training-specific original identity, authority and physically drained I/O."""
 
 import asyncio
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from contextvars import copy_context
 from dataclasses import dataclass, field
 from functools import partial
 import threading
-import tempfile
 import uuid
 
 from fastapi import HTTPException
@@ -19,6 +18,9 @@ from app.services.content_snapshot import ContentError
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.original_binary_response import close_stage
 from app.services.training_dataset_bridge import TrainingDatasetError, content_digest
+from app.services.training_dataset_staging import (
+    temporary_directory as temporary_directory,
+)
 
 MAX_BYTES = 256 * 1024 * 1024
 MAX_PIXELS = 100_000_000
@@ -57,18 +59,6 @@ class Admission(threading.Semaphore):
 
 def output_purpose(version_id):
     return "training_dataset_" + version_id.hex
-
-
-@contextmanager
-def temporary_directory(**kwargs):
-    temporary = tempfile.TemporaryDirectory(**kwargs)
-    try:
-        yield temporary.name
-    finally:
-        try:
-            temporary.cleanup()
-        except BaseException as exc:
-            raise storage_access.mark_unsettled(exc)
 
 
 @dataclass(frozen=True)
@@ -118,7 +108,7 @@ async def current_key(db, actor_id, key_id, proof=None):
 
 
 async def check(db, authority):
-    from app.services.training_datasets import bind_training_authority
+    from app.services.training_authority import bind_training_authority
 
     _actor, key = await current_key(
         db, authority.actor_id, authority.key_id, authority.proof

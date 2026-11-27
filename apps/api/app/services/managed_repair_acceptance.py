@@ -6,16 +6,12 @@ import uuid
 from sqlalchemy import select
 
 from app.services.content_snapshot import ContentError
-from app.services.mask_repair import canonical_digest, load_repair_batch_source
+from app.services.mask_repair_ledger import canonical_digest, load_repair_batch_source
 from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
     lock_annotation_rows_for_core_read,
 )
-
-
-_READ_KINDS = frozenset({"candidate_read", "annotation_read"})
-_WRITE_KINDS = frozenset({"prediction", "mutation", "candidate_accept"})
 
 
 def _new_plan():
@@ -88,7 +84,7 @@ async def _qualified_candidate(
 ):
     """Check durable unit ownership; no original, model or object-store I/O."""
     from app.services.managed_mask_repair import annotation_facts
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     extra = metadata.extra if metadata is not None else None
     info = extra.get("mask_repair") if isinstance(extra, dict) else None
@@ -218,7 +214,7 @@ async def _qualified_candidate(
 
 
 def _candidate_payload(prediction, metadata, selection=None):
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     return {
         "prediction_id": str(prediction.id),
@@ -456,24 +452,3 @@ async def qualify_annotation_read(db, task, actor, request, annotation):
     except BaseException as exc:
         await owner.close(exc)
         raise
-
-
-async def validate_geometry_receipt(db, task, receipt, geometry, *, write):
-    """Scope dimensions to an exact geometry in a privately issued operation."""
-    from app.services.managed_mask_repair import receipt_payload, validate_receipt
-    from app.services.raster_mask_storage import (
-        collect_mask_geometries,
-        validate_image_mask_dimensions,
-    )
-
-    kind, payload = receipt_payload(receipt)
-    if kind not in (_WRITE_KINDS if write else _READ_KINDS):
-        raise ContentError("repair_original_receipt_invalid")
-    value = payload.get("mutations", []) if kind == "mutation" else payload
-    if not any(row == geometry for row in collect_mask_geometries(value)):
-        raise ContentError("repair_original_receipt_invalid")
-    evidence = await validate_receipt(
-        db, task.id, None, receipt, kind, payload, project_id=task.project_id
-    )
-    validate_image_mask_dimensions(geometry, evidence["width"], evidence["height"])
-    return evidence

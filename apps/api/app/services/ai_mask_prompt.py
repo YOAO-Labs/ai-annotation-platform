@@ -17,8 +17,8 @@ from app.services.labeling_core_read_relations import annotation_row, get_core_r
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.video_tracks import resolve_track_at_frame
 
 

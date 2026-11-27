@@ -319,10 +319,12 @@ class _NativeReceipt:
 
 
 async def qualify_native_acceptance(db, task, actor, request, data):
-    from app.services.ai_mask_accept import (
-        _find_decision,
-        _validate_receipt,
-        _validate_replay,
+    from app.services.ai_mask_decisions import (
+        find_decision as _find_decision,
+        validate_replay as _validate_replay,
+    )
+    from app.services.ai_mask_receipt import (
+        validate_acceptance_receipt as _validate_receipt,
         ai_mask_accept_request_digest,
     )
     from app.services.raster_mask_storage import build_rle_reference
@@ -424,7 +426,7 @@ async def validate_native_receipt(
     if binding != normalize_binding(json.loads(receipt.binding)):
         raise ContentError("content_binding_changed")
     if data is not None:
-        from app.services.ai_mask_accept import ai_mask_accept_request_digest
+        from app.services.ai_mask_receipt import ai_mask_accept_request_digest
 
         if ai_mask_accept_request_digest(data) != receipt.request_digest:
             raise ContentError("prediction_reference_receipt_invalid")

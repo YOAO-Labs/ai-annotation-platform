@@ -23,7 +23,11 @@ from app.services import conditional_write_accounting as accounting
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.original_read_plan import ReadRoute
-from app.services.raster_mask_references import is_referenced, referenced_keys
+from app.services.raster_mask_references import (
+    collect_mask_references,
+    is_referenced,
+    referenced_keys,
+)
 from app.services.storage import storage_service
 
 GRACE = timedelta(hours=24)
@@ -544,8 +548,6 @@ async def bind_publications(db, value):
     database rows; an acknowledged commit makes their absence safe to observe.
     Progress commits have no effect on either the rows or this tracking map.
     """
-    from app.services.raster_mask_storage import collect_mask_references
-
     references = collect_mask_references(value)
     tracked = db.info.get(PUBLICATIONS_INFO, {})
     selected = {}

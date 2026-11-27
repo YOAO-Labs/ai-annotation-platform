@@ -62,7 +62,7 @@ def _binding_digest(binding):
 def annotation_lineage(db, annotation, prediction, receipt, shape_index):
     """Issue safe, server-owned lineage; a client source/parent label is not proof."""
     receipt = accept._receipt(db, receipt)
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     if (
         type(shape_index) is not int
@@ -241,7 +241,7 @@ def _validation_shapes(kind, geometry):
 
 
 async def _subject(db, task_id, kind, identifier, shape_index, *, lock=False):
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     if kind == "candidate":
         row, metadata = await accept._candidate(db, task_id, identifier, lock=lock)

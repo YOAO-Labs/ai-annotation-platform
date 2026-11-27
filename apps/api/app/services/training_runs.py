@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from app.services import training_storage_io as storage_io
-from app.services import storage_access
 
 from yoao_task_contract import normalize_task
 import hashlib
@@ -28,6 +27,15 @@ from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
 from app.services import training_run_storage
+from app.services.training_artifacts import (
+    verify_saved_artifact as verify_artifact,
+    verify_saved_summary as verify_summary,
+)
+from app.services.training_run_storage import (
+    artifact_key as artifact_key,
+    attempt_storage_owner as attempt_storage_owner,
+    storage_owner as storage_owner,
+)
 from app.services import training_claims as claims
 from app.services import training_dataset_data as datasets
 from app.services import training_run_data as data
@@ -557,48 +565,6 @@ async def frozen_config(
         db, project_id, body, observe_members=observe_members
     )
     return config
-
-
-def storage_owner(run):
-    """Translate a pinned run locator at HTTP-oriented service boundaries."""
-    try:
-        return training_run_storage.resolve(run)
-    except TrainingDatasetError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": str(exc)},
-        ) from None
-
-
-def attempt_storage_owner(run, attempt, key=None):
-    owner = storage_owner(run)
-    try:
-        if attempt is None or attempt.run_id != run.id:
-            raise TrainingDatasetError(
-                "training_storage_attempt_mismatch",
-                "产物不属于该训练执行",
-                status_code=409,
-            )
-        if key is not None:
-            training_run_storage.expect_attempt(owner, attempt.id, key)
-    except TrainingDatasetError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": str(exc)},
-        ) from None
-    return owner
-
-
-def artifact_key(owner, attempt_id, relative_name):
-    try:
-        key = owner.key(f"attempts/{attempt_id}/{relative_name}")
-        training_run_storage.expect_attempt(owner, attempt_id, key)
-        return key
-    except TrainingDatasetError as exc:
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail={"code": exc.code, "message": str(exc)},
-        ) from None
 
 
 async def allocate_storage(db, run):
@@ -1182,27 +1148,6 @@ def _upload_urls(transport, owner, attempt, inventory):
     return result
 
 
-def verify_artifact(key, spec, attempt_id, *, bucket, transport=None):
-    transport = storage if transport is None else transport
-    response = storage_io.get_object(transport, bucket, key)
-    try:
-        if response["ContentLength"] != spec["size_bytes"] or response.get(
-            "Metadata", {}
-        ).get("attempt-id") != str(attempt_id):
-            raise ValueError("Artifact size or identity mismatch")
-        digest = hashlib.sha256()
-        total = 0
-        for chunk in iter(lambda: response["Body"].read(1024 * 1024), b""):
-            digest.update(chunk)
-            total += len(chunk)
-            if total > spec["size_bytes"]:
-                raise ValueError("Artifact size exceeded")
-        if total != spec["size_bytes"] or digest.hexdigest() != spec["sha256"]:
-            raise ValueError("Artifact digest mismatch")
-    finally:
-        storage_access.close_registered(response["Body"])
-
-
 def verify_trainer_receipt_artifact(run, attempt, artifacts, *, transport=None):
     spec = artifacts.get("result.json")
     if not spec or spec.get("role") != "config":
@@ -1365,8 +1310,6 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
             continue
         artifacts[name] = {**spec, "key": key}
         if spec["role"] == "telemetry":
-            from app.services.training_observability import verify_summary
-
             try:
                 await storage_io.run(
                     db,

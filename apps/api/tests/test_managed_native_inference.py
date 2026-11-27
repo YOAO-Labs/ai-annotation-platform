@@ -21,8 +21,8 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     build_rle_reference,
     validate_image_mask_dimensions,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.reference_bindings import task_binding
 from app.services.reference_keys import reference_key
 

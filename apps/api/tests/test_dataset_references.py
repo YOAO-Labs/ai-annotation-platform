@@ -280,11 +280,11 @@ async def test_write_checks_content_after_task_lock(
     _, _, task, world = reference_world
     changed = False
     advisory_acquired = False
-    from app.services import reference_access
+    from app.api.v1 import reference_task_guard
     from app.services.task_lock import TaskLockService
 
     original_scope_lock = TaskLockService._lock_task_scope
-    original_task_lock = reference_access.lock_task_for_core_read
+    original_task_lock = reference_task_guard.lock_task_for_core_read
 
     async def tracked_scope_lock(service, task_id):
         nonlocal advisory_acquired
@@ -302,7 +302,7 @@ async def test_write_checks_content_after_task_lock(
         return await original_task_lock(db, task_id, *args, **kwargs)
 
     monkeypatch.setattr(
-        reference_access, "lock_task_for_core_read", lock_after_external_change
+        reference_task_guard, "lock_task_for_core_read", lock_after_external_change
     )
     result = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",

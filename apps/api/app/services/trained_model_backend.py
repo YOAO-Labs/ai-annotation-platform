@@ -11,20 +11,7 @@ from app.services.learning_models_data import Deployment, ModelVersion
 from app.services.training_dataset_data import read_version
 from app.services import trained_models as models
 from app.services import training_storage_io as storage_io
-
-
-async def live_receipt(
-    db, registry_id: uuid.UUID, model_version_id: str
-) -> dict | None:
-    """Read the immutable installation receipt reported by an inference backend."""
-    from app.services import inference_backend_control
-
-    try:
-        return await inference_backend_control.backend_control_service(
-            db
-        ).trained_model_receipt(registry_id, model_version_id)
-    except inference_backend_control.BackendControlOperationError as exc:
-        raise models.backend_control_http_exception(exc) from exc
+from app.services.trained_models import live_receipt as live_receipt
 
 
 async def install_and_trial(
