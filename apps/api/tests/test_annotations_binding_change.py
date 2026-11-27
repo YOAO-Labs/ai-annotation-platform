@@ -277,14 +277,30 @@ async def test_candidates_are_paginated_and_only_global_s3(
     result = await httpx_client.get(
         BASE + "/candidates?limit=1&offset=0", headers=headers(super_admin)
     )
-    assert result.status_code == 200 and result.json()["total"] == 1
-    assert result.json()["items"][0]["location_id"] == str(LEGACY_LOCATION_ID)
+    assert result.status_code == 200
+    base_total = result.json()["total"]
+    assert base_total >= 1 and len(result.json()["items"]) == 1
+    owner_all = await httpx_client.get(
+        f"{BASE}/candidates?limit={base_total + 5}&offset=0",
+        headers=headers(super_admin),
+    )
+    owner_ids = {item["location_id"] for item in owner_all.json()["items"]}
+    assert str(LEGACY_LOCATION_ID) in owner_ids
+    assert str(target.id) not in owner_ids
     connection.scope = "global"
     await db.commit()
     second = await httpx_client.get(
-        BASE + "/candidates?limit=1&offset=1", headers=headers(super_admin)
+        f"{BASE}/candidates?limit=1&offset={base_total}", headers=headers(super_admin)
     )
-    assert second.json()["total"] == 2 and len(second.json()["items"]) == 1
+    assert second.status_code == 200
+    assert second.json()["total"] == base_total + 1 and len(second.json()["items"]) == 1
+    global_all = await httpx_client.get(
+        f"{BASE}/candidates?limit={base_total + 5}&offset=0",
+        headers=headers(super_admin),
+    )
+    assert str(target.id) in {
+        item["location_id"] for item in global_all.json()["items"]
+    }
 
 
 async def test_nonadministrator_cannot_probe_or_apply(
@@ -425,40 +441,141 @@ async def test_confirmation_cannot_be_replayed_and_return_to_legacy_is_reviewed(
     assert response.json()["location_id"] == str(LEGACY_LOCATION_ID)
 
 
-async def test_history_counts_all_responsibilities_and_only_task_creations(db_session):
-    from sqlalchemy import text
-
-    tables = (
-        "task_originals",
-        "managed_original_creations",
-        "raster_mask_objects",
-        "comment_attachment_uploads",
-        "guide_asset_uploads",
+async def test_history_counts_all_responsibilities_and_only_task_creations(
+    db_session, super_admin
+):
+    from tests.test_storage_maintenance_targets import (
+        NOW,
+        SHA,
+        dataset as seed_dataset,
+        insert,
+        location as seed_location,
+        root,
+        saved_creation,
+        saved_ref,
     )
-    try:
-        for table in tables:
-            await db_session.execute(
-                text(f'CREATE TEMP TABLE "{table}" (status text, owner_kind text)')
-            )
-            await db_session.execute(
-                text(
-                    f'INSERT INTO "{table}" (status, owner_kind) VALUES '
-                    "('pending', 'task'), ('ready', 'task'), ('retired', 'task')"
-                )
-            )
-        await db_session.execute(
-            text(
-                "INSERT INTO managed_original_creations (status, owner_kind) VALUES "
-                "('allocated', 'dataset'), ('failed', 'dataset_auxiliary')"
-            )
+    from app.db.models.task import Task
+    from tests.factory import create_project
+
+    db = db_session
+    before = await controller().history(db)
+    await ensure_legacy_bindings(db)
+    loc = await seed_location(db)
+    project = await create_project(db, owner_id=super_admin[0].id)
+    business = await seed_dataset(db, super_admin[0])
+    task = Task(
+        project_id=project.id,
+        display_id="H-" + uuid.uuid4().hex[:16],
+        file_name="h.png",
+        file_path="h.png",
+    )
+    db.add(task)
+    await db.flush()
+    owner_id = super_admin[0].id
+    for state in ("pending", "ready", "retired"):
+        task_creation = await saved_creation(
+            db, loc, project, task, business, kind="task", staging=loc
         )
-        assert await controller().history(db_session) == {
-            "task_originals": 3,
-            "creation_allocations": 3,
-            "raster_mask_objects": 3,
-            "comment_attachments": 3,
-            "guide_assets": 3,
-        }
-    finally:
-        for table in tables:
-            await db_session.execute(text(f'DROP TABLE IF EXISTS pg_temp."{table}"'))
+        await insert(
+            db,
+            "task_originals",
+            id=task_creation["id"],
+            creation_id=task_creation["id"],
+            project_id=project.id,
+            task_id=task.id,
+            location_id=loc.id,
+            bucket=task_creation["bucket"],
+            object_key=task_creation["object_key"],
+            storage_identity=task_creation["storage_identity"],
+            storage_ref=task_creation["configuration"]["original_ref"],
+            sha256=SHA,
+            size_bytes=1,
+            etag=task_creation["etag"],
+            created_at=NOW,
+        )
+        mask_id = uuid.uuid4()
+        mask_sha = uuid.uuid4().hex + uuid.uuid4().hex
+        await insert(
+            db,
+            "raster_mask_objects",
+            id=mask_id,
+            state=state,
+            logical_key=f"raster-masks/sha256/{mask_sha[:2]}/{mask_sha[2:4]}/{mask_sha}.json",
+            canonical_sha256=mask_sha,
+            canonical_size_bytes=1,
+            height=1,
+            width=1,
+            runs=1,
+            storage_encoding="identity",
+            stored_sha256=mask_sha,
+            stored_size_bytes=1,
+            created_at=NOW,
+            published_at=NOW if state == "ready" else None,
+            last_used_at=NOW if state == "ready" else None,
+            retired_at=NOW if state == "retired" else None,
+            storage_ref=saved_ref(
+                loc,
+                "annotations",
+                key_prefix=root("annotations"),
+                object_key=root("annotations") + f"raster-masks/objects/{mask_id}.json",
+            ),
+        )
+        comment_id = uuid.uuid4()
+        annotation_id = uuid.uuid4()
+        await insert(
+            db,
+            "comment_attachment_uploads",
+            id=comment_id,
+            state=state,
+            owner_id=owner_id,
+            project_id=project.id,
+            task_id=task.id,
+            annotation_id=annotation_id,
+            sha256=SHA,
+            size_bytes=1,
+            mime_type="image/png",
+            file_name="comment.png",
+            created_at=NOW,
+            expires_at=NOW + timedelta(hours=2160),
+            retired_at=NOW if state == "retired" else None,
+            storage_ref=saved_ref(
+                loc,
+                "annotations",
+                key_prefix=root("annotations"),
+                object_key=root("annotations")
+                + f"comment-attachments/{annotation_id}/{comment_id}",
+            ),
+        )
+        guide_id = uuid.uuid4()
+        await insert(
+            db,
+            "guide_asset_uploads",
+            id=guide_id,
+            state=state,
+            owner_id=owner_id,
+            project_id=project.id,
+            sha256=SHA,
+            size_bytes=1,
+            mime_type="image/png",
+            file_name="guide.png",
+            created_at=NOW,
+            retired_at=NOW if state == "retired" else None,
+            storage_ref=saved_ref(
+                loc,
+                "annotations",
+                key_prefix=root("annotations"),
+                object_key=root("annotations")
+                + f"projects/{project.id}/guide/{guide_id}",
+            ),
+        )
+    await saved_creation(db, loc, project, task, business, kind="dataset")
+    await saved_creation(db, loc, project, task, business, kind="dataset_auxiliary")
+    await db.flush()
+    after = await controller().history(db)
+    assert {key: after[key] - before[key] for key in HISTORY} == {
+        "task_originals": 3,
+        "creation_allocations": 3,
+        "raster_mask_objects": 3,
+        "comment_attachments": 3,
+        "guide_assets": 3,
+    }

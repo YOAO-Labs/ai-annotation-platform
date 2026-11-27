@@ -67,12 +67,14 @@ async def test_cancel_probe_without_job_id_does_not_query():
 @pytest.mark.asyncio
 async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
     run_id, job_id = uuid.uuid4(), uuid.uuid4()
-    run = SimpleNamespace(id=run_id, async_job_id=job_id)
+    run_row = {"id": str(run_id), "async_job_id": str(job_id)}
     job = SimpleNamespace(celery_task_id="quality-task")
     lease = SimpleNamespace(job_id=job_id, execution_id="quality-task")
-    db = Mock(get=AsyncMock(return_value=run))
+    db = Mock()
+    spatial = AsyncMock(return_value={"row": run_row})
     get_job = AsyncMock(return_value=job)
     dispatcher = Mock()
+    monkeypatch.setattr(quality_service, "spatial_quality_data", spatial)
     monkeypatch.setattr(quality_service, "get_job", get_job)
     monkeypatch.setattr(
         quality_service, "publish_prepared_dispatch", _publish_prepared_dispatch
@@ -88,7 +90,7 @@ async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
 
     assert get_job.await_args.args == (db, job_id)
     assert get_job.await_args.kwargs == {}
-    db.get.assert_awaited_once_with(PointCloudQualityRun, run_id)
+    spatial.assert_awaited_once_with(db, "get_point_run", run_id=run_id)
     dispatcher.dispatch_run.assert_called_once_with(
         "point_cloud_quality", run_id, execution_id="quality-task"
     )
@@ -117,7 +119,7 @@ async def test_dispatch_uses_facade_and_preserves_errors(monkeypatch):
         )
     assert failed.value.status_code == 503
     assert failed.value.detail["reason"] == "point_cloud_quality_dispatch_failed"
-    assert db.get.await_args_list == [call(PointCloudQualityRun, run_id)] * 3
+    assert spatial.await_args_list == [call(db, "get_point_run", run_id=run_id)] * 3
 
 
 @pytest.mark.asyncio

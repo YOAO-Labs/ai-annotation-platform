@@ -519,9 +519,12 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
     async def no_dispatch(*_args, **_kwargs):
         pass
 
+    async def fake_enqueue(_db, version, *_args, **_kwargs):
+        return version
+
     monkeypatch.setattr(frozen_datasets, "prepare_selection", prepare)
     monkeypatch.setattr(frozen_datasets, "finalize_selection", finalize)
-    monkeypatch.setattr(frozen_datasets, "enqueue_dataset", no_dispatch)
+    monkeypatch.setattr(frozen_datasets, "enqueue_dataset", fake_enqueue)
     monkeypatch.setattr(frozen_datasets, "dispatch_dataset", no_dispatch)
     headers = {"Authorization": f"Bearer {token}"}
     path = f"/api/v1/projects/{project.id}/training-datasets"

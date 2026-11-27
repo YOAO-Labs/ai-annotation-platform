@@ -5,9 +5,11 @@ from __future__ import annotations
 from contextlib import AsyncExitStack, contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import os
 import threading
 import uuid
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -65,6 +67,8 @@ async def test_env_sync_uses_safe_defaults_and_preserves_existing_claims(
     test_engine,
     monkeypatch,
 ) -> None:
+    if not os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID"):
+        pytest.skip("requires verified disposable module-data resources")
     await assert_owned_test_database(test_engine)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     owner = await _connect(test_engine)

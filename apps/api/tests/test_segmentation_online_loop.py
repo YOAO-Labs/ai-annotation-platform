@@ -28,12 +28,7 @@ from training_contract.dataset import (
     SEGMENTATION_CONTRACT,
 )
 from training_contract.initialization import PIN_KEYS
-from tests.trainer_plugin_fixtures import (
-    POLICY_DIGEST,
-    SEGMENTATION_POLICY_DIGEST,
-    SEGMENTATION_RUNTIME,
-    ultralytics_schema,
-)
+from tests.trainer_plugin_fixtures import ultralytics_schema
 
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem
@@ -250,7 +245,7 @@ def report_for(run, weights):
         "validation_digest": run.config["validation_digest"],
         "evaluation": {
             "framework": "ultralytics",
-            "version": "8.4.177",
+            "version": run.config["framework_version"],
             "task": "instance-segmentation",
         },
         "summary": {**metrics, "fitness": 1.3},
@@ -279,7 +274,7 @@ def report_for(run, weights):
             },
             "evaluator": {
                 "framework": "ultralytics",
-                "version": "8.4.177",
+                "version": run.config["framework_version"],
                 "task": "instance-segmentation",
                 "implementation": "training_executor.instance_rle.InstanceRLEValidator",
                 "source_sha256": "6" * 64,
@@ -364,7 +359,7 @@ async def seed_run(db, owner, project, dataset, objects, *, segment=True):
             "torchvision": "0.29.1+cu132",
             "cuda": "13.2",
             "image_digest": config["image_digest"],
-            "frameworks": {"ultralytics": "8.4.177"},
+            "frameworks": {"ultralytics": config["framework_version"]},
         },
     )
     db.add(attempt)
@@ -496,6 +491,7 @@ async def register(client, source, *, bindings=None):
 
 def prediction(ref, task_id, rle):
     reference = build_rle_reference(rle)
+    runtime = ref["runtime_qualification"]
     return ModelTaskResult(
         task_id=str(task_id),
         score=0.8,
@@ -519,9 +515,9 @@ def prediction(ref, task_id, rle):
             "segmentation": {
                 "output_contract": ref["output_contract"],
                 "dimensions": rle["size"],
-                "runtime_qualification": SEGMENTATION_RUNTIME,
-                "mask_processing": SEGMENTATION_RUNTIME["mask_processing"],
-                "decoder": SEGMENTATION_RUNTIME["decoder"],
+                "runtime_qualification": runtime,
+                "mask_processing": runtime["mask_processing"],
+                "decoder": runtime["decoder"],
             },
         },
     )
@@ -668,6 +664,7 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
         training_authority=bind_training_authority(db_session),
         force=True,
     )
+    await db_session.refresh(policy)
     assert policy.baseline_dataset_id == s.parent.id
     assert policy.baseline == semantic_partitions(s.parent.manifest)
     assert policy.config["bridge"] == INSTANCE_RLE_CONTRACT["bridge"]
@@ -801,6 +798,7 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
         training_authority=bind_training_authority(db_session),
         force=True,
     )
+    await db_session.refresh(policy)
     assert policy.state == "suspended" and not policy.enabled
 
 
@@ -859,9 +857,16 @@ async def test_registration_report_identity_and_task_specific_initialization_ser
     assert response.status_code == 200 and response.json()["eligible"], response.text
     pin = response.json()["pin"]
     assert set(pin) == PIN_KEYS | {"data_contract"}
-    assert (
-        pin["task"] == "segment" and pin["policy_digest"] == SEGMENTATION_POLICY_DIGEST
+    expected_policy_digest = content_digest(
+        {
+            "framework": "ultralytics",
+            "framework_version": s.run.config["framework_version"],
+            "task": "segment",
+            "model_family": s.run.config["base_model"]["family"],
+            "base_model": "yolo11n-seg",
+        }
     )
+    assert pin["task"] == "segment" and pin["policy_digest"] == expected_policy_digest
     assert pin["data_contract"] == INSTANCE_RLE_CONTRACT
     assert pin["evaluation"]["report_digest"] == content_digest(valid_report)
     assert pin["evaluation"]["normalized_model_digest"] == content_digest(
@@ -896,7 +901,16 @@ async def test_registration_report_identity_and_task_specific_initialization_ser
     )
     assert legacy.status_code == 200 and legacy.json()["eligible"], legacy.text
     old_pin = legacy.json()["pin"]
-    assert set(old_pin) == PIN_KEYS and old_pin["policy_digest"] == POLICY_DIGEST
+    detect_policy_digest = content_digest(
+        {
+            "framework": "ultralytics",
+            "framework_version": run.config["framework_version"],
+            "task": "detect",
+            "model_family": run.config["base_model"]["family"],
+            "base_model": "yolo11n",
+        }
+    )
+    assert set(old_pin) == PIN_KEYS and old_pin["policy_digest"] == detect_policy_digest
     assert set(old_pin["evaluation"]) == {
         "report_sha256",
         "report_digest",

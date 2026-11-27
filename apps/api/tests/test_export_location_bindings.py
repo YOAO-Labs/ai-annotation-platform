@@ -398,9 +398,10 @@ async def test_media_and_paired_zip_retain_saved_target_across_later_switch(
 async def test_schema2_saved_reference_is_immutable(external_db, kind):
     db, location, _, _ = external_db
     if kind == "zip":
-        values = vars(
-            record(storage_ref=external_reference(location_id=str(location.id)))
+        values = dict(
+            vars(record(storage_ref=external_reference(location_id=str(location.id))))
         )
+        values.pop("fixture", None)
         row = ExportOutput(**values, state="pending")
     else:
         project_id, frozen, logical = inputs(tasks=1)

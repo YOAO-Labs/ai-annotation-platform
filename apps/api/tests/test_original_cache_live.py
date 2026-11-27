@@ -144,7 +144,10 @@ async def test_actual_minio_copy_read_and_worker_recovery(
     monkeypatch.setattr(cache, "make_storage", _STORAGE)
     async with test_engine.connect() as connection:
         schema = await connection.scalar(text("SELECT current_schema()"))
-    assert schema.startswith("storage_migration_test_")
+        database = await connection.scalar(text("SELECT current_database()"))
+    assert schema.startswith("storage_migration_test_") or database.startswith(
+        "aap_managed_"
+    )
     queue = f"original-cache-test-{uuid.uuid4().hex}"
     node = f"{queue}@local"
     app = _owned_app()

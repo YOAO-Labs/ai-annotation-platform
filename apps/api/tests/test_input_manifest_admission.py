@@ -352,6 +352,15 @@ async def test_scene_mode_image_dataset_task_uses_retained_manifest(
     item = await db_session.get(DatasetItem, item_id)
     item.scene_id = scene.id
     item.frame_index = 7
+    from app.services.dataset_assets import register_item_asset
+    import hashlib
+
+    await register_item_asset(
+        db_session,
+        item,
+        sha256=hashlib.sha256(b"scene-image-bytes").hexdigest(),
+        size_bytes=len(b"scene-image-bytes"),
+    )
     task = tasks[0]
     task.dataset_item_id = item.id
     task.file_path = item.file_path

@@ -77,6 +77,8 @@ async def test_rules_preserve_task_content_and_invalidate_preflight_and_plan(
     assert impact["counts"]["leaving_scope"] == 1
     await apply(db, world, value, impact)
     await db.commit()
+    await db.refresh(world[5])
+    await db.refresh(row)
     assert world[5].config["relative_path"] == original_config["relative_path"]
     assert (
         not row.enabled
@@ -90,6 +92,7 @@ async def test_rules_preserve_task_content_and_invalidate_preflight_and_plan(
         SourceSyncScheduleUpdate(expected_revision=row.revision, enabled=True),
         world[2],
     )
+    await db.refresh(row)
     assert row.state == "idle"
     r = await httpx_client.get(
         f"/api/v1/files/tasks/{task.id}/content",
@@ -160,6 +163,7 @@ async def test_paging_and_reentry_preserve_binding_identity(db_session, content_
     assert first["proof"] == second["proof"] and first["total"] == 3
     assert first["items"][0]["path_digest"] != second["items"][0]["path_digest"]
     await apply(db, world, value, first)
+    await db.refresh(world[5])
     reopen = payload(world)
     impact = await rules.preview(db, world[5].id, reopen, world[2])
     assert impact["counts"]["entering_scope"] == 3

@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 import json
 import uuid
 
@@ -29,6 +30,10 @@ class _AdaptedError(Exception):
 
 
 class _Database:
+    @asynccontextmanager
+    async def begin_nested(self):
+        yield
+
     async def scalar(self, *_args, **_kwargs):
         raise DBAPIError("SELECT", {}, _AdaptedError(_AsyncpgError()), False)
 

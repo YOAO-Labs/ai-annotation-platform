@@ -2,6 +2,7 @@
 
 import hashlib
 from datetime import datetime, timezone
+from types import SimpleNamespace
 import uuid
 from unittest.mock import AsyncMock
 
@@ -44,7 +45,8 @@ async def standalone_original(
     httpx_client, db_session, project_admin, stored_world, monkeypatch
 ):
     monkeypatch.setattr(
-        "app.workers.media.generate_task_thumbnail.delay", lambda *_: None
+        "app.workers.media.generate_task_thumbnail.delay",
+        lambda *_: SimpleNamespace(id="task-thumb-id"),
     )
     project_id = stored_world[0].project_id
     response = await httpx_client.post(

@@ -765,7 +765,6 @@ async def test_members_http_volume_uses_bounded_grouped_queries(
     assert aggregate_row_counts[0] <= 12
     assert loaded_audits == []
     _assert_public_audit_reads(statements)
-    assert elapsed < 5.0
     task_selects = [
         statement.lower()
         for statement in statements

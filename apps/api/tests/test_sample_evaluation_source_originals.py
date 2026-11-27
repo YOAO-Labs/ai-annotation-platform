@@ -276,7 +276,9 @@ async def test_standalone_task_uses_published_original_without_a_dataset_or_curr
     await world.db.commit()
     world.client.store(allocation["staging_bucket"], allocation["staging_key"], raw)
     created = await creation.complete_direct(world.db, allocation)
-    await task_originals.publish(world.db, task, allocation, created)
+    await task_originals.publish(
+        world.db, task, allocation, created, actor_id=world.manager.id
+    )
     task.status = "pending"
     await world.db.commit()
     provider = Objects().install(monkeypatch)

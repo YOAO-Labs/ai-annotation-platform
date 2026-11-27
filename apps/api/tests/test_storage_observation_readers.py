@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 
 from app.db.models.storage_observation_rate import StorageObservationBucket as Bucket
 from app.services import dataset_content as content, dataset_references as references
-from app.services import reference_storage, storage_fault_events as faults
+from app.services import storage_fault_events as faults
 from app.services import storage_observation_rates as rates
 from app.services.content_snapshot import ContentError
 from tests.test_dataset_content import content_world as content_world
@@ -155,9 +155,11 @@ async def test_fault_history_failure_does_not_drop_independent_read_failure(
 async def test_cancelled_actual_read_drains_and_never_counts(
     rate_world, db_session, test_engine, monkeypatch
 ):
+    from app.services import filesystem_storage
+
     w = rate_world
     opened, release = threading.Event(), threading.Event()
-    original = reference_storage.content_file
+    original = filesystem_storage.content_file
 
     @contextmanager
     def blocked(*args, **kwargs):
@@ -166,7 +168,7 @@ async def test_cancelled_actual_read_drains_and_never_counts(
             assert release.wait(10)
             yield result
 
-    monkeypatch.setattr(reference_storage, "content_file", blocked)
+    monkeypatch.setattr(filesystem_storage, "content_file", blocked)
     pending = asyncio.create_task(scan(db_session, w))
     try:
         assert await asyncio.to_thread(opened.wait, 10)

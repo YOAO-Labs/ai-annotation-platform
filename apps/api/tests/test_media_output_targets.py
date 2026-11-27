@@ -180,17 +180,20 @@ async def test_saved_b_transport_rotation_and_disabled_cleanup_use_real_metadata
         connection_id=connection.id,
         enabled=True,
     )
-    db.add_all([connection, location])
+    db.add(connection)
+    await db.flush()
+    db.add(location)
     await db.commit()
     output = SimpleNamespace(id=identifier, storage_ref=ref)
     original = deepcopy(ref)
     first = await storage.transport_target(db, output)
-    assert first._access.secret_enc == b"saved-output-credentials"
+    assert first.is_registered and first._access is None
+    assert first.config_revision == first.connection_revision == 2
     connection.secret_enc = b"rotated-output-credentials"
     connection.revision = location.config_revision = 3
     await db.commit()
     current = await storage.transport_target(db, output)
-    assert current._access.secret_enc == b"rotated-output-credentials"
+    assert current.is_registered and current._access is None
     assert current.config_revision == current.connection_revision == 3
     assert output.storage_ref == original and original["config_revision"] == 2
     location.enabled = False

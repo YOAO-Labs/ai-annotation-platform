@@ -110,8 +110,20 @@ async def test_relocation_restores_same_task_and_labels_across_path_local_number
         assert again["item_id"] == item_id and not again["created"]
     assert (await db.get(DatasetReference, item_id)).run_id == original_run_id
     assert (await db.get(DatasetItem, item_id)).metadata_ == meta
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
-    assert await db.scalar(select(func.count()).select_from(Task)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == world[3].id)
+        )
+        == 1
+    )
+    assert (
+        await db.scalar(
+            select(func.count()).select_from(Task).where(Task.project_id == project.id)
+        )
+        == 1
+    )
     labels = await httpx_client.get(
         f"/api/v1/tasks/{task_id}/annotations", headers=headers(annotator)
     )

@@ -9,7 +9,6 @@ import pytest
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 from app.services import managed_original_retirement as retirement
 from app.services import managed_original_verification as verification
-from app.services.managed_original_probe import ProbeResult
 from app.workers import managed_original_verification as worker
 from tests.test_dataset_original_reads import saved_db as saved_db, saved_item
 
@@ -70,10 +69,15 @@ async def test_retirement_fingerprint_ignores_credential_rotation_and_transport_
     await db.commit()
     after = await verification.observe(db, anchor.id)
     assert before["fingerprint"] == after["fingerprint"]
+    from app.services import dataset_storage
+
     row = SimpleNamespace(anchor=after["anchor"], configuration=after["configuration"])
     options = await verification.probe_options(db, row)
-    target = options["client_context"].func.__self__
-    assert target._access.secret_enc == b"encrypted-rotated"
+    assert options == {"registered": True}
+    target = await dataset_storage.target_for_ref(
+        db, after["configuration"]["saved_ref"]
+    )
+    assert target.is_registered and target._access is None
     assert target.config_revision == 3
     assert after["configuration"]["saved_ref"]["config_revision"] == 2
 
@@ -100,8 +104,12 @@ async def test_retirement_candidate_must_prove_saved_hash_and_controlled_root(
 
 async def test_existing_worker_routes_b_location_and_probe_sidecar(monkeypatch):
     location_id, job_id = uuid.uuid4(), uuid.uuid4()
+    from app.services import saved_media_io
+
+    verification_id = uuid.uuid4()
+    permit = SimpleNamespace(id=uuid.uuid4())
     row = SimpleNamespace(
-        id=uuid.uuid4(),
+        id=verification_id,
         maintenance_revision=4,
         anchor={
             "location_id": str(location_id),
@@ -113,27 +121,41 @@ async def test_existing_worker_routes_b_location_and_probe_sidecar(monkeypatch):
         expected_sha256="b" * 64,
         expected_size_bytes=7,
     )
+    captured = {}
 
-    def context():
-        return None
+    def fake_command(action, subject, *, timeout):
+        captured["action"] = action
+        captured["subject"] = subject
+        captured["timeout"] = timeout
+        return {
+            "outcome": "matched",
+            "error_code": None,
+            "observed_sha256": row.expected_sha256,
+            "observed_size": 7,
+        }
+
+    async def fake_run(
+        db_arg, loc_arg, purpose_arg, fn, *, expected_revision, timeout, on_acquired
+    ):
+        captured["run"] = (loc_arg, purpose_arg, expected_revision, timeout)
+        await on_acquired(permit)
+        return fn()
 
     monkeypatch.setattr(verification, "claim", AsyncMock(return_value=row))
+    monkeypatch.setattr(verification, "acquired", AsyncMock())
     monkeypatch.setattr(
         verification,
         "probe_options",
-        AsyncMock(
-            return_value={"client_context": context},
-        ),
+        AsyncMock(return_value={"registered": True}),
     )
-    result = ProbeResult("matched", None, row.expected_sha256, 7)
-    run = AsyncMock(return_value=result)
-    monkeypatch.setattr(worker.storage_access, "run", run)
+    monkeypatch.setattr(saved_media_io, "command", fake_command)
+    monkeypatch.setattr(worker.storage_access, "run", fake_run)
     monkeypatch.setattr(verification, "publish", AsyncMock(return_value=True))
     monkeypatch.setattr(worker, "notify_job_terminal", AsyncMock())
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
     assert await worker.execute(db, job_id, "saved-task")
-    args, kwargs = run.call_args
-    assert args[1] == location_id
-    assert args[4].endpoint_url == "https://objects.example.test"
-    assert args[4].bucket == "saved-bucket" and args[4].object_key == "saved/key"
-    assert kwargs["client_context"] is context and kwargs["expected_revision"] == 4
+    assert captured["run"][0] == location_id
+    assert captured["run"][1] == "managed_original_verification"
+    assert captured["run"][2] == 4
+    assert captured["action"] == "retired-original-verify"
+    assert captured["subject"] == saved_media_io.subject(verification_id, permit)

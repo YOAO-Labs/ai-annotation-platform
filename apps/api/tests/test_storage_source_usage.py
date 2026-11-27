@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import delete, event, select
 
 from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.dataset_asset import DatasetAsset
+from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_source import (
     DatasetScanEntry,
     DatasetSourceItem,
@@ -242,9 +242,10 @@ async def test_revision_settings_and_inactive_state_preserve_saved_scale(
     db_session, accepted
 ):
     db, world = db_session, accepted
-    world[4].config_revision += 1
+    location_row = await db.get(StorageLocation, world[4].id)
+    location_row.config_revision += 1
     world[5].config_revision += 1
-    world[4].enabled = False
+    location_row.enabled = False
     world[5].enabled = False
     world[5].unregistered_at = datetime.now(timezone.utc)
     (world[0] / "图片 空格.png").unlink()
@@ -359,7 +360,8 @@ async def test_conflicting_current_heads_exclude_group_but_not_other_files(
 async def test_scope_is_applied_before_aggregation(db_session, accepted, project_admin):
     db, world = db_session, accepted
     second = await duplicate_fs(db, world)
-    world[4].config = {**world[4].config, "scope": "global"}
+    location_row = await db.get(StorageLocation, world[4].id)
+    location_row.config = {**location_row.config, "scope": "global"}
     world[3].created_by = project_admin[0].id
     await db.commit()
     limited = await read_usage(db, world[4], project_admin[0])

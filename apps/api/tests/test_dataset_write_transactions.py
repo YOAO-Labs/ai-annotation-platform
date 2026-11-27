@@ -376,7 +376,15 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     def transport(self, *, read_timeout=None):
         yield physical
 
+    from app.services import managed_s3_target, saved_media_io
+
+    monkeypatch.setattr(saved_media_io, "registered", lambda _target: False)
     monkeypatch.setattr(S3Access, "client", transport)
+    monkeypatch.setattr(
+        managed_s3_target.Target,
+        "client",
+        contextmanager(lambda self, **kwargs: (yield physical)),
+    )
     loop = asyncio.get_running_loop()
     observed = []
 

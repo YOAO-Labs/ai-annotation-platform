@@ -189,6 +189,8 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
     elif change == "split":
         groups = manifest["input_membership"]["members"]
         groups["train"][0], groups["val"][0] = groups["val"][0], groups["train"][0]
+    from tests.trainer_plugin_fixtures import build_v3_receipt
+
     spec, calls, bodies, saved_owner = stored_manifest(
         monkeypatch, run, attempt, manifest
     )
@@ -197,17 +199,47 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
     )
     if change == "role":
         spec["role"] = "log"
+    extra_artifacts = {
+        f"artifact-{role}": {
+            "name": f"artifact-{role}",
+            "role": role,
+            "sha256": "d" * 64,
+            "size_bytes": 3,
+        }
+        for role in ("weights", "checkpoint", "metrics", "config", "log")
+    }
+    receipt_raw, _ = build_v3_receipt(
+        extra_artifacts, framework=run.config.get("framework", "ultralytics")
+    )
+    receipt_key = service.artifact_key(saved_owner, attempt.id, "result.json")
+    receipt_spec = {
+        "name": "result.json",
+        "role": "config",
+        "key": receipt_key,
+        "sha256": hashlib.sha256(receipt_raw).hexdigest(),
+        "size_bytes": len(receipt_raw),
+    }
+    original_get_object = training_artifacts.storage.client.get_object
+
+    def get_object_with_receipt(**kwargs):
+        if kwargs.get("Key") == receipt_key:
+            calls.append(kwargs)
+            body = io.BytesIO(receipt_raw)
+            bodies.append(body)
+            return {
+                "Body": body,
+                "Metadata": {"attempt-id": str(attempt.id)},
+                "ContentLength": len(receipt_raw),
+            }
+        return original_get_object(**kwargs)
+
+    monkeypatch.setattr(
+        training_artifacts.storage.client, "get_object", get_object_with_receipt
+    )
     attempt.upload_inventory = {
         "manifest.json": spec,
-        **{
-            f"artifact-{role}": {
-                "name": f"artifact-{role}",
-                "role": role,
-                "sha256": "d" * 64,
-                "size_bytes": 3,
-            }
-            for role in ("weights", "checkpoint", "metrics", "config", "log")
-        },
+        "result.json": receipt_spec,
+        **extra_artifacts,
     }
     original_verify = service.verify_artifact
     monkeypatch.setattr(service, "verify_artifact", lambda *args, **kwargs: None)

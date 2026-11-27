@@ -72,7 +72,12 @@ async def test_pending_worker_flush_failure_rolls_back_before_publication(writer
     db.scalar.assert_not_awaited()
 
 
-async def test_worker_cannot_publish_with_denied_native_policy(writer_scope):
+async def test_worker_cannot_publish_with_denied_native_policy(
+    writer_scope, monkeypatch
+):
+    import asyncio
+
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     db, proof = writer_scope
     transaction = SimpleNamespace(is_active=True)
     db.get_transaction = lambda: transaction
@@ -88,11 +93,10 @@ async def test_worker_cannot_publish_with_denied_native_policy(writer_scope):
         )
     assert str(proof.lease_token) not in str(failure.value)
     db.commit.assert_awaited_once()
-    assert db.connection.await_count == 2
+    assert db.connection.await_count == 6
     assert [call.args[1]["action"] for call in db.scalar.await_args_list] == [
-        "policy",
-        "policy",
-    ]
+        "policy"
+    ] * 6
 
 
 async def test_repeated_writer_contention_keeps_exact_held_command(

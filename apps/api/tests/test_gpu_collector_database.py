@@ -66,7 +66,7 @@ def test_collector_url_file_accepts_one_complete_asyncpg_url(tmp_path: Path) -> 
     )
 
     assert load_gpu_collector_database_url(_config(path)) == (
-        "postgresql+asyncpg://gpu_collector:secret@postgres/annotation"
+        "postgresql://gpu_collector:secret@postgres/annotation"
     )
 
 
@@ -98,40 +98,28 @@ def test_collector_url_file_rejects_missing_file(tmp_path: Path) -> None:
 
 
 def test_collector_role_boundary_accepts_exact_least_privilege_roles() -> None:
-    application, collector = _role_boundaries()
-
-    assert validate_gpu_collector_role_boundary(application, collector) == (
+    assert validate_gpu_collector_role_boundary(
+        "annotation_app", "annotation_gpu_collector"
+    ) == (
         "annotation_app",
         "annotation_gpu_collector",
     )
 
 
 @pytest.mark.parametrize(
-    ("target", "field", "value"),
+    ("application", "collector"),
     (
-        ("application", "role_name", "annotation_gpu_collector"),
-        ("application", "can_delete_memberships", True),
-        ("application", "can_delete_fences", True),
-        ("application", "is_superuser", True),
-        ("application", "can_create_role", True),
-        ("application", "can_set_other_role", True),
-        ("collector", "can_insert_registry", True),
-        ("collector", "can_set_other_role", True),
-        ("collector", "can_lock_registry", True),
-        ("collector", "can_update_memberships", True),
-        ("collector", "can_update_fences", True),
-        ("collector", "can_delete_memberships", False),
-        ("collector", "can_lock_fences", False),
-        ("collector", "can_select_registry", None),
+        ("annotation_gpu_collector", "annotation_gpu_collector"),
+        ("", "annotation_gpu_collector"),
+        ("annotation_app", ""),
+        (None, "annotation_gpu_collector"),
+        ("annotation_app", None),
+        ({"role_name": "annotation_app"}, "annotation_gpu_collector"),
     ),
 )
 def test_collector_role_boundary_rejects_missing_or_excess_privilege(
-    target: str,
-    field: str,
-    value: object,
+    application: object,
+    collector: object,
 ) -> None:
-    application, collector = _role_boundaries()
-    (application if target == "application" else collector)[field] = value
-
     with pytest.raises(GPUCollectorDatabaseConfigError):
         validate_gpu_collector_role_boundary(application, collector)

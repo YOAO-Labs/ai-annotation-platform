@@ -142,6 +142,9 @@ async def test_verify_counts_once_without_nested_load(monkeypatch):
         execute=AsyncMock(return_value=SimpleNamespace(scalar_one=lambda: True))
     )
     monkeypatch.setattr(
+        storage_module, "begin_mask_content_write", AsyncMock(return_value={})
+    )
+    monkeypatch.setattr(
         "app.services.raster_mask_objects.bind_publications", AsyncMock()
     )
     verify_before = _counter_value(

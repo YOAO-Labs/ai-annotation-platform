@@ -165,6 +165,8 @@ async def test_two_sources_at_same_location_keep_distinct_responsibility(
             SourceExternalProtectionUpdate(**payload(responsible_party=party)),
             actor,
         )
+    await db_session.refresh(first)
+    await db_session.refresh(second)
     assert first.external_protection["responsible_party"] == "team-a"
     assert second.external_protection["responsible_party"] == "team-b"
 
@@ -222,7 +224,8 @@ async def test_owner_or_location_revocation_denies_update(
 ):
     world, _ = managed_world
     source = world[5]
-    world[4].config = {**world[4].config, "use_user_ids": []}
+    location_row = await db_session.get(StorageLocation, world[4].id)
+    location_row.config = {**location_row.config, "use_user_ids": []}
     await db_session.commit()
     response = await httpx_client.put(
         url(source), headers=headers(project_admin), json=payload()

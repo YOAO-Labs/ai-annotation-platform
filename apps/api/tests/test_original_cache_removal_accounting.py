@@ -10,7 +10,6 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, event, select
-from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.models.original_cache import (
@@ -388,20 +387,18 @@ async def test_business_delete_failure_does_not_rollback_completed_physical_fact
     removal_world,
 ):
     world = removal_world
+    sync_engine = world.factory.kw["bind"].sync_engine
 
-    def refuse_business_delete(session, *args):
-        if any(
-            isinstance(row, Entry) and row.id == world.entry.id
-            for row in session.deleted
-        ):
+    def refuse_business_delete(_conn, _cursor, statement, *_args):
+        if "finish_original_cache_cleanup" in statement:
             raise RuntimeError("business publication refused")
 
-    event.listen(Session, "before_flush", refuse_business_delete)
+    event.listen(sync_engine, "before_cursor_execute", refuse_business_delete)
     try:
         with pytest.raises(RuntimeError, match="business publication refused"):
             await cache.purge(world.factory, world.entry.id)
     finally:
-        event.remove(Session, "before_flush", refuse_business_delete)
+        event.remove(sync_engine, "before_cursor_execute", refuse_business_delete)
     assert (await mutations(world))[0].current_delta_bytes == -len(world.data)
     assert await current_entry(world) is not None
 
@@ -534,6 +531,12 @@ async def test_actual_minio_production_purge_keeps_original_versions_and_current
                 client.put_bucket_versioning,
                 Bucket=bucket,
                 VersioningConfiguration={"Status": "Enabled"},
+            )
+        else:
+            await asyncio.to_thread(
+                client.put_bucket_versioning,
+                Bucket=bucket,
+                VersioningConfiguration={"Status": "Suspended"},
             )
         response = await asyncio.to_thread(
             client.put_object, Bucket=bucket, Key=key, Body=world.data

@@ -478,6 +478,7 @@ def test_pointmask_aggregate_index_budget_counts_duplicates_and_all_annotations(
     monkeypatch,
 ):
     monkeypatch.setattr(pcd, "MAX_POINTMASK_INDICES", 3)
+    monkeypatch.setattr(lidar, "MAX_POINTMASK_INDICES", 3)
     with pytest.raises(ValueError, match="pointmask_index_budget_exceeded"):
         lidar.build_pointmask_label_bytes(
             [annotation([1, 1]), annotation([1, 1])],

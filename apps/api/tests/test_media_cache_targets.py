@@ -56,6 +56,22 @@ async def switch(db, monkeypatch):
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
     )
+    owner_id = db.info.get("owner_id")
+    if owner_id is None:
+        owner_id = await db.scalar(select(User.id).limit(1))
+        if owner_id is None:
+            owner = User(
+                id=uuid.uuid4(),
+                name="Media cache switch owner",
+                email=f"media-cache-switch-{uuid.uuid4().hex}@example.test",
+                password_hash="unused",
+                role="project_admin",
+                is_active=True,
+            )
+            db.add(owner)
+            await db.flush()
+            owner_id = owner.id
+        db.info["owner_id"] = owner_id
     connection = StorageConnection(
         id=uuid.uuid4(),
         name="cache B",
@@ -68,7 +84,7 @@ async def switch(db, monkeypatch):
             "use_ssl": True,
         },
         secret_enc=encrypt_secret({"access_key": "private", "secret_key": "private"}),
-        created_by=db.info["owner_id"],
+        created_by=owner_id,
     )
     db.add(connection)
     await db.flush()

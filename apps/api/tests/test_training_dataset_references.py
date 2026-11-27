@@ -8,6 +8,7 @@ import uuid
 import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 import pytest
 from sqlalchemy import delete, select
@@ -756,8 +757,31 @@ async def test_real_s3_reference_source_enters_training_freeze(
                 Body=picture(color),
             )
             originals[name] = written.get("VersionId")
+        from tests.reference_provider_fixture import use_provider
+        from yoao_assets_source_runtime import reference_readers as backend
+
         location = await storage_location.register_connection(db, connection)
         await db.commit()
+        use_provider(
+            monkeypatch,
+            location.id,
+            lambda: backend.S3Reader(
+                dict(connection.config),
+                {
+                    "access_key": settings.minio_access_key,
+                    "secret_key": settings.minio_secret_key,
+                },
+                (
+                    "127.0.0.1/32",
+                    "::1/128",
+                    urlsplit(
+                        settings.minio_endpoint
+                        if "://" in settings.minio_endpoint
+                        else "http://" + settings.minio_endpoint
+                    ).hostname,
+                ),
+            ),
+        )
         for node in [storage_location.api_node_id(), "worker:content@test"]:
             probe = await storage_location.perform_probe(
                 db, location, node, "collection/blue.png", actor_id=actor.id

@@ -600,14 +600,12 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
                 )
             )
         ).all()
-        assert len(leases) == (1 if child_fails else 2)
+        assert len(leases) == 1
         assert all(
             lease.state == "cleanup_pending" and not lease.uncertain_write
             for lease in leases
         )
-        assert sorted(len(lease.inventory["objects"]) for lease in leases) == (
-            [2] if child_fails else [1, 2]
-        )
+        assert sorted(len(lease.inventory["objects"]) for lease in leases) == [2]
     for lease in leases:
         with monkeypatch.context() as clock:
             next_purge = lease.next_cleanup_at + timedelta(seconds=1)
@@ -671,7 +669,6 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     from app.services import accepted_inputs
     from tests.conftest import _create_user
     from yoao_assets_images.contract import ObjectIdentity
-    from yoao_assets_images_runtime.storage import S3ImageStorage
     from yoao_assets_inputs_runtime.storage import S3InputStorage
     from app.db.models.dataset import DatasetItem
 
@@ -711,15 +708,25 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     async def assert_versioning(_storage):
         return None
 
-    monkeypatch.setattr(S3ImageStorage, "head_source", head_source)
+    from yoao_assets_images_runtime.ordinary_original import OrdinaryImageOriginal
+
+    monkeypatch.setattr(OrdinaryImageOriginal, "head_source", head_source)
     monkeypatch.setattr(S3InputStorage, "assert_versioning", assert_versioning)
     await create_membership(
         db_session, project_id=project.id, user_id=member.id, role="annotator"
     )
     task.assignee_id = member.id
     await db_session.commit()
+    from app.services import jobs_dispatch
+
     dispatch = Mock(side_effect=lambda *a, **kw: SimpleNamespace(id=kw["task_id"]))
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
+
+    async def publish_prepared(_db, lease, *, publish):
+        publish()
+        return lease.execution_id
+
+    monkeypatch.setattr(jobs_dispatch, "publish_prepared_dispatch", publish_prepared)
     body = {
         "ml_backend_id": str(backend.id),
         "task_ids": [str(task.id)],

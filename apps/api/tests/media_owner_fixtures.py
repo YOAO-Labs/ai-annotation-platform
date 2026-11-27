@@ -136,8 +136,10 @@ class MediaOwnerTestBinding:
 
     async def seed_video_item(self, item, actor_id: UUID) -> c.MediaSource:
         """Publish current metadata/timetable and portable playback references."""
+        from tests.video_derivative_fixtures import RAW_VIDEO
+
         self.item_ids.add(item.id)
-        source_bytes = f"video-fixture:{item.id}".encode()
+        source_bytes = RAW_VIDEO
         identity = self.storage.register_source(item.file_path, source_bytes)
         item.file_size = identity.byte_size
         item.content_hash = hashlib.sha256(source_bytes).hexdigest()

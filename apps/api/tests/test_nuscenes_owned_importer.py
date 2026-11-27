@@ -174,15 +174,34 @@ async def test_new_import_owns_originals_preserves_counts_and_caller_transaction
         )
         is not None
     )
-    items = list(await db.scalars(select(DatasetItem)))
-    assert len(items) == 10
-    assert len(list(await db.scalars(select(DatasetAsset)))) == 10
-    assert all(
-        row.creation_id for row in await db.scalars(select(DatasetAssetLocation))
+    dataset_id = result["dataset_id"]
+    items = list(
+        await db.scalars(
+            select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+        )
     )
-    scenes = list(await db.scalars(select(Scene)))
+    assert len(items) == 10
+    item_ids = [item.id for item in items]
+    assets = list(
+        await db.scalars(
+            select(DatasetAsset).where(DatasetAsset.dataset_item_id.in_(item_ids))
+        )
+    )
+    assert len(assets) == 10
+    asset_ids = [asset.id for asset in assets]
+    assert all(
+        row.creation_id
+        for row in await db.scalars(
+            select(DatasetAssetLocation).where(
+                DatasetAssetLocation.asset_id.in_(asset_ids)
+            )
+        )
+    )
+    scenes = list(await db.scalars(select(Scene).where(Scene.dataset_id == dataset_id)))
     assert len({scene.nuscenes_map_original_id for scene in scenes}) == 1
-    tasks = list(await db.scalars(select(Task)))
+    tasks = list(
+        await db.scalars(select(Task).where(Task.dataset_item_id.in_(item_ids)))
+    )
     assert len(tasks) == 4
     for task in tasks:
         raw = await auxiliary_originals.resolve_task_raw(db, task.id)
@@ -195,15 +214,22 @@ async def test_new_import_owns_originals_preserves_counts_and_caller_transaction
 
 async def test_idempotent_import_reuses_all_canonical_receipts(owned_import):
     db, actor, client, root = owned_import
-    await run_import(db, actor, root)
+    first = await run_import(db, actor, root)
     await db.commit()
+    dataset_id = first["dataset_id"]
     before = [
         (row.id, row.file_path, deepcopy(row.metadata_))
-        for row in await db.scalars(select(DatasetItem).order_by(DatasetItem.id))
+        for row in await db.scalars(
+            select(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+            .order_by(DatasetItem.id)
+        )
     ]
     created = list(
         await db.scalars(
-            select(ManagedOriginalCreation.id).order_by(ManagedOriginalCreation.id)
+            select(ManagedOriginalCreation.id)
+            .where(ManagedOriginalCreation.requested_by == actor.id)
+            .order_by(ManagedOriginalCreation.id)
         )
     )
     keys_before = set(client.objects)
@@ -211,12 +237,18 @@ async def test_idempotent_import_reuses_all_canonical_receipts(owned_import):
     await db.commit()
     after = [
         (row.id, row.file_path, row.metadata_)
-        for row in await db.scalars(select(DatasetItem).order_by(DatasetItem.id))
+        for row in await db.scalars(
+            select(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+            .order_by(DatasetItem.id)
+        )
     ]
     assert before == after and result["total_items"] == 0
     assert created == list(
         await db.scalars(
-            select(ManagedOriginalCreation.id).order_by(ManagedOriginalCreation.id)
+            select(ManagedOriginalCreation.id)
+            .where(ManagedOriginalCreation.requested_by == actor.id)
+            .order_by(ManagedOriginalCreation.id)
         )
     )
     assert set(client.objects) == keys_before
@@ -224,13 +256,16 @@ async def test_idempotent_import_reuses_all_canonical_receipts(owned_import):
 
 async def test_late_source_drift_leaves_known_unbound_responsibility(owned_import):
     db, actor, _client, root = owned_import
-    await run_import(db, actor, root)
+    first = await run_import(db, actor, root)
     await db.commit()
+    dataset_id = first["dataset_id"]
     path = next((root / "samples/LIDAR_TOP").glob("*.pcd.bin"))
     path.write_bytes(path.read_bytes()[:-4] + b"wrong")
     owners = list(
         await db.scalars(
-            select(DatasetAuxiliaryOriginal.id).order_by(DatasetAuxiliaryOriginal.id)
+            select(DatasetAuxiliaryOriginal.id)
+            .where(DatasetAuxiliaryOriginal.dataset_id == dataset_id)
+            .order_by(DatasetAuxiliaryOriginal.id)
         )
     )
     with pytest.raises(ValueError):
@@ -238,10 +273,20 @@ async def test_late_source_drift_leaves_known_unbound_responsibility(owned_impor
     await db.rollback()
     assert owners == list(
         await db.scalars(
-            select(DatasetAuxiliaryOriginal.id).order_by(DatasetAuxiliaryOriginal.id)
+            select(DatasetAuxiliaryOriginal.id)
+            .where(DatasetAuxiliaryOriginal.dataset_id == dataset_id)
+            .order_by(DatasetAuxiliaryOriginal.id)
         )
     )
-    assert len(list(await db.scalars(select(Task)))) == 4
+    item_ids = select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
+    assert (
+        len(
+            list(
+                await db.scalars(select(Task).where(Task.dataset_item_id.in_(item_ids)))
+            )
+        )
+        == 4
+    )
 
 
 @pytest.mark.parametrize("changed", ["scene", "dataset"])
@@ -251,7 +296,11 @@ async def test_business_change_during_replay_blocks_final_binding(
     db, actor, _client, root = owned_import
     result = await run_import(db, actor, root)
     await db.commit()
-    scene = await db.scalar(select(Scene).order_by(Scene.name))
+    scene = await db.scalar(
+        select(Scene)
+        .where(Scene.dataset_id == result["dataset_id"])
+        .order_by(Scene.name)
+    )
     identifier = scene.id if changed == "scene" else result["dataset_id"]
     model = Scene if changed == "scene" else Dataset
     field = Scene.source_metadata if changed == "scene" else Dataset.metadata_
@@ -278,14 +327,24 @@ async def test_business_change_during_replay_blocks_final_binding(
     await db.rollback()
     current = await db.scalar(select(field).where(model.id == identifier))
     assert current is not None and "concurrent_marker" not in current
-    assert len(list(await db.scalars(select(Task)))) == 4
+    item_ids = select(DatasetItem.id).where(
+        DatasetItem.dataset_id == result["dataset_id"]
+    )
+    assert (
+        len(
+            list(
+                await db.scalars(select(Task).where(Task.dataset_item_id.in_(item_ids)))
+            )
+        )
+        == 4
+    )
 
 
 async def test_sensor_import_registers_auxiliary_but_ego_export_resolver_refuses(
     owned_import,
 ):
     db, actor, _client, root = owned_import
-    await import_nuscenes(
+    imported = await import_nuscenes(
         db,
         nuscenes_root=root,
         scene_names=["scene-0000"],
@@ -294,10 +353,12 @@ async def test_sensor_import_registers_auxiliary_but_ego_export_resolver_refuses
         frame="sensor",
     )
     await db.commit()
-    scene = await db.scalar(select(Scene))
+    dataset_id = imported["dataset_id"]
+    scene = await db.scalar(select(Scene).where(Scene.dataset_id == dataset_id))
     assert scene.source_metadata["frame"] == "sensor"
     assert scene.nuscenes_map_original_id is not None
-    task = await db.scalar(select(Task))
+    item_ids = select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
+    task = await db.scalar(select(Task).where(Task.dataset_item_id.in_(item_ids)))
     with pytest.raises(ContentError, match="auxiliary_original_contract_changed"):
         await auxiliary_originals.resolve_task_raw(db, task.id)
 
@@ -307,10 +368,17 @@ async def test_legacy_proof_drift_is_not_adopted_when_auxiliary_pointer_is_missi
     owned_import, changed
 ):
     db, actor, _client, root = owned_import
-    await run_import(db, actor, root, ["scene-0000"])
+    imported = await run_import(db, actor, root, ["scene-0000"])
     await db.commit()
-    original_scene = await db.scalar(select(Scene))
-    original_items = list(await db.scalars(select(DatasetItem)))
+    dataset_id = imported["dataset_id"]
+    original_scene = await db.scalar(
+        select(Scene).where(Scene.dataset_id == dataset_id)
+    )
+    original_items = list(
+        await db.scalars(
+            select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+        )
+    )
     legacy = Dataset(
         id=uuid.uuid4(),
         display_id="DS-NU-legacy-proof",

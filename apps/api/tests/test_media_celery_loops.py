@@ -17,6 +17,11 @@ async def test_video_worker_and_bound_gateway_reuse_no_closed_loop_connections(
 ):
     from sqlalchemy.engine import make_url
 
+    if not (
+        assets_media.settings.assets_celery_video_database_url
+        or assets_media.settings.assets_celery_video_database_url_file
+    ):
+        pytest.skip("requires ASSETS_CELERY_VIDEO_DATABASE_URL")
     monkeypatch.setattr(assets_media.settings, "assets_media_url", "")
     assert (
         make_url(assets_media.settings.database_url).database

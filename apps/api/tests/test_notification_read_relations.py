@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 
 import pytest
@@ -14,6 +15,10 @@ from app.services.notification import NotificationService
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires distinct application and owner roles in module-data role acceptance",
+)
 async def test_application_role_reads_notifications_only_through_fixed_functions(
     test_db_url: str,
 ):

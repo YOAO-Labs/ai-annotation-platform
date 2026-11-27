@@ -50,7 +50,7 @@ async def test_saved_bucket_survives_current_bucket_change_for_read_and_delete(
     assert cleared.status_code == 200, cleared.text
     assert (saved_bucket, key) in objects.deleted
     assert objects.objects[(objects.avatars_bucket, key)] == b"same key, wrong bytes"
-    assert await db_session.get(AvatarUpload, token) is None
+    assert await db_session.get(AvatarUpload, token, populate_existing=True) is None
 
 
 async def test_unknown_legacy_token_is_not_read_or_deleted(
@@ -67,7 +67,7 @@ async def test_unknown_legacy_token_is_not_read_or_deleted(
     assert cleared.status_code == 200, cleared.text
     assert not objects.reads and not objects.deleted
     assert objects.objects[(objects.avatars_bucket, f"{token}.webp")]
-    assert await db_session.get(AvatarUpload, token) is None
+    assert await db_session.get(AvatarUpload, token, populate_existing=True) is None
 
 
 @pytest.mark.parametrize("change", ["sha", "size", "endpoint"])
@@ -421,8 +421,13 @@ async def test_one_cleanup_failure_does_not_stop_other_retired_objects(
         "failed": 1,
         "retained": 0,
     }
-    assert await db_session.get(AvatarUpload, first_token) is not None
-    assert await db_session.get(AvatarUpload, second_token) is None
+    assert (
+        await db_session.get(AvatarUpload, first_token, populate_existing=True)
+        is not None
+    )
+    assert (
+        await db_session.get(AvatarUpload, second_token, populate_existing=True) is None
+    )
 
 
 async def test_cancellation_waits_for_real_put_and_retains_pending(

@@ -114,9 +114,12 @@ async def test_service_returns_database_generated_auth_revision(db_session):
     updated = await MLBackendService(db_session).update(
         backend.id, auth_method="token", auth_token="new"
     )
-    assert updated is backend
-    assert updated.auth_revision == 1
+    assert updated.id == backend.id
+    assert updated.state == "disconnected"
     assert updated.health_meta is None
+    await db_session.refresh(backend)
+    assert backend.auth_revision == 1
+    assert backend.health_meta is None
 
 
 @pytest.mark.parametrize("gpu", [False, True])

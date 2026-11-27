@@ -99,6 +99,8 @@ async def test_import_route_reuses_explicit_idempotency_key(monkeypatch):
     monkeypatch.setattr(
         "app.services.connector_guard.assert_connection_target_allowed", allow
     )
+    monkeypatch.setattr("app.services.storage_access.check", AsyncMock(return_value=1))
+    monkeypatch.setattr(dataset_api, "recheck_directory_write", AsyncMock())
     monkeypatch.setattr(
         dataset_api.SystemSettingsService,
         "get_import_limits_snapshot",

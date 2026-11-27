@@ -36,7 +36,11 @@ async def test_native_source_reader_fence_conflicts_with_python_reclaim_key(
 
 
 async def test_audit_receipts_keep_native_ids_and_neighbor_events(test_engine):
+    import os
     from contextlib import asynccontextmanager
+
+    if not os.environ.get("PLAYWRIGHT_E2E_DATABASE_URL"):
+        pytest.skip("requires PLAYWRIGHT_E2E_DATABASE_URL")
 
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -1477,6 +1481,10 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
 
     pending = None
     failure = None
+    import os
+
+    if not os.environ.get("PLAYWRIGHT_E2E_DATABASE_URL"):
+        pytest.skip("requires PLAYWRIGHT_E2E_DATABASE_URL")
     try:
         async with private_seed_owner() as fixture_owner:
             await fixture_owner.prepare_suite(first, "scale")

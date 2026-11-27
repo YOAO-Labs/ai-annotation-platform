@@ -57,7 +57,13 @@ async def test_group_observation_is_select_only_and_eligible_without_static_gate
     assert len(statements) == 2
     assert "set_config('statement_timeout', '30s', true)" in statements[0]
     assert "set_config('jit', 'off', true)" in statements[0]
-    assert statements[1].lstrip().startswith("WITH")
+    assert (
+        statements[1]
+        .lstrip()
+        .startswith(
+            "SELECT observation FROM yoao_assets_v1.observe_original_reclamation("
+        )
+    )
     assert result["blockers"] == []
     assert all(value == 0 for value in result["roots"].values())
     assert result["creation"] is None

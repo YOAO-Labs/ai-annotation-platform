@@ -421,7 +421,15 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
     httpx_client, project_admin, super_admin, db_session, monkeypatch
 ):
     from cryptography.fernet import Fernet
+    from yoao_assets_source import connections_workflow
     from app.db.models.storage_connection import StorageConnection
+    from tests.test_storage_connection_updates import (
+        _success,
+        install_in_process_connections_peer,
+    )
+
+    install_in_process_connections_peer(monkeypatch)
+    monkeypatch.setattr(connections_workflow, "probe_connection", _success)
 
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
@@ -461,7 +469,7 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
         purpose="test-pinned", location_id=location_id, bucket="pinned"
     )
     db_session.add(binding)
-    await db_session.flush()
+    await db_session.commit()
     for method, data in [
         ("delete", None),
         ("patch", {"expected_revision": 2, "config": payload["config"]}),
@@ -475,7 +483,7 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
         )
         assert response.status_code == 409
     await db_session.delete(binding)
-    await db_session.flush()
+    await db_session.commit()
     response = await httpx_client.delete(
         f"/api/v1/storage-connections/{connection_id}", headers=headers(project_admin)
     )

@@ -64,10 +64,15 @@ async def ingest(db_session, super_admin, monkeypatch):
     await db_session.flush()
     service = datasets.DatasetService(db_session)
     item = SimpleNamespace(id=uuid.uuid4(), metadata_={})
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+
     service._unique_file_name = AsyncMock(return_value="folder/file.txt")
     service._find_by_file_path = AsyncMock(return_value=None)
     service.add_item = AsyncMock(return_value=item)
     service.create_tasks_for_items = AsyncMock(return_value=2)
+    monkeypatch.setattr(
+        DatasetTaskCreationWorkflow, "append_items", AsyncMock(return_value=2)
+    )
     monkeypatch.setattr(datasets, "validate_dataset_write", AsyncMock())
     monkeypatch.setattr(datasets, "find_verified_content", AsyncMock(return_value=None))
     monkeypatch.setattr(datasets.storage_service, "delete_object", Mock())

@@ -168,7 +168,10 @@ async def test_empty_and_out_of_range_pages_never_acquire_profile_owner(
     monkeypatch.setattr(user_brief.IdentityBriefsCommands, "execute", forbid)
     for path, params in (
         ("/api/v1/projects", {"search": "does-not-exist"}),
-        ("/api/v1/projects/query", {"page": 3, "page_size": 2}),
+        (
+            "/api/v1/projects/query",
+            {"search": "project-owner-profiles-", "page": 3, "page_size": 2},
+        ),
     ):
         response = await httpx_client.get(
             path, params=params, headers={"Authorization": "Bearer " + token}

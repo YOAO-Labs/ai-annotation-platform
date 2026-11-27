@@ -435,7 +435,7 @@ def test_native_exemplar_both_signs_only_masks_at_original_indices(frame_index) 
             "prompt_revision": "revision",
         },
         expected_size=(3, 2),
-        client=SimpleNamespace(pool_id=None, last_instance_id=backend_id),
+        provenance=SimpleNamespace(pool_id=None, instance_id=backend_id),
         requested_backend_id=backend_id,
         model_id="sam3-interactive-seg",
         task_id=task_id,

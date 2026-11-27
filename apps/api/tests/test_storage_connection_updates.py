@@ -42,8 +42,7 @@ async def _success(*args, **kwargs):
     return True, "连接成功", 0
 
 
-@pytest.fixture(autouse=True)
-def _in_process_connections_peer(monkeypatch):
+def install_in_process_connections_peer(monkeypatch):
     import json
 
     from yoao_assets_source.connections_contract import (
@@ -168,6 +167,11 @@ def _in_process_connections_peer(monkeypatch):
         return result_type.model_validate(result.model_dump(mode="json"))
 
     monkeypatch.setattr(AssetsConnectionsGateway, "_remote", remote)
+
+
+@pytest.fixture(autouse=True)
+def _in_process_connections_peer(monkeypatch):
+    install_in_process_connections_peer(monkeypatch)
 
 
 @pytest.fixture

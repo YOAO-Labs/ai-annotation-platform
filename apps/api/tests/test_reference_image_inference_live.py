@@ -140,10 +140,62 @@ async def test_real_http_minio_native_create_refine_and_predict_test(
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    backend_url = f"http://127.0.0.1:{server.server_port}"
+    import httpx
+    from yoao_inference_contract.backend_control import BackendControlSetupResult
+    from yoao_inference_contract.execution import ModelTaskResult, thaw_json
+    from tests.inference_execution_test_ports import FakeModelExecutionPort
+
+    class _LocalControl:
+        async def setup(self, registry_id):
+            async with httpx.AsyncClient(timeout=10, trust_env=False) as http:
+                resp = await http.get(f"{backend_url}/setup")
+                resp.raise_for_status()
+                return BackendControlSetupResult(
+                    registry_id=uuid.UUID(str(registry_id)),
+                    setup=resp.json(),
+                )
+
+    async def _local_infer(operation, task_input):
+        task_data = thaw_json(task_input)
+        context = thaw_json(operation.context)
+        body = (
+            {"tasks": [task_data], "context": context}
+            if operation.operation == "batch_predict"
+            else {"task": task_data, "context": context}
+        )
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as http:
+            resp = await http.post(f"{backend_url}/predict", json=body)
+            resp.raise_for_status()
+            payload = resp.json()
+        if "results" in payload:
+            entry = payload["results"][0]
+            return ModelTaskResult(
+                task_id=str(entry["task_id"]),
+                result=entry.get("result") or [],
+                score=entry.get("score"),
+            )
+        return ModelTaskResult(
+            task_id=str(task_data["id"]),
+            result=payload.get("result") or [],
+            score=payload.get("score"),
+            inference_time_ms=payload.get("inference_time_ms"),
+            cache_hit=payload.get("cache_hit"),
+            model_load_ms=payload.get("model_load_ms"),
+        )
+
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.backend_control_service",
+        lambda _db: _LocalControl(),
+    )
+    monkeypatch.setattr(
+        "app.api.v1.ml_backends.model_execution_port",
+        lambda _db: FakeModelExecutionPort(_local_infer),
+    )
     backend, pool = await create_registry_with_pool(
         db_session,
         name=f"reference-live-{uuid.uuid4()}",
-        url=f"http://127.0.0.1:{server.server_port}",
+        url=backend_url,
         enabled_pool=True,
     )
     db_session.add(

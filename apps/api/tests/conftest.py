@@ -284,7 +284,45 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
 
     monkeypatch.setattr(_IndependentInputDatabase, "call", input_call)
 
+    import json
     from sqlalchemy import text
+    from sqlalchemy.exc import SQLAlchemyError
+    from app.services import managed_original_native
+
+    original_managed_call = managed_original_native.call
+
+    async def borrowed_managed_call(db, function, parameters, types):
+        if db is not session:
+            return await original_managed_call(db, function, parameters, types)
+        placeholders = ", ".join(
+            f"CAST(:{name} AS {types[name]})" for name in parameters
+        )
+        bound = {
+            name: (
+                json.dumps(value, ensure_ascii=False, allow_nan=False)
+                if types[name] == "jsonb"
+                else value
+            )
+            for name, value in parameters.items()
+        }
+        async with native_calls:
+            try:
+                async with session.begin_nested():
+                    raw = await session.scalar(
+                        text(f"SELECT {function}({placeholders})"), bound
+                    )
+            except SQLAlchemyError as exc:
+                raise ValueError("managed_original_storage_unavailable") from exc
+        body = json.loads(raw) if isinstance(raw, (bytes, str)) else raw
+        if (
+            not isinstance(body, dict)
+            or body.get("schema") != "aap-managed-original/v1"
+        ):
+            raise ValueError("invalid managed original response")
+        return body
+
+    monkeypatch.setattr(managed_original_native, "call", borrowed_managed_call)
+
     from yoao_jobs import publication_postgres
 
     @asynccontextmanager

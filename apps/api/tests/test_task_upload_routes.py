@@ -2,6 +2,7 @@
 
 import hashlib
 from datetime import datetime, timezone
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -25,7 +26,8 @@ def task_storage(monkeypatch):
     monkeypatch.setattr(storage_service, "client", fake)
     monkeypatch.setattr(creations, "create_client", lambda **_: fake)
     monkeypatch.setattr(
-        "app.workers.media.generate_task_thumbnail.delay", lambda *_: None
+        "app.workers.media.generate_task_thumbnail.delay",
+        lambda *_: SimpleNamespace(id="task-thumb-id"),
     )
     return fake
 

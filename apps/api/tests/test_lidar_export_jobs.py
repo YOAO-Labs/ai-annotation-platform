@@ -500,7 +500,6 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
         output_authority,
         reference_media,
     )
-    from app.workers.export import run_export
 
     state = contract
     delivered = []
@@ -526,7 +525,17 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
         assert db is state.db
         state.db.events.append("audit")
 
-    def dispatch(**kwargs):
+    async def prepare_dispatch(db, **kwargs):
+        assert db is state.db
+        state.db.events.append("prepare")
+        return kwargs
+
+    async def publish_dispatch(db, lease, *, publish):
+        assert db is state.db
+        return publish()
+
+    def dispatch(*, task_name, execution_id, args, kwargs):
+        assert task_name == "app.workers.export.run_export"
         state.db.events.append("delay")
         delivered.append(kwargs)
 
@@ -546,7 +555,11 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
     monkeypatch.setattr(reference_media, "capture_export_authority", capture_reference)
     monkeypatch.setattr(async_job, "create_job", create_job)
     monkeypatch.setattr(AuditService, "log", audit)
-    monkeypatch.setattr(run_export, "delay", dispatch)
+    from app.services import jobs_dispatch, jobs_queue
+
+    monkeypatch.setattr(jobs_dispatch, "prepare_job_dispatch", prepare_dispatch)
+    monkeypatch.setattr(jobs_dispatch, "publish_prepared_dispatch", publish_dispatch)
+    monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch)
     monkeypatch.setattr(batches.BatchService, "get", get_batch)
     kwargs = {
         "request": Request({"type": "http", "headers": []}),
@@ -588,6 +601,7 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
         "zip-binding",
         "flush",
         "audit",
+        "prepare",
         "commit",
         "delay",
     ]

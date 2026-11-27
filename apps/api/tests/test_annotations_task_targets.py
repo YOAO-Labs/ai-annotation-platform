@@ -99,6 +99,29 @@ async def test_old_inflight_a_new_b_back_to_a_keep_saved_addresses_and_current_c
         finally:
             external.close()
 
+    from dataclasses import replace as dataclass_replace
+    from app.services import managed_s3_target, saved_media_io
+
+    original_target_for = managed_s3_target.target_for
+
+    async def target_with_access(db_conn, loc, **kwargs):
+        result = await original_target_for(db_conn, loc, **kwargs)
+        if loc is not None and loc.id != LEGACY_LOCATION_ID:
+            conn = await db_conn.get(StorageConnection, loc.connection_id)
+            return dataclass_replace(
+                result, _access=S3Access(conn.config, conn.secret_enc, ())
+            )
+        return result
+
+    monkeypatch.setattr(saved_media_io, "registered", lambda _target: False)
+    monkeypatch.setattr(managed_s3_target, "target_for", target_with_access)
+    monkeypatch.setattr(
+        managed_s3_target.Target,
+        "is_registered",
+        property(
+            lambda self: self.location_id != LEGACY_LOCATION_ID and self._access is None
+        ),
+    )
     monkeypatch.setattr(S3Access, "client", current_client)
     old_owner = await complete(db, old_task, old_allocation, client)
     assert old_owner.location_id == LEGACY_LOCATION_ID and old_owner.storage_ref is None

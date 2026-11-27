@@ -35,6 +35,10 @@ def _sqlstate(error: BaseException) -> str | None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned Jobs owner role and disposable database",
+)
 async def test_row_lock_functions_have_fixed_definer_and_exact_row_abi(db_session):
     expected_columns = [
         f"{name}:{ASYNC_JOB_FUNCTION_ROW_TYPES[name]}" for name in ASYNC_JOB_ROW_COLUMNS

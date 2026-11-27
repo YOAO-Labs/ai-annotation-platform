@@ -76,7 +76,14 @@ async def test_preflight_is_not_ingestion_and_confirmation_is_idempotent(
     await drain(db, run, task_id, fence)
     assert run.phase == "preflight" and run.status == "completed"
     assert run.counts["ready_count"] == 1
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == inspect(content_world[3]).identity[0])
+        )
+        == 0
+    )
     task_id, fence = await begin_confirmed(db, run, content_world)
     await drain(db, run, task_id, fence)
     assert (
@@ -86,7 +93,14 @@ async def test_preflight_is_not_ingestion_and_confirmation_is_idempotent(
     assert not created and same.id == run.id
     same, created = await svc.start_preflight(db, content_world[6].id, content_world[2])
     assert not created and same.id == run.id
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == inspect(content_world[3]).identity[0])
+        )
+        == 1
+    )
 
 
 async def test_cancel_during_io_prevents_receipt_and_registration(
@@ -111,7 +125,14 @@ async def test_cancel_during_io_prevents_receipt_and_registration(
     await db.rollback()
     observed = await db.get(DatasetScanEntry, (scan_id, work["path_digest"]))
     assert observed.verified_content is None
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == inspect(content_world[3]).identity[0])
+        )
+        == 0
+    )
     run = await db.get(type(run), run_id)
     assert run.status == "cancelled" and run.counts["pending_count"] == 1
 
@@ -169,7 +190,14 @@ async def test_preflight_receipt_cannot_accept_replacement_on_retry(
     actor = await scans.require_actor(db, inspect(content_world[2]).identity[0])
     await svc.resume(db, run.id, actor, path_digest=entry.path_digest)
     assert not entry.refresh_unverified
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == inspect(content_world[3]).identity[0])
+        )
+        == 0
+    )
 
 
 async def test_claimed_worker_reads_after_probe_ttl_and_resumed_old_fence_cannot_write(
@@ -440,7 +468,14 @@ async def test_rotated_key_during_probe_cannot_authorize_new_attempt(
     with pytest.raises(HTTPException) as exc:
         await call
     assert exc.value.status_code == 403
-    assert await db_session.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == inspect(content_world[3]).identity[0])
+        )
+        == 0
+    )
 
 
 async def test_write_only_key_can_confirm_without_read_scope(

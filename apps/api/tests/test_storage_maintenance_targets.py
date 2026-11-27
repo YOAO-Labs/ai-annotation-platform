@@ -63,9 +63,9 @@ async def insert(db, family, **values):
     return values
 
 
-async def saved_version(db, project, where=None, *, snapshot=None):
+async def saved_version(db, project, where=None, *, snapshot=None, status="failed"):
     version = await frozen_version(
-        db, project.id, snapshot or {"private": PRIVATE}, "failed"
+        db, project.id, snapshot or {"private": PRIVATE}, status
     )
     if where:
         version.storage_ref = saved_ref(

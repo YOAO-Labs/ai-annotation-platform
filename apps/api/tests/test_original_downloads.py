@@ -3,6 +3,7 @@
 import hashlib
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -51,7 +52,8 @@ async def test_standalone_generic_original_download_preserves_bytes_without_imag
     file_name,
 ):
     monkeypatch.setattr(
-        "app.workers.media.generate_task_thumbnail.delay", lambda *_: None
+        "app.workers.media.generate_task_thumbnail.delay",
+        lambda *_: SimpleNamespace(id="task-thumb-id"),
     )
     initialized = await httpx_client.post(
         "/api/v1/files/upload-init",

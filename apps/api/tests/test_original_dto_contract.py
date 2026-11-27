@@ -186,7 +186,10 @@ async def test_image_thumbnail_signing_remains_separate_from_original_identity(
         image_pyramid, "task_pyramid_assets", AsyncMock(return_value={})
     )
     await _attach_image_pyramids_batch(
-        db_session, [task], {task.id: (None, None, path, None, None)}
+        db_session,
+        [task],
+        {task.id: (None, None, path, None, None)},
+        actor_id=super_admin[0].id,
     )
     assert signed == [(path, storage_service.media_cache_bucket)]
     assert task._media_cache_thumbnail == (path, "https://storage.invalid/thumbnail")

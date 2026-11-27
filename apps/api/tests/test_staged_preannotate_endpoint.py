@@ -140,7 +140,12 @@ async def test_no_pipeline_stages_forwards_none(
         json={"ml_backend_id": str(detect.id), "batch_id": str(batch.id)},
     )
     assert resp.status_code == 200, resp.text
-    assert _mock_celery["request"].pipeline_stages is None
+    stages = _mock_celery["request"].pipeline_stages
+    assert isinstance(stages, list) and len(stages) == 1
+    assert stages[0]["stage"] == 0
+    assert stages[0]["parent_stage"] is None
+    assert stages[0]["ml_backend_id"] == str(detect.id)
+    assert stages[0]["class_metadata"]["class_source"] == "builtin_manifest"
 
 
 @pytest.mark.asyncio

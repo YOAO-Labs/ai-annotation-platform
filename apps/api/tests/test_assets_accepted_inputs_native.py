@@ -696,77 +696,100 @@ async def test_independent_connections_cannot_claim_one_input_twice(
         async with AsyncSession(setup_connection, expire_on_commit=False) as setup:
             (
                 actor_id,
-                _project,
-                _dataset_id,
+                project,
+                dataset_id,
                 _item_id,
                 task,
                 job_id,
                 source,
             ) = await _seed_workbench_input(setup, job_id=committed_batch_job_id)
             accepted = await _reserve(setup, actor_id, task, job_id, source)
+            project_id = project.id
             await setup.commit()
 
-    async with test_engine.connect() as first, test_engine.connect() as second:
-        first_tx = await first.begin()
-        second_tx = await second.begin()
-        try:
-            first_claim = _data(
-                _reply(
-                    await first.scalar(
-                        _CLAIM,
-                        {
-                            "worker_id": uuid.uuid4(),
-                            "input_id": accepted["input_id"],
-                            "lease_seconds": 300,
-                        },
+    first_claim = None
+    try:
+        async with test_engine.connect() as first, test_engine.connect() as second:
+            first_tx = await first.begin()
+            second_tx = await second.begin()
+            try:
+                first_claim = _data(
+                    _reply(
+                        await first.scalar(
+                            _CLAIM,
+                            {
+                                "worker_id": uuid.uuid4(),
+                                "input_id": accepted["input_id"],
+                                "lease_seconds": 300,
+                            },
+                        )
                     )
-                )
-            )["claim"]
-            assert first_claim is not None
-            second_claim = _data(
-                _reply(
-                    await second.scalar(
-                        _CLAIM,
-                        {
-                            "worker_id": uuid.uuid4(),
-                            "input_id": accepted["input_id"],
-                            "lease_seconds": 300,
-                        },
+                )["claim"]
+                assert first_claim is not None
+                second_claim = _data(
+                    _reply(
+                        await second.scalar(
+                            _CLAIM,
+                            {
+                                "worker_id": uuid.uuid4(),
+                                "input_id": accepted["input_id"],
+                                "lease_seconds": 300,
+                            },
+                        )
                     )
+                )["claim"]
+                assert second_claim is None
+                await second_tx.commit()
+                await first_tx.commit()
+            finally:
+                if second_tx.is_active:
+                    await second_tx.rollback()
+                if first_tx.is_active:
+                    await first_tx.rollback()
+    finally:
+        async with test_engine.begin() as cleanup:
+            await cleanup.execute(
+                text("UPDATE public.async_jobs SET status='completed' WHERE id=:id"),
+                {"id": job_id},
+            )
+            if first_claim is not None:
+                await cleanup.execute(
+                    text(
+                        "UPDATE public.asset_accepted_image_input_attempts "
+                        "SET status='failed', completed_at=clock_timestamp() "
+                        "WHERE input_id=:id AND generation=:generation"
+                    ),
+                    {
+                        "id": accepted["input_id"],
+                        "generation": first_claim["generation"],
+                    },
                 )
-            )["claim"]
-            assert second_claim is None
-            await second_tx.commit()
-            await first_tx.commit()
-        finally:
-            if second_tx.is_active:
-                await second_tx.rollback()
-            if first_tx.is_active:
-                await first_tx.rollback()
-
-    async with test_engine.begin() as cleanup:
-        await cleanup.execute(
-            text("UPDATE public.async_jobs SET status='completed' WHERE id=:id"),
-            {"id": job_id},
-        )
-        await cleanup.execute(
-            text(
-                "UPDATE public.asset_accepted_image_input_attempts "
-                "SET status='failed', completed_at=clock_timestamp() "
-                "WHERE input_id=:id AND generation=:generation"
-            ),
-            {"id": accepted["input_id"], "generation": first_claim["generation"]},
-        )
-        await cleanup.execute(
-            text(
-                "UPDATE public.asset_accepted_image_inputs "
-                "SET status='failed', error_code='job_not_active', "
-                "lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, "
-                "last_lease_token=:token, last_outcome='failed_terminal' "
-                "WHERE input_id=:id"
-            ),
-            {"token": first_claim["lease_token"], "id": accepted["input_id"]},
-        )
+                await cleanup.execute(
+                    text(
+                        "UPDATE public.asset_accepted_image_inputs "
+                        "SET status='failed', error_code='job_not_active', "
+                        "lease_owner=NULL, lease_token=NULL, lease_expires_at=NULL, "
+                        "last_lease_token=:token, last_outcome='failed_terminal' "
+                        "WHERE input_id=:id"
+                    ),
+                    {"token": first_claim["lease_token"], "id": accepted["input_id"]},
+                )
+            await cleanup.execute(
+                text("DELETE FROM public.tasks WHERE project_id=:project"),
+                {"project": project_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.projects WHERE id=:project"),
+                {"project": project_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.datasets WHERE id=:dataset"),
+                {"dataset": dataset_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.users WHERE id=:actor"),
+                {"actor": actor_id},
+            )
 
 
 async def test_input_pin_copy_serializes_with_retirement_sweep(
@@ -826,60 +849,85 @@ async def test_input_pin_copy_serializes_with_retirement_sweep(
             await setup.commit()
             source_annotation_id = parent.id
             target_annotation_id = target.id
+            project_id = project.id
+            dataset_id = _dataset_id
             input_id = ready["input_id"]
 
-    async with (
-        test_engine.connect() as copy_connection,
-        test_engine.connect() as sweep_connection,
-    ):
-        copy_tx = await copy_connection.begin()
-        sweep_tx = await sweep_connection.begin()
-        try:
-            copied = _reply(
-                await copy_connection.scalar(
-                    _COPY_PINS,
-                    {
-                        "source_annotation_id": source_annotation_id,
-                        "target_annotation_id": target_annotation_id,
-                    },
+    try:
+        async with (
+            test_engine.connect() as copy_connection,
+            test_engine.connect() as sweep_connection,
+        ):
+            copy_tx = await copy_connection.begin()
+            sweep_tx = await sweep_connection.begin()
+            try:
+                copied = _reply(
+                    await copy_connection.scalar(
+                        _COPY_PINS,
+                        {
+                            "source_annotation_id": source_annotation_id,
+                            "target_annotation_id": target_annotation_id,
+                        },
+                    )
                 )
-            )
-            assert copied["ok"] is True
-            assert copied["data"]["copied"] == 1
-            swept_while_copy_holds_receipt = _data(
-                _reply(await sweep_connection.scalar(_SWEEP, {"page_size": 100}))
-            )
-            assert swept_while_copy_holds_receipt["retired"] == 0
-            await sweep_tx.commit()
-            await copy_tx.commit()
-        finally:
-            if sweep_tx.is_active:
-                await sweep_tx.rollback()
-            if copy_tx.is_active:
-                await copy_tx.rollback()
+                assert copied["ok"] is True
+                assert copied["data"]["copied"] == 1
+                swept_while_copy_holds_receipt = _data(
+                    _reply(await sweep_connection.scalar(_SWEEP, {"page_size": 100}))
+                )
+                assert swept_while_copy_holds_receipt["retired"] == 0
+                await sweep_tx.commit()
+                await copy_tx.commit()
+            finally:
+                if sweep_tx.is_active:
+                    await sweep_tx.rollback()
+                if copy_tx.is_active:
+                    await copy_tx.rollback()
 
-    async with test_engine.begin() as verify:
-        assert (
-            await verify.scalar(
+        async with test_engine.begin() as verify:
+            assert (
+                await verify.scalar(
+                    text(
+                        "SELECT status FROM public.asset_accepted_image_inputs "
+                        "WHERE input_id=:id"
+                    ),
+                    {"id": input_id},
+                )
+                == "ready"
+            )
+            retained = _reply(await verify.scalar(_REFERENCED, {"input_id": input_id}))
+            assert retained["ok"] is True
+            assert retained["data"]["referenced"] is True
+            swept_after_copy = _data(
+                _reply(await verify.scalar(_SWEEP, {"page_size": 100}))
+            )
+            assert swept_after_copy["retired"] == 0
+            assert await verify.scalar(
                 text(
-                    "SELECT status FROM public.asset_accepted_image_inputs "
+                    "SELECT retire_after IS NULL FROM public.asset_accepted_image_inputs "
                     "WHERE input_id=:id"
                 ),
                 {"id": input_id},
             )
-            == "ready"
-        )
-        retained = _reply(await verify.scalar(_REFERENCED, {"input_id": input_id}))
-        assert retained["ok"] is True
-        assert retained["data"]["referenced"] is True
-        swept_after_copy = _data(
-            _reply(await verify.scalar(_SWEEP, {"page_size": 100}))
-        )
-        assert swept_after_copy["retired"] == 0
-        assert await verify.scalar(
-            text(
-                "SELECT retire_after IS NULL FROM public.asset_accepted_image_inputs "
-                "WHERE input_id=:id"
-            ),
-            {"id": input_id},
-        )
+    finally:
+        async with test_engine.begin() as cleanup:
+            await cleanup.execute(
+                text("DELETE FROM public.annotations WHERE project_id=:project"),
+                {"project": project_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.tasks WHERE project_id=:project"),
+                {"project": project_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.projects WHERE id=:project"),
+                {"project": project_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.datasets WHERE id=:dataset"),
+                {"dataset": dataset_id},
+            )
+            await cleanup.execute(
+                text("DELETE FROM public.users WHERE id=:actor"),
+                {"actor": actor_id},
+            )

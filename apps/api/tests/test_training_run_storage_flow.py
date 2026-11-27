@@ -759,7 +759,28 @@ async def test_unknown_active_claim_replay_retains_its_gpu_lease(
 async def test_unpinned_queued_run_cannot_acquire_gpu(
     make_flow, db_session, training_config, foreign_attempt
 ):
+    from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
+    from app.services.trainer_plugins_data import TrainerPluginsPostgresData
+
     flow = await make_flow(pinned=False, status="queued")
+    plugin = next(
+        row
+        for row in await TrainerPluginsPostgresData(db_session).list_plugins()
+        if row.status == "enabled"
+    )
+    flow.run.config = {
+        **flow.run.config,
+        "adapter_revision": 3,
+        "trainer_protocol": TRAINER_PROTOCOL_VERSION,
+        "trainer_plugin": {
+            "plugin_id": plugin.plugin_id,
+            "capabilities_digest": plugin.capabilities_digest,
+            "artifact": plugin.artifact,
+            "execution_mode": plugin.execution_mode,
+            "requires_gpu": True,
+        },
+    }
+    await db_session.flush()
     authority = bind_training_authority(db_session)
     if foreign_attempt:
         foreign = await historical_run(

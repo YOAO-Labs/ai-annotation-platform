@@ -618,6 +618,7 @@ def _assert_api_row_access_probe(
         "fixture_create_sqlstate": "42501",
         "caller_rollback": True,
     }
+    assert evidence["private_table_from"] == 0
     assert evidence["partial_refresh"] is True
     assert evidence["same_orm_identity"] is True
     return evidence

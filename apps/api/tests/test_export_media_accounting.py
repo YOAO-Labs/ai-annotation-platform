@@ -331,6 +331,7 @@ async def test_actual_minio_copy_source_records_current_immutable_bytes(
             bucket,
             "",
             purpose="export",
+            _legacy_client=client,
         )
 
         async def saved(*_args):

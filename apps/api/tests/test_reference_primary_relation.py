@@ -125,7 +125,9 @@ async def test_conflicting_primary_fails_before_any_reference_io(
     def forbidden(*args, **kwargs):
         pytest.fail("ambiguous relations must fail before physical source access")
 
-    monkeypatch.setattr(references.reference_storage, "content_file", forbidden)
+    from app.services import filesystem_storage
+
+    monkeypatch.setattr(filesystem_storage, "content_file", forbidden)
     with pytest.raises(ContentError) as error:
         await references.reference_snapshot(
             db_session, item_id, annotator[0], task_id=original.id

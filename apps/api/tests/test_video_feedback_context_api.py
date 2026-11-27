@@ -246,14 +246,17 @@ async def test_video_feedback_uses_real_batch_permission_for_create_list_and_rep
 async def test_feedback_routes_keep_the_platform_role_gate(
     httpx_client, db_session, video_feedback_data
 ):
+    from app.core.security import create_access_token
+
     data = video_feedback_data
-    data["owner"].role = "annotator"
+    data["owner"].role = "viewer"
     await db_session.flush()
+    viewer_token = create_access_token(str(data["owner"].id), "viewer")
 
     response = await httpx_client.get(
         "/api/v1/feedbacks",
         params={"project_id": str(data["project"].id)},
-        headers=data["headers"],
+        headers={"Authorization": f"Bearer {viewer_token}"},
     )
 
     assert response.status_code == 403, response.text

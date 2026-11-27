@@ -48,6 +48,7 @@ async def test_capacity_pages_advance_at_same_percent_and_bad_page_does_not(
     assert await worker.process_page(
         db, job.id, job.celery_task_id, inventory.generation
     )
+    inventory = await usage.locked(db)
     assert inventory.failed_count == 1
     assert (job.last_progress_at, job.progress_observation) == (at, observation)
 

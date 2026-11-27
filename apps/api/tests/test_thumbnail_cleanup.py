@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.thumbnail_output import ThumbnailOutput
+from app.db.models.user import User
+from tests.factory import make_user_dict
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services import (
     storage_access,
@@ -115,7 +117,16 @@ async def test_read_operation_blocks_retiring_collection(
 
 async def test_business_pointer_prevents_retirement(media_db, client, monkeypatch):
     output = await create(media_db)
-    dataset = Dataset(display_id="thumb-gc", name="Thumbnail cleanup")
+    owner = User(
+        **make_user_dict(
+            "super_admin", f"thumb-gc-{uuid.uuid4().hex[:8]}@test.local", "Thumb GC"
+        )
+    )
+    media_db.add(owner)
+    await media_db.flush()
+    dataset = Dataset(
+        display_id="thumb-gc", name="Thumbnail cleanup", created_by=owner.id
+    )
     media_db.add(dataset)
     await media_db.flush()
     media_db.add(

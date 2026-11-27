@@ -814,6 +814,7 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
 ):
     w = native_world
     original, owner, anchor, writes = prepared
+    task_id = w.task.id
     receipt = (await owner.qualify_native_results(w.task, anchor, writes))[0]
     previous = await _apply_native_prediction(w, original, anchor, writes[0], receipt)
     previous_id = previous.id
@@ -907,14 +908,12 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
         assert result["status"] == "succeeded", result
         assert previous.rejected_shape_indexes == [0]
         predictions = list(
-            await w.db.scalars(
-                select(Prediction).where(Prediction.task_id == w.task.id)
-            )
+            await w.db.scalars(select(Prediction).where(Prediction.task_id == task_id))
         )
         assert len(predictions) == 2
         fresh = next(p for p in predictions if p.id != previous.id)
         response = await httpx_client.post(
-            f"/api/v1/tasks/{w.task.id}/predictions/{fresh.id}/accept",
+            f"/api/v1/tasks/{task_id}/predictions/{fresh.id}/accept",
             headers=headers(super_admin),
         )
         assert response.status_code == 200, response.text

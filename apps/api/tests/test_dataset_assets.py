@@ -6,7 +6,7 @@ import threading
 import uuid
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset import Dataset, DatasetItem
@@ -46,9 +46,12 @@ class ObjectClient(CreationStorage):
 
 @pytest.fixture(autouse=True)
 def local_creation_client(monkeypatch):
-    from app.services import managed_original_creation as creations
+    from app.services import assets_source, managed_original_creation as creations
 
     monkeypatch.setattr(creations, "create_client", lambda **_: storage_service.client)
+    monkeypatch.setattr(
+        assets_source, "_managed_client", lambda _storage: storage_service.client
+    )
 
 
 def test_managed_paths_have_unique_identity_and_retain_logical_directories():
@@ -165,8 +168,13 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
         )
         assert response.status_code == 200, response.text
         item_id = uuid.UUID(response.json()["item_id"])
-        item = await db_session.get(DatasetItem, item_id)
-        key = item.file_path
+        key = await db_session.scalar(
+            text(
+                "SELECT file_path FROM public.dataset_upload_intents WHERE item_id = :id"
+            ),
+            {"id": item_id},
+        )
+        assert key
         keys.append(key)
         staging_key = fake.presigned[-1][1]["Key"]
         assert staging_key != key
@@ -185,13 +193,20 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
             )
     assert len(set(keys)) == 4
     assert all(thread != threading.get_ident() for thread in fake.read_threads)
-    assert dataset_relative_path(keys[1]) == "a-1.bin"
+    assert dataset_relative_path(keys[1]) == "a.bin"
     assert fake.objects[keys[0]] == b"original"
     assert fake.objects[keys[1]] == b"changed"
-    assert fake.objects[keys[2]] == b"original"
+    assert keys[2] not in fake.objects
+    assert fake.objects[keys[3]] == b""
     assert not [call for call in fake.calls if call[0] == "delete"]
     assert dataset.storage_scan_prefix == original_root
-    assets = list(await db_session.scalars(select(DatasetAsset)))
+    assets = list(
+        await db_session.scalars(
+            select(DatasetAsset)
+            .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+    )
     assert {asset.checksum_value for asset in assets} == {
         hashlib.sha256(data).hexdigest() for data in [b"original", b"changed", b""]
     }
@@ -453,7 +468,6 @@ async def test_upload_completion_maps_storage_races_to_conflict(
     )
     assert response.status_code == 200, response.text
     item_id = uuid.UUID(response.json()["item_id"])
-    item = await db_session.get(DatasetItem, item_id)
     fake.objects[fake.presigned[-1][1]["Key"]] = b"original"
 
     def changed(**kwargs):
@@ -469,5 +483,12 @@ async def test_upload_completion_maps_storage_races_to_conflict(
     asset = await db_session.scalar(
         select(DatasetAsset).where(DatasetAsset.dataset_item_id == item_id)
     )
-    assert asset.verification_state == "unverified"
-    assert item.content_hash is None
+    assert asset is None
+    assert await db_session.get(DatasetItem, item_id) is None
+    assert (
+        await db_session.scalar(
+            text("SELECT state FROM public.dataset_upload_intents WHERE item_id = :id"),
+            {"id": item_id},
+        )
+        == "pending"
+    )
