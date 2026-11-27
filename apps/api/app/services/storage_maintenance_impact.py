@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 from app.db.enums import UserRole
 from app.services import storage_location
-from app.services.dataset_content import key_authority
+from app.services.dataset_source_access import key_authority
 from app.services.dataset_source_access import require_manager
 from app.services.storage_identity import LEGACY_LOCATION_ID
 
