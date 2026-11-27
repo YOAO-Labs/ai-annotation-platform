@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.application.dataset_reference_registration import register_entry
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.api_key import ApiKey
 from app.db.models.dataset_asset import DatasetAsset, StorageLocation
@@ -71,7 +72,7 @@ async def another_copy(db, world, name, data=None):
             DatasetScanEntry.kind == "file",
         )
     )
-    registered = await references.register_entry(
+    registered = await register_entry(
         db, other[6].id, entry.path_digest, actor, node_id="worker:content@test"
     )
     return (*other[:7], entry), registered

@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
@@ -20,7 +21,6 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.dataset_source import SourceRevisionAccept
 from app.services import dataset_scans as scans
 from app.services import dataset_source_changes as changes
-from app.services import dataset_source_revisions as revisions
 from app.services import filesystem_storage as fs
 from app.services import training_datasets
 from app.services.dataset import DatasetService
@@ -231,12 +231,12 @@ async def test_managed_source_changes_preserve_ready_training_version(
             before_revision_id=change["before_revision_id"],
             candidate_sha256=change["candidate_sha256"],
         )
-        result = await revisions.accept(
+        result = await accept_revision(
             db, registration.id, change["path_digest"], payload, world[2]
         )
         assert result["created"] and result["item_id"] not in old_items
         assert not (
-            await revisions.accept(
+            await accept_revision(
                 db, registration.id, change["path_digest"], payload, world[2]
             )
         )["created"]

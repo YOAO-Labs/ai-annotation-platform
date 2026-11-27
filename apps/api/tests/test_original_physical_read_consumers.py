@@ -9,7 +9,8 @@ import uuid
 
 import pytest
 
-from app.services import dataset_assets, dataset_references
+from app.application.dataset_reference_registration import prepare_copy
+from app.services import dataset_assets
 from app.services import managed_original_reader as reader
 from app.services import original_binary, original_sources, prediction_originals
 from app.services import storage_access
@@ -187,7 +188,7 @@ async def test_directory_dedup_resolves_credentials_only_under_target_permit(
     monkeypatch.setattr(
         original_sources, "resolve_item", AsyncMock(return_value=state.source)
     )
-    result = await dataset_references.prepare_copy(
+    result = await prepare_copy(
         state.db,
         object(),
         object(),

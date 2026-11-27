@@ -7,16 +7,7 @@ from sqlalchemy import text
 
 from app.services import dataset_scans as scans
 from app.services import dataset_source_access as access
-from app.services.dataset_content import key_authority
-
-
-def declaration(source):
-    if source.external_protection is None:
-        return None
-    return {
-        **source.external_protection,
-        "revision": source.external_protection_revision,
-    }
+from app.services.dataset_source_access import key_authority
 
 
 async def update(db, source_id, payload, actor, *, api_key_id=None):

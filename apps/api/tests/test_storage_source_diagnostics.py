@@ -7,6 +7,7 @@ import hashlib
 import pytest
 from sqlalchemy import delete, event, select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, StorageBinding
@@ -19,7 +20,6 @@ from app.db.models.dataset_source import (
     DatasetSourceItem,
     DatasetSourcePreview,
 )
-from app.services import dataset_source_revisions as revisions
 from app.services import filesystem_storage as fs
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.directory_previews import SPEC
@@ -209,11 +209,9 @@ async def test_history_never_inherits_new_revision_preview_and_move_uses_current
     db, world = db_session, content_world
     await accept_all_files(db, world)
     world, run, change, payload = await candidate(db, world)
-    result = await revisions.accept(
-        db, run.id, change["path_digest"], payload, world[2]
-    )
+    result = await accept_revision(db, run.id, change["path_digest"], payload, world[2])
     world, run, old, new, payload = await moved_candidate(db, world)
-    moved = await revisions.accept(
+    moved = await accept_revision(
         db, run.id, new["path_digest"], payload, world[2], relocate=True
     )
     assert moved["item_id"] == result["item_id"]

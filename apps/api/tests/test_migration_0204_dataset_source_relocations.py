@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset_source import DatasetSourceRevision
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from tests.test_dataset_content import content_world as content_world
 from tests.test_dataset_source_relocations import moved_candidate
 

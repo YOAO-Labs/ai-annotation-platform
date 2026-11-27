@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
 
+from app.services.dataset_item_display import list_items
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
     DatasetAsset,
@@ -19,7 +20,8 @@ from app.services import directory_previews as previews
 from app.services import dataset_source_lifecycle as lifecycle
 from app.services import dataset_registration as registration
 from app.services.content_snapshot import ContentError
-from app.services.dataset_references import register_entry, reference_snapshot
+from app.application.dataset_reference_registration import register_entry
+from app.services.dataset_references import reference_snapshot
 from app.services.dataset_content import stored_content
 from app.services.storage import storage_service
 from tests.test_dataset_content import content_world as content_world
@@ -402,7 +404,6 @@ async def test_missing_preview_regenerates_and_delete_retires_saved_owner(
 async def test_directory_media_never_uses_legacy_urls_or_pyramids(
     db_session, content_world, object_store
 ):
-    from app.services.dataset import DatasetService
     from app.services.image_pyramid import load_owner, ImagePyramidError
     from app.services.directory_policy import owns_media
 
@@ -417,7 +418,7 @@ async def test_directory_media_never_uses_legacy_urls_or_pyramids(
     item.thumbnail_path = "thumbnails/stale.webp"
     item.blurhash = "stale"
     await db.commit()
-    rows, _ = await DatasetService(db).list_items(dataset.id)
+    rows, _ = await list_items(db, dataset.id)
     assert rows[0]["thumbnail_url"] is None and rows[0]["blurhash"] is None
     assert await owns_media(db, item.id) is True
     with pytest.raises(ImagePyramidError, match="directory_cache_not_supported"):

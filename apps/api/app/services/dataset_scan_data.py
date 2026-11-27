@@ -7,6 +7,15 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.db.models.dataset_source import DatasetScanEntry, DatasetScanRun, DatasetSource
 
 
+def external_protection(source):
+    if source.external_protection is None:
+        return None
+    return {
+        **source.external_protection,
+        "revision": source.external_protection_revision,
+    }
+
+
 def _json(sql, *keys):
     return text(sql).bindparams(*(bindparam(key, type_=JSONB) for key in keys))
 

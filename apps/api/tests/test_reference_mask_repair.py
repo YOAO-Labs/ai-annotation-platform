@@ -50,7 +50,7 @@ from app.db.models.user import User
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.mask_repair import MaskRepairDryRunRequest
 from app.services.content_snapshot import ContentError
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.services.mask_repair import (
     create_repair_plan,
     execute_repair_plan,

@@ -7,13 +7,14 @@ import uuid
 from fastapi import HTTPException, Request
 import pytest
 
+from app.services.dataset_item_display import list_items
 from app.api.v1 import storage
 from app.api.v1.tasks import _shared as shared
+from app.application.dataset_ingest import enqueue_media_for_items
 from app.cli.video import rebuild_timetable as cli
 from app.services import video_derivative_originals as originals
 from app.services import video_derivatives as derivatives
 from app.services.content_snapshot import ContentError
-from app.services.dataset import DatasetService
 from app.services.storage import storage_service
 from app.workers import media, media_derivatives
 
@@ -105,7 +106,7 @@ async def test_task_batch_clears_previous_poster_and_rejects_a_different_path(
 async def test_dataset_list_never_guesses_a_video_thumbnail_bucket(
     monkeypatch, checked, expected
 ):
-    from app.services import dataset as dataset_service, directory_policy
+    from app.services import dataset_item_display as dataset_service, directory_policy
 
     value = SimpleNamespace(
         id=uuid.uuid4(),
@@ -125,7 +126,7 @@ async def test_dataset_list_never_guesses_a_video_thumbnail_bucket(
     checked_mock = AsyncMock(return_value=checked)
     monkeypatch.setattr(derivatives, "thumbnail", checked_mock)
     denied = deny_current_storage(monkeypatch)
-    results, total = await DatasetService(db).list_items(uuid.uuid4())
+    results, total = await list_items(db, uuid.uuid4())
     assert total == 1
     assert results[0]["thumbnail_url"] == expected
     checked_mock.assert_awaited_once_with(db, item_id=value.id)
@@ -149,7 +150,7 @@ async def test_import_dispatch_uses_an_explicit_pinned_delegation_without_commit
     monkeypatch.setattr(originals, "system_authorization", encode)
     dispatch = MagicMock()
     monkeypatch.setattr(media.generate_video_metadata, "delay", dispatch)
-    await DatasetService(db).enqueue_media_for_items([item_id])
+    await enqueue_media_for_items(db, [item_id])
     originals.pin.assert_awaited_once_with(db, "dataset_item", item_id)
     encode.assert_called_once_with("dataset_item", item_id, source)
     dispatch.assert_called_once_with(str(item_id), delegation=delegation)
@@ -169,7 +170,7 @@ async def test_import_unknown_original_cannot_dispatch(monkeypatch):
     dispatch = MagicMock()
     monkeypatch.setattr(media.generate_video_metadata, "delay", dispatch)
     with pytest.raises(ContentError, match="content_unverified"):
-        await DatasetService(db).enqueue_media_for_items([uuid.uuid4()])
+        await enqueue_media_for_items(db, [uuid.uuid4()])
     dispatch.assert_not_called()
 
 

@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_source import (
     DatasetReference,
@@ -17,7 +18,8 @@ from app.services import (
     dataset_source_changes as changes,
     dataset_source_revisions as revisions,
 )
-from app.services.dataset_references import register_entry, reference_snapshot
+from app.application.dataset_reference_registration import register_entry
+from app.services.dataset_references import reference_snapshot
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_directory_policies import object_store as object_store
@@ -73,7 +75,7 @@ async def test_relocation_restores_same_task_and_labels_across_path_local_number
     annotation_id = r.json()["id"]
     for _ in range(2):
         world, run, change, payload = await candidate(db, world, "red")
-        await revisions.accept(
+        await accept_revision(
             db, run.id, change["path_digest"], payload, world[2], revalidate=True
         )
     source_id = world[5].id
@@ -142,7 +144,7 @@ async def test_multiple_same_sha_choices_require_explicit_choice_and_returning_p
     assert (await revisions.move_candidates(db, run, before["path_digest"], 1, 0))[
         "total"
     ] == 2
-    result = await revisions.accept(
+    result = await accept_revision(
         db, run.id, target["path_digest"], payload, world[2], relocate=True
     )
     assert result["item_id"] == old["item_id"]
@@ -187,7 +189,7 @@ async def test_managed_relocation_moves_only_preview_and_retains_original_owners
     )
     previous_output_id = previous_preview.thumbnail_output_id
     world, run, before, target, payload = await moved_candidate(db, world)
-    result = await revisions.accept(
+    result = await accept_revision(
         db, run.id, target["path_digest"], payload, world[2], relocate=True
     )
     assert result["item_id"] == old["item_id"]
@@ -217,11 +219,11 @@ async def test_old_preflight_cannot_move_an_advanced_head(db_session, content_wo
         before_revision_id=payload.before_revision_id,
         candidate_sha256=payload.candidate_sha256,
     )
-    await revisions.accept(
+    await accept_revision(
         db, newer.id, target["path_digest"], selected, world[2], relocate=True
     )
     with pytest.raises(HTTPException) as exc:
-        await revisions.accept(
+        await accept_revision(
             db, old_run.id, target["path_digest"], payload, world[2], relocate=True
         )
     assert exc.value.detail["code"] == "source_revision_changed"
@@ -269,7 +271,7 @@ async def test_relocation_io_fences(
 
     monkeypatch.setattr(snapshots, "capture", capture)
     with pytest.raises((HTTPException, snapshots.ContentError, FilesystemStorageError)):
-        await revisions.accept(
+        await accept_revision(
             db, run.id, target["path_digest"], payload, world[2], relocate=True
         )
     await db.rollback()
@@ -312,7 +314,7 @@ async def test_external_s3_relocation_keeps_exact_key_and_business_asset(
         before_revision_id=old["before_revision_id"],
         candidate_sha256=target["candidate_sha256"],
     )
-    result = await revisions.accept(
+    result = await accept_revision(
         db, run.id, target["path_digest"], payload, actor, relocate=True
     )
     assert result["item_id"] == original["item_id"]

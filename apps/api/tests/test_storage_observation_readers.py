@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy import delete, select
 
+from app.application.dataset_reference_registration import register_entry
 from app.db.models.storage_observation_rate import StorageObservationBucket as Bucket
 from app.services import dataset_content as content, dataset_references as references
 from app.services import storage_fault_events as faults
@@ -63,9 +64,7 @@ async def test_registration_two_safety_reads_and_reference_read_each_count(
     rate_world, db_session, test_engine
 ):
     w = rate_world
-    result = await references.register_entry(
-        db_session, w[6].id, w[7].path_digest, w[2]
-    )
+    result = await register_entry(db_session, w[6].id, w[7].path_digest, w[2])
     assert await totals(test_engine, w[5].id) == (2, 0)
     snapshot = await references.reference_snapshot(
         db_session, result["item_id"], w[2], expected_sha256=result["sha256"]
@@ -87,9 +86,7 @@ async def test_wrong_client_sha_is_excluded_before_attempt(
         await content.scan_snapshot(
             db_session, w[6].id, w[7].path_digest, w[2], expected_sha256="0" * 64
         )
-    result = await references.register_entry(
-        db_session, w[6].id, w[7].path_digest, w[2]
-    )
+    result = await register_entry(db_session, w[6].id, w[7].path_digest, w[2])
     with pytest.raises(ContentError, match="content_mismatch"):
         await references.reference_snapshot(
             db_session, result["item_id"], w[2], expected_sha256="0" * 64

@@ -15,6 +15,7 @@ from app.db.models.dataset_asset import (
     DatasetAssetLocation,
     StorageBinding,
 )
+from app.application.dataset_ingest import DatasetIngestWorkflow
 from app.services.dataset import DatasetService
 from app.services.dataset_assets import (
     register_item_asset,
@@ -239,7 +240,7 @@ async def test_scan_uses_pinned_legacy_root_and_keeps_etag_separate(
         )
 
     monkeypatch.setattr(storage_service, "list_objects", listing)
-    svc = DatasetService(db_session)
+    svc = DatasetIngestWorkflow(db_session)
     assert (await svc.scan_and_import(dataset.id))[0].status == "added"
     assert (await svc.scan_and_import(dataset.id))[0].status == "skipped"
     assert set(seen) == {"old-name/", managed_dataset_prefix(dataset.id)}
@@ -361,7 +362,7 @@ async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
             if key.startswith(prefix)
         ],
     )
-    svc = DatasetService(db_session)
+    svc = DatasetIngestWorkflow(db_session)
     assert [o.status for o in await svc.scan_and_import(dataset.id)] == ["added"] * 3
     assert [o.status for o in await svc.scan_and_import(dataset.id)] == ["skipped"] * 3
     items = list(await db_session.scalars(select(DatasetItem)))
@@ -396,7 +397,7 @@ async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
     frames, _ = group_frames(groups["scene_a"])
     assert set(frames) == {"000001", "000001-1"}
     assert (
-        await svc._unique_file_name(dataset.id, "scene_a/lidar/000001.pcd")
+        await svc.assets._unique_file_name(dataset.id, "scene_a/lidar/000001.pcd")
         == "scene_a/lidar/000001-2.pcd"
     )
 

@@ -7,6 +7,7 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy import func, select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_source import DatasetRegistrationRun
@@ -24,7 +25,6 @@ from app.services import (
     dataset_source_rules as rules,
     dataset_source_sync as sync,
     storage_location,
-    dataset_source_revisions as revisions,
 )
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
@@ -381,7 +381,7 @@ async def test_completed_revision_candidates_cannot_cross_a_lifecycle_transition
         await transition(db, dataset, archived=False)
     no_source_io(monkeypatch)
     with pytest.raises(HTTPException) as exc:
-        await revisions.accept(
+        await accept_revision(
             db,
             run.id,
             change["path_digest"],

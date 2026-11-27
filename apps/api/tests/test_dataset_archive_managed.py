@@ -19,6 +19,7 @@ from app.services import (
     dataset_source_access as access,
     training_datasets,
 )
+from app.application.dataset_ingest import DatasetIngestWorkflow
 from app.services.dataset import DatasetService, build_tasks_for_link
 from tests.factory import create_batch, create_project, create_task
 from tests.test_dataset_lifecycle import apply, path, preview, world
@@ -236,9 +237,11 @@ async def test_direct_managed_writers_reject_archived_dataset(
         elif operation == "build_tasks":
             await build_tasks_for_link(db, dataset_id=row.id, project_id=project.id)
         elif operation == "scan":
-            await svc.scan_and_import(row.id)
+            await DatasetIngestWorkflow(db).scan_and_import(row.id)
         else:
-            await svc.ingest_one(row.id, "new.png", io.BytesIO(b"never uploaded"))
+            await DatasetIngestWorkflow(db).ingest_one(
+                row.id, "new.png", io.BytesIO(b"never uploaded")
+            )
     conflict(error)
     assert await identities(db, row.id, project.id) == before
 

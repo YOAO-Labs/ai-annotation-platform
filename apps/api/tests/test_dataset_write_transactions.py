@@ -314,7 +314,7 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.dataset_source import DatasetSource, DatasetScanEntry
     from app.services.dataset_assets import ensure_legacy_bindings
-    from app.services.dataset_references import register_entry
+    from app.application.dataset_reference_registration import register_entry
     from app.services.source_readers.s3 import S3Access
     from tests.test_s3_references import s3_world, scan
     from tests.managed_original_client_support import Client

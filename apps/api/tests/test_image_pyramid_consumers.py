@@ -7,8 +7,8 @@ import uuid
 
 import pytest
 
+from app.services.dataset_item_display import list_items
 from app.api.v1.tasks import _shared as shared
-from app.services.dataset import DatasetService
 from app.services.storage import storage_service
 from app.workers import media
 
@@ -207,7 +207,7 @@ async def test_regular_thumbnail_sidecar_replaces_and_clears_checked_url(monkeyp
 async def test_dataset_list_uses_async_saved_thumbnail_without_a_fallback(
     monkeypatch, verified_url
 ):
-    from app.services import dataset as datasets, directory_policy
+    from app.services import dataset_item_display as datasets, directory_policy
     from app.services import image_pyramid_objects, thumbnail_outputs
 
     item = SimpleNamespace(
@@ -234,7 +234,7 @@ async def test_dataset_list_uses_async_saved_thumbnail_without_a_fallback(
         "generate_download_url",
         lambda *_a, **_k: pytest.fail("A fallback"),
     )
-    result, count = await DatasetService(db).list_items(uuid.uuid4())
+    result, count = await list_items(db, uuid.uuid4())
     assert count == 1 and result[0]["thumbnail_url"] == verified_url
     checked.assert_awaited_once_with(db, "dataset_item", item.id, item.thumbnail_path)
 

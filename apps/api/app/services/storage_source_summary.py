@@ -8,7 +8,7 @@ from app.services.assets_dataset_data import visible_sources
 from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from app.services.storage_source_diagnostics import diagnostics
 from app.services.storage_source_usage import read_usage
-from app.services.dataset_source_protection import declaration
+from app.services.dataset_scan_data import external_protection
 
 
 async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_offset):
@@ -62,7 +62,7 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
                 "dataset_name": names.get(source.dataset_id),
                 "enabled": source.enabled,
                 "unregistered_at": source.unregistered_at,
-                "external_protection": declaration(source),
+                "external_protection": external_protection(source),
                 "diagnostics": evidence[source.id],
             }
             for source in rows

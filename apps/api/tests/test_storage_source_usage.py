@@ -7,6 +7,7 @@ import uuid
 import pytest
 from sqlalchemy import delete, event, select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_source import (
@@ -17,8 +18,7 @@ from app.db.models.dataset_source import (
 )
 from app.schemas.dataset_source import DatasetSourceCreate
 from app.services import dataset_scans as scans, filesystem_storage as fs
-from app.services.dataset_references import register_entry
-from app.services import dataset_source_revisions as revisions
+from app.application.dataset_reference_registration import register_entry
 from app.services.storage import storage_service
 from app.services.storage_source_usage import read_usage
 from tests.test_dataset_content import content_world as content_world, headers
@@ -326,11 +326,11 @@ async def test_revalidation_and_move_use_current_head_not_original_reference(
 ):
     db, world = db_session, accepted
     world, run, change, payload = await candidate(db, world, "red")
-    await revisions.accept(
+    await accept_revision(
         db, run.id, change["path_digest"], payload, world[2], revalidate=True
     )
     world, run, _, new, payload = await moved_candidate(db, world)
-    await revisions.accept(
+    await accept_revision(
         db, run.id, new["path_digest"], payload, world[2], relocate=True
     )
     await db.commit()
@@ -348,7 +348,7 @@ async def test_conflicting_current_heads_exclude_group_but_not_other_files(
     await accept_all_files(db, world)
     await duplicate_fs(db, world)
     world, run, change, payload = await candidate(db, world)
-    await revisions.accept(db, run.id, change["path_digest"], payload, world[2])
+    await accept_revision(db, run.id, change["path_digest"], payload, world[2])
     await db.commit()
     usage = await read_usage(db, world[4], world[2])
     assert usage["reference_count"] == 4

@@ -411,7 +411,7 @@ async def test_exif_dimensions_and_budget_remain_distinct(monkeypatch):
 async def test_reference_dispatches_to_registered_worker_and_keeps_missing_separate(
     db_session, content_world, monkeypatch
 ):
-    from app.services.dataset_references import register_entry
+    from app.application.dataset_reference_registration import register_entry
 
     root, data, actor, ds, location, source, scan, entry = content_world
     await register_entry(

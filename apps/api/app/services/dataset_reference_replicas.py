@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from sqlalchemy import Boolean, Uuid, cast, func, text
 
 from app.services import content_snapshot as snapshots
-from app.services import dataset_references as references
+from app.services import dataset_reference_binding as bindings
 from app.services import site_agents
 from app.services.storage_registry_data import get_location
 
@@ -21,7 +21,7 @@ def active_replica_exists(primary_asset_id, *, actor=None):
 
 
 async def _primary(db, item_id, actor):
-    state = await references._reference_state(db, item_id, actor)
+    state = await bindings.reference_state(db, item_id, actor)
     if state.facts.accepted_revision_id is None:
         raise snapshots.ContentError("reference_replica_requires_accepted_revision")
     return state.facts
@@ -243,9 +243,9 @@ async def source_context(db, context, replica_id, actor, *, task_id=None, node_i
     if link is None:
         raise snapshots.ContentError("reference_replica_changed")
     if task_id is None:
-        state = await references._reference_state(db, link.replica_item_id, actor)
+        state = await bindings.reference_state(db, link.replica_item_id, actor)
     else:
-        state = await references._reference_binding_state(db, link.replica_item_id)
+        state = await bindings.reference_binding_state(db, link.replica_item_id)
     candidate = state.facts
     if (
         candidate.dataset_id != link.primary_dataset_id
@@ -255,7 +255,7 @@ async def source_context(db, context, replica_id, actor, *, task_id=None, node_i
         or candidate.accepted_revision_id is None
     ):
         raise snapshots.ContentError("reference_replica_content_mismatch")
-    physical = await references._physical_reference_context(db, state, node_id=node_id)
+    physical = await bindings.physical_reference_context(db, state, node_id=node_id)
     authority = await assert_agent_readable(db, physical)
     return {
         "id": link.id,

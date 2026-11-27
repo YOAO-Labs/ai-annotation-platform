@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.services.dataset_item_display import list_items
 from app.api.v1.tasks._shared import _attach_image_pyramids_batch, _task_with_url
 from app.db.models.dataset import Dataset, DatasetItem
 from app.services import original_binary, original_sources
 from app.services.content_snapshot import ContentError
-from app.services.dataset import DatasetService
 from app.services.storage import storage_service
 from tests.factory import create_project, create_task
 
@@ -129,7 +129,7 @@ async def test_video_dto_uses_exact_lazy_identity_without_signing(
     await db_session.flush()
     await db_session.refresh(task, ["updated_at"])
     task_dto = _task_with_url(task)
-    item_dtos, total = await DatasetService(db_session).list_items(dataset.id)
+    item_dtos, total = await list_items(db_session, dataset.id)
     assert total == 1
     assert task_dto.file_url is None and item_dtos[0]["file_url"] is None
     assert task_dto.thumbnail_url is None and item_dtos[0]["thumbnail_url"] is None

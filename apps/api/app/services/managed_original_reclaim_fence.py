@@ -56,7 +56,7 @@ async def protect_snapshot_references(db, snapshot):
     """Hold saved accepted-reference physical groups through version publication."""
     import uuid
 
-    from app.services.dataset_references import directory_reference_reclaim_facts
+    from app.services.dataset_reference_data import directory_reference_reclaim_facts
 
     groups = set()
     for sample in snapshot.get("samples", []):

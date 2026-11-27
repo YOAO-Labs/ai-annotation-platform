@@ -73,8 +73,6 @@ async def capture_dataset_write(db, dataset_id, actor, key_id, *, allow_missing=
     lifecycle = {"dataset_lifecycle_revision": dataset.lifecycle_revision}
     if not await has_directory_source(db, dataset_id):
         return lifecycle
-    from app.services.dataset_content import key_authority
-
     actor = await assert_dataset_manage(db, dataset_id, actor)
     return {
         **lifecycle,
@@ -98,7 +96,6 @@ async def validate_dataset_write(
     if not authority or "actor_id" not in authority:
         raise HTTPException(403, detail={"code": "access_revoked"})
     import uuid
-    from app.services.dataset_content import key_authority
 
     actor = await require_manager(db, uuid.UUID(authority["actor_id"]))
     await assert_dataset_manage(db, dataset_id, actor)
@@ -126,6 +123,17 @@ def _actor_id(actor):
     if identity:
         return identity[0]
     return actor.id
+
+
+async def key_authority(db, actor, key_id, scope):
+    if key_id is None:
+        return None
+    facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
+        _actor_id(actor), UUID(str(key_id))
+    )
+    if facts is None or ("*" not in facts.scopes and scope not in facts.scopes):
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return facts.revision
 
 
 async def require_manager(db, actor_id):

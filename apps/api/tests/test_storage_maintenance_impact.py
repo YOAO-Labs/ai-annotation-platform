@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import delete, event, func, select, update
 from yoao_assets_source.saved_io import SavedIOClient
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
@@ -34,7 +35,6 @@ from app.db.models.user import User
 from app.schemas.dataset_source import SourceLifecycleChange
 from app.services import (
     dataset_source_lifecycle,
-    dataset_source_revisions,
     filesystem_storage,
     storage_maintenance_impact as maintenance,
 )
@@ -259,7 +259,7 @@ async def test_real_accepted_history_and_current_relationships_are_deduplicated(
     registered, project, old_task, world = reference_world
     where, retained = world[4:6]
     world, registration, change, payload = await candidate(db, world)
-    accepted = await dataset_source_revisions.accept(
+    accepted = await accept_revision(
         db, registration.id, change["path_digest"], payload, world[2]
     )
     assert accepted["revision_number"] == 2

@@ -582,8 +582,8 @@ async def test_directory_copy_ingest_retains_creation_after_revocation(
     db_session, managed_world, monkeypatch
 ):
     import io
+    from app.application.dataset_ingest import DatasetIngestWorkflow
     from app.services import managed_original_creation as originals
-    from app.services.dataset import DatasetService
     from app.services.storage import storage_service
     from tests.fakes.managed_creation_storage import CreationStorage
 
@@ -603,7 +603,7 @@ async def test_directory_copy_ingest_retains_creation_after_revocation(
 
     monkeypatch.setattr(originals, "create_stream", revoked)
     with pytest.raises(HTTPException):
-        await DatasetService(db_session).ingest_one(
+        await DatasetIngestWorkflow(db_session).ingest_one(
             world[3].id,
             "remote.bin",
             io.BytesIO(b"copy"),
@@ -708,7 +708,6 @@ async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
     from app.services.storage import storage_service
     from tests.test_dataset_assets import ObjectClient
     from app.services import assets_source, managed_original_creation as creations
-    from app.services.dataset import DatasetService
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = uuid.uuid4()
@@ -749,11 +748,7 @@ async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
     async def unexpected(*args, **kwargs):
         raise AssertionError("Directory image ZIP must not create scenes")
 
-    async def no_enqueue(*args, **kwargs):
-        pass
-
     monkeypatch.setattr(AssetsSpatialGateway, "backfill_scenes", unexpected)
-    monkeypatch.setattr(DatasetService, "enqueue_media_for_items", no_enqueue)
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w") as archive:
         archive.writestr("note.txt", b"ordinary managed file")

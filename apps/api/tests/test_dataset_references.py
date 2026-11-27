@@ -15,7 +15,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.services.dataset import DatasetService
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.services.dataset_assets import register_item_asset, find_verified_content
 from app.services.reference_access import reject_reference_scope
 from app.services.reference_keys import is_reference

@@ -6,6 +6,7 @@ import pytest
 
 from sqlalchemy import select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.dataset_source import DatasetSource, DatasetSourcePreview
 from app.services.storage import storage_service
@@ -483,7 +484,6 @@ async def test_shared_managed_item_filters_each_source_and_chooses_visible_previ
 async def test_revalidation_is_not_reversed_when_same_run_finishes_added_registration(
     db_session, content_world, super_admin, httpx_client
 ):
-    from app.services import dataset_source_revisions as revisions
     from tests.test_dataset_registration import begin_confirmed, drain
     from tests.test_dataset_source_revisions import candidate
 
@@ -497,7 +497,7 @@ async def test_revalidation_is_not_reversed_when_same_run_finishes_added_registr
     assert (await httpx_client.get(url, headers=auth)).json()["availability"][
         "state"
     ] == "changed"
-    await revisions.accept(
+    await accept_revision(
         db, run.id, change["path_digest"], payload, world[2], revalidate=True
     )
     assert (await httpx_client.get(url, headers=auth)).json()["availability"][

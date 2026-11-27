@@ -14,6 +14,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.application.dataset_reference_registration import register_entry
 from app.db.models.audit_log import AuditLog
 from app.db.models.dataset import Dataset
 from app.db.models.dataset_source import DatasetSource
@@ -407,7 +408,7 @@ async def test_original_cache_hit_does_not_recover_source_fault(
 ):
     from app.services import dataset_content, dataset_references, original_cache
 
-    result = await dataset_references.register_entry(
+    result = await register_entry(
         db_session, world[6].id, world[7].path_digest, world[2]
     )
     snapshot = await dataset_content.scan_snapshot(
@@ -438,7 +439,7 @@ async def test_original_cache_hit_does_not_recover_source_fault(
 async def test_preview_ready_before_refused_final_publish_cannot_recover(
     world, db_session, test_engine, monkeypatch, object_store
 ):
-    from app.services import dataset_references, directory_previews
+    from app.services import directory_previews
     from app.services.content_snapshot import ContentError
 
     source, run, entry, actor = world[5], world[6], world[7], world[2]
@@ -449,9 +450,7 @@ async def test_preview_ready_before_refused_final_publish_cannot_recover(
         "encode",
         AsyncMock(side_effect=RuntimeError("private encoder path")),
     )
-    await dataset_references.register_entry(
-        db_session, run.id, entry.path_digest, actor
-    )
+    await register_entry(db_session, run.id, entry.path_digest, actor)
     assert (await saved(test_engine, world[4]))[0]["category"] == "preview_failed"
     monkeypatch.setattr(directory_previews, "encode", original)
 
@@ -460,7 +459,7 @@ async def test_preview_ready_before_refused_final_publish_cannot_recover(
         raise ContentError("publication_refused")
 
     with pytest.raises(ContentError, match="publication_refused"):
-        await dataset_references.register_entry(
+        await register_entry(
             db_session, run.id, entry.path_digest, actor, on_result=refuse
         )
     assert (await saved(test_engine, world[4]))[0]["state"] == "active"
@@ -469,7 +468,7 @@ async def test_preview_ready_before_refused_final_publish_cannot_recover(
 async def test_verified_cached_preview_token_recovers_only_after_final_commit(
     world, db_session, test_engine, monkeypatch, object_store
 ):
-    from app.services import dataset_references, directory_previews
+    from app.services import directory_previews
 
     source, run, entry, actor = world[5], world[6], world[7], world[2]
     source.cache_policy = "preview"
@@ -482,9 +481,7 @@ async def test_verified_cached_preview_token_recovers_only_after_final_commit(
         return row
 
     monkeypatch.setattr(directory_previews, "generate", retain_row)
-    await dataset_references.register_entry(
-        db_session, run.id, entry.path_digest, actor
-    )
+    await register_entry(db_session, run.id, entry.path_digest, actor)
     row = generated[-1]
     captured = row._fault_observation
     dependencies = captured.scopes["preview_failed"]["facts"]["dependencies"]
@@ -501,7 +498,7 @@ async def test_verified_cached_preview_token_recovers_only_after_final_commit(
     async def before_commit(_db, _result):
         assert (await saved(test_engine, world[4]))[0]["state"] == "active"
 
-    await dataset_references.register_entry(
+    await register_entry(
         db_session, run.id, entry.path_digest, actor, on_result=before_commit
     )
     assert (await saved(test_engine, world[4]))[0]["state"] == "recovered"

@@ -62,7 +62,7 @@ async def require_writable(db, dataset_id, *, expected_revision=None, lock=False
 
 
 async def lock_actor(db, actor, api_key_id):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
     accounts = await IdentityAccountLockData(db).lock_accounts(
@@ -87,7 +87,7 @@ def dependencies(dataset_id):
 
 
 async def review(db, dataset_id, payload, actor, *, api_key_id=None):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     actor, proof = await lock_actor(db, actor, api_key_id)
     dataset = await _dataset(db, dataset_id, lock=True)

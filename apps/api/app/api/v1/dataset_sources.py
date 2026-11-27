@@ -7,6 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.dataset_reference_registration import (
+    accept_revision,
+    register_entry,
+)
 from app.db.enums import UserRole
 from app.db.models.dataset_source import (
     DatasetScanRun,
@@ -472,7 +476,6 @@ async def register_reference(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    from app.services.dataset_references import register_entry
     from app.services.dataset_content import content_http_error
 
     try:
@@ -771,11 +774,10 @@ async def accept_content_revision(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    from app.services import dataset_source_revisions as revisions
     from app.services.dataset_content import content_http_error
 
     try:
-        return await revisions.accept(
+        return await accept_revision(
             db,
             registration_id,
             path_digest,
@@ -800,11 +802,10 @@ async def revalidate_observation(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    from app.services import dataset_source_revisions as revisions
     from app.services.dataset_content import content_http_error
 
     try:
-        return await revisions.accept(
+        return await accept_revision(
             db,
             registration_id,
             path_digest,
@@ -830,11 +831,10 @@ async def relocate_observation(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(manager),
 ):
-    from app.services import dataset_source_revisions as revisions
     from app.services.dataset_content import content_http_error
 
     try:
-        return await revisions.accept(
+        return await accept_revision(
             db,
             registration_id,
             path_digest,

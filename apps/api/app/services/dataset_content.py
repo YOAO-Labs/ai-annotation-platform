@@ -16,7 +16,7 @@ from app.services import (
     storage_location as locations,
     storage_observation_rates as rates,
 )
-from app.services.dataset_source_access import _actor_id
+from app.services.dataset_source_access import _actor_id, key_authority
 from app.services.media_item_reads import read_item
 from app.services.storage import storage_service
 from app.services.storage_registry_data import get_probe
@@ -36,21 +36,6 @@ def content_http_error(exc):
     if isinstance(exc, (OSError, BotoCoreError, ClientError)):
         return HTTPException(503, {"code": "content_source_unavailable"})
     raise exc
-
-
-async def key_authority(db, actor, key_id, scope):
-    if key_id is None:
-        return None
-    import uuid
-
-    from app.services.identity_account_lock_data import IdentityAccountLockData
-
-    facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
-        _actor_id(actor), uuid.UUID(str(key_id))
-    )
-    if facts is None or ("*" not in facts.scopes and scope not in facts.scopes):
-        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    return facts.revision
 
 
 async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=None):

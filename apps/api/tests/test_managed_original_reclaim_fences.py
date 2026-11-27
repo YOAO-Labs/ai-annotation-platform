@@ -433,7 +433,8 @@ async def test_saved_s3_reference_remains_a_training_root_after_alias_item_delet
     from sqlalchemy import delete, select
     from app.db.models.dataset import DatasetItem
     from app.db.models.dataset_source import DatasetScanEntry
-    from app.services.dataset_references import register_entry, reference_context
+    from app.application.dataset_reference_registration import register_entry
+    from app.services.dataset_references import reference_context
     from app.services.training_dataset_sources import capture_source_lineage
     from tests.test_s3_references import scan
 

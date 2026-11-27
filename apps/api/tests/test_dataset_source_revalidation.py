@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import DatasetAsset
 from app.db.models.dataset_source import (
@@ -18,7 +19,7 @@ from app.services import (
     dataset_source_changes as changes,
     dataset_source_revisions as revisions,
 )
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
 from tests.test_dataset_content import content_world as content_world, headers
@@ -100,7 +101,7 @@ async def test_revalidation_restores_original_task_and_preserves_labels(
     next_run = await preflight(db, world)
     assert (await changes.page(db, next_run, None, 20, 0))["counts"]["unchanged"] == 1
     world, new_run, change, payload = await candidate(db, world, "blue")
-    new = await revisions.accept(
+    new = await accept_revision(
         db, new_run.id, change["path_digest"], payload, world[2]
     )
     assert new["item_id"] != item_id
@@ -145,7 +146,7 @@ async def test_copy_revalidation_preserves_ownership_without_new_original(
     monkeypatch.setattr(
         storage_service.client, "create_multipart_upload", reject_original_write
     )
-    result = await revisions.accept(
+    result = await accept_revision(
         db,
         run.id,
         change["path_digest"],
@@ -177,7 +178,7 @@ async def test_endpoints_cannot_expand_change_kind(
     await register_entry(db, world[6].id, world[7].path_digest, world[2])
     world, run, change, payload = await candidate(db, world, color)
     with pytest.raises(HTTPException) as exc:
-        await revisions.accept(
+        await accept_revision(
             db, run.id, change["path_digest"], payload, world[2], revalidate=revalidate
         )
     assert exc.value.detail["code"] == "revision_selection_changed"
@@ -205,7 +206,7 @@ async def test_file_changed_during_revalidation_does_not_renew(
 
     monkeypatch.setattr(snapshots, "capture", capture)
     with pytest.raises((HTTPException, ContentError, FilesystemStorageError)):
-        await revisions.accept(
+        await accept_revision(
             db, run.id, change["path_digest"], payload, world[2], revalidate=True
         )
     await db.rollback()
@@ -240,7 +241,7 @@ async def test_external_same_sha_receipts_keep_original_identity(db_session, s3_
     await drain(db, run, job.celery_task_id, fence)
     c = (await changes.page(db, run, "changed", 20, 0))["items"][0]
     assert c["can_revalidate"] and c["reason"] == "observation_changed"
-    result = await revisions.accept(
+    result = await accept_revision(
         db,
         run.id,
         c["path_digest"],
@@ -293,7 +294,7 @@ async def test_sftp_same_bytes_new_mtime_can_be_explicitly_revalidated(
     fence = await registration.claim(db, run.id, job.celery_task_id, "content@test")
     await drain(db, run, job.celery_task_id, fence)
     c = (await changes.page(db, run, "changed", 20, 0))["items"][0]
-    result = await revisions.accept(
+    result = await accept_revision(
         db,
         run.id,
         c["path_digest"],

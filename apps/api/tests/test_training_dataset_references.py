@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.annotation import Annotation
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.task import Task
@@ -472,7 +473,6 @@ async def test_materialization_does_not_recapture_frozen_or_historical_lineage(
 async def test_relocation_changes_new_lineage_but_preserves_pending_and_ready_freezes(
     db_session, reference_training, httpx_client, super_admin
 ):
-    from app.services import dataset_source_revisions as revisions
     from tests.test_dataset_source_relocations import moved_candidate
 
     db, (world, project, _) = db_session, reference_training
@@ -487,7 +487,7 @@ async def test_relocation_changes_new_lineage_but_preserves_pending_and_ready_fr
         for sample in old.snapshot["samples"]
     }
     world, run, _, target, payload = await moved_candidate(db, world)
-    await revisions.accept(
+    await accept_revision(
         db, run.id, target["path_digest"], payload, world[2], relocate=True
     )
     await db.commit()
@@ -689,7 +689,7 @@ async def test_real_s3_reference_source_enters_training_freeze(
     from app.schemas.dataset_source import DatasetSourceCreate
     from yoao_assets_source.connectors import host_guard
     from app.services import connector_guard, dataset_scans, storage_location
-    from app.services.dataset_references import register_entry
+    from app.application.dataset_reference_registration import register_entry
     from tests import live_provider_guard
     from tests.test_s3_references import scan
 

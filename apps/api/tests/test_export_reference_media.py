@@ -21,6 +21,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
+from app.application.dataset_reference_registration import register_entry
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
@@ -1129,9 +1130,7 @@ async def test_remote_reference_exports_use_the_same_strict_media_contract(
         .order_by(DatasetScanEntry.path_digest)
         .limit(1)
     )
-    registered = await dataset_references.register_entry(
-        db_session, run.id, entry.path_digest, actor
-    )
+    registered = await register_entry(db_session, run.id, entry.path_digest, actor)
     project = await create_project(db_session, owner_id=actor.id)
     authority = await capture_dataset_write(db_session, dataset.id, actor, None)
     await DatasetService(db_session).link_project(
