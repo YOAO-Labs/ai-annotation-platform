@@ -18,6 +18,7 @@ from yoao_identity.contract import Principal
 from yoao_inference_contract.execution import ModelExecutionDispatch
 from yoao_workspace_contract.access import project_manager_access, project_member_access
 
+from app.services import comment_attachment_authority as credentials
 from app.services import task_access
 from app.services import video_sync_inference as sync
 from app.services.content_snapshot import ContentError
@@ -172,6 +173,10 @@ def world(monkeypatch):
         assert actor_ids == [actor.id] and mode == "share" and nowait
         return {actor.id: actor}
 
+    async def locked_actor(db_arg, actor_id, allowed_roles):
+        assert db_arg.transaction and actor_id == actor.id
+        return actor
+
     async def api_key(data, actor_id, identifier):
         events.append("credentials")
         assert actor_id == actor.id and identifier == key_id
@@ -279,6 +284,7 @@ def world(monkeypatch):
     inputs.upload_video, inputs.check_live, inputs.close = upload, live, close_inputs
     monkeypatch.setattr(sync.IdentityAccountLockData, "read_actor_status", actor_status)
     monkeypatch.setattr(sync.IdentityAccountLockData, "lock_accounts", accounts)
+    monkeypatch.setattr(credentials, "_actor", locked_actor)
     monkeypatch.setattr(
         sync.IdentityAccountLockData, "read_accepted_api_key_facts", api_key
     )
@@ -321,6 +327,22 @@ def context(world):
         world.factory,
         backend_id=world.backend_id,
     )
+
+
+async def wait_for_boundary(operation, started):
+    boundary = asyncio.create_task(started)
+    try:
+        completed, _ = await asyncio.wait(
+            (operation, boundary), timeout=5, return_when=asyncio.FIRST_COMPLETED
+        )
+        if operation in completed:
+            await operation
+            pytest.fail("video inference finished before reaching the I/O boundary")
+        assert boundary in completed, "video inference did not reach the I/O boundary"
+        await boundary
+    finally:
+        boundary.cancel()
+        await asyncio.gather(boundary, return_exceptions=True)
 
 
 async def test_video_dispatch_borrows_stage_until_model_then_closes_before_final_sql(
@@ -546,7 +568,7 @@ async def test_revocation_during_actual_source_close_is_seen_by_final_caller_fen
 
     pending = asyncio.create_task(run())
     try:
-        await wait_started(world.descriptor.started)
+        await wait_for_boundary(pending, wait_started(world.descriptor.started))
         world.state.api_key = None
         world.descriptor.gate.set()
         with pytest.raises(HTTPException) as caught:
@@ -573,7 +595,7 @@ async def test_repeated_cancel_waits_for_late_source_and_closes_its_actual_stage
 
     pending = asyncio.create_task(run())
     try:
-        await asyncio.wait_for(world.state.source_started.wait(), timeout=5)
+        await wait_for_boundary(pending, world.state.source_started.wait())
         pending.cancel()
         await asyncio.sleep(0)
         pending.cancel()
@@ -602,7 +624,7 @@ async def test_repeated_cancel_during_final_waits_for_actual_source_close(world)
 
     pending = asyncio.create_task(run())
     try:
-        await wait_started(world.descriptor.started)
+        await wait_for_boundary(pending, wait_started(world.descriptor.started))
         pending.cancel()
         await asyncio.sleep(0)
         pending.cancel()
