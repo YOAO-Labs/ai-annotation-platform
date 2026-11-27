@@ -1512,7 +1512,8 @@ async def trigger_preannotation(
         text_threshold=float(project.text_threshold),
     )
     if (
-        not needs_snapshot
+        not uses_controlled_model
+        and not body.pipeline_stages
         and retry_context is not None
         and prediction_retry.retryable_request_context(retry_context) is None
     ):

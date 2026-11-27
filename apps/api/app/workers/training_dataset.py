@@ -461,7 +461,7 @@ async def materialize_sample(
         authority = authority or await originals.delegated(db, version)
         async with originals.media(db, authority, sample, guard=guard) as (
             stage,
-            source,
+            managed_source,
         ):
             result = await originals.physical(
                 _materialize_image,
@@ -476,7 +476,7 @@ async def materialize_sample(
                 verified_original=stage,
                 timeout=120,
             )
-        result["_managed_source"] = source
+        result["_managed_source"] = managed_source
         return result
     if not node_id or not node_id.startswith("worker:"):
         raise TrainingDatasetError(
@@ -712,9 +712,9 @@ async def _build_dataset_contents(
                         )
                         if media[-1].pop("_source_backed", False):
                             source_reads.append(sample)
-                        source = media[-1].pop("_managed_source", None)
-                        if source is not None:
-                            managed_reads[sample["task_id"]] = source
+                        managed_source = media[-1].pop("_managed_source", None)
+                        if managed_source is not None:
+                            managed_reads[sample["task_id"]] = managed_source
                         version = await guard_execution(db, context, lock=True)
                         progress = int(80 * (index + 1) / len(snapshot["samples"]))
                         if not await data.set_progress(db, version, progress):
@@ -763,8 +763,8 @@ async def _build_dataset_contents(
                     expected_revision=permit.revision,
                     lock=True,
                 )
-                for source in managed_reads.values():
-                    await originals.recheck(db, authority, source)
+                for managed_source in managed_reads.values():
+                    await originals.recheck(db, authority, managed_source)
                 if source_reads:
                     from app.services.training_dataset_sources import (
                         lock_source_maintenance,

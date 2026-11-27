@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -109,10 +109,11 @@ _DUPLICATES = {
 }
 
 
-@contextmanager
-def _translate_view_errors():
+@asynccontextmanager
+async def _translate_view_errors(db: AsyncSession):
     try:
-        yield
+        async with db.begin_nested():
+            yield
     except DBAPIError as exc:
         state = getattr(exc.orig, "sqlstate", None)
         if state in _ERRORS:
@@ -133,7 +134,7 @@ class ProjectSavedViews:
     async def list(
         self, project_id: UUID, actor_id: UUID, scope: str
     ) -> list[SavedTaskView]:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             rows = await self.db.scalars(
                 _LIST_TASK, {"actor": actor_id, "project": project_id, "scope": scope}
             )
@@ -142,7 +143,7 @@ class ProjectSavedViews:
     async def read(
         self, project_id: UUID, view_id: UUID, actor_id: UUID
     ) -> SavedTaskView:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             row = await self.db.scalar(
                 _READ_TASK, {"actor": actor_id, "project": project_id, "view": view_id}
             )
@@ -162,7 +163,7 @@ class ProjectSavedViews:
         sort_json: list[dict[str, Any]],
         columns_json: list[str],
     ) -> SavedTaskView:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             await self.db.flush()
             row = await self.db.scalar(
                 _CREATE_TASK,
@@ -190,7 +191,7 @@ class ProjectSavedViews:
         sort_json: list[dict[str, Any]] | None,
         columns_json: list[str] | None,
     ) -> SavedTaskView:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             await self.db.flush()
             row = await self.db.scalar(
                 _UPDATE_TASK,
@@ -208,7 +209,7 @@ class ProjectSavedViews:
         return SavedTaskView.model_validate(row)
 
     async def delete(self, view: SavedTaskView, actor_id: UUID) -> None:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             await self.db.flush()
             await self.db.execute(
                 _DELETE_TASK,
@@ -230,11 +231,11 @@ class PersonalDatasetViews:
             raise HTTPException(404, detail="Personal dataset view not found")
 
     async def prepare_create(self) -> None:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             await self.db.execute(_PREPARE_DATASET, self.scope)
 
     async def create(self, payload: DatasetSavedViewWrite) -> DatasetSavedViewOut:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             row = await self.db.scalar(
                 _CREATE_DATASET,
                 {
@@ -248,7 +249,7 @@ class PersonalDatasetViews:
     async def update(
         self, view_id: UUID, payload: DatasetSavedViewWrite
     ) -> DatasetSavedViewOut:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             row = await self.db.scalar(
                 _UPDATE_DATASET,
                 {
@@ -261,5 +262,5 @@ class PersonalDatasetViews:
         return DatasetSavedViewOut.model_validate(row)
 
     async def delete(self, view_id: UUID) -> None:
-        with _translate_view_errors():
+        async with _translate_view_errors(self.db):
             await self.db.execute(_DELETE_DATASET, {**self.scope, "view": view_id})

@@ -83,7 +83,14 @@ async def begin_retirement(db, token):
 async def finish_retirement(db, receipt):
     if db.autoflush:
         await db.flush()
-    return await db.scalar(_FINISH_RETIREMENT, _versioned_facts(receipt))
+    deleted = await db.scalar(_FINISH_RETIREMENT, _versioned_facts(receipt))
+    if deleted:
+        for (cls, identity, _token), instance in list(
+            db.sync_session.identity_map.items()
+        ):
+            if cls.__name__ == "AvatarUpload" and identity == (receipt.token,):
+                db.expunge(instance)
+    return deleted
 
 
 async def binding_history(db):

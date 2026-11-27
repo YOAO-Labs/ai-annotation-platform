@@ -518,7 +518,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_labeling_v1.annotation_write_command(jsonb)": "0338_labeling_annotation_writes.sql",
     "public.capture_mask_annotation_revision()": "0338_labeling_annotation_revision_support.sql",
     "public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)": "0338_labeling_annotation_revision_support.sql",
-    "yoao_labeling_v1.task_edit_lock_command(jsonb)": "0466_task_edit_lock_domain.sql",
+    "yoao_labeling_v1.task_edit_lock_command(jsonb)": "0518_sql_collation_and_query_fixes.sql",
     "yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)": "0466_task_edit_lock_domain.sql",
     "yoao_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])": "0466_task_edit_lock_domain.sql",
     "yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)": "0466_task_edit_lock_domain.sql",
@@ -1276,6 +1276,16 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)",
         )
     },
+    **{
+        signature: "0518_sql_collation_and_query_fixes.sql"
+        for signature in (
+            "yoao_jobs_v1._async_job_list_rows_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)",
+            "yoao_jobs_v1.async_job_list_page_v2(uuid,text,text[],text[],uuid,text,integer,integer,boolean,boolean)",
+            "yoao_jobs_v1.async_job_list_total_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)",
+            "yoao_learning_v1.training_create_run(uuid,uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,jsonb,text,jsonb,jsonb)",
+            "yoao_learning_v1.training_gpu_queue()",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "yoao_audit_append_client"
 AUDIT_QUERY_ROLE = "yoao_audit_query_client"
@@ -1939,6 +1949,7 @@ CURRENT_NAMESPACE_SQL = (
     "0513_inference_plugin_direct_mode.sql",
     "0516_image_reference_manifest_members.sql",
     "0517_jobs_list_platform_storage.sql",
+    "0518_sql_collation_and_query_fixes.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",

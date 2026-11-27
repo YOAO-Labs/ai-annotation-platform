@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -71,9 +72,47 @@ def configured_probe_client() -> MediaProbeClient | None:
     return _remote_client()
 
 
+def _run_verified_ffprobe(
+    args: list[str], pass_fds: tuple[int, ...], error_message: str
+):
+    from app.services.media_process import run_process
+
+    proc = run_process(
+        args,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=FFPROBE_TIMEOUT_SECONDS,
+        pass_fds=pass_fds,
+    )
+    if proc.returncode != 0:
+        raise FFProbeError(proc.stderr.strip() or error_message)
+    return json.loads(proc.stdout or "{}")
+
+
 def probe_video_file(path: str | Path, *, pass_fds: tuple[int, ...] = ()) -> dict:
     client = _remote_client()
     if client is None:
+        if pass_fds:
+            payload = _run_verified_ffprobe(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_entries",
+                    "stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,nb_frames,duration",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "json",
+                    str(path),
+                ],
+                pass_fds,
+                "ffprobe failed",
+            )
+            return parse_ffprobe_video_metadata(payload)
         return local_probe.probe_video_file(path, pass_fds=pass_fds)
     return client.probe_video_file(path)
 
@@ -83,6 +122,25 @@ def probe_video_frame_timetable(
 ) -> list[dict]:
     client = _remote_client()
     if client is None:
+        if pass_fds:
+            payload = _run_verified_ffprobe(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_frames",
+                    "-show_entries",
+                    "frame=media_type,key_frame,pict_type,best_effort_timestamp_time,pkt_pts_time,pts_time,pkt_dts_time,pkt_pos",
+                    "-of",
+                    "json",
+                    str(path),
+                ],
+                pass_fds,
+                "ffprobe frame timetable failed",
+            )
+            return parse_ffprobe_frame_timetable(payload)
         return local_probe.probe_video_frame_timetable(path, pass_fds=pass_fds)
     return client.probe_video_frame_timetable(path)
 
@@ -92,5 +150,24 @@ def probe_chunk_samples(
 ) -> list[dict]:
     client = _remote_client()
     if client is None:
+        if pass_fds:
+            payload = _run_verified_ffprobe(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "v:0",
+                    "-show_packets",
+                    "-show_entries",
+                    "packet=pts_time,dts_time,duration_time,size,pos,flags",
+                    "-of",
+                    "json",
+                    str(path),
+                ],
+                pass_fds,
+                "ffprobe packet probe failed",
+            )
+            return parse_ffprobe_packet_samples(payload, start_frame)
         return local_probe.probe_chunk_samples(path, start_frame, pass_fds=pass_fds)
     return client.probe_chunk_samples(path, start_frame)

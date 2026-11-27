@@ -11,7 +11,6 @@ from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.identity_contracts import IdentityActorFacts
@@ -21,7 +20,7 @@ from app.services.data_management.task_filters import (
     _is_annotation_object_rule,
     compile_filter,
 )
-from app.services.labeling_core_read_relations import task_row
+from app.services.labeling_core_read_relations import annotation_row, task_row
 
 
 _PENDING_SHAPE_FIELD = "ai.pending_prediction_shape_count"
@@ -129,7 +128,7 @@ def _collect_true_sources(
     if "rules" not in node:
         if _is_annotation_object_rule(node):
             return (
-                _annotation_condition(node, Annotation, evidence.project),
+                _annotation_condition(node, annotation_row, evidence.project),
                 False,
                 True,
             )
@@ -178,7 +177,7 @@ def _collect_true_sources(
         predicates.append(
             and_(
                 *[
-                    _annotation_condition(child, Annotation, evidence.project)
+                    _annotation_condition(child, annotation_row, evidence.project)
                     for child in immediate
                 ]
             )

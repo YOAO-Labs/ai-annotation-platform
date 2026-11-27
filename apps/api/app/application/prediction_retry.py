@@ -217,6 +217,7 @@ class SqlPredictionRetry(PredictionRetryPort):
                 )
 
             attempts = []
+            structured_conflict: HTTPException | None = None
             for failed_id in failed_ids:
                 try:
                     async with db.begin_nested():
@@ -226,15 +227,23 @@ class SqlPredictionRetry(PredictionRetryPort):
                             None,
                             credential,
                             project_id=job.project_id,
-                            follow_target_queue=False,
+                            follow_target_queue=True,
                         )
                 except HTTPException as error:
                     if error.status_code in {404, 409}:
+                        if (
+                            error.status_code == 409
+                            and isinstance(error.detail, dict)
+                            and structured_conflict is None
+                        ):
+                            structured_conflict = error
                         continue
                     raise
                 attempts.append(attempt)
 
             if not attempts:
+                if structured_conflict is not None:
+                    raise structured_conflict
                 raise HTTPException(
                     status_code=409,
                     detail="no retryable failed predictions remain for this job",

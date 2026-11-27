@@ -30,7 +30,6 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import prediction_retry
-from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_prediction_contract import (
     ApplyPredictionResultError,
@@ -1474,6 +1473,13 @@ async def _execute_preannotation(
                 and precreated_job.status == AsyncJobStatus.RUNNING.value
             ):
                 return
+            if (
+                batch_results is None
+                and celery_task_id is not None
+                and precreated_job.celery_task_id is not None
+                and precreated_job.celery_task_id != celery_task_id
+            ):
+                return
             if accepted_input_manifest_protocol is not None and not resuming_results:
                 from yoao_assets_input_manifests.contract import MANIFEST_SCHEMA
 
@@ -1692,6 +1698,14 @@ async def _execute_preannotation(
                         execution_unit=execution_unit,
                     )
                     await video_owner.authorize(db)
+            elif (
+                project.data_type == "video"
+                and execution_unit in {None, "video"}
+                and accepted_video_manifest is None
+            ):
+                from app.services.content_snapshot import ContentError
+
+                raise ContentError("prediction_video_requires_new_request", 409)
         if batch_id and not resuming_results:
             selected_batch = await get_core_row(db, batch_core_row, uuid.UUID(batch_id))
             if (
@@ -1860,7 +1874,7 @@ async def _execute_preannotation(
                 task_core_row.status == "pending",
             ]
         sel = select(task_core_row).where(*base_conds)
-        if skip_predicted:
+        if skip_predicted and video_owner is None:
             sel = sel.where(task_core_row.total_predictions == 0)
         video_task_plans = []
         video_plan_records = {}
@@ -1893,6 +1907,12 @@ async def _execute_preannotation(
         else:
             result = await execute_core_read(db, sel)
             tasks = list(result.scalars().all())
+            if (
+                video_owner is not None
+                and requested_task_ids is not None
+                and len(tasks) != len(requested_task_ids)
+            ):
+                raise ValueError("Frozen prediction task scope changed")
             total = len(tasks)
 
         if video_manifest_backed:
@@ -2114,6 +2134,7 @@ async def _execute_preannotation(
             and tasks
             and not manifest_backed
             and not video_manifest_backed
+            and video_owner is None
             and batch_results is None
         ):
             from app.services.batch import BatchService
@@ -3553,6 +3574,13 @@ async def _execute_preannotation(
                     native_receipts = await video_owner.qualify_native_results(
                         task, video_input_receipt, write_payloads
                     )
+                    if predict_mode == "overwrite":
+                        from app.services.batch import BatchService
+
+                        await BatchService(db).clean_task_predictions(
+                            [task_id],
+                            actor_id=uuid.UUID(user_id) if user_id else None,
+                        )
                     receipt_kwargs = {"video_input_receipt": video_input_receipt}
                 elif reference_job is not None:
                     await reference_job.lock_key()
@@ -3645,7 +3673,8 @@ async def _execute_preannotation(
                 success_count += 1
             except Exception as exc:
                 authority_denied = (
-                    final_write_started
+                    video_owner is None
+                    and final_write_started
                     and isinstance(exc, (HTTPException, ApplyPredictionResultError))
                     and exc.status_code in {401, 403}
                 )

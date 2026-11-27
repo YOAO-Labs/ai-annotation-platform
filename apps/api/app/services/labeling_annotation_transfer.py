@@ -40,7 +40,8 @@ async def annotation_transfer_command(
         )
 
     try:
-        return await AnnotationTransferDataClient(execute).command(request)
+        async with db.begin_nested():
+            return await AnnotationTransferDataClient(execute).command(request)
     except AnnotationTransferUnavailable as exc:
         raise AnnotationTransferRejected(
             status_code=503, reason="annotation_transfer_unavailable"

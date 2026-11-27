@@ -96,6 +96,8 @@ def runtime_for_reference(ref, framework_version=None):
         not isinstance(runtime, dict)
         or not isinstance(runtime.get("decoder"), str)
         or not isinstance(runtime.get("mask_processing"), str)
+        or ("end2end" in runtime and type(runtime["end2end"]) is not bool)
+        or (runtime.get("end2end") is True and runtime.get("nms") is not False)
     ):
         raise ValueError("Unqualified frozen segmentation runtime")
     return runtime

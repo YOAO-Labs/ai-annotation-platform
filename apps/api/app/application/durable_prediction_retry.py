@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.application.preannotation_results import (
@@ -492,26 +493,30 @@ async def _infer(execution, attempt, prepared, session_factory):
                 accepted_video_input=prepared.accepted_video_input,
                 model_provenance=thaw_json(model_provenance),
             )
-    finally:
+        raw_context = {
+            "task_id": str(task_id),
+            "total_cost": format(
+                Decimal(str((first.meta or {}).get("total_cost") or 0)), "f"
+            ),
+            "pipeline_stages": {},
+            "gpu_arbiter_failures": [],
+        }
+        await execution.capture(1, (request,), stage="raw", context=raw_context)
+        if owner is not None:
+            return (owner, task_id)
+        if prepared.accepted_video_failure is not None:
+            await _verify_video_retry_source(
+                prepared.gateway,
+                prepared.request,
+                expected_plan=prepared.reference.plan,
+            )
+        elif prepared.accepted_input is not None:
+            await _verify_retry_source(prepared.gateway, prepared.request)
+        return None
+    except BaseException:
         if owner is not None:
             await owner.close_inputs(task_id)
-    raw_context = {
-        "task_id": str(task_id),
-        "total_cost": format(
-            Decimal(str((first.meta or {}).get("total_cost") or 0)), "f"
-        ),
-        "pipeline_stages": {},
-        "gpu_arbiter_failures": [],
-    }
-    await execution.capture(1, (request,), stage="raw", context=raw_context)
-    if owner is not None:
-        return
-    if prepared.accepted_video_failure is not None:
-        await _verify_video_retry_source(
-            prepared.gateway, prepared.request, expected_plan=prepared.reference.plan
-        )
-    elif prepared.accepted_input is not None:
-        await _verify_retry_source(prepared.gateway, prepared.request)
+        raise
 
 
 async def _prepare_snapshot(execution, session_factory):
@@ -583,8 +588,10 @@ def _video_write_facts(request):
     )
 
 
-async def _attach_input_receipts(db, attempt, payload, session_factory, requests):
-    """Open the owner input and issue its receipt in this writer transaction.
+async def _attach_input_receipts(
+    db, attempt, payload, session_factory, requests, *, active_owner=None
+):
+    """Open or reuse the owner input and issue its receipt in this writer transaction.
 
     The receipt is issuer/session bound, so it is created here and never
     serialized into the batch-result snapshot or carried across a retry.
@@ -594,7 +601,7 @@ async def _attach_input_receipts(db, attempt, payload, session_factory, requests
     image_proof = payload.get("prediction_authority")
     video_proof = payload.get("video_prediction_authority")
     if image_proof is None and video_proof is None:
-        return requests, None, None
+        return requests, None, None, False
     if image_proof is not None and video_proof is not None:
         raise ValueError("retry authority is ambiguous")
     task_id = uuid.UUID(str(attempt.task_id))
@@ -602,9 +609,15 @@ async def _attach_input_receipts(db, attempt, payload, session_factory, requests
     if task is None:
         raise ValueError("retry_authority_task_unavailable")
     if image_proof is not None:
-        owner = _reference_retry_owner(db, attempt, image_proof, task)
-        await owner.authorize(db)
-        await owner.open_inputs(task, session_factory)
+        opened_here = active_owner is None
+        if active_owner is not None:
+            owner, _ = active_owner
+            owner.db = db
+            await owner.authorize(db)
+        else:
+            owner = _reference_retry_owner(db, attempt, image_proof, task)
+            await owner.authorize(db)
+            await owner.open_inputs(task, session_factory)
         try:
             receipt = await owner.final_receipt(task)
             native_receipts = await owner.qualify_native_results(
@@ -628,12 +641,19 @@ async def _attach_input_receipts(db, attempt, payload, session_factory, requests
                 for request, native in zip(requests, native_receipts, strict=True)
             )
         except BaseException:
-            await owner.close_inputs(task_id)
+            if opened_here:
+                await owner.close_inputs(task_id)
             raise
-        return prepared, owner, task_id
-    owner = _video_retry_owner(db, attempt, video_proof, task)
-    await owner.authorize(db)
-    await owner.open_inputs(task, session_factory)
+        return prepared, owner, task_id, opened_here
+    opened_here = active_owner is None
+    if active_owner is not None:
+        owner, _ = active_owner
+        owner.db = db
+        await owner.authorize(db)
+    else:
+        owner = _video_retry_owner(db, attempt, video_proof, task)
+        await owner.authorize(db)
+        await owner.open_inputs(task, session_factory)
     try:
         input_receipt = await owner.final_receipt(task)
         result_receipts = await owner.qualify_native_results(
@@ -650,25 +670,82 @@ async def _attach_input_receipts(db, attempt, payload, session_factory, requests
             for request, result_receipt in zip(requests, result_receipts, strict=True)
         )
     except BaseException:
-        await owner.close_inputs(task_id)
+        if opened_here:
+            await owner.close_inputs(task_id)
         raise
-    return prepared, owner, task_id
+    return prepared, owner, task_id, opened_here
 
 
-async def _apply_snapshot(execution, attempt, data, session_factory, result, requests):
+async def _apply_snapshot(
+    execution, attempt, data, session_factory, result, requests, *, active_owner=None
+):
     from app.services.prediction import PredictionService
 
     for index in range(3):
         async with session_factory() as db:
             owner = None
             task_id = None
+            opened_here = False
             try:
                 execution.ensure_owned()
                 _job, payload = await _revalidate_retry_job(db, attempt)
-                writes, owner, task_id = await _attach_input_receipts(
-                    db, attempt, payload, session_factory, deepcopy(requests)
+                writes, owner, task_id, opened_here = await _attach_input_receipts(
+                    db,
+                    attempt,
+                    payload,
+                    session_factory,
+                    deepcopy(requests),
+                    active_owner=active_owner,
                 )
+                from app.services.labeling_core_read_relations import (
+                    execute_core_read,
+                    failed_prediction_row,
+                    prediction_row,
+                )
+                from app.services.labeling_prediction_records import (
+                    reject_prediction_candidate,
+                )
+
+                failed_extra = (
+                    await execute_core_read(
+                        db,
+                        select(failed_prediction_row.extra).where(
+                            failed_prediction_row.id == attempt.failed_prediction_id
+                        ),
+                    )
+                ).scalar_one_or_none()
+                partial_ids = [
+                    uuid.UUID(str(value))
+                    for value in (
+                        (failed_extra or {}).get("partial_prediction_ids") or []
+                    )
+                ]
                 await PredictionService(db).apply_prediction_result_bundle(writes)
+                if partial_ids:
+                    partials = (
+                        await execute_core_read(
+                            db,
+                            select(
+                                prediction_row.id,
+                                prediction_row.created_at,
+                                prediction_row.task_id,
+                                prediction_row.project_id,
+                            ).where(
+                                prediction_row.id.in_(partial_ids),
+                                prediction_row.task_id == attempt.task_id,
+                                prediction_row.project_id == attempt.project_id,
+                            ),
+                        )
+                    ).all()
+                    for partial in partials:
+                        await reject_prediction_candidate(
+                            db,
+                            prediction_id=partial.id,
+                            prediction_created_at=partial.created_at,
+                            task_id=partial.task_id,
+                            project_id=partial.project_id,
+                            shape_index=None,
+                        )
                 if owner is not None and payload.get("video_prediction_authority"):
                     await owner.recheck_credentials()
                 finished = await call_retry(
@@ -697,7 +774,7 @@ async def _apply_snapshot(execution, attempt, data, session_factory, result, req
                     raise
                 raise PreannotationResultDeferred("storage_unavailable") from None
             finally:
-                if owner is not None:
+                if owner is not None and opened_here:
                     await owner.close_inputs(task_id)
 
 
@@ -893,6 +970,7 @@ async def run_durable_prediction_retry(
         executor_session_factory=executor_session_factory,
         scope=retry_scope(attempt),
     )
+    active_owner = None
     try:
         try:
             await execution.claim()
@@ -925,16 +1003,26 @@ async def run_durable_prediction_retry(
                             raise prepared.terminal_error
                         await execution.call("start_batch_result_execution")
                         await _start_member(execution, attempt, session_factory)
-                        await _infer(execution, attempt, prepared, session_factory)
+                        active_owner = await _infer(
+                            execution, attempt, prepared, session_factory
+                        )
                 else:
                     if prepared_input.terminal_error is not None:
                         raise prepared_input.terminal_error
                     await execution.call("start_batch_result_execution")
                     await _start_member(execution, attempt, session_factory)
-                    await _infer(execution, attempt, prepared_input, session_factory)
+                    active_owner = await _infer(
+                        execution, attempt, prepared_input, session_factory
+                    )
             result, requests = await _prepare_snapshot(execution, session_factory)
             return await _apply_snapshot(
-                execution, attempt, data, session_factory, result, requests
+                execution,
+                attempt,
+                data,
+                session_factory,
+                result,
+                requests,
+                active_owner=active_owner,
             )
         except Exception as error:
             if _transient(error):
@@ -967,4 +1055,8 @@ async def run_durable_prediction_retry(
                 abandon=_invalidated(error),
             )
     finally:
-        await execution.close()
+        try:
+            if active_owner is not None:
+                await active_owner[0].close_inputs(active_owner[1])
+        finally:
+            await execution.close()

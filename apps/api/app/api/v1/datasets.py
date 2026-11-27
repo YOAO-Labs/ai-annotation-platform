@@ -678,7 +678,9 @@ async def import_from_connection(
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
     registration_default: bool = Depends(get_registration_default),
 ):
-    from app.services import connector_guard
+    from app.services import connector_guard, storage_access
+    from app.services.content_snapshot import ContentError
+    from app.services.storage_location import connector_location_id
 
     capabilities = DatasetImportCapabilities(db)
     context = await capabilities.prepare(
@@ -686,6 +688,13 @@ async def import_from_connection(
         dataset_id=dataset_id,
         connection_id=payload.connection_id,
     )
+    source_location_id = connector_location_id(context.connection_id)
+    try:
+        maintenance_revision = await storage_access.check(
+            db, source_location_id, lock=True
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     try:
         await connector_guard.assert_connection_target_allowed(
             db,
@@ -722,6 +731,20 @@ async def import_from_connection(
         limits=limits,
         audit_context=_deletion_audit_context(request).model_dump(mode="json"),
     )
+    try:
+        await storage_access.check(
+            db,
+            source_location_id,
+            expected_revision=maintenance_revision,
+            lock=True,
+        )
+        await recheck_directory_write(request, db, dataset_id)
+    except ContentError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    except BaseException:
+        await db.rollback()
+        raise
     await db.commit()
     response.headers["Idempotency-Key"] = str(operation_id)
     return DatasetImportFromConnectionResponse(job_id=accepted.job_id)
@@ -785,6 +808,7 @@ async def upload_init(
     },
 )
 async def upload_complete(
+    http_request: Request,
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
     response: Response,
@@ -800,6 +824,11 @@ async def upload_complete(
     )
     gateway = AssetsSourceGateway(db)
     outcome = await gateway.complete_upload(request)
+    try:
+        await recheck_directory_write(http_request, db, dataset_id)
+    except BaseException:
+        await db.rollback()
+        raise
     await db.commit()
     response.headers["Idempotency-Key"] = str(request.operation_id)
     if outcome.duplicate_of is not None:

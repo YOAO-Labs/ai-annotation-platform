@@ -4048,13 +4048,19 @@ ALTER FUNCTION yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,te
     OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1._async_job_list_rows_scoped(uuid,text,text[],text[],uuid,text,boolean)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._async_job_list_rows_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_page_v2(uuid,text,text[],text[],uuid,text,integer,integer,boolean,boolean)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
     OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_total_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)
     OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_workspace_v1,

@@ -589,7 +589,7 @@ async def store_generated_mask_content(db, rle: dict[str, Any], *, writer=None):
     """Renew durable producer grace before storing bytes and linking their root."""
     expected = build_rle_reference(rle)
     await lock_raster_mask_references(db, expected, verify=False)
-    reference = await (writer or store_coco_rle)(rle)
+    reference = await (writer or store_coco_rle)(rle, db=db)
     validate_reference_for_rle(reference, rle)
     if reference["object_key"] != expected["object_key"]:
         raise ValueError("generated Mask storage changed its content address")

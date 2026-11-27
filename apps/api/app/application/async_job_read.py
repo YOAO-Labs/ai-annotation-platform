@@ -89,6 +89,23 @@ class SqlAsyncJobReadAdapter:
                 else:
                     include_platform_storage = True
 
+        include_dataset_jobs = False
+        if user.role in {
+            PlatformRole.SUPER_ADMIN.value,
+            PlatformRole.PROJECT_ADMIN.value,
+        }:
+            has_dataset_read_scope = (
+                api_key_scopes is None
+                or "*" in api_key_scopes
+                or "datasets:read" in api_key_scopes
+            )
+            if api_key_id is None:
+                include_dataset_jobs = has_dataset_read_scope
+            elif has_dataset_read_scope:
+                include_dataset_jobs = await IdentityAccountLockData(
+                    self._db
+                ).accepted_api_key_authorized(actor_id, api_key_id, ("datasets:read",))
+
         search_text = search.strip() if search else ""
         request = AsyncJobListQuery(
             actor_id=user.id,
@@ -102,10 +119,14 @@ class SqlAsyncJobReadAdapter:
         )
         query_data = JobsListQueryPostgresData(self._db, AsyncJob)
         rows = await query_data.page(
-            request, include_platform_storage=include_platform_storage
+            request,
+            include_platform_storage=include_platform_storage,
+            include_dataset_jobs=include_dataset_jobs,
         )
         total = await query_data.total(
-            request, include_platform_storage=include_platform_storage
+            request,
+            include_platform_storage=include_platform_storage,
+            include_dataset_jobs=include_dataset_jobs,
         )
         project_cache: dict[uuid.UUID, Project | None] = {}
 

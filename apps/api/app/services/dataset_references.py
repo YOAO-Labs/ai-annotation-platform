@@ -916,6 +916,7 @@ async def reference_snapshot(
     if cache_factory:
         from sqlalchemy.exc import SQLAlchemyError
 
+        await db.rollback()
         try:
             snapshot = await original_cache.read(
                 cache_factory,

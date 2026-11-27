@@ -445,7 +445,7 @@ async def _add_segmentation(
         task = by_id[uuid.uuid5(PROJECT_ID, sample["task_id"])]
         geometries = []
         for instance in masks[sample["task_id"]]:
-            reference = await store_coco_rle(instance["rle"])
+            reference = await store_coco_rle(instance["rle"], db=db)
             geometry = {"type": "raster_mask", "mask": reference}
             geometries.append(geometry)
             db.add(
@@ -558,6 +558,8 @@ async def prepare_baseline(
 
 
 async def _reuse_baseline(db, existing):
+    if existing.storage_ref is None:
+        return existing
     if existing.status in {"failed", "cancelled", "running"}:
         try:
             await training_datasets.lock_dataset_execution(db, existing.id)
