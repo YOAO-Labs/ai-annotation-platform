@@ -1,13 +1,13 @@
 """Independent video outputs, durable client ownership and guarded collection."""
 
 import asyncio
+import sys
+import uuid
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-import sys
 from types import SimpleNamespace
-import uuid
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -15,10 +15,10 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
+from app.services import key_removal_accounting as removal
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
-from app.services import key_removal_accounting as removal
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services.content_snapshot import ContentError
@@ -610,7 +610,7 @@ async def _sweeping(db, identifier, receipt):
 
 async def retire_fixture(db, control, identifier):
     """Retire this saved video output under its sealed fixture owner."""
-    from app.services.fixture_media_retirement import _retire_output
+    from app.services.fixture_media_output_retirement import _retire_output
 
     def retire(target, output, fixture):
         with physical.open_storage(

@@ -1,19 +1,18 @@
 """Classify one bounded LIST page by saved ownership, never by bucket labels."""
 
+import json
+import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
-import json
 from importlib import import_module
-import re
 from types import SimpleNamespace
-import uuid
 
 from sqlalchemy import text
 
 from app.config import settings
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.services.training_dataset_bridge import TrainingDatasetError
 
 CATEGORIES = (

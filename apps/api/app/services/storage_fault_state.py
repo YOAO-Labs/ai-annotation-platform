@@ -1,18 +1,18 @@
 """Bounded source observations; never commit or lock a caller's business rows."""
 
 import asyncio
-from dataclasses import dataclass
 import hashlib
 import json
 import logging
 import uuid
+from dataclasses import dataclass
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 
 from app.services import storage_access
-from app.services.storage_fault_events import append_observation
+from app.services.storage_fault_audit import append_observation
 
 log = logging.getLogger(__name__)
 ACTION = "storage.fault"

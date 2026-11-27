@@ -1,20 +1,19 @@
 """Safe A3 history and ordered sparse source-fault transitions."""
 
-from contextlib import asynccontextmanager
 import asyncio
 import logging
 import re
 import uuid
+from contextlib import asynccontextmanager
 
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncConnection
-
-from yoao_audit.append_contract import AppendEvent, AppendRequest
-from yoao_audit.postgres import AuditAppendPostgresData
+from sqlalchemy import text
 
 from app.middleware.request_id import request_id_var
-from app.services import storage_access, storage_observation_rates as rates
-from app.services.identity_read_relations import account_profiles
+from app.services import storage_access
+from app.services import storage_observation_rates as rates
+from app.services.storage_fault_audit import (
+    append_observation as append_observation,
+)
 
 log = logging.getLogger(__name__)
 ACTION = "storage.fault"
@@ -57,38 +56,6 @@ def classify(exc, *, preview=False):
     code = getattr(exc, "code", None)
     category = FAULT_CODES.get(code)
     return (category, code) if category else None
-
-
-async def append_observation(
-    connection: AsyncConnection,
-    *,
-    action: str,
-    detail: dict,
-    actor_id: str | None,
-    request_id: str | None,
-) -> None:
-    committed_actor_id = None
-    if actor_id is not None:
-        committed_actor_id = await connection.scalar(
-            select(account_profiles.c.id).where(
-                account_profiles.c.id == uuid.UUID(actor_id)
-            )
-        )
-    event = AppendEvent(
-        actor_id=committed_actor_id,
-        actor_email=None,
-        actor_role=None,
-        action=action,
-        target_type="storage_location",
-        target_id=detail["location_id"],
-        method=None,
-        path=None,
-        status_code=None,
-        ip=None,
-        detail_json=detail,
-        request_id=request_id,
-    )
-    await AuditAppendPostgresData(connection).append(AppendRequest.create([event]))
 
 
 async def _persist(db, detail, actor_id, request_id):

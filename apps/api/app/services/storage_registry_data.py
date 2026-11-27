@@ -1,8 +1,8 @@
 """Transaction-bound registered location, connector origin and binding facts."""
 
+import json
 from dataclasses import dataclass
 from datetime import datetime
-import json
 from uuid import UUID
 
 from sqlalchemy import (
@@ -224,7 +224,7 @@ async def ensure_embedded_targets(db, config, buckets):
 
 
 async def list_binding_candidates(db, *, limit, offset):
-    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.storage_identity import LEGACY_LOCATION_ID
 
     loc, origin = location_row.c, connection_origin_row.c
     display_name = func.coalesce(origin.name, loc.name)

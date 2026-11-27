@@ -5,9 +5,9 @@ snapshot. Nothing here fences subsequent writes, validates remote bytes, proves
 exclusive physical ownership, or substitutes for a backup or migration hold.
 """
 
-from datetime import datetime
 import hashlib
 import json
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -17,12 +17,10 @@ from app.schemas.storage_reclamation import (
     ManagedOriginalReclamationCoverage,
     ManagedOriginalReclamationPreview,
 )
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_content import key_authority
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.services.storage_usage import require_admin
-
 
 _CONFIGURATION = text("SELECT yoao_assets_v1.legacy_original_registry_snapshot()")
 _OBSERVATION_ARGUMENTS = """

@@ -7,18 +7,18 @@ Credentials come from the saved registered target; legacy references are never g
 
 from __future__ import annotations
 
-from copy import deepcopy
-from types import SimpleNamespace
-from contextlib import nullcontext
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 import hashlib
 import io
-import time
-import uuid
 import re
+import time
 import unicodedata
+import uuid
 import warnings
+from contextlib import nullcontext
+from copy import deepcopy
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
@@ -26,10 +26,16 @@ from PIL import Image, UnidentifiedImageError
 
 from app.config import settings
 from app.services import storage_access, storage_registry_data
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_s3_target import version_matches
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_errors import (
+    BUG_ATTACHMENT_MESSAGES as BUG_ATTACHMENT_MESSAGES,
+)
+from app.services.storage_errors import (
+    BugAttachmentStorageError as BugAttachmentStorageError,
+)
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 _FIELDS = frozenset(
     {
@@ -57,28 +63,6 @@ _MIME_EXTENSIONS = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp
 _IMAGE_FORMATS = {"image/png": "PNG", "image/jpeg": "JPEG", "image/webp": "WEBP"}
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _SAVED_VERSION = object()
-
-
-_MESSAGES = {
-    "bug_attachment_storage_identity_changed": "附件存储身份与当前端点不匹配",
-    "bug_attachment_storage_unpinned": "附件尚未保存存储归属，请重新上传",
-    "bug_attachment_storage_invalid_key": "附件对象键与上传记录不匹配",
-    "bug_attachment_storage_invalid_receipt": "附件内容回执或保存期限不合法",
-    "bug_attachment_storage_invalid_file_name": "附件文件名不合法",
-    "bug_attachment_storage_invalid_image": "附件必须是完整的 PNG、JPEG 或 WebP 图片，最多 10 MiB 和 4000 万像素",
-    "bug_attachment_storage_binding_unproven": "附件存储绑定尚未登记或无法核实",
-    "bug_attachment_storage_integrity_mismatch": "附件字节与独立内容回执不一致",
-    "bug_attachment_storage_missing": "已保存的附件对象不存在",
-    "bug_attachment_storage_budget": "附件核验超过读取预算",
-    "bug_attachment_storage_unavailable": "附件存储暂不可用",
-}
-
-
-class BugAttachmentStorageError(ValueError):
-    def __init__(self, code, *, status_code=409):
-        super().__init__(_MESSAGES.get(code, "附件存储暂不可用"))
-        self.code = code
-        self.status_code = status_code
 
 
 def _reject(code="bug_attachment_storage_identity_changed"):
@@ -548,8 +532,8 @@ def _read(
 
 def write(record, data, *, target=None, accounting=None) -> str | None:
     """Conditionally create the saved physical key and return the provider receipt."""
+    from app.services.bug_attachment_storage_target import object_params, version_id
     from app.services.managed_s3_target import _conditional_put
-    from app.services.bug_attachment_storage_target import version_id, object_params
 
     owner = resolve(record)
     if (

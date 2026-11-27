@@ -1,8 +1,8 @@
 """Trusted operator transactions; provider work belongs outside these locks."""
 
+import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-import uuid
 
 from jose import JWTError, jwt
 from sqlalchemy import func, select, text
@@ -21,10 +21,16 @@ from app.db.models.storage_migration_read_publication import (
 from app.services import (
     managed_s3_target,
     storage_access,
-    storage_migration_finalizations as finals,
-    storage_migration_read_publications as reads,
-    storage_migration_windows as windows,
     storage_registry_data,
+)
+from app.services import (
+    storage_migration_finalizations as finals,
+)
+from app.services import (
+    storage_migration_read_publications as reads,
+)
+from app.services import (
+    storage_migration_windows as windows,
 )
 from app.services.storage_migration_inventory import PURPOSES
 
@@ -164,11 +170,12 @@ def _replay_revision(row, expected_revision, floor):
 
 
 def _purpose_target_facts(target, revisions, purpose):
-    owner = managed_s3_target.owner_module(purpose)
     try:
-        endpoint = owner._endpoint(target["endpoint_url"])
+        endpoint = managed_s3_target.endpoint_value(target["endpoint_url"], purpose)
         bucket = target["bucket"]
-        if not owner._plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
+        if not managed_s3_target.plain(bucket, 255) or any(
+            char in bucket for char in "/\\?#@"
+        ):
             raise managed_s3_target.error(purpose, "binding_unproven")
         prefix = managed_s3_target.managed_prefix(
             target["base_prefix"], purpose=purpose

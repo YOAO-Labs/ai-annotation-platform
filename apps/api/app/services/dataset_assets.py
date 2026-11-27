@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import hashlib
-import logging
 import json
+import logging
 import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from botocore.exceptions import BotoCoreError, ClientError
@@ -14,10 +14,12 @@ from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.services.storage import storage_service
 from app.services import storage_registry_data
+from app.services.storage import storage_service
+from app.services.storage_identity import (
+    LEGACY_LOCATION_ID as LEGACY_LOCATION_ID,
+)
 
-LEGACY_LOCATION_ID = uuid.uuid5(uuid.NAMESPACE_URL, "aap:platform-storage:legacy")
 MAX_DIRECT_UPLOAD_BYTES = 5 * 1024**3
 log = logging.getLogger(__name__)
 PURPOSE_BUCKET_ATTRIBUTES = {
@@ -66,17 +68,18 @@ async def validate_legacy_bindings(db):
             }
             and binding.generation >= 2
         ):
-            from app.services.audit_archive_storage import AuditArchiveStorageError
-            from app.services.export_storage import ExportStorageError
-            from app.services.import_storage import ImportStorageError
-            from app.services.media_cache_storage import MediaCacheStorageError
-            from app.services.dataset_storage import DatasetStorageError
-            from app.services.annotations_storage import AnnotationsStorageError
-            from app.services.avatar_storage import AvatarStorageError
-            from app.services.bug_attachment_storage import BugAttachmentStorageError
-            from app.services.training_dataset_bridge import TrainingDatasetError
-
             from app.services.managed_s3_target import target_origin_for
+            from app.services.storage_errors import (
+                AnnotationsStorageError,
+                AuditArchiveStorageError,
+                AvatarStorageError,
+                BugAttachmentStorageError,
+                DatasetStorageError,
+                ExportStorageError,
+                ImportStorageError,
+                MediaCacheStorageError,
+                TrainingDatasetError,
+            )
 
             target_location = await storage_registry_data.get_location(
                 db, binding.location_id

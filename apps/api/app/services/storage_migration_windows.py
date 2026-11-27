@@ -1,10 +1,10 @@
 """Fence registered access while admitting only bound migration source readers."""
 
-from dataclasses import dataclass
-from datetime import datetime
 import os
 import socket
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
@@ -19,8 +19,8 @@ from app.schemas.storage_migration_window import (
 )
 from app.services import storage_access, storage_maintenance
 from app.services.audit import AuditService
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.storage_migration_observations import endpoint_identity
 
 _WINDOW = text("SELECT * FROM yoao_assets_v1.read_migration_window(:window_id, :lock)")
@@ -208,7 +208,11 @@ async def history(db, actor, *, api_key_id=None, limit=20, offset=0):
 async def open_window(db, actor, body, *, api_key_id=None, request=None):
     from app.services import (
         storage_migration_copies as copies,
+    )
+    from app.services import (
         storage_migration_copy_target as targets,
+    )
+    from app.services import (
         storage_migration_inventories as inventories,
     )
 
@@ -383,8 +387,10 @@ async def acquire_source_read(
     db, *, window_id, owner_kind, owner_id, task_id, node_id=None
 ):
     from app.services import (
-        storage_migration_inventories as inventories,
         storage_migration_copies as copies,
+    )
+    from app.services import (
+        storage_migration_inventories as inventories,
     )
 
     if owner_kind not in {"inventory", "copy"}:

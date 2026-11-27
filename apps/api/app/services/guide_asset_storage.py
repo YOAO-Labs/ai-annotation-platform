@@ -7,29 +7,28 @@ Current credentials come from the saved registered location; legacy refs are not
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
+import sys
+import time
+import unicodedata
+import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field, make_dataclass, replace
 from datetime import datetime, timezone
-import hashlib
-import json
-import time
-import sys
-import uuid
-import re
-import unicodedata
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
+from yoao_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
 
 from app.config import settings
-from yoao_workspace.guide_asset_policy import ALLOWED_GUIDE_ASSET_TYPES
 from app.schemas.guide_asset import GuideAssetEntry
 from app.services import annotations_storage, storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 _FIELDS = frozenset(
     {

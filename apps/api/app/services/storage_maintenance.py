@@ -1,8 +1,8 @@
 """Explicit admission transitions require a current dependency review."""
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
@@ -13,8 +13,8 @@ from app.config import settings
 from app.db.enums import UserRole
 from app.services import storage_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.storage_registry_data import get_connection, get_location
 from app.services.storage_maintenance_targets import confirmation_counts
+from app.services.storage_registry_data import get_connection, get_location
 
 AUDIENCE = "storage-maintenance"
 PREVIEW_TTL = timedelta(minutes=5)
@@ -37,7 +37,7 @@ def digest(value):
 
 
 async def authority(db, actor, api_key_id, scope, *, lock=False):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
     from app.services.storage_maintenance_impact import administrator
 
     if lock:

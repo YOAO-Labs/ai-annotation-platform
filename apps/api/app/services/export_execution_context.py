@@ -62,12 +62,12 @@ async def enter_io():
 
 
 async def settle_io(primary=None):
-    from app.services import storage_access
+    from app.services import storage_io_settlement
 
     try:
         await current().settle_io()
     except BaseException as closing:
-        storage_access.mark_unsettled(closing)
+        storage_io_settlement.mark_unsettled(closing)
         if primary is None:
             raise
         raise BaseExceptionGroup(
@@ -80,7 +80,7 @@ async def run_sync(call, *args, **kwargs):
     owner = current_optional()
     if owner is None:
         return await asyncio.to_thread(call, *args, **kwargs)
-    from app.services import storage_access
+    from app.services import storage_io_settlement
 
     await owner.enter_io()
     future, failure = None, None
@@ -90,13 +90,13 @@ async def run_sync(call, *args, **kwargs):
                 None, copy_context().run, partial(call, *args, **kwargs)
             )
         except BaseException as exc:
-            raise storage_access.mark_unsettled(exc)
+            raise storage_io_settlement.mark_unsettled(exc)
         return await asyncio.shield(future)
     except BaseException as exc:
         failure = exc
         if future is not None:
             try:
-                await storage_access.finish(future)
+                await storage_io_settlement.finish(future)
             except BaseException as later:
                 if later is not exc:
                     failure = BaseExceptionGroup(
@@ -109,6 +109,8 @@ async def run_sync(call, *args, **kwargs):
         if (
             future is not None
             and future.done()
-            and (failure is None or not storage_access.failure_unsettled(failure))
+            and (
+                failure is None or not storage_io_settlement.failure_unsettled(failure)
+            )
         ):
             await settle_io(failure)

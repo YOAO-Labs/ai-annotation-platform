@@ -1,29 +1,29 @@
 """Platform-only current-object observations, with no object I/O on reads."""
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.schemas.storage import BucketSummary, BucketsResponse
+from app.schemas.storage import BucketsResponse, BucketSummary
 from app.services import async_job as jobs
+from app.services import storage_usage_accounting as accounting
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset_assets import (
-    LEGACY_LOCATION_ID,
     PURPOSE_BUCKET_ATTRIBUTES,
     validate_legacy_bindings,
 )
 from app.services.dataset_content import key_authority
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.storage import storage_service
 from app.services.source_readers.s3 import S3Access
+from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.storage_usage_categories import summarize
-from app.services import storage_usage_accounting as accounting
 
 ACTIVE = {"pending", "running"}
 LEASE_SECONDS = 120

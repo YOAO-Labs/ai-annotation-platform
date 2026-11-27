@@ -4,16 +4,14 @@ Callers own authorization, transaction boundaries and durable storage admission.
 The snapshots deliberately contain no ORM instances or mutable JSON values.
 """
 
-from contextlib import asynccontextmanager
+import re
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import partial
-import re
 from urllib.parse import urlsplit
-import uuid
 
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -24,17 +22,20 @@ from app.services import (
     task_originals,
 )
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.labeling_core_read_relations import (
     execute_core_read,
+    lock_task_dataset_item_links_for_core_read,
     lock_task_for_core_read,
     lock_task_source_facts_for_core_read,
-    lock_task_dataset_item_links_for_core_read,
     task_dataset_item_link_row,
     task_row,
 )
-from app.services.reference_keys import is_reference, reference_key
 from app.services.original_read_plan import PhysicalReadPlan, ReadRoute
+from app.services.original_read_transaction import (
+    _reads as _reads,
+)
+from app.services.reference_keys import is_reference, reference_key
+from app.services.storage_identity import LEGACY_LOCATION_ID
 
 _SHA = re.compile(r"[0-9a-f]{64}")
 
@@ -139,29 +140,6 @@ def media_permit_purpose(source, family):
         raise ContentError("content_binding_changed", 409)
     kind = "a" if source.owner_kind == "dataset_asset" else "t"
     return f"media_{family}_{kind}_{source.content_id.hex}"
-
-
-@asynccontextmanager
-async def _reads(db, lock):
-    with db.no_autoflush:
-        if not lock:
-            yield
-            return
-        connection = await db.connection()
-        savepoint = await connection.begin_nested()
-        try:
-            yield
-        except BaseException as exc:
-            await savepoint.rollback()
-            if isinstance(exc, DBAPIError) and (
-                storage_access.unavailable(exc)
-                or getattr(exc.orig, "sqlstate", None) == "40001"
-                or getattr(exc.orig, "pgcode", None) == "40001"
-            ):
-                raise ContentError("storage_original_busy") from exc
-            raise
-        else:
-            await savepoint.commit()
 
 
 def _statement(statement, lock, *, nowait=True):

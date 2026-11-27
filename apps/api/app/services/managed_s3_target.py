@@ -1,102 +1,93 @@
 """Registered S3 targets and physical probes for the reviewed purposes."""
 
-from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
 import hashlib
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
 
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from app.config import settings
 from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.source_readers.s3 import ScopedS3Access, configured_endpoint
-from app.services.storage_registry_data import get_connection
 from app.services.reference_keys import is_reference
+from app.services.source_readers.s3 import ScopedS3Access, configured_endpoint
+from app.services.storage import storage_service
+from app.services.storage_errors import (
+    AnnotationsStorageError,
+    AuditArchiveStorageError,
+    AvatarStorageError,
+    BugAttachmentStorageError,
+    DatasetStorageError,
+    ExportStorageError,
+    ImportStorageError,
+    MediaCacheStorageError,
+    TrainingDatasetError,
+)
+from app.services.storage_identity import LEGACY_LOCATION_ID, parse_endpoint, plain
+from app.services.storage_registry_data import get_connection
 
 EXPORT_NAMESPACE = "_yoao_managed/export/"
 _HISTORICAL_EXPORT_NAMESPACE = "_aap_managed/export/"
 
-PURPOSES = {
-    "avatars",
-    "bug-reports",
-    "audit-archive",
-    "export",
-    "import",
-    "datasets",
-    "media-cache",
-    "annotations",
-    "training",
+PURPOSE_ERRORS = {
+    "avatars": (AvatarStorageError, "avatar_storage_"),
+    "bug-reports": (BugAttachmentStorageError, "bug_attachment_storage_"),
+    "audit-archive": (AuditArchiveStorageError, "audit_archive_storage_"),
+    "export": (ExportStorageError, "export_storage_"),
+    "import": (ImportStorageError, "import_storage_"),
+    "media-cache": (MediaCacheStorageError, "media_cache_storage_"),
+    "annotations": (AnnotationsStorageError, "annotations_storage_"),
+    "datasets": (DatasetStorageError, "dataset_storage_"),
 }
-
-
-def owner_module(purpose):
-    if purpose == "training":
-        from app.services import training_dataset_storage
-
-        return training_dataset_storage
-    if purpose == "avatars":
-        from app.services import avatar_storage
-
-        return avatar_storage
-    if purpose == "bug-reports":
-        from app.services import bug_attachment_storage
-
-        return bug_attachment_storage
-    if purpose == "audit-archive":
-        from app.services import audit_archive_storage
-
-        return audit_archive_storage
-    if purpose == "export":
-        from app.services import export_storage
-
-        return export_storage
-    if purpose == "import":
-        from app.services import import_storage
-
-        return import_storage
-    if purpose == "media-cache":
-        from app.services import media_cache_storage
-
-        return media_cache_storage
-    if purpose == "annotations":
-        from app.services import annotations_storage
-
-        return annotations_storage
-    if purpose == "datasets":
-        from app.services import dataset_storage
-
-        return dataset_storage
-    raise ValueError("Unsupported managed S3 purpose")
+PURPOSES = {*PURPOSE_ERRORS, "training"}
 
 
 def error(purpose, suffix):
-    owners = owner_module(purpose)
     if purpose == "training":
-        return owners.TrainingDatasetError(
+        return TrainingDatasetError(
             "training_storage_" + suffix,
             "训练文件存储归属或目标能力无法核实",
             status_code=409,
         )
-    cls, prefix = (
-        (owners.AvatarStorageError, "avatar_storage_")
-        if purpose == "avatars"
-        else (owners.BugAttachmentStorageError, "bug_attachment_storage_")
-        if purpose == "bug-reports"
-        else (owners.AuditArchiveStorageError, "audit_archive_storage_")
-        if purpose == "audit-archive"
-        else (owners.ImportStorageError, "import_storage_")
-        if purpose == "import"
-        else (owners.MediaCacheStorageError, "media_cache_storage_")
-        if purpose == "media-cache"
-        else (owners.AnnotationsStorageError, "annotations_storage_")
-        if purpose == "annotations"
-        else (owners.DatasetStorageError, "dataset_storage_")
-        if purpose == "datasets"
-        else (owners.ExportStorageError, "export_storage_")
+    try:
+        error_type, prefix = PURPOSE_ERRORS[purpose]
+    except KeyError:
+        raise ValueError("Unsupported managed S3 purpose") from None
+    return error_type(prefix + suffix)
+
+
+def endpoint_value(value, purpose):
+    try:
+        return parse_endpoint(value)
+    except ValueError:
+        if purpose == "training":
+            raise TrainingDatasetError(
+                "training_storage_identity_changed",
+                "训练对象存储身份与当前端点不匹配",
+                status_code=409,
+            ) from None
+        raise error(purpose, "identity_changed") from None
+
+
+def runtime_endpoint(purpose):
+    expected = (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
     )
-    return cls(prefix + suffix)
+    if purpose not in {"media-cache", "annotations", "datasets"}:
+        expected = expected.rstrip("/")
+        actual = getattr(
+            getattr(storage_service.client, "meta", None), "endpoint_url", None
+        )
+        if not isinstance(actual, str) or actual.rstrip("/") != expected:
+            if purpose == "training":
+                raise TrainingDatasetError(
+                    "training_storage_identity_changed",
+                    "训练对象存储身份与当前端点不匹配",
+                    status_code=409,
+                )
+            raise error(purpose, "identity_changed")
+    return endpoint_value(expected, purpose)
 
 
 def _valid_base(base):
@@ -257,7 +248,8 @@ async def target_origin_for(
     historical_export=False,
 ):
     """Capture the registered origin without obtaining a physical credential."""
-    owners = owner_module(purpose)
+    if purpose not in PURPOSES:
+        raise ValueError("Unsupported managed S3 purpose")
 
     if (
         location is None
@@ -293,9 +285,9 @@ async def target_origin_for(
             location.id,
             location.config_revision,
             None,
-            owners._runtime_endpoint(),
+            runtime_endpoint(purpose),
             getattr(
-                owners.storage_service,
+                storage_service,
                 {
                     "avatars": "avatars_bucket",
                     "bug-reports": "bug_reports_bucket",
@@ -326,9 +318,9 @@ async def target_origin_for(
     ):
         raise error(purpose, "binding_unproven")
     try:
-        endpoint = owners._endpoint(configured_endpoint(connection.config))
+        endpoint = endpoint_value(configured_endpoint(connection.config), purpose)
         bucket = connection.config["bucket"]
-        if not owners._plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
+        if not plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
             raise error(purpose, "binding_unproven")
         base = connection.config.get("base_prefix", "")
         if saved_export_root is None:
@@ -374,9 +366,7 @@ async def target_for(
         historical_export=historical_export,
     )
     if location.id == LEGACY_LOCATION_ID:
-        return replace(
-            origin, _legacy_client=owner_module(purpose).storage_service.client
-        )
+        return replace(origin, _legacy_client=storage_service.client)
     return origin
 
 

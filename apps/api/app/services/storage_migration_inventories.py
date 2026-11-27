@@ -1,14 +1,14 @@
 """Claim-once fixed-source inventory lifecycle and private report publication."""
 
-from dataclasses import dataclass, replace
-from datetime import datetime, timezone
 import hashlib
 import io
 import json
 import re
+import uuid
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Literal, overload
-import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
@@ -26,13 +26,14 @@ from app.schemas.storage_migration_inventory import (
 from app.services import async_job as jobs
 from app.services import storage_access, storage_maintenance, storage_registry_data
 from app.services.audit import AuditService
-from app.services.dataset_assets import LEGACY_LOCATION_ID, PURPOSE_BUCKET_ATTRIBUTES
+from app.services.dataset_assets import PURPOSE_BUCKET_ATTRIBUTES
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import (
     JobsLifecyclePostgresData,
     job_lock_statement,
 )
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.storage_migration_inventory import PURPOSES, verify_inventory
 from app.services.storage_migration_observations import endpoint_identity
 

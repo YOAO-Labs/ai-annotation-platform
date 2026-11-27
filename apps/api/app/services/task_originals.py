@@ -6,23 +6,28 @@ current identity and verify its bytes instead of replaying those conditions.
 """
 
 import asyncio
+import re
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, make_dataclass
 from datetime import datetime
-import re
 from urllib.parse import urlsplit
-import uuid
 
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.task_original import TaskOriginal
-from app.services import managed_original_creation as creation
 from app.services import annotations_storage, original_source_data, storage_access
-from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services import managed_original_creation as creation
+from app.services.content_errors import ContentError
 from app.services.labeling_core_read_relations import task_dataset_item_link_row
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
+from app.services.task_original_key import (
+    _reject as _reject,
+)
+from app.services.task_original_key import (
+    key_for as key_for,
+)
 
 FACTS = (
     "id",
@@ -40,10 +45,6 @@ FACTS = (
     "created_at",
 )
 _SHA = re.compile(r"[0-9a-f]{64}")
-
-
-def _reject(code="invalid_receipt", status=409):
-    raise ContentError("task_original_" + code, status)
 
 
 def _get(row, name):
@@ -80,12 +81,6 @@ def _endpoint(value):
     except ValueError:
         _reject("invalid_location")
     return value
-
-
-def key_for(task_id, original_id):
-    if not isinstance(task_id, uuid.UUID) or not isinstance(original_id, uuid.UUID):
-        _reject()
-    return f"__aap_task_originals__/{task_id}/{original_id}/payload"
 
 
 @dataclass(frozen=True)

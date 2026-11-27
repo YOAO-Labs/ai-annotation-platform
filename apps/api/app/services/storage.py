@@ -10,8 +10,8 @@ from botocore.exceptions import ClientError
 from yoao_assets_catalog.object_signer import create_source_read_client
 
 from app.config import settings
-from app.services.reference_keys import reject_reference
 from app.services import storage_presigning
+from app.services.reference_keys import reject_reference
 
 
 def _reject_reference_s3(params, **kwargs):
@@ -564,8 +564,8 @@ def require_legacy_task_path(task):
     """Old synchronous bypasses cannot locate a rooted standalone original."""
     original_id = getattr(task, "original_id", None)
     if original_id is not None:
-        from app.services.content_snapshot import ContentError
-        from app.services.task_originals import key_for
+        from app.services.content_errors import ContentError
+        from app.services.task_original_key import key_for
 
         if task.file_path != key_for(task.id, original_id):
             raise ContentError("location_unavailable")
@@ -574,8 +574,9 @@ def require_legacy_task_path(task):
 async def require_unowned_legacy_original(db, key: str, bucket: str) -> None:
     """Do not issue an untracked URL for a run-owned original."""
     from sqlalchemy import text
-    from app.services.content_snapshot import ContentError
-    from app.services.managed_original_retirement import managed_storage_identity
+
+    from app.services.content_errors import ContentError
+    from app.services.storage_identity import managed_storage_identity
 
     endpoint = storage_service.client.meta.endpoint_url
     identity = managed_storage_identity(endpoint, bucket)

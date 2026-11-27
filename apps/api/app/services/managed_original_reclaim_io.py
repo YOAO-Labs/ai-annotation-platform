@@ -1,20 +1,20 @@
 """Bounded verification and permanent deletion of one immutable S3 version."""
 
-from collections.abc import Callable
-from dataclasses import dataclass, field
 import hashlib
 import re
 import sys
 import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Literal
 
 from botocore.exceptions import ClientError
 
 from app.services import managed_original_probe as probe
 from app.services.filesystem_storage import FilesystemStorageError as StorageError
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.source_readers import s3 as s3_reference
 from app.services.storage_access import close_registered, mark_unsettled
+from app.services.storage_identity import managed_storage_identity
 
 MAX_BYTES = probe.MAX_BYTES
 CHUNK_BYTES = probe.CHUNK_BYTES

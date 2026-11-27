@@ -4,30 +4,27 @@ Only allocation consults the media-cache binding. The caller owns durable Gate
 permits, lease checks and publication; these synchronous helpers never commit.
 """
 
-from copy import deepcopy
-from dataclasses import dataclass, field
-from contextlib import contextmanager
 import hashlib
 import json
-from pathlib import Path
 import re
-import sys
 import stat
-from urllib.parse import urlsplit
+import sys
 import uuid
+from contextlib import contextmanager
+from copy import deepcopy
+from dataclasses import dataclass, field
+from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 from botocore.config import Config
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.services import media_cache_accounting
-from app.services import storage_access
+from app.services import media_cache_accounting, storage_access, storage_presigning
 from app.services import storage_migration_artifact_reads as migration_reads
-from app.services import storage_presigning
-from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import StorageService, storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 CHUNK_BYTES = 1024 * 1024
 MAX_OUTPUT_BYTES = 2 * 1024**3

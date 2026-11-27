@@ -1,22 +1,29 @@
 """Saved import addresses; only allocation follows the current binding."""
 
+import re
+import uuid
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
-import re
-import uuid
 
 from app.services import storage_access, storage_presigning
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.managed_original_retirement import managed_storage_identity
-from app.services.storage import storage_service
-from app.services.storage_registry_data import get_binding, get_connection, get_location
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.export_storage import (
     _endpoint as _export_endpoint,
+)
+from app.services.export_storage import (
     _plain,
+)
+from app.services.export_storage import (
     _runtime_endpoint as _export_runtime_endpoint,
 )
+from app.services.storage import storage_service
+from app.services.storage_errors import (
+    ImportStorageError as ImportStorageError,
+)
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
+from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 _FIELDS = frozenset(
     {
@@ -45,12 +52,6 @@ _LOGICAL = re.compile(
     + _UUID
     + r"/)"
 )
-
-
-class ImportStorageError(ValueError):
-    def __init__(self, code, message=None, *, status_code=409):
-        super().__init__(message or "导入存储归属或目标能力无法核实")
-        self.code, self.status_code = code, status_code
 
 
 def _reject(code="import_storage_identity_changed"):
@@ -393,7 +394,7 @@ async def prepare_upload_url(
                     else "internal",
                 )
 
-        from app.services.prediction_inputs import settled_io
+        from app.services.storage_io_settlement import settled_io
 
         result = await settled_io(sign)
     prepared = PreparedUploadURL(

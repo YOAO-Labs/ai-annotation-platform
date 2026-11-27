@@ -1,20 +1,29 @@
 """Independent durable admission; a receipt survives until physical I/O settles."""
 
 import asyncio
-from contextlib import contextmanager
-from contextvars import copy_context
-from dataclasses import dataclass
-from functools import partial
 import logging
 import os
 import re
 import socket
 import uuid
+from contextlib import contextmanager
+from contextvars import copy_context
+from dataclasses import dataclass
+from functools import partial
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+from app.services.storage_io_settlement import (
+    failure_unsettled as failure_unsettled,
+)
+from app.services.storage_io_settlement import (
+    finish as finish,
+)
+from app.services.storage_io_settlement import (
+    mark_unsettled as mark_unsettled,
+)
 
 logger = logging.getLogger(__name__)
 SAFE_LABEL = re.compile(r"[a-z][a-z0-9_]{0,63}")
@@ -38,24 +47,9 @@ _IO_RECEIPT = text(
 
 
 def error(code, status=409):
-    from app.services.content_snapshot import ContentError
+    from app.services.content_errors import ContentError
 
     return ContentError(code, status)
-
-
-def mark_unsettled(exc):
-    """Preserve uncertainty when a physical constructor or close did not settle."""
-    exc.storage_operation_unsettled = True
-    return exc
-
-
-def failure_unsettled(exc: BaseException) -> bool:
-    """Keep an admission open when any retained physical failure is uncertain."""
-    if getattr(exc, "storage_operation_unsettled", False):
-        return True
-    return isinstance(exc, BaseExceptionGroup) and any(
-        failure_unsettled(child) for child in exc.exceptions
-    )
 
 
 def close_registered(resource):
@@ -151,18 +145,6 @@ async def check(db, location_id, *, expected_revision=None, lock=False):
             raise error("storage_maintenance_busy") from None
         raise
     return validate(row, expected_revision)
-
-
-async def finish(task):
-    """Repeated cancellation cannot abandon a thread or ledger transaction."""
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError:
-            continue
-        except BaseException:
-            break
-    return task.result()
 
 
 @dataclass

@@ -8,12 +8,12 @@ import logging
 import os
 import re
 import shutil
-import time
-import uuid
-import traceback
 import sys
-from functools import wraps
+import time
+import traceback
+import uuid
 from dataclasses import dataclass
+from functools import wraps
 from pathlib import Path
 
 from botocore.config import Config
@@ -21,8 +21,6 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.services import image_pyramid_data as pyramid_data
-from app.services import media_item_reads
 from app.observability.metrics import (
     IMAGE_PYRAMID_ASSET_BYTES,
     IMAGE_PYRAMID_DECODED_PIXELS,
@@ -34,6 +32,16 @@ from app.observability.metrics import (
     IMAGE_PYRAMID_TEMP_BYTES,
     IMAGE_PYRAMID_TILE_COUNT,
 )
+from app.services import image_pyramid_data as pyramid_data
+from app.services import (
+    image_pyramid_objects as objects,
+)
+from app.services import (
+    image_pyramid_originals as originals,
+)
+from app.services import image_pyramid_storage as physical
+from app.services import media_cache_accounting, media_item_reads, storage_access
+from app.services.content_snapshot import ContentError
 from app.services.image_pyramid import (
     PYRAMID_OVERLAP,
     PYRAMID_TILE_SIZE,
@@ -47,18 +55,10 @@ from app.services.image_pyramid import (
     fail_generation,
     load_owner,
     prepare_generation,
-    publish_generation,
     pyramid_levels,
     sha256_digest,
     validate_dimensions,
 )
-from app.services import media_cache_accounting
-from app.services import (
-    image_pyramid_originals as originals,
-    image_pyramid_objects as objects,
-)
-from app.services import image_pyramid_storage as physical, storage_access
-from app.services.content_snapshot import ContentError
 from app.services.storage import StorageService
 from app.workers.celery_app import celery_app
 
@@ -674,7 +674,7 @@ async def _run_image_pyramid(
                         raise cleanup_failure
                 await guard()
                 async with factory() as final:
-                    published = await publish_generation(
+                    published = await objects.publish_generation(
                         final,
                         asset_id=asset_id,
                         generation_number=generation_number,

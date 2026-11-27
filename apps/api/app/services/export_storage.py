@@ -16,15 +16,27 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
 
 from app.config import settings
 from app.services import storage_access, storage_presigning, storage_registry_data
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
+from app.services.storage_errors import (
+    EXPORT_MESSAGES as EXPORT_MESSAGES,
+)
+from app.services.storage_errors import (
+    ExportStorageError as ExportStorageError,
+)
+from app.services.storage_identity import (
+    LEGACY_LOCATION_ID,
+    managed_storage_identity,
+    parse_endpoint,
+)
+from app.services.storage_identity import (
+    plain as _plain,
+)
 
 _FIELDS = frozenset(
     {
@@ -48,30 +60,6 @@ _KEY = re.compile(
     r"(?:image|video)/" + _UUID_PART + r"/" + _UUID_PART + r"/" + _UUID_PART + r"\.zip"
 )
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-
-
-_MESSAGES = {
-    "export_storage_unpinned": "导出候选尚未保存存储归属",
-    "export_storage_invalid_key": "导出对象键与候选记录不匹配",
-    "export_storage_invalid_receipt": "导出内容回执或保存期限不合法",
-    "export_storage_binding_unproven": "导出存储绑定尚未登记或无法核实",
-    "export_storage_integrity_mismatch": "导出字节与独立内容回执不一致",
-    "export_storage_missing": "已保存的导出对象不存在",
-    "export_storage_expired": "导出产物已超过固定保存期限",
-    "export_storage_budget": "导出核验超过读取预算",
-    "export_storage_unavailable": "导出存储暂不可用",
-}
-
-
-class ExportStorageError(ValueError):
-    def __init__(self, code, message=None, *, status_code=409):
-        super().__init__(
-            message
-            if message is not None
-            else _MESSAGES.get(code, "导出存储身份与当前端点不匹配")
-        )
-        self.code = code
-        self.status_code = status_code
 
 
 def _reject(code="export_storage_identity_changed"):
@@ -106,34 +94,11 @@ def key_for(media, project_id, job_id, output_id) -> str:
     )
 
 
-def _plain(value, maximum):
-    return (
-        isinstance(value, str)
-        and 0 < len(value) <= maximum
-        and value.isascii()
-        and not any(ord(char) <= 32 or ord(char) == 127 for char in value)
-    )
-
-
 def _endpoint(value):
-    if not _plain(value, 2048) or value.endswith("/") or "\\" in value:
-        _reject()
     try:
-        parsed = urlsplit(value)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path
-            or parsed.query
-            or parsed.fragment
-        ):
-            _reject()
-        parsed.port
+        return parse_endpoint(value)
     except ValueError:
         _reject()
-    return value
 
 
 def _runtime_endpoint():

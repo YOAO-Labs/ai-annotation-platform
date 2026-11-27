@@ -1,34 +1,36 @@
 """Own temporary prediction inputs independently of business rows and workers."""
 
 import asyncio
-from contextlib import asynccontextmanager
-from contextvars import copy_context
-from copy import deepcopy
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from functools import partial
 import hashlib
 import io
 import json
 import logging
 import math
 import os
-import stat
 import re
+import stat
 import time
-from urllib.parse import urlsplit
 import uuid
+from contextlib import asynccontextmanager
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from botocore.config import Config
 from PIL import Image, ImageOps
 
 from app.config import settings
 from app.services import prediction_input_data as lease_data
-from app.services import storage_access, storage_usage_accounting as accounting
-from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS, Snapshot
+from app.services import storage_access
+from app.services import storage_usage_accounting as accounting
+from app.services.content_snapshot import MAX_BYTES, MAX_PIXELS, ContentError, Snapshot
 from app.services.managed_original_reader import BinaryStage
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService
+from app.services.storage_identity import LEGACY_LOCATION_ID
+from app.services.storage_io_settlement import (
+    settled_io as settled_io,
+)
 
 log = logging.getLogger(__name__)
 MAX_VIDEO_BYTES = 5 * 1024**3
@@ -224,24 +226,6 @@ async def _drain(pending):
 def _uncertainty(original, later):
     if getattr(later, "storage_operation_unsettled", False):
         storage_access.mark_unsettled(original)
-
-
-async def settled_io(call, *args, **kwargs):
-    """Retain the real Future through every interruption, including soft limits."""
-    try:
-        pending = asyncio.get_running_loop().run_in_executor(
-            None, copy_context().run, partial(call, *args, **kwargs)
-        )
-    except BaseException as exc:
-        raise storage_access.mark_unsettled(exc)
-    try:
-        return await asyncio.shield(pending)
-    except BaseException as interrupted:
-        try:
-            await _drain(pending)
-        except BaseException as late:
-            _uncertainty(interrupted, late)
-        raise
 
 
 async def _async(call, *, late=None):
@@ -859,8 +843,7 @@ class PredictionInputs:
         await _async(publish())
 
     async def _upload(self, relative, content, *, sha256, size, media_type, video=None):
-        from app.services import import_storage
-        from app.services import saved_media_io
+        from app.services import import_storage, saved_media_io
 
         import_storage.resolve_ref(
             self.record.storage_ref, expected_prefix=input_prefix(self.record.id)
