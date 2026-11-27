@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from PIL import Image
 import pytest
 
+from app.services import training_dataset_staging
 from app.services import storage_access
 from app.services import training_dataset_originals as service
 from app.services.content_snapshot import ContentError
@@ -799,7 +800,9 @@ async def test_unknown_real_directory_cleanup_retains_consumer_capacity(
             self.actual.cleanup()
             raise OSError("temporary directory cleanup was not confirmed")
 
-    monkeypatch.setattr(service.tempfile, "TemporaryDirectory", UnknownCleanup)
+    monkeypatch.setattr(
+        training_dataset_staging.tempfile, "TemporaryDirectory", UnknownCleanup
+    )
 
     def copy(stage, path):
         stage.file.seek(0)
