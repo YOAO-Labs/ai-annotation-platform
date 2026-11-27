@@ -469,8 +469,31 @@ def test_legacy_finish_digest_preserves_existing_nulls_and_structured_diagnostic
 def test_historical_log_is_verified_and_downloads_content_addressed_redacted_derivative(
     monkeypatch,
 ):
-    run = SimpleNamespace(id=uuid.uuid4(), project_id=uuid.uuid4())
-    attempt = SimpleNamespace(id=uuid.uuid4())
+    from app.services import training_dataset_storage
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+
+    run_id, project_id = uuid.uuid4(), uuid.uuid4()
+    endpoint = training_dataset_storage._runtime_endpoint()
+    bucket = observations.storage.training_bucket
+    run = SimpleNamespace(
+        id=run_id,
+        project_id=project_id,
+        storage_ref={
+            "schema": 1,
+            "purpose": "training-run",
+            "location_id": str(LEGACY_LOCATION_ID),
+            "config_revision": 1,
+            "binding_generation": 1,
+            "endpoint_url": endpoint,
+            "bucket": bucket,
+            "prefix": f"projects/{project_id}/runs/{run_id}/",
+            "storage_identity": managed_storage_identity(endpoint, bucket),
+            "origin": "new",
+            "evidence": None,
+        },
+    )
+    attempt = SimpleNamespace(id=uuid.uuid4(), run_id=run.id)
     raw = b'{"password": "secret-value"} https://storage.test/file?X-Amz-Signature=signed /host/private\n'
     original_sha = hashlib.sha256(raw).hexdigest()
     key = f"projects/{run.project_id}/runs/{run.id}/attempts/{attempt.id}/train.log"
@@ -536,6 +559,7 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
         ),
         training_authority=bind_training_authority(db_session),
     )
+    await db_session.refresh(run)
     assert not (
         await observations.recovery(
             db_session, run, training_authority=bind_training_authority(db_session)
@@ -548,7 +572,9 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
         "sha256": "1" * 64,
         "size_bytes": 10,
     }
-    attempt.artifacts = {"checkpoint.pt": checkpoint}
+    attempt_row = await db_session.get(TrainingAttempt, attempt.id)
+    attempt_row.artifacts = {"checkpoint.pt": checkpoint}
+    await db_session.flush()
     monkeypatch.setattr(
         observations.storage.client,
         "head_object",
@@ -562,7 +588,10 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
             db_session, run, training_authority=bind_training_authority(db_session)
         )
     )["eligible"]
-    attempt.artifacts = {"checkpoint.pt": {**checkpoint, "key": "other/checkpoint.pt"}}
+    attempt_row.artifacts = {
+        "checkpoint.pt": {**checkpoint, "key": "other/checkpoint.pt"}
+    }
+    await db_session.flush()
     assert (
         "checkpoint_unavailable"
         in (
@@ -571,14 +600,16 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
             )
         )["reasons"]
     )
-    attempt.artifacts = {"checkpoint.pt": checkpoint}
+    attempt_row.artifacts = {"checkpoint.pt": checkpoint}
     lease = await db_session.get(TrainingResourceLease, run.config["resource_id"])
     lease.last_seen_at = training.now() - timedelta(minutes=1)
+    await db_session.flush()
     offline = await observations.recovery(
         db_session, run, training_authority=bind_training_authority(db_session)
     )
     assert offline["eligible"] and not offline["executor_online"]
     lease.runtime = {}
+    await db_session.flush()
     assert (
         "runtime_unknown"
         in (
@@ -588,6 +619,7 @@ async def test_recovery_uses_current_checkpoint_metadata_and_known_runtime(
         )["reasons"]
     )
     lease.runtime = claim.runtime
+    await db_session.flush()
     monkeypatch.setattr(
         observations.storage.client,
         "head_object",
@@ -646,7 +678,7 @@ async def test_structured_failure_is_bound_sanitized_and_exactly_replayable(
             body,
             training_authority=bind_training_authority(db_session),
         )
-        is attempt
+        == attempt
     )
     changed = body.model_copy(deep=True)
     changed.failure.code = "native_exception"
@@ -674,8 +706,10 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
     run, claim, assignment = await claimed_run(
         db_session, httpx_client, token, project, dataset
     )
+    from tests.trainer_plugin_fixtures import build_v3_receipt
+
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
-    attempt.upload_inventory = {
+    base_inventory = {
         name: {"name": name, "role": role, "sha256": "a" * 64, "size_bytes": 10}
         for name, role in (
             ("best.pt", "weights"),
@@ -686,17 +720,31 @@ async def test_optional_summary_identity_is_verified_without_blocking_failed_com
             ("observability.json", "telemetry"),
         )
     }
-    monkeypatch.setattr(artifact_service, "verify_artifact", lambda *args: None)
+    receipt_raw, receipt_spec = build_v3_receipt(
+        base_inventory, framework="ultralytics"
+    )
+    attempt.upload_inventory = {**base_inventory, "result.json": receipt_spec}
+    monkeypatch.setattr(training, "verify_artifact", lambda *args, **kwargs: None)
     summary = {
         "protocol": 1,
         "run_id": str(run.id),
         "attempt_id": str(uuid.uuid4()),
         "config_digest": run.config_digest,
     }
+
+    def _get_object(**kwargs):
+        if kwargs.get("Key", "").endswith("/result.json"):
+            return {
+                "Body": io.BytesIO(receipt_raw),
+                "ContentLength": len(receipt_raw),
+                "Metadata": {"attempt-id": str(attempt.id)},
+            }
+        return {"Body": io.BytesIO(json.dumps(summary).encode())}
+
     monkeypatch.setattr(
         artifact_service.storage.client,
         "get_object",
-        lambda **kwargs: {"Body": io.BytesIO(json.dumps(summary).encode())},
+        _get_object,
     )
     body = ExecutorFinish(
         **fence(claim, assignment), status=status, process_exited=True
@@ -856,8 +904,9 @@ async def test_derived_log_download_serializes_deletion_and_observation_cascade(
             assert not writes and not signs
         else:
             assert result["source_sha256"] == artifact["sha256"]
-            assert signs == [writes[0]["Key"]] and "/redacted-logs/" in signs[0]
-            assert b"private" not in writes[0]["Body"]
+            assert result["requires_authentication"] is True
+            assert result["url"].endswith("/content")
+            assert not writes and not signs
         assert deletions == [f"projects/{project.id}/runs/{run.id}/"]
         async with maker() as verify:
             for model in (TrainingTelemetrySample, TrainingLogChunk):

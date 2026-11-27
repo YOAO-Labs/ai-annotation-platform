@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from tests.trainer_plugin_fixtures import POLICY_DIGEST, build_v3_receipt
+from tests.trainer_plugin_fixtures import build_v3_receipt
 
 from app.db.models.learning_policy import LearningPolicy
 from app.db.models.model_decision import ModelDecision
@@ -37,7 +37,11 @@ from tests.test_training_parameters import configuration
 from tests.test_training_runs import ready_dataset, executor_claim, fence
 from tests.conftest import _create_user
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
-from tests.test_learning_policies import build_candidate
+from tests.test_learning_policies import (
+    build_candidate,
+    edit_label,
+    ready_policy_parent,
+)
 from tests.test_learning_policies import frozen_source as frozen_source_fixture  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
@@ -65,8 +69,11 @@ def objects(monkeypatch):
     return values
 
 
-async def seed(db, owner, objects, classes=None):
-    project, dataset = await ready_dataset(db, owner)
+async def seed(db, owner, objects, classes=None, *, use_policy_parent=False):
+    if use_policy_parent:
+        project, dataset = await ready_policy_parent(db, owner)
+    else:
+        project, dataset = await ready_dataset(db, owner)
     if classes is not None:
         dataset.manifest = {**dataset.manifest, "classes": classes}
     config = await runs.frozen_config(
@@ -193,7 +200,6 @@ def claim():
         torchvision="0.29.1+cu132",
         python="3.12.3",
         cuda="13.2",
-        initialization_policy_digest=POLICY_DIGEST,
     )
     return value
 
@@ -346,7 +352,7 @@ async def test_claim_requires_capability_and_verifies_source_before_gpu_assignme
     pin, _ = await source.source_pin(db_session, project.id, model.id)
     created = await create(httpx_client, token, project, body(dataset, pin))
     old = claim()
-    old.runtime.pop("initialization_policy_digest")
+    old.runtime["executor_protocol"] = 2
     authority = bind_training_authority(db_session)
     assert await runs.claim(db_session, old, training_authority=authority) is None
     current = claim()
@@ -422,7 +428,9 @@ async def test_recipe_clone_policy_keep_exact_pin_and_source_deletion_precedes_s
     db_session, project_admin, httpx_client, objects, monkeypatch
 ):
     owner, token = project_admin
-    project, dataset, original, _, model = await seed(db_session, owner, objects)
+    project, dataset, original, _, model = await seed(
+        db_session, owner, objects, use_policy_parent=True
+    )
     pin, _ = await source.source_pin(db_session, project.id, model.id)
     payload = body(dataset, pin)
     created = await create(httpx_client, token, project, payload)
@@ -476,6 +484,7 @@ async def test_recipe_clone_policy_keep_exact_pin_and_source_deletion_precedes_s
         policy.config["initialization"] == pin
         and policy.initialization_model_id == model.id
     )
+    await edit_label(db_session, dataset, "train")
     _, _, child = await build_candidate(db_session, policy)
     assert (
         child
@@ -522,7 +531,7 @@ async def test_success_receipt_must_prove_fresh_loading(
     run = await db_session.get(TrainingRun, uuid.UUID(created["id"]))
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     evidence = {
-        "policy_digest": POLICY_DIGEST,
+        "policy_digest": pin["policy_digest"],
         "source_digest": pin["source_digest"],
         "source_sha256": pin["artifact"]["sha256"],
         "mode": "weights_only",
@@ -627,11 +636,18 @@ async def test_withdrawn_actor_cannot_start_accepted_initialized_run(
 
 
 async def test_concurrent_source_acceptance_retains_model_before_delete(
-    test_engine, objects
+    test_engine, objects, monkeypatch
 ):
     """A real FK waiter cannot delete the candidate after its pin is accepted."""
+    from app.config import settings
+    from app.db.models.training_run import TrainingResourceLease
+    from app.services import training_adapters
+
+    monkeypatch.setattr(settings, "training_node_id", f"init-{uuid.uuid4().hex}")
+    resource_id = training_adapters.resource_id()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     project_id = user_id = None
+    seeded_plugin = False
     accepted = asyncio.Event()
     release = asyncio.Event()
     deleting = asyncio.Event()
@@ -639,9 +655,46 @@ async def test_concurrent_source_acceptance_retains_model_before_delete(
     tasks = []
     try:
         async with maker() as db:
+            from tests.test_training_runs import IMAGE
+            from tests.trainer_plugin_fixtures import (
+                ULTRALYTICS_VERSION,
+                seed_enabled_trainer_plugin,
+            )
+
             assert (await db.scalar(text("SELECT current_database()"))).endswith(
                 "_test"
             )
+            had_plugin = bool(
+                await db.scalar(
+                    text(
+                        "SELECT 1 FROM yoao_learning_v1.trainer_plugins "
+                        "WHERE plugin_id = 'yoao.trainer.ultralytics'"
+                    )
+                )
+            )
+            await seed_enabled_trainer_plugin(
+                db,
+                framework_id="ultralytics",
+                framework_version=ULTRALYTICS_VERSION,
+                image_digest=IMAGE,
+                base_models={
+                    "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"},
+                    "yolo11n-seg": {
+                        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+                        "filename": "yolo11n-seg.pt",
+                    },
+                },
+            )
+            seeded_plugin = not had_plugin
+            await db.merge(
+                TrainingResourceLease(
+                    resource_id=resource_id,
+                    executor_id="owned-executor",
+                    last_seen_at=runs.now(),
+                    runtime=executor_claim().runtime,
+                )
+            )
+            await db.flush()
             owner, _ = await _create_user(
                 db,
                 "project_admin",
@@ -738,4 +791,16 @@ async def test_concurrent_source_acceptance_retains_model_before_delete(
                 )
                 await db.execute(delete(Project).where(Project.id == project_id))
                 await db.execute(delete(User).where(User.id == user_id))
+                await db.execute(
+                    delete(TrainingResourceLease).where(
+                        TrainingResourceLease.resource_id == resource_id
+                    )
+                )
+                if seeded_plugin:
+                    await db.execute(
+                        text(
+                            "DELETE FROM yoao_learning_v1.trainer_plugins "
+                            "WHERE plugin_id = 'yoao.trainer.ultralytics'"
+                        )
+                    )
                 await db.commit()

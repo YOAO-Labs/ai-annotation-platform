@@ -307,7 +307,7 @@ async def test_retained_training_copy_does_not_check_source_maintenance(monkeypa
         pytest.fail("Retained copies must not depend on current source access")
 
     monkeypatch.setattr(storage_access, "check", forbidden)
-    monkeypatch.setattr(worker, "assert_dataset_authority", forbidden)
+    monkeypatch.setattr(worker, "require_authority", forbidden)
     assert (
         await worker.materialize_sample(
             None,
@@ -541,8 +541,13 @@ async def test_legacy_native_mask_provenance_uses_initial_epoch(
     async def get(*args, **kwargs):
         return object()
 
+    async def find_decision(*args, **kwargs):
+        return decision
+
     monkeypatch.setattr(inference, "ReferenceImageOperation", Owner)
+    monkeypatch.setattr(inference, "get_workspace_project", get)
     monkeypatch.setattr(inference, "resolve_project_access", get)
+    monkeypatch.setattr(ai_mask_accept, "_find_decision", find_decision)
     monkeypatch.setattr(
         ai_mask_accept,
         "_validate_receipt",
@@ -566,7 +571,7 @@ async def test_legacy_native_mask_provenance_uses_initial_epoch(
     )
     data = SimpleNamespace(
         target=SimpleNamespace(mode="create"),
-        idempotency_key=uuid.uuid4(),
+        idempotency_key=str(uuid.uuid4()),
         candidate=SimpleNamespace(
             candidate=SimpleNamespace(
                 value=SimpleNamespace(

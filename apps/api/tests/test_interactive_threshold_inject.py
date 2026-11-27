@@ -7,14 +7,29 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import uuid
 from types import SimpleNamespace
 
+from PIL import Image
 import pytest
 
-from app.db.models.ml_backend_registry import ProjectMLBackendPool
+from app.config import settings
+from app.core.security import create_access_token, hash_password
+from app.db.models.api_key import ApiKey
+from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
+from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.user import User
+from app.deps import get_prediction_input_session_factory
+from app.services import managed_original_reader
+from app.services.dataset_assets import register_item_asset
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from yoao_inference_contract.backend_control import BackendControlSetupResult
 from yoao_inference_contract.execution import (
     ExecutionProvenance,
@@ -24,10 +39,151 @@ from yoao_inference_contract.execution import (
     thaw_json,
 )
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_original_reader import Provider
+from tests.test_prediction_inputs import input_storage_world
+
+
+@pytest.fixture
+async def db_session(test_engine):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    tracked = {
+        "tasks": [],
+        "projects": [],
+        "datasets": [],
+        "items": [],
+        "backends": [],
+        "pools": [],
+        "users": [],
+    }
+    async with maker() as db:
+        db.info["cleanup"] = tracked
+        try:
+            yield db
+        finally:
+            await db.rollback()
+            async with maker() as cleanup:
+                if tracked["projects"]:
+                    await cleanup.execute(
+                        delete(Task).where(Task.project_id.in_(tracked["projects"]))
+                    )
+                    await cleanup.execute(
+                        delete(ProjectMLBackendPool).where(
+                            ProjectMLBackendPool.project_id.in_(tracked["projects"])
+                        )
+                    )
+                if tracked["pools"]:
+                    await cleanup.execute(
+                        delete(MLBackendPoolMember).where(
+                            MLBackendPoolMember.pool_id.in_(tracked["pools"])
+                        )
+                    )
+                    await cleanup.execute(
+                        delete(MLBackendServicePool).where(
+                            MLBackendServicePool.id.in_(tracked["pools"])
+                        )
+                    )
+                if tracked["backends"]:
+                    await cleanup.execute(
+                        delete(MLBackendRegistry).where(
+                            MLBackendRegistry.id.in_(tracked["backends"])
+                        )
+                    )
+                if tracked["items"]:
+                    asset_ids = list(
+                        await cleanup.scalars(
+                            select(DatasetAsset.id).where(
+                                DatasetAsset.dataset_item_id.in_(tracked["items"])
+                            )
+                        )
+                    )
+                    if asset_ids:
+                        await cleanup.execute(
+                            delete(DatasetAssetLocation).where(
+                                DatasetAssetLocation.asset_id.in_(asset_ids)
+                            )
+                        )
+                        await cleanup.execute(
+                            delete(DatasetAsset).where(DatasetAsset.id.in_(asset_ids))
+                        )
+                if tracked["datasets"]:
+                    await cleanup.execute(
+                        delete(DatasetItem).where(
+                            DatasetItem.dataset_id.in_(tracked["datasets"])
+                        )
+                    )
+                    await cleanup.execute(
+                        delete(Dataset).where(Dataset.id.in_(tracked["datasets"]))
+                    )
+                if tracked["projects"]:
+                    await cleanup.execute(
+                        delete(Project).where(Project.id.in_(tracked["projects"]))
+                    )
+                if tracked["users"]:
+                    await cleanup.execute(
+                        delete(ApiKey).where(ApiKey.user_id.in_(tracked["users"]))
+                    )
+                    await cleanup.execute(
+                        delete(User).where(User.id.in_(tracked["users"]))
+                    )
+                await cleanup.commit()
+
+
+@pytest.fixture
+async def super_admin(db_session):
+    user_id = uuid.uuid4()
+    name = f"it_admin_{user_id.hex[:8]}"
+    user = User(
+        id=user_id,
+        name=name,
+        email=f"{name}@test.local",
+        password_hash=hash_password("Test1234!"),
+        role="super_admin",
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.info["cleanup"]["users"].append(user_id)
+    await db_session.commit()
+    return user, create_access_token(str(user_id), "super_admin")
+
+
+@pytest.fixture(autouse=True)
+async def _managed_original_io(test_engine, app_module, monkeypatch):
+    buf = io.BytesIO()
+    Image.new("RGB", (12, 8), "blue").save(buf, format="PNG")
+    raw = buf.getvalue()
+    source = Provider()
+    scheme = "https" if settings.minio_use_ssl else "http"
+    source.meta.endpoint_url = f"{scheme}://{settings.minio_endpoint}"
+    source.raw = source.actual = raw
+    monkeypatch.setattr(managed_original_reader, "create_client", lambda **_: source)
+
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+
+    async with input_storage_world(test_engine, monkeypatch):
+        previous = app_module.dependency_overrides.get(
+            get_prediction_input_session_factory
+        )
+        app_module.dependency_overrides[get_prediction_input_session_factory] = lambda: (
+            maker
+        )
+        try:
+            yield raw
+        finally:
+            if previous is None:
+                app_module.dependency_overrides.pop(
+                    get_prediction_input_session_factory, None
+                )
+            else:
+                app_module.dependency_overrides[
+                    get_prediction_input_session_factory
+                ] = previous
 
 
 async def _seed(db, owner_id, *, box=0.4, text=0.3):
     suffix = uuid.uuid4().hex[:8]
+    buf = io.BytesIO()
+    Image.new("RGB", (12, 8), "blue").save(buf, format="PNG")
+    raw = buf.getvalue()
     proj = Project(
         id=uuid.uuid4(),
         display_id=f"P-IT-{suffix}",
@@ -38,8 +194,29 @@ async def _seed(db, owner_id, *, box=0.4, text=0.3):
         box_threshold=box,
         text_threshold=text,
     )
-    db.add(proj)
+    dataset = Dataset(
+        id=uuid.uuid4(),
+        display_id=f"DS-IT-{suffix}",
+        name=f"it-{suffix}",
+        created_by=owner_id,
+    )
+    db.add_all([proj, dataset])
     await db.flush()
+    item = DatasetItem(
+        id=uuid.uuid4(),
+        dataset_id=dataset.id,
+        file_name="img.png",
+        file_path=f"it/{suffix}/img.png",
+        file_type="image",
+        file_size=len(raw),
+        width=12,
+        height=8,
+    )
+    db.add(item)
+    await db.flush()
+    await register_item_asset(
+        db, item, sha256=hashlib.sha256(raw).hexdigest(), size_bytes=len(raw)
+    )
 
     backend, pool = await create_registry_with_pool(
         db,
@@ -55,13 +232,23 @@ async def _seed(db, owner_id, *, box=0.4, text=0.3):
     task = Task(
         id=uuid.uuid4(),
         project_id=proj.id,
+        dataset_item_id=item.id,
         display_id=f"T-IT-{suffix}",
-        file_name="img.jpg",
-        file_path="http://example/img.jpg",
+        file_name="img.png",
+        file_path=item.file_path,
+        file_type="image",
         status="pending",
     )
     db.add(task)
     await db.flush()
+    tracked = db.info.get("cleanup")
+    if tracked is not None:
+        tracked["projects"].append(proj.id)
+        tracked["datasets"].append(dataset.id)
+        tracked["items"].append(item.id)
+        tracked["backends"].append(backend.id)
+        tracked["pools"].append(pool.id)
+        tracked["tasks"].append(task.id)
     return proj, backend, task, pool
 
 
@@ -91,7 +278,9 @@ def patched_client(monkeypatch):
     )
 
     class FakeExecutionPort:
-        async def execute(self, operation):
+        async def execute(self, operation, *, before_dispatch=None):
+            if before_dispatch is not None:
+                await before_dispatch()
             task_data = thaw_json(operation.task_inputs[0])
             captured["operation"] = operation
             captured["task_data"] = task_data

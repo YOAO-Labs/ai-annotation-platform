@@ -311,7 +311,22 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
         await worker._reauthorize_export_final_write(owned, job.id, None)
         await export_media_bundles.check_claim(owned, receipt)
 
-    delivery = await image_delivery.prepare(db_session, receipt, guard=guard)
+    class InlineExecution:
+        def __init__(self):
+            self.active_io = 0
+            self.lost = False
+
+        async def enter_io(self):
+            self.active_io += 1
+
+        async def settle_io(self):
+            self.active_io -= 1
+
+    token = worker.export_execution_context.bind(InlineExecution())
+    try:
+        delivery = await image_delivery.prepare(db_session, receipt, guard=guard)
+    finally:
+        worker.export_execution_context.reset(token)
     late_task = await create_task(db_session, project_id=project.id)
     path, _, _ = await build_export_zip(
         db_session,

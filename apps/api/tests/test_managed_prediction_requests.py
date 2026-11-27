@@ -70,7 +70,8 @@ async def managed_task(db, project, owner, *, primary=False, task=None, size=(12
 
 
 @pytest.fixture
-async def world(db_session, super_admin, monkeypatch):
+async def world(db_session, super_admin, app_module, monkeypatch):
+    from app.services.accepted_inputs import get_input_admission
     from tests.test_prediction_reference_delivery import backend_for
 
     actor, token = super_admin
@@ -78,9 +79,32 @@ async def world(db_session, super_admin, monkeypatch):
     backend = await backend_for(db_session, project)
     dispatch = Mock(side_effect=lambda **kw: SimpleNamespace(id=kw["task_id"]))
     retry_dispatch = Mock()
+    canonical_inputs: dict[tuple[uuid.UUID, uuid.UUID], uuid.UUID] = {}
+
+    class FakeInputAdmission:
+        async def accept(self, request):
+            key = (request.job_id, request.task_id)
+            input_id = canonical_inputs.setdefault(
+                key,
+                uuid.uuid5(uuid.NAMESPACE_URL, f"{request.job_id}:{request.task_id}"),
+            )
+            return SimpleNamespace(
+                input_id=input_id,
+                job_id=request.job_id,
+                task_id=request.task_id,
+                actor_id=request.actor_id,
+                status="pending",
+                error=None,
+            )
+
     monkeypatch.setattr(worker.batch_predict, "apply_async", dispatch)
     monkeypatch.setattr(
         predictions_retry.retry_failed_prediction, "apply_async", retry_dispatch
+    )
+    monkeypatch.setitem(
+        app_module.dependency_overrides,
+        get_input_admission,
+        lambda: FakeInputAdmission(),
     )
     return SimpleNamespace(
         db=db_session,
@@ -150,11 +174,12 @@ async def test_skip_predicted_filters_before_freeze_and_empty_scope_stays_empty(
     assert response.status_code == 200, response.text
     job = await world.db.get(AsyncJob, uuid.UUID(response.json()["job_id"]))
     expected = [] if empty else [str(second.task.id)]
-    assert job.payload["scope"]["task_ids"] == expected
+    assert job.payload["execution_task_ids"] == expected
+    assert job.payload["accepted_input_manifest_digest"]
     assert [
         row["task_id"] for row in job.payload["prediction_authority"]["tasks"]
     ] == expected
-    assert world.dispatch.call_args.kwargs["args"][2] == expected
+    assert world.dispatch.call_args.kwargs["args"][2] is None
     assert job.payload["total_tasks"] == len(expected)
 
 
@@ -180,8 +205,9 @@ async def test_pending_idempotent_republish_reuses_original_scope_and_source(
     await world.db.refresh(job)
     assert job.execution_snapshot_id == snapshot_id
     assert job.payload["prediction_authority"] == proof
-    assert world.dispatch.call_args.kwargs["args"][2] == [str(first.task.id)]
-    assert str(second.task.id) not in job.payload["scope"]["task_ids"]
+    assert job.payload["execution_task_ids"] == [str(first.task.id)]
+    assert world.dispatch.call_args.kwargs["args"][2] is None
+    assert str(second.task.id) not in job.payload["execution_task_ids"]
 
 
 async def test_pending_legacy_image_job_requires_fresh_request(world, httpx_client):

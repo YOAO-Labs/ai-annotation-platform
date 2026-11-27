@@ -13,17 +13,20 @@ from __future__ import annotations
 import hashlib
 import io
 from datetime import datetime, timezone
+from types import SimpleNamespace
 import uuid
 import zipfile
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from botocore.exceptions import ClientError
 
 from app.config import settings
+from app.core.security import create_access_token, hash_password
 from app.db.models.dataset import Dataset, DatasetItem, Scene
+from app.db.models.user import User
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 
 pytestmark = pytest.mark.asyncio
@@ -38,6 +41,42 @@ async def _source_storage_registry(test_engine):
         await bootstrap(db)
 
 
+@pytest.fixture(autouse=True)
+async def _committed_cleanup(test_engine):
+    callbacks = []
+    yield callbacks
+    if callbacks:
+        maker = async_sessionmaker(test_engine, expire_on_commit=False)
+        async with maker() as db:
+            for callback in reversed(callbacks):
+                await callback(db)
+            await db.commit()
+
+
+@pytest.fixture
+async def super_admin(test_engine, _committed_cleanup):
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    user_id = uuid.uuid4()
+    username = f"zip_admin_{user_id.hex[:8]}"
+    async with maker() as db:
+        user = User(
+            id=user_id,
+            name=username,
+            email=f"{username}@test.local",
+            password_hash=hash_password("Test1234!"),
+            role="super_admin",
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+
+    async def cleanup(db):
+        await db.execute(delete(User).where(User.id == user_id))
+
+    _committed_cleanup.append(cleanup)
+    return user, create_access_token(str(user_id), "super_admin")
+
+
 def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -50,6 +89,10 @@ class _FakeDatasetSourceStorage:
         self.parts: dict[str, list[bytes]] = {}
         self.deleted: list[str] = []
         self._next_upload_id = 0
+        scheme = "https" if settings.minio_use_ssl else "http"
+        self.meta = SimpleNamespace(
+            endpoint_url=f"{scheme}://{settings.minio_endpoint}"
+        )
 
     @staticmethod
     def _etag(body: bytes) -> str:
@@ -57,7 +100,13 @@ class _FakeDatasetSourceStorage:
 
     @staticmethod
     def _ok(payload):
-        return {**payload, "ResponseMetadata": {"HTTPStatusCode": 200}}
+        return {
+            **payload,
+            "ResponseMetadata": {
+                "HTTPStatusCode": 200,
+                "RequestId": str(uuid.uuid4()),
+            },
+        }
 
     def put_object(self, *, Bucket, Key, Body, ContentType=None, IfNoneMatch=None):
         if hasattr(Body, "read"):
@@ -124,18 +173,21 @@ class _FakeDatasetSourceStorage:
 
         return Paginator()
 
-    def create_multipart_upload(self, *, Bucket, Key, ContentType, IfNoneMatch="*"):
+    def create_multipart_upload(
+        self, *, Bucket, Key, ContentType, IfNoneMatch="*", **kwargs
+    ):
         self._next_upload_id += 1
         upload_id = str(self._next_upload_id)
         self.parts[upload_id] = []
         return self._ok({"UploadId": upload_id})
 
-    def upload_part(self, *, Bucket, Key, PartNumber, UploadId, Body):
-        self.parts[UploadId].append(bytes(Body))
+    def upload_part(self, *, Bucket, Key, PartNumber, UploadId, Body, **kwargs):
+        data = Body.read() if hasattr(Body, "read") else bytes(Body)
+        self.parts[UploadId].append(data)
         return self._ok({"ETag": f'"part-{PartNumber}"'})
 
     def complete_multipart_upload(
-        self, *, Bucket, Key, UploadId, MultipartUpload, IfNoneMatch="*"
+        self, *, Bucket, Key, UploadId, MultipartUpload, IfNoneMatch="*", **kwargs
     ):
         if Key in self.objects:
             raise ClientError(
@@ -202,8 +254,11 @@ def _use_local_source_runtime(monkeypatch) -> None:
 
 
 def _patch_storage_clients(monkeypatch, client: _FakeDatasetSourceStorage) -> None:
+    from app.services import assets_source
+
     monkeypatch.setattr(storage_service, "client", client)
     monkeypatch.setattr(storage_service, "spatial_source_client", client)
+    monkeypatch.setattr(assets_source, "_managed_client", lambda storage: client)
 
 
 async def test_delete_item_rejects_mismatched_dataset(

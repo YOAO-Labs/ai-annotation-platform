@@ -14,7 +14,6 @@ from app.services import dataset_storage, original_sources as sources
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_s3_target import Target
-from tests.test_managed_original_reader import Provider
 from tests.test_original_sources import dataset_rows
 from tests.test_task_originals import current_original_session
 
@@ -127,7 +126,8 @@ async def test_saved_b_facts_stay_identical_when_current_credentials_rotate(
     await db.commit()
     target = await sources.read_target(db, after)
     assert target.config_revision == location.config_revision == 3
-    assert target._access.secret_enc == b"encrypted-rotated-credential"
+    assert target.connection_revision == connection.revision == 3
+    assert target.is_registered is True and target._access is None
     assert b"encrypted" not in repr(frozen).encode()
     assert (
         await db.scalar(select(DatasetAssetLocation.storage_ref)) == replica.storage_ref
@@ -138,27 +138,43 @@ async def test_public_reader_uses_saved_b_sidecar_and_closes_its_context(
     saved_db,
     monkeypatch,
 ):
-    from app.services import managed_original_reader as reader
-    from app.services.source_readers.s3 import S3Access
+    import io
+    from app.services import managed_original_reader as reader, saved_media_io
 
     db = saved_db
-    _item, _asset, _replica, task, _location, _connection = await saved_item(db)
+    _item, asset, _replica, task, _location, _connection = await saved_item(db)
     source = await sources.resolve_task(db, task.id)
     await db.commit()
-    provider = Provider()
-    provider.meta.endpoint_url = source.endpoint_url
-    provider.raw = provider.actual = b"saved"
     contexts = []
+    closed = []
 
-    @contextmanager
-    def client(access, *, read_timeout=None):
-        contexts.append((access.secret_enc, read_timeout))
-        try:
-            yield provider
-        finally:
-            provider.close()
+    class FakeClient:
+        @contextmanager
+        def download(self, family, action, payload):
+            from datetime import datetime, timezone
 
-    monkeypatch.setattr(S3Access, "client", client)
+            contexts.append((family, action, payload))
+
+            class _Stream(io.BytesIO):
+                metadata = {
+                    "ResponseMetadata": {"HTTPStatusCode": 200},
+                    "ContentLength": 5,
+                    "ETag": '"saved-etag"',
+                    "LastModified": datetime(
+                        2026, 1, 1, tzinfo=timezone.utc
+                    ).isoformat(),
+                }
+
+            stream = _Stream(b"saved")
+            try:
+                yield stream
+            finally:
+                stream.close()
+                closed.append(stream.closed)
+
+    monkeypatch.setattr(
+        saved_media_io, "saved_io_client", lambda *a, **kw: FakeClient()
+    )
     monkeypatch.setattr(
         reader, "create_client", lambda **_: pytest.fail("A client used")
     )
@@ -178,13 +194,12 @@ async def test_public_reader_uses_saved_b_sidecar_and_closes_its_context(
     )
     try:
         assert stage.file.read() == b"saved"
-        assert contexts == [(b"encrypted-original-credential", 30)]
-        assert provider.closed == 1
-        assert all(
-            params["Bucket"] == source.bucket and params["Key"] == source.object_key
-            for operation, params in provider.calls
-            if operation in {"get", "head"}
-        )
+        assert len(contexts) == 1
+        assert contexts[0][0] == "media"
+        assert contexts[0][1] == "original-read"
+        assert contexts[0][2]["id"] == str(asset.id)
+        assert contexts[0][2]["kind"] == "dataset_asset"
+        assert closed == [True]
     finally:
         stage.close()
 

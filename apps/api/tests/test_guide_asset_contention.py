@@ -2,6 +2,7 @@
 
 import asyncio
 from datetime import datetime, timedelta, timezone
+import os
 import time
 import uuid
 
@@ -13,7 +14,19 @@ from app.core.security import decode_access_token
 from app.db.models.guide_asset_upload import GuideAssetUpload
 from app.db.models.project import Project
 from app.services import comment_attachment_authority as authority
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+    owner_fault_http as owner_fault_http,
+)
 from tests.test_seed_guide_assets import build, context as context
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires verifier-owned module-data PostgreSQL environment",
+)
 
 
 async def post_image(ctx, world):

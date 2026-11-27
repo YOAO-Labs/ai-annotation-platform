@@ -37,7 +37,8 @@ TRAINER_VERSION = "8.4.177"
 
 
 @pytest.fixture
-async def training_config(db_session, monkeypatch):
+async def training_config(request, db_session, monkeypatch):
+    import inspect
     from tests.trainer_plugin_fixtures import (
         ULTRALYTICS_VERSION,
         seed_enabled_trainer_plugin,
@@ -49,6 +50,18 @@ async def training_config(db_session, monkeypatch):
     monkeypatch.setattr(settings, "training_executor_token", TOKEN)
     monkeypatch.setattr(settings, "training_gpu_uuid", GPU)
     monkeypatch.setattr(settings, "training_node_id", "test")
+    monkeypatch.setattr(
+        service,
+        "internal_download",
+        lambda key, **kwargs: "http://owned-storage/" + key,
+    )
+    direct = set(inspect.signature(request.function).parameters)
+    if (
+        "test_engine" in direct
+        and "db_session" not in direct
+        and "httpx_client" not in direct
+    ):
+        return
     await seed_enabled_trainer_plugin(
         db_session,
         framework_id="ultralytics",
@@ -71,11 +84,6 @@ async def training_config(db_session, monkeypatch):
         )
     )
     await db_session.flush()
-    monkeypatch.setattr(
-        service,
-        "internal_download",
-        lambda key, **kwargs: "http://owned-storage/" + key,
-    )
 
 
 async def ready_dataset(db, owner):

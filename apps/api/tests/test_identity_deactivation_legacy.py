@@ -8,6 +8,7 @@ import pytest
 
 from app.db.models.user import User
 from tests.factory import create_user
+from tests.identity_super_admin_premise import park_foreign_super_admins_in_savepoint
 
 
 @pytest.mark.parametrize("operation", ["delete", "deactivate", "demote", "offboard"])
@@ -17,6 +18,9 @@ async def test_legacy_reductions_preserve_the_last_unreserved_super_admin(
     actor, token = super_admin
     target = await create_user(
         db_session, "super_admin", f"successor-{uuid.uuid4()}@test.local", "Successor"
+    )
+    await park_foreign_super_admins_in_savepoint(
+        db_session, keep_ids=(actor.id, target.id)
     )
     headers = {"Authorization": f"Bearer {token}"}
     accepted = await httpx_client.post(

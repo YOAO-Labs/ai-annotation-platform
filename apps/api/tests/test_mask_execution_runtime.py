@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import threading
 import uuid
 from contextlib import asynccontextmanager
@@ -40,6 +41,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.services.dataset_assets import register_item_asset
 from app.services.mask_qc.topology import rle_and_not
 from app.services.raster_mask_storage import (
     build_rle_reference,
@@ -51,6 +53,7 @@ from app.services.storage import storage_service
 from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 from tests.conftest import create_registry_with_pool
 from tests.factory import create_user
+from tests.mask_repair_publication import bind_publication_login
 
 
 def _rle(rows: list[str]) -> dict[str, Any]:
@@ -80,13 +83,17 @@ async def _api_client(app, sessions, *, dispatcher=None):
         app.dependency_overrides.pop(get_quality_job_dispatcher, None)
     else:
         app.dependency_overrides[get_quality_job_dispatcher] = lambda: dispatcher
+    patcher = pytest.MonkeyPatch()
+    engine = sessions.kw["bind"]
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
-            base_url="http://test",
-        ) as client:
-            yield client
+        async with bind_publication_login(engine, patcher):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+                base_url="http://test",
+            ) as client:
+                yield client
     finally:
+        patcher.undo()
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous)
 
@@ -131,13 +138,24 @@ async def _seed_world(
         item_ids: list[uuid.UUID] = []
         task_ids: list[uuid.UUID] = []
         display_ids: list[str] = []
+        item_keys: set[str] = set()
+        raw_image = None
+        if data_type == "image":
+            import io
+            from PIL import Image
+
+            buf = io.BytesIO()
+            Image.new("RGB", (5, 3), color=(12, 34, 56)).save(buf, format="PNG")
+            raw_image = buf.getvalue()
         for index in range(count):
             extension = "mp4" if data_type == "video" else "png"
+            file_path = f"mask-runtime/{suffix}/frame-{index}.{extension}"
             item = DatasetItem(
                 dataset_id=dataset.id,
                 file_name=f"frame-{index}.{extension}",
-                file_path=f"mask-runtime/{suffix}/frame-{index}.{extension}",
+                file_path=file_path,
                 file_type=data_type,
+                file_size=len(raw_image) if raw_image is not None else None,
                 width=5,
                 height=3,
                 metadata_=(
@@ -148,6 +166,20 @@ async def _seed_world(
             )
             db.add(item)
             await db.flush()
+            if raw_image is not None:
+                storage_service.client.put_object(
+                    Bucket=storage_service.datasets_bucket,
+                    Key=file_path,
+                    Body=raw_image,
+                    ContentType="image/png",
+                )
+                item_keys.add(file_path)
+                await register_item_asset(
+                    db,
+                    item,
+                    sha256=hashlib.sha256(raw_image).hexdigest(),
+                    size_bytes=len(raw_image),
+                )
             display_id = f"T-MRT-{suffix}-{index}"
             task = Task(
                 project_id=project.id,
@@ -175,6 +207,7 @@ async def _seed_world(
         "item_ids": item_ids,
         "task_ids": task_ids,
         "display_ids": display_ids,
+        "item_keys": item_keys,
         "mask_keys": set(),
         "staged_keys": set(),
         "backend_id": None,
@@ -548,10 +581,19 @@ async def _cleanup_world(sessions, world):
         await db.commit()
     for key in world["mask_keys"]:
         storage_service.delete_object(key)
+    for key in world.get("item_keys", ()):
+        storage_service.delete_object(key, bucket=storage_service.datasets_bucket)
     for key in world["staged_keys"]:
         storage_service.delete_object(key, bucket=storage_service.import_bucket)
 
 
+_requires_live_worker = pytest.mark.skipif(
+    os.getenv("YOAO_LIVE_CELERY_WORKER_TESTS") != "1",
+    reason="requires a live Celery worker (--with-worker)",
+)
+
+
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_repair_celery_consumer_commits_real_mask_and_rolls_back(
     test_engine, app_module, record_property
@@ -654,6 +696,7 @@ async def test_repair_celery_consumer_commits_real_mask_and_rolls_back(
         await _cleanup_world(sessions, world)
 
 
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_repair_rollback_failure_is_terminal_and_preserves_completed_shard(
     test_engine, app_module, record_property
@@ -728,6 +771,7 @@ async def test_repair_rollback_failure_is_terminal_and_preserves_completed_shard
         await _cleanup_world(sessions, world)
 
 
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_sam_candidate_persists_prediction_and_cancellation_lock_order_is_safe(
     test_engine, app_module, record_property
@@ -1013,6 +1057,7 @@ async def test_video_dry_run_reaches_privileged_segment_authorization(
         await _cleanup_world(sessions, world)
 
 
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_format_import_celery_consumer_persists_real_rle_pixels(
     test_engine, app_module, record_property
@@ -1057,6 +1102,7 @@ async def test_format_import_celery_consumer_persists_real_rle_pixels(
         await _cleanup_world(sessions, world)
 
 
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_format_import_partial_failure_keeps_committed_items(
     test_engine, app_module, record_property
@@ -1132,6 +1178,7 @@ async def test_format_import_partial_failure_keeps_committed_items(
         await _cleanup_world(sessions, world)
 
 
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_format_import_cancel_finishes_partial_after_committed_item(
     test_engine, app_module, record_property
@@ -1234,6 +1281,7 @@ async def test_format_import_cancel_finishes_partial_after_committed_item(
         await _cleanup_world(sessions, world)
 
 
+@_requires_live_worker
 @pytest.mark.asyncio
 async def test_dispatch_failure_routes_return_503_and_keep_real_retry_paths(
     test_engine, app_module, record_property

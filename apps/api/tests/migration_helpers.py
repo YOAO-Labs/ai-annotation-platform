@@ -9,6 +9,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 VERSIONS = Path(__file__).parents[1] / "alembic/versions"
 
@@ -55,23 +56,20 @@ async def historical_schema(test_engine, revision):
 
     Later production migrations legitimately retain committed facts (observation
     buckets, maintenance operations, accounting ledgers) in the shared test
-    database. Historical checks cannot roll that schema back, so build the
-    required chain in a namespace this test owns and drop it afterwards. The
-    search path keeps ``public`` last only for extension functions; assert
-    relation existence with a schema-qualified name.
+    database, and historical SQL files reference ``public`` explicitly. Build the
+    required chain in a disposable database this test owns and drop it afterwards.
     """
-    schema = "historical_%s_test_%s" % (revision, uuid.uuid4().hex)
-    async with test_engine.begin() as connection:
-        await connection.execute(text('CREATE SCHEMA "%s"' % schema))
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
+    name = "aap_managed_hist_%s_%s_test" % (revision, uuid.uuid4().hex[:16])
+    async with test_engine.connect() as connection:
+        db = await connection.execution_options(isolation_level="AUTOCOMMIT")
+        await db.execute(text('CREATE DATABASE "%s"' % name))
+    engine = create_async_engine(test_engine.url.set(database=name), poolclass=NullPool)
     try:
         async with engine.begin() as connection:
             await connection.run_sync(lambda sync: upgrade_chain(sync, revision))
-        yield schema, engine
+        yield "public", engine
     finally:
         await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text('DROP SCHEMA "%s" CASCADE' % schema))
+        async with test_engine.connect() as connection:
+            db = await connection.execution_options(isolation_level="AUTOCOMMIT")
+            await db.execute(text('DROP DATABASE IF EXISTS "%s" WITH (FORCE)' % name))

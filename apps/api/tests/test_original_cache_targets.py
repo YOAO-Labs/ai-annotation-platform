@@ -27,11 +27,9 @@ from app.services import storage_usage_categories as categories
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
-from app.services.source_readers.s3 import S3Access
 from app.services.storage_location import register_connection
 from tests.test_original_cache import (
     cache_world as cache_world,
-    MemoryStorage,
     fill,
     record,
 )
@@ -70,18 +68,57 @@ async def cache_target(cache_world, monkeypatch):
         )
         await db.commit()
     observed = []
+    by_id: dict[str, tuple[str, str]] = {}
+    original_object_key = cache.object_key
 
-    @contextmanager
-    def transport(self, *, read_timeout=None):
-        assert read_timeout == 15
-        observed.append((self.endpoint, self.config["bucket"], self.secret_enc))
-        client = MemoryStorage(world)
-        try:
-            yield client
-        finally:
-            client.close()
+    def tracked_object_key(entry):
+        key = original_object_key(entry)
+        by_id[str(entry.id)] = (entry.bucket, key)
+        return key
 
-    monkeypatch.setattr(S3Access, "client", transport)
+    monkeypatch.setattr(cache, "object_key", tracked_object_key)
+
+    class FakeSavedIOClient:
+        def upload(self, family, action, payload, body, *, length):
+            assert family == "media" and action == "original-cache-write"
+            bucket, key = by_id[payload["id"]]
+            data = body.read() if hasattr(body, "read") else bytes(body)
+            assert len(data) == length
+            observed.append((action, bucket, payload["id"]))
+            world.objects[bucket, key] = data
+            return {"version_id": None, "reused": False}
+
+        @contextmanager
+        def download(self, family, action, payload):
+            import io
+
+            assert family == "media" and action == "original-cache-read"
+            bucket, key = by_id[payload["id"]]
+            observed.append((action, bucket, payload["id"]))
+            raw = world.objects[bucket, key]
+
+            class _Stream(io.BytesIO):
+                metadata = {"ContentLength": len(raw)}
+
+            stream = _Stream(raw)
+            try:
+                yield stream
+            finally:
+                stream.close()
+
+        def command(self, family, action, payload):
+            assert family == "media" and action == "original-cache-delete"
+            bucket, key = by_id[payload["id"]]
+            observed.append((action, bucket, payload["id"]))
+            world.objects.pop((bucket, key), None)
+            world.deletions.append((bucket, key))
+            return {"deleted": True}
+
+    from app.services import saved_media_io
+
+    monkeypatch.setattr(
+        saved_media_io, "saved_io_client", lambda *a, **kw: FakeSavedIOClient()
+    )
     try:
         yield world, connection, location, observed
     finally:
@@ -164,12 +201,7 @@ async def test_inflight_b_cache_seals_reads_and_cleans_saved_target_after_switch
         "公司/root/_aap_managed/media-cache/original-cache/v1/"
     ) and key.endswith("/payload")
     assert world.objects["cache-b", key] == world.data
-    assert observed and all(
-        endpoint == "https://objects.example.test"
-        and bucket == "cache-b"
-        and actual == secret
-        for endpoint, bucket, actual in observed
-    )
+    assert observed == [("original-cache-write", "cache-b", str(entry.id))]
     async with world.factory() as db:
         listed = [{"key": key, "size": len(world.data)}]
         assert (await categories.classify(db, "cache-b", listed))["categories"][

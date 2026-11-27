@@ -243,6 +243,15 @@ async def test_retry_new_authority_original_snapshot_and_atomic_candidates(
         assert (
             await db_session.get(FailedPrediction, fid, populate_existing=True) is None
         )
+    elif outcome in {"key", "version", "dismiss"}:
+        assert result["status"] == "cancelled", result
+        assert job.status == "cancelled" and len(predictions) == 1
+        assert not previous.rejected_shape_indexes
+        failure = await db_session.get(FailedPrediction, fid, populate_existing=True)
+        assert failure.retry_count == 0
+        assert not failure.extra.get("retry_pending") and not failure.extra.get(
+            "retry_job_id"
+        )
     else:
         assert result["status"] == "failed", result
         assert job.status == "failed" and len(predictions) == 1

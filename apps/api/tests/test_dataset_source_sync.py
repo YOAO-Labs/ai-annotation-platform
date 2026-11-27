@@ -111,7 +111,14 @@ async def test_periodic_flow_waits_for_review_and_explicit_continue(
 ):
     db = db_session
     row, run = await to_review(db, content_world)
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == content_world[3].id)
+        )
+        == 0
+    )
     original_scan = row.scan_id
     for _ in range(2):
         await wake(db, row)
@@ -153,7 +160,14 @@ async def test_no_change_runs_next_interval_without_duplicate_items(
         await wake(db, row)
         assert run.comparison_complete and row.state == "idle"
         assert row.next_run_at > await scans.now(db)
-        assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(DatasetItem)
+                .where(DatasetItem.dataset_id == content_world[3].id)
+            )
+            == 1
+        )
 
 
 async def test_manual_confirmation_releases_review_gate(db_session, content_world):
@@ -164,7 +178,12 @@ async def test_manual_confirmation_releases_review_gate(db_session, content_worl
     await wake(db, row)
     assert (
         row.state == "idle"
-        and await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+        and await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == content_world[3].id)
+        )
+        == 1
     )
 
 
@@ -646,6 +665,13 @@ async def test_paused_schedule_can_be_reauthorized_without_adopting_old_work(
     if review:
         assert row.state == "awaiting_review" and row.registration_id == run.id
         assert row.next_run_at is None
-        assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 0
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(DatasetItem)
+                .where(DatasetItem.dataset_id == world[3].id)
+            )
+            == 0
+        )
     else:
         assert row.scan_id != run.id and row.state == "scanning"

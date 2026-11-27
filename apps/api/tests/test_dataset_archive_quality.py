@@ -270,7 +270,8 @@ async def test_quality_business_checkpoints_fence_old_authority_independently(
             job = await db.get(AsyncJob, batch.async_job_id)
             await review.process_member(db, batch, actor, run, job.celery_task_id)
         else:
-            await review.finish(db, batch, "completed")
+            locked = await review.require_batch(db, dataset.id, run.id, batch.id, actor)
+            await review.finish(db, locked, "completed")
     assert exc.value.detail["code"] == (
         "dataset_lifecycle_changed" if restored else "dataset_archived"
     )

@@ -243,6 +243,7 @@ async def test_camera_member_lifecycle_and_calibration_staleness(
     assert member.scene_track_id == source.scene_track_id
     assert member.track_id == source.track_id
     assert member.tool_unit_id == "lidar_box_3d"
+    await db_session.refresh(track)
     assert track.revision == 2
     current = await camera_member_out(db_session, task=task, member=member)
     assert current.relation_status == "current"
@@ -291,6 +292,7 @@ async def test_camera_member_lifecycle_and_calibration_staleness(
     member = await update_camera_member(
         db_session,
         task=task,
+        actor_id=user.id,
         member_id=member.id,
         bbox=NormalizedCameraBbox(x=0.42, y=0.35, w=0.2, h=0.3),
         visibility="occluded",
@@ -301,6 +303,7 @@ async def test_camera_member_lifecycle_and_calibration_staleness(
     )
     assert member.version == 2
     assert member.sensor_visibility == "occluded"
+    await db_session.refresh(track)
     assert track.revision == 3
     assert (
         await camera_member_out(db_session, task=task, member=member)
@@ -309,15 +312,18 @@ async def test_camera_member_lifecycle_and_calibration_staleness(
     member = await delete_camera_member(
         db_session,
         task=task,
+        actor_id=user.id,
         member_id=member.id,
         expected_version=member.version,
         expected_track_revision=track.revision,
     )
     assert member.is_active is False
+    await db_session.refresh(track)
     assert track.revision == 4
     member = await restore_camera_member(
         db_session,
         task=task,
+        actor_id=user.id,
         member_id=member.id,
         expected_version=member.version,
         expected_track_revision=track.revision,
@@ -325,6 +331,7 @@ async def test_camera_member_lifecycle_and_calibration_staleness(
         expected_calibration_digest=changed_state.digest,
     )
     assert member.is_active is True
+    await db_session.refresh(track)
     assert track.revision == 5
 
 
@@ -549,10 +556,12 @@ async def test_camera_member_update_rejects_track_and_calibration_conflicts(
         expected_calibration_digest=digest,
     )
 
+    await db_session.refresh(track)
     with pytest.raises(MulticameraAnnotationError) as conflict:
         await update_camera_member(
             db_session,
             task=task,
+            actor_id=user.id,
             member_id=member.id,
             bbox=NormalizedCameraBbox(x=0.41, y=0.35, w=0.2, h=0.3),
             visibility=None,
@@ -569,6 +578,7 @@ async def test_camera_member_update_rejects_track_and_calibration_conflicts(
         await update_camera_member(
             db_session,
             task=task,
+            actor_id=user.id,
             member_id=member.id,
             bbox=NormalizedCameraBbox(x=0.41, y=0.35, w=0.2, h=0.3),
             visibility=None,
@@ -962,7 +972,7 @@ async def test_acceptance_history_touches_scene_and_rejects_active_camera_depend
     )
     assert blocked.status_code == 409
     await db_session.refresh(source)
-    await db_session.refresh(member)
+    member = await db_session.get(Annotation, member.id)
     await db_session.refresh(track)
     assert source.is_active and member.is_active and track.revision == before_conflict
 

@@ -180,7 +180,7 @@ async def run_selection(world, monkeypatch, job, *, mutate=None):
     async def observe(statement, *args, **kwargs):
         nonlocal invoked
         entities = [
-            column.get("entity")
+            column.get("type")
             for column in getattr(statement, "column_descriptions", [])
         ]
         if getattr(statement, "is_select", False) and entities == [Task]:

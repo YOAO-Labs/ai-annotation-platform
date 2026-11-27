@@ -15,7 +15,6 @@ import pytest
 from PIL import Image
 
 from app.db.enums import PlatformRole
-from app.db.models.prediction import PredictionMeta
 from app.services import comment_attachment_authority as credentials
 from app.services import content_snapshot as images
 from app.services import original_sources
@@ -28,7 +27,7 @@ from app.services.reference_bindings import task_binding
 from app.services.storage import storage_service
 from tests.test_original_sources import add_link, dataset_rows
 from tests.test_task_originals import (
-    original_db as original_db,
+    current_original_db as current_original_db,
     original_client as original_client,
     verified,
 )
@@ -310,22 +309,61 @@ async def test_managed_receipt_requires_same_transaction_and_current_source(
 
 
 async def test_prediction_original_metadata_cannot_be_supplied_by_backend(monkeypatch):
+    from app.services import prediction as predictions
+    from app.services.labeling_prediction_contract import (
+        ApplyPredictionResultError,
+        ApplyPredictionResultRequest,
+    )
+    from app.services.labeling_write_scope import capture_labeling_write_scope
+    from yoao_labeling.prediction_record_contract import InsertPredictionResultData
+
     value = source()
     task = task_for(value)
+    task.version = 1
+    task.status = "pending"
+    task.assignee_id = None
+    task.review_round_id = None
+    task.batch_id = None
     task.total_predictions = 0
     binding = {**task_binding(task), "original": originals.source_receipt(value)}
-    added = []
+    commands = []
     db = SimpleNamespace(
         sync_session=SyncSession(),
         scalar=AsyncMock(return_value=task),
         get=AsyncMock(return_value=task),
         flush=AsyncMock(),
         execute=AsyncMock(),
-        add=added.append,
+        add=lambda *_a, **_kw: None,
     )
     monkeypatch.setattr(
         originals, "managed_binding", AsyncMock(return_value=binding["original"])
     )
+    monkeypatch.setattr(predictions, "get_core_row", AsyncMock(return_value=task))
+    monkeypatch.setattr(originals, "get_core_row", AsyncMock(return_value=task))
+    monkeypatch.setattr(
+        predictions,
+        "lock_labeling_write",
+        AsyncMock(return_value=(task, None, None)),
+    )
+    monkeypatch.setattr(
+        predictions, "preflight_mask_payload_for_write", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(predictions, "prepare_mask_payload_for_write", AsyncMock())
+
+    async def fake_command(_db, command):
+        commands.append(command)
+        now = datetime.now(timezone.utc)
+        return InsertPredictionResultData(
+            operation="insert_result",
+            prediction_id=command.prediction_id,
+            created_at=now,
+            tool_unit_id=command.tool_unit_id,
+            total_predictions=1,
+            task_updated_at=now,
+        )
+
+    monkeypatch.setattr(predictions, "prediction_record_command", fake_command)
+    monkeypatch.setattr(predictions, "set_committed_value", setattr)
     private_evidence = {
         **binding,
         "schema": 1,
@@ -336,21 +374,31 @@ async def test_prediction_original_metadata_cannot_be_supplied_by_backend(monkey
     receipt = originals.issue_receipt(db, task.id, binding, private_evidence)
     trusted = originals.public_provenance(private_evidence)
     assert originals.encoded(binding) == receipt.binding
-    from app.services import prediction as predictions
-
-    monkeypatch.setattr(predictions, "prepare_mask_payload_for_write", AsyncMock())
     token_meta = {"mask_objects": {"native": "still-owned-by-existing-mask-service"}}
-    await PredictionService(db).create_from_ml_result(
-        task.id,
-        task.project_id,
-        None,
-        [],
-        original_receipt=receipt,
-        token_meta=token_meta,
-        pipeline_extra={"original_input": {"forged": True}},
+    write_scope = capture_labeling_write_scope(
+        task,
+        actor_id=uuid.uuid4(),
+        actor_known=True,
+        operation="preannotation",
+        execution_scope="bulk",
+        execution_scope_known=True,
+        job_id=None,
+        job_id_known=True,
     )
-    meta = next(row for row in added if isinstance(row, PredictionMeta))
-    assert meta.extra["original_input"] == trusted
+    await PredictionService(db).apply_prediction_result(
+        ApplyPredictionResultRequest(
+            task_id=task.id,
+            project_id=task.project_id,
+            ml_backend_id=None,
+            result=[],
+            original_receipt=receipt,
+            token_meta=token_meta,
+            pipeline_extra={"original_input": {"forged": True}},
+            write_scope=write_scope,
+        )
+    )
+    assert len(commands) == 1
+    assert commands[0].extra["original_input"] == trusted
 
     def keys(value):
         if isinstance(value, dict):
@@ -359,7 +407,7 @@ async def test_prediction_original_metadata_cannot_be_supplied_by_backend(monkey
             return set().union(*(keys(item) for item in value))
         return set()
 
-    assert not keys(meta.extra["original_input"]) & {
+    assert not keys(commands[0].extra["original_input"]) & {
         "endpoint_url",
         "endpoint",
         "bucket",
@@ -379,15 +427,19 @@ async def test_prediction_original_metadata_cannot_be_supplied_by_backend(monkey
         ]
         is token_meta
     )
-    with pytest.raises(ContentError, match="prediction_original_receipt_invalid"):
-        await PredictionService(db).create_from_ml_result(
-            uuid.uuid4(),
-            uuid.uuid4(),
-            None,
-            [],
-            original_receipt=object(),
-            reference_receipt=object(),
+    with pytest.raises(ApplyPredictionResultError) as invalid_error:
+        await PredictionService(db).apply_prediction_result(
+            ApplyPredictionResultRequest(
+                task_id=task.id,
+                project_id=task.project_id,
+                ml_backend_id=None,
+                result=[],
+                original_receipt=object(),
+                reference_receipt=object(),
+                write_scope=write_scope,
+            )
         )
+    assert invalid_error.value.code == "prediction_original_receipt_invalid"
 
 
 async def test_unknown_input_close_preserves_source_permit(monkeypatch):
@@ -599,9 +651,9 @@ async def test_adopt_propagates_native_baseexception_with_closed_stage(monkeypat
 
 @pytest.mark.parametrize("primary", [False, True])
 async def test_managed_binding_uses_actual_saved_location_and_excludes_task_version(
-    original_db, monkeypatch, primary
+    current_original_db, monkeypatch, primary
 ):
-    db = original_db
+    db = current_original_db
     item, _, replica, task = await dataset_rows(db)
     if primary:
         task.dataset_item_id = None
@@ -621,11 +673,15 @@ async def test_managed_binding_uses_actual_saved_location_and_excludes_task_vers
 
 
 async def test_standalone_receipt_uses_task_original_not_current_bucket(
-    original_db, original_client, monkeypatch
+    current_original_db, original_client, monkeypatch
 ):
-    db = original_db
+    db = current_original_db
     task, allocation, created = await verified(db, original_client)
-    await task_originals.publish(db, task, allocation, created)
+    task.file_type = "image"
+    await db.flush()
+    await task_originals.publish(
+        db, task, allocation, created, actor_id=allocation["requested_by"]
+    )
     await db.commit()
     calls = list(original_client.calls)
     monkeypatch.setattr(storage_service, "bucket", "wrong-current-task")

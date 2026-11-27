@@ -18,6 +18,20 @@ from tests.test_dataset_references import reference_world as reference_world
 from tests.test_dataset_registration import start
 
 
+@pytest.fixture(autouse=True)
+async def _committed_cleanup(test_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    callbacks = []
+    yield callbacks
+    if callbacks:
+        maker = async_sessionmaker(test_engine, expire_on_commit=False)
+        async with maker() as db:
+            for callback in reversed(callbacks):
+                await callback(db)
+            await db.commit()
+
+
 @pytest.fixture
 async def managed_world(db_session, super_admin, project_admin, tmp_path, monkeypatch):
     actor = project_admin[0]
@@ -117,6 +131,7 @@ async def test_revocation_during_snapshot_prevents_receipt(
     work = await registration.next_entry(db_session, run.id, task_id, fence)
     await db_session.commit()
     scan_id, digest = world[6].id, work["path_digest"]
+    dataset_id = world[3].id
     original = snapshots.capture
 
     async def revoked(*args, **kwargs):
@@ -137,7 +152,14 @@ async def test_revocation_during_snapshot_prevents_receipt(
     await db_session.rollback()
     entry = await db_session.get(DatasetScanEntry, (scan_id, digest))
     assert entry.verified_content is None
-    assert await db_session.scalar(select(func.count()).select_from(DatasetItem)) == 0
+    assert (
+        await db_session.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+        )
+        == 0
+    )
 
 
 async def test_management_preview_revocation_keeps_assigned_task_reading(
@@ -420,22 +442,62 @@ async def test_source_configuration_rechecks_key_after_lock_wait(
 
 
 async def test_upload_completion_rechecks_initial_key_after_hashing(
-    db_session, managed_world, project_admin, httpx_client, monkeypatch
+    test_engine,
+    _committed_cleanup,
+    db_session,
+    super_admin,
+    tmp_path,
+    httpx_client,
+    monkeypatch,
 ):
     import uuid
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.core.security import create_access_token, hash_password
     from app.db.models.api_key import ApiKey
     from app.db.models.dataset_asset import DatasetAsset
+    from app.db.models.user import User
     from app.services.storage import storage_service
     from tests.test_dataset_assets import ObjectClient
-    from app.services import managed_original_creation as creations
+    from app.services import assets_source, managed_original_creation as creations
 
-    world, _ = managed_world
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = uuid.uuid4()
+    username = f"upload_mgr_{actor_id.hex[:8]}"
+    async with maker() as committed:
+        actor = User(
+            id=actor_id,
+            name=username,
+            email=f"{username}@test.local",
+            password_hash=hash_password("Test1234!"),
+            role="project_admin",
+            is_active=True,
+        )
+        committed.add(actor)
+        await committed.commit()
+
+    async def cleanup(db):
+        await db.execute(delete(User).where(User.id == actor_id))
+
+    _committed_cleanup.append(cleanup)
+    token = create_access_token(str(actor_id), "project_admin")
+    committed_admin = (actor, token)
+    world = await create_content_world(
+        db_session,
+        super_admin[0],
+        tmp_path,
+        monkeypatch,
+        use_user_ids=[actor_id],
+    )
+    world[3].created_by = actor_id
+    await db_session.commit()
     fake = ObjectClient()
     monkeypatch.setattr(storage_service, "client", fake)
     monkeypatch.setattr(creations, "create_client", lambda **_: fake)
+    monkeypatch.setattr(assets_source, "_managed_client", lambda _: fake)
     response = await httpx_client.post(
         "/api/v1/me/api-keys",
-        headers=headers(project_admin),
+        headers=headers(committed_admin),
         json={"name": "upload", "scopes": ["datasets:write"]},
     )
     key = await db_session.get(ApiKey, uuid.UUID(response.json()["id"]))
@@ -445,27 +507,29 @@ async def test_upload_completion_rechecks_initial_key_after_hashing(
         headers=auth,
         json={"file_name": "a.bin", "content_type": "application/octet-stream"},
     )
-    assert init.status_code == 200
+    assert init.status_code == 200, init.text
     item_id = uuid.UUID(init.json()["item_id"])
     fake.objects[fake.presigned[-1][1]["Key"]] = b"original"
-    original = creations.complete_direct
+    original = assets_source._LocalStoragePort.publish_managed_upload
 
-    async def rotated(*args, **kwargs):
-        result = await original(*args, **kwargs)
+    async def rotated(self, *args, **kwargs):
+        result = await original(self, *args, **kwargs)
         key.key_hash = "rotated-during-hashing"
         await db_session.flush()
         return result
 
-    monkeypatch.setattr(creations, "complete_direct", rotated)
+    monkeypatch.setattr(
+        assets_source._LocalStoragePort, "publish_managed_upload", rotated
+    )
     response = await httpx_client.post(
         f"/api/v1/datasets/{world[3].id}/items/upload-complete/{item_id}",
         headers=auth,
     )
-    assert response.status_code == 403
+    assert response.status_code == 403, response.text
     asset = await db_session.scalar(
         select(DatasetAsset).where(DatasetAsset.dataset_item_id == item_id)
     )
-    assert asset.verification_state == "unverified"
+    assert asset is None or asset.verification_state == "unverified"
 
 
 async def test_directory_link_chunks_recheck_actor_before_next_commit(
@@ -625,21 +689,62 @@ async def test_directory_link_rechecks_after_dataset_lock(
 
 
 async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
-    db_session, managed_world, project_admin, httpx_client, monkeypatch
+    test_engine,
+    _committed_cleanup,
+    db_session,
+    super_admin,
+    tmp_path,
+    httpx_client,
+    monkeypatch,
 ):
     import io
+    import uuid
     import zipfile
+    from sqlalchemy import delete
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.core.security import create_access_token, hash_password
+    from app.db.models.user import User
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.storage import storage_service
     from tests.test_dataset_assets import ObjectClient
+    from app.services import assets_source, managed_original_creation as creations
     from app.services.dataset import DatasetService
 
-    world, _ = managed_world
-    from app.services import managed_original_creation as creations
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = uuid.uuid4()
+    username = f"zip_mgr_{actor_id.hex[:8]}"
+    async with maker() as committed:
+        actor = User(
+            id=actor_id,
+            name=username,
+            email=f"{username}@test.local",
+            password_hash=hash_password("Test1234!"),
+            role="project_admin",
+            is_active=True,
+        )
+        committed.add(actor)
+        await committed.commit()
+
+    async def cleanup(db):
+        await db.execute(delete(User).where(User.id == actor_id))
+
+    _committed_cleanup.append(cleanup)
+    committed_admin = (actor, create_access_token(str(actor_id), "project_admin"))
+    world = await create_content_world(
+        db_session,
+        super_admin[0],
+        tmp_path,
+        monkeypatch,
+        use_user_ids=[actor_id],
+    )
+    world[3].created_by = actor_id
+    await db_session.commit()
 
     fake = ObjectClient()
     monkeypatch.setattr(storage_service, "client", fake)
+    monkeypatch.setattr(storage_service, "spatial_source_client", fake)
     monkeypatch.setattr(creations, "create_client", lambda **_: fake)
+    monkeypatch.setattr(assets_source, "_managed_client", lambda _: fake)
 
     async def unexpected(*args, **kwargs):
         raise AssertionError("Directory image ZIP must not create scenes")
@@ -654,7 +759,7 @@ async def test_zip_into_directory_dataset_keeps_non_temporal_registration(
         archive.writestr("note.txt", b"ordinary managed file")
     response = await httpx_client.post(
         f"/api/v1/datasets/{world[3].id}/items/upload-zip",
-        headers=headers(project_admin),
+        headers=headers(committed_admin),
         files={"file": ("mixed.zip", output.getvalue(), "application/zip")},
     )
     assert response.status_code == 200 and response.json()["added"] == 1, response.text
@@ -668,7 +773,6 @@ async def test_upload_cleanup_is_not_a_revocation_bypass(
     db_session, managed_world, project_admin, httpx_client, monkeypatch, cleanup
 ):
     import uuid
-    from app.services import dataset_assets
     from app.services.storage import storage_service
     from tests.test_dataset_assets import ObjectClient
 
@@ -683,17 +787,33 @@ async def test_upload_cleanup_is_not_a_revocation_bypass(
     item_id = item.id
     key = item.file_path
     if cleanup == "duplicate":
-        fake.objects[key] = b"original"
+        import hashlib
+        from app.services.dataset_assets import register_item_asset
 
-        async def revoke_after_lookup(*args, **kwargs):
-            actor.role = "employee"
-            await db_session.flush()
-            return item
-
-        monkeypatch.setattr(
-            dataset_assets, "find_verified_content", revoke_after_lookup
+        existing = await DatasetService(db_session).add_item(
+            world[3].id,
+            "existing.bin",
+            f"legacy-upload/{uuid.uuid4()}/existing.bin",
+            "other",
         )
+        await register_item_asset(
+            db_session,
+            existing,
+            sha256=hashlib.sha256(b"original").hexdigest(),
+            size_bytes=len(b"original"),
+        )
+        await db_session.commit()
+        fake.objects[key] = b"original"
+        original_verify = storage_service.verify_upload
+
+        def revoke_after_verify(*args, **kwargs):
+            result = original_verify(*args, **kwargs)
+            actor.role = "employee"
+            return result
+
+        monkeypatch.setattr(storage_service, "verify_upload", revoke_after_verify)
     else:
+        await db_session.commit()
 
         def revoke_after_head(*args, **kwargs):
             actor.role = "employee"

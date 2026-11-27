@@ -1443,7 +1443,7 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
 
     monkeypatch.setattr(storage, "lock_raster_mask_references", lock_content)
 
-    async def _fake_store(rle):
+    async def _fake_store(rle, *, db=None):
         events.append("storage_put")
         return reference
 

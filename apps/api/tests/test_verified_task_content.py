@@ -6,6 +6,7 @@ from PIL import Image
 import pytest
 
 from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset_asset import DatasetAsset
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
@@ -102,8 +103,10 @@ async def test_real_stored_object_is_verified_and_overwrite_is_rejected(
     )
     assert response.status_code == 409
     assert response.json()["detail"]["code"] in {"source_changed", "content_mismatch"}
-    await db_session.refresh(asset)
-    assert asset.checksum_value == sha
+    persisted_asset = await db_session.get(
+        DatasetAsset, asset.id, populate_existing=True
+    )
+    assert persisted_asset.checksum_value == sha
 
 
 async def test_task_authorization_and_legacy_url_share_visibility(
@@ -230,7 +233,7 @@ async def test_original_jwt_is_rechecked_after_physical_copy(
             monkeypatch.setattr(authority, "now", lambda: future)
         elif revocation == "blacklist":
 
-            async def blacklisted(jti):
+            async def blacklisted(jti, *, db=None):
                 return True
 
             monkeypatch.setattr(
@@ -238,7 +241,7 @@ async def test_original_jwt_is_rechecked_after_physical_copy(
             )
         else:
 
-            async def generation(user_id):
+            async def generation(user_id, *, db=None):
                 return 2**31
 
             monkeypatch.setattr(

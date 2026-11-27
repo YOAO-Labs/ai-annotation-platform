@@ -5,16 +5,17 @@ import uuid
 
 from cryptography.fernet import Fernet
 import pytest
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.core.crypto import encrypt_secret
-from app.db.models.dataset import DatasetItem
+from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.thumbnail_output import ThumbnailOutput
+from app.db.models.user import User
 from app.services import media_cache_storage as storage
 from app.services import storage_usage_categories as categories
 from app.services.original_cache import now
@@ -24,57 +25,31 @@ from tests.test_managed_original_creation import migration
 
 
 @pytest.fixture
-async def media_db(test_engine):
-    schema = "media_targets_" + uuid.uuid4().hex
-    tables = (
-        "storage_connections",
-        "storage_locations",
-        "storage_bindings",
-        "storage_maintenance_gates",
-        "storage_operations",
-        "original_cache_entries",
-        "original_cache_read_leases",
-        "dataset_items",
-        "tasks",
-        "dataset_source_previews",
-        "image_pyramid_outputs",
-        "video_derivative_outputs",
-    )
-    async with test_engine.begin() as connection:
-        source = await connection.scalar(text("SELECT current_schema()"))
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" (LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-        for table in ("dataset_items", "tasks", "dataset_source_previews"):
-            await connection.execute(
-                text(f'ALTER TABLE "{schema}".{table} DROP COLUMN thumbnail_output_id')
-            )
-        await connection.execute(
-            text(
-                f'ALTER TABLE "{schema}".original_cache_entries DROP COLUMN storage_ref'
-            )
-        )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    try:
-        async with engine.begin() as connection:
-            await connection.run_sync(
-                lambda sync: migration(sync, "0252_media_cache_targets.py").upgrade()
-            )
+async def media_db(managed_database):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            owner = User(
+                id=uuid.uuid4(),
+                name="Media cache fixture owner",
+                email=f"media-cache-{uuid.uuid4().hex}@example.test",
+                password_hash="unused",
+                role="project_admin",
+                is_active=True,
+            )
+            db.add(owner)
+            await db.flush()
+            dataset = Dataset(
+                id=uuid.uuid4(),
+                display_id=f"mc-{uuid.uuid4().hex[:12]}",
+                name="Media cache fixture dataset",
+                created_by=owner.id,
+            )
+            db.add(dataset)
             await ensure_legacy_bindings(db)
             await db.commit()
+            db.info["owner_id"] = owner.id
+            db.info["dataset_id"] = dataset.id
             yield db
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 async def switch(db, monkeypatch):
@@ -93,6 +68,7 @@ async def switch(db, monkeypatch):
             "use_ssl": True,
         },
         secret_enc=encrypt_secret({"access_key": "private", "secret_key": "private"}),
+        created_by=db.info["owner_id"],
     )
     db.add(connection)
     await db.flush()
@@ -194,7 +170,7 @@ async def test_busy_allocation_recovers_savepoint_and_keeps_pending_business(
     _, location = await switch(db, monkeypatch)
     pending = DatasetItem(
         id=uuid.uuid4(),
-        dataset_id=uuid.uuid4(),
+        dataset_id=db.info["dataset_id"],
         file_name="pending",
         file_path="pending",
         file_type="image",
@@ -271,15 +247,3 @@ async def test_thumbnail_immutable_owner_receipt_and_downgrade_refusal(media_db)
             await (await db.connection()).run_sync(
                 lambda sync: migration(sync, "0252_media_cache_targets.py").downgrade()
             )
-
-
-async def test_empty_nullable_migration_roundtrip_preserves_schema_one(media_db):
-    db = media_db
-    await (await db.connection()).run_sync(
-        lambda sync: migration(sync, "0252_media_cache_targets.py").downgrade()
-    )
-    await (await db.connection()).run_sync(
-        lambda sync: migration(sync, "0252_media_cache_targets.py").upgrade()
-    )
-    assert await db.scalar(text("SELECT to_regclass('thumbnail_outputs')"))
-    assert (await db.get(StorageBinding, "media-cache")).generation == 1

@@ -459,6 +459,7 @@ async def test_legacy_scope_guard_ignores_unselected_gap_frames(
         from_frame=1,
         to_frame=3,
         frame_indices={1, 3},
+        actor_id=user.id,
     )
 
 

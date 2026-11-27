@@ -69,6 +69,7 @@ from app.services.reference_bindings import task_binding
 from app.workers.celery_app import celery_app
 from tests.factory import admitted_request, create_user
 from tests.inference_execution_test_ports import FakeModelExecutionPort
+from tests.mask_repair_publication import bind_publication_login
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
@@ -221,7 +222,14 @@ class _TrackerDispatcher:
 
 @pytest.fixture
 async def repair_world(test_db_url, apply_migrations, monkeypatch):
+    from tests.raster_mask_isolation import (
+        remove_test_raster_owners,
+        track_raster_owners,
+    )
+
     engine = create_async_engine(test_db_url)
+    raster_tracker = track_raster_owners(engine)
+    created_raster_owners = raster_tracker.__enter__()
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
         owner = await create_user(
@@ -419,7 +427,8 @@ async def repair_world(test_db_url, apply_migrations, monkeypatch):
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     world.rles = rles
     try:
-        yield world
+        async with bind_publication_login(engine, monkeypatch):
+            yield world
     finally:
         async with factory() as db:
             actor_ids = [world.owner_id, world.author_id, *world.extra_user_ids]
@@ -465,6 +474,8 @@ async def repair_world(test_db_url, apply_migrations, monkeypatch):
             await db.execute(delete(Dataset).where(Dataset.id == world.dataset_id))
             await db.execute(delete(User).where(User.id.in_(actor_ids)))
             await db.commit()
+        raster_tracker.__exit__(None, None, None)
+        await remove_test_raster_owners(engine, created_raster_owners)
         await engine.dispose()
 
 

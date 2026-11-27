@@ -163,11 +163,21 @@ def test_mask_validation_keeps_version_and_native_head_bound_to_frozen_reference
             original.result, [0], metadata=wire, width=5, height=3
         )
     mismatched = deepcopy(ref)
-    mismatched["provenance"]["base_model"]["id"] = (
-        "yolo11n-seg" if base_model.startswith("yolo26") else "yolo26n-seg"
-    )
+    mismatched["inference_runtime"] = {
+        "framework": "ultralytics",
+        "version": "8.4.183",
+        "qualification": {
+            **runtime,
+            "end2end": not runtime["end2end"],
+            "nms": False if not runtime["end2end"] else None,
+        },
+    }
     with pytest.raises(ValueError):
         controlled_segmentation.runtime_for_reference(mismatched)
+    invalid_head = deepcopy(ref)
+    invalid_head["runtime_qualification"] = {**runtime, "end2end": True, "nms": True}
+    with pytest.raises(ValueError):
+        controlled_segmentation.runtime_for_reference(invalid_head)
 
 
 def managed_case(base_model):
