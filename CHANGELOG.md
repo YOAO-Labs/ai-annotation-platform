@@ -100,6 +100,13 @@
 
 ### Fixed
 
+- 修复前向 SQL 迁移 `bo0518` 收口的 3 项数据库行为缺陷：`yoao_labeling_v1.task_edit_lock_command` 按 `COLLATE "C"` 排序校验锁定键，避免 UTF-8 区域排序误拒 `batch_final_write_available`；`yoao_learning_v1.training_create_run` 与 `training_gpu_queue` 改用 `clock_timestamp()` 与 `(created_at, id)` 队列序并跳过已锁定行，保障同事务创建的训练任务仍严格 FIFO；新增 `yoao_jobs_v1.async_job_list_page_v2`／`async_job_list_total_v2` 允许具备 `datasets:read`／`*` 权限的数据集管理员在作业列表查看其可见的 4 类无项目数据集作业，同时保持普通成员与受限密钥不可见。
+- 修复预测成本统计接口（`GET /api/v1/dashboard/admin/prediction-cost-stats`）查询参数 `range` 遮蔽 Python 内置 `range()` 触发 500 错误的问题，并限制项目批预标 `retryable_request_context` 负载不超过 8 KiB。
+- 修复视频与图片批预标及持久化失败重试中的多项边界缺陷：预标任务缺失视频权限时失败关闭返回 409 `prediction_video_requires_new_request`，冻结视频范围计数变化或 `overwrite` 清理延迟至单题终态写入事务，区分单题归属 403 与项目级撤销以确保记录 `FailedPrediction`；失败重试保留 `follow_target_queue` 与结构化 409 冲突详情、在终态写入前拒绝 `partial_prediction_ids`，并在推理与回写阶段复用同一临时输入对象租约。
+- 修复数据集连接器导入与直传完成（`import-from-connection`／`upload-complete`）缺失存储维护门禁与目录写权限回滚复核的问题，修复目录图片数据集 ZIP 导入误自动创建 Scene 而未返回提示的问题，并修复目录引用读路径、头像删除与已保存视图的锁释放、identity-map 驱逐与 `SAVEPOINT` 事务隔离问题。
+- 修复训练数据构建 worker（`workers/training_dataset.py`）在 `materialize_sample` 与 `_build_dataset_contents` 中局部 `source` 变量遮蔽输出存储通道的问题，修复在线训练初始化脚本漏传 `db` 且未跳过未固定 `storage_ref` 历史版本的问题，并修复超参研究评估读取与栅格 Mask 存储漏传 `db`、`match_evidence` 漏传 `annotation_row` 的问题。
+- 修复多相机标注转移命令（`labeling_annotation_transfer.py`）在领域冲突拒绝时未通过 `SAVEPOINT` 隔离导致外层 PostgreSQL 事务中止（`InFailedSQLTransactionError`）的问题，以及 `sample_evaluation_masks` 与 `controlled_segmentation` 回退分支对缺失 `runtime_qualification` 或非法 `end2end`／`nms` 组合未失败关闭的问题。
+- 修复 `media_probe` 带 `pass_fds` 的 `ffprobe` 调用绕过受控进程执行器 `media_process.run_process` 的问题。
 - 修复交互式单帧推理接口（`POST /api/v1/ml-backends/{id}/interactive-annotating-frame`）将输入归属类型误写为 `interactive_frame_predict`（应为 `frame_interactive`）导致触发数据库约束 500 错误的问题。
 - 修复点云数据集坐标轴探测接口（`POST /api/v1/datasets/{id}/sniff-axis-convention`）直接将跨包 Pydantic 模型实例传给 API 响应模型导致返回 500 `ValidationError` 的问题。
 - 修复栅格 Mask 提交（`mask-mutations:commit`）在 S3 RLE 预检读取前提前持有任务 `FOR UPDATE` 行锁的问题，恢复先完成对象存储读取、再在短事务内锁定任务行并提交的锁顺序。
