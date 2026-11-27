@@ -688,7 +688,7 @@ async def test_import_nuscenes_two_scenes(
     ).scalar_one()
 
     neighbors = await labeling_scene.get_neighbors_for_task(
-        db_session, task_id=last_task.id, k=1
+        db_session, task=last_task, k=1
     )
     assert neighbors is not None
     assert neighbors.scene_total_frames == 3

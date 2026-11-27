@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import uuid
+from dataclasses import dataclass
 
+from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.task import Task
-from app.schemas.scene import NeighborInfo, NeighborsResponse
-from app.services.assets_spatial import AssetsSpatialGateway
-from app.services.labeling_scene_read import read_scene_data
-from app.services.labeling_core_read_relations import get_core_row, task_row
 from yoao_assets_catalog.spatial_contract import (
     GetSceneRequest,
     ReadItemsRequest,
@@ -19,7 +16,22 @@ from yoao_assets_catalog.spatial_contract import (
     SpatialItem,
     SpatialScene,
 )
+from yoao_labeling.scene_read_contract import (
+    SCENE_READ_FUNCTION,
+    SceneReadData,
+    SceneReadUnavailable,
+    scene_read_request,
+)
+from yoao_labeling.scene_read_data import SceneReadDataClient
 
+from app.db.models.task import Task
+from app.schemas.scene import NeighborInfo, NeighborsResponse
+from app.services.assets_spatial import AssetsSpatialGateway
+
+
+_SCENE_READ_STEP = text(
+    f"SELECT {SCENE_READ_FUNCTION.partition('(')[0]}(CAST(:request AS jsonb))"
+)
 
 _RESOLVE_CHUNK_SIZE = 5000
 _READ_ITEMS_PAGE_SIZE = 500
@@ -60,6 +72,25 @@ class SceneTimelineAnnotationSummary:
     selected_source: str | None = None
     selected_class_name: str | None = None
     selected_temporal_role: str | None = None
+
+
+async def read_scene_data(
+    db: AsyncSession, action: str, **values: object
+) -> SceneReadData:
+    request = scene_read_request(action, **values)
+    if db.autoflush:
+        await db.flush()
+
+    async def execute(request_json: str):
+        return await db.scalar(_SCENE_READ_STEP, {"request": request_json})
+
+    try:
+        return await SceneReadDataClient(execute).query(request)
+    except SceneReadUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail={"reason": "scene_read_unavailable"},
+        ) from None
 
 
 async def resolve_primary_item_id(db: AsyncSession, task: Task) -> uuid.UUID | None:
@@ -226,12 +257,9 @@ async def get_scene_timeline_window(
 async def get_neighbors_for_task(
     db: AsyncSession,
     *,
-    task_id: uuid.UUID,
+    task: Task,
     k: int = 1,
 ) -> NeighborsResponse | None:
-    task = await get_core_row(db, task_row, task_id)
-    if task is None:
-        return None
     primary_item_id = await resolve_primary_item_id(db, task)
     if primary_item_id is None:
         return None

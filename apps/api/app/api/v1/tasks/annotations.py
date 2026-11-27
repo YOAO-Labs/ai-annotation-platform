@@ -214,7 +214,7 @@ async def get_neighbor_annotations(
     await task_access.assert_task_visible(db, task, current_user.id)
 
     try:
-        neighbors = await get_neighbors_for_task(db, task_id=task_id, k=k)
+        neighbors = await get_neighbors_for_task(db, task=task, k=k)
     except SceneFrameIndexInconsistent as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

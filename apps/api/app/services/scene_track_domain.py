@@ -25,9 +25,9 @@ from app.db.models.annotation import Annotation
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.task import Task
 from app.services.labeling_scene import (
+    read_scene_data,
     resolve_task_scene_frames,
 )
-from app.services.labeling_scene_read import read_scene_data
 
 
 TEMPORAL_ROLES = frozenset({"keyframe", "derived", "sample"})

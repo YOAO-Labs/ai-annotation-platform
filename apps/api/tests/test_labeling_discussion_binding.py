@@ -15,7 +15,7 @@ from yoao_labeling.discussion_contract import (
 )
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.annotation_feedback import AnnotationFeedback
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.labeling_discussion_data import AnnotationCommentData
 from app.services.feedback import FeedbackService
 
 
@@ -48,7 +48,7 @@ async def test_native_rows_stay_session_bound_and_refresh_through_public_project
             created_at=now,
             updated_at=now,
         )
-        service = AnnotationCommentService(session)
+        service = AnnotationCommentData(session)
         attach, refresh = service._attach, service.refresh
         model_type = AnnotationComment
         relation = "yoao_labeling_v1.annotation_comment_facts"

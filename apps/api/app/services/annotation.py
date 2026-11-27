@@ -241,7 +241,7 @@ class AnnotationService:
         )
         if loaded is None:
             return
-        from app.services.labeling_scene_read import read_scene_data
+        from app.services.labeling_scene import read_scene_data
 
         with self.db.no_autoflush:
             data = await read_scene_data(
@@ -268,7 +268,7 @@ class AnnotationService:
         }
         if not loaded:
             return
-        from app.services.labeling_scene_read import read_scene_data
+        from app.services.labeling_scene import read_scene_data
 
         with self.db.no_autoflush:
             data = await read_scene_data(

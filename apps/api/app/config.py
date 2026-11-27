@@ -12,6 +12,7 @@ from pydantic import (
 from pydantic_settings import BaseSettings, NoDecode
 from sqlalchemy.engine import make_url
 from yoao_assets_source.reference_protocol import SftpReferenceRoot, validate_sftp_roots
+from yoao_assets_source.saved_io import READ_WRITE_SCOPES, SavedIOError, valid_token
 
 from yoao_inference.gpu.settings import (
     GPUArbiterMode,
@@ -28,6 +29,40 @@ _REPO_ROOT_DUCKDB = (
     if len(_PARENTS) > 3
     else "./data/duckdb/analytics.duckdb"
 )
+
+
+_ASSETS_SOURCE_TOKEN_ATTRIBUTES = {
+    **{
+        access: f"assets_source_saved_io_{access}_token" for access in READ_WRITE_SCOPES
+    },
+    "connections": "assets_source_connections_token",
+}
+
+
+def assets_source_scoped_token(access: str) -> str:
+    tokens = {}
+    for scope, name in _ASSETS_SOURCE_TOKEN_ATTRIBUTES.items():
+        value = getattr(settings, name)
+        filename = getattr(settings, f"{name}_file")
+        if value and filename:
+            raise SavedIOError("source_unavailable", status_code=503)
+        if filename:
+            try:
+                value = Path(filename).read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeError):
+                raise SavedIOError("source_unavailable", status_code=503) from None
+            if not value:
+                raise SavedIOError("source_unavailable", status_code=503)
+        if value:
+            if not valid_token(value):
+                raise SavedIOError("source_unavailable", status_code=503)
+            tokens[scope] = value
+    if (
+        len(set(tokens.values())) != len(tokens)
+        or settings.assets_source_token in tokens.values()
+    ):
+        raise SavedIOError("source_unavailable", status_code=503)
+    return tokens.get(access, "")
 
 
 def _default_duckdb_path(data: dict) -> str:

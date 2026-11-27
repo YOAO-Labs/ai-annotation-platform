@@ -20,7 +20,8 @@ from app.schemas.annotation_comment import (
     AnnotationCommentCreate,
     AnnotationCommentUpdate,
 )
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.annotation_comment import validate_comment_body, validate_mentions
+from app.services.labeling_discussion_data import AnnotationCommentData
 from app.services import task_access
 from app.services.discussion_actions import discussion_actions
 from app.services.audit import AuditAction, AuditService
@@ -41,7 +42,7 @@ class AnnotationCommentWorkflow:
 
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
-        self.comments = AnnotationCommentService(db)
+        self.comments = AnnotationCommentData(db)
 
     async def create(
         self,
@@ -68,8 +69,8 @@ class AnnotationCommentWorkflow:
             require_active=True,
         )
         expected_access = await task_access.resolve_task_access(self.db, task, actor.id)
-        await self.comments.validate_mentions(
-            task.project_id, [mention.user_id for mention in data.mentions]
+        await validate_mentions(
+            self.db, task.project_id, [mention.user_id for mention in data.mentions]
         )
         annotation, task, actor, _ = await self._lock_annotation_target(
             annotation,
@@ -181,6 +182,7 @@ class AnnotationCommentWorkflow:
             expected_access=expected_access,
             operation="edit",
         )
+        validate_comment_body(comment, data.body)
         comment = await self.comments.update(
             comment, body=data.body, is_resolved=data.is_resolved
         )

@@ -34,7 +34,7 @@ from app.db.models.scene_track import (
 from app.db.models.task import Task
 from app.schemas.scene_track import SceneTrackCommandRequest
 from app.services.annotation_evidence import record_annotation_actors_for_tasks
-from app.services.labeling_scene_read import read_scene_data
+from app.services.labeling_scene import read_scene_data
 from app.services.track_operation import SceneTrackContext, resolve_scene_track_context
 
 

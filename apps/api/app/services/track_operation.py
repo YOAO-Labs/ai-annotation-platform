@@ -16,8 +16,8 @@ from yoao_labeling.scene_read_contract import SceneAnnotationRecord
 from app.db.models.annotation import Annotation
 from app.db.models.task import Task
 from app.schemas.track_operation import TrackOperationRequest, TrackSummary
-from app.services.labeling_scene_read import read_scene_data
 from app.services.labeling_scene import (
+    read_scene_data,
     get_scene_frame_task_map,
     resolve_task_scene_frames,
 )

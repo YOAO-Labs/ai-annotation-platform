@@ -555,9 +555,6 @@ class LabelingTaskService(LabelingTaskCreationPort):
     async def delete_source_less_task_children(
         self, task_id_values: list[uuid.UUID], *, project_id: uuid.UUID
     ) -> int:
-        from app.services.annotation_comment import AnnotationCommentService
-
-        await AnnotationCommentService(self.db).delete_for_tasks(task_id_values)
         data = await LabelingTaskMaintenanceService(self.db).command(
             DeleteSourceLessChildren(
                 schema=TASK_MAINTENANCE_PROTOCOL,

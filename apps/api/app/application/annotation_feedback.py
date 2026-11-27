@@ -27,7 +27,7 @@ from app.schemas.annotation_feedback import (
     serialize_feedback_anchor,
 )
 from app.services import task_access
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.annotation_comment import validate_mentions
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.discussion_actions import discussion_actions
@@ -135,8 +135,10 @@ class AnnotationFeedbackWorkflow:
         ):
             raise TaskWorkflowError(422, {"reason": "feedback_annotation_unavailable"})
         if payload.mentions:
-            await AnnotationCommentService(self.db).validate_mentions(
-                payload.project_id, [mention.user_id for mention in payload.mentions]
+            await validate_mentions(
+                self.db,
+                payload.project_id,
+                [mention.user_id for mention in payload.mentions],
             )
 
         root: AnnotationFeedback | None = None
@@ -355,8 +357,10 @@ class AnnotationFeedbackWorkflow:
                 raise TaskWorkflowError(
                     422, "mentions require a native root task comment"
                 )
-            await AnnotationCommentService(self.db).validate_mentions(
-                root.project_id, [mention.user_id for mention in payload.mentions]
+            await validate_mentions(
+                self.db,
+                root.project_id,
+                [mention.user_id for mention in payload.mentions],
             )
         if (
             payload.body is not None

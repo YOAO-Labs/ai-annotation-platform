@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deps import get_current_user_id, get_db
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.labeling_discussion_data import AnnotationCommentData
 from app.services.audit_read_relations import audit_event
 from app.schemas.annotation_history import (
     AnnotationHistoryResponse,
@@ -79,7 +79,7 @@ async def get_annotation_history(
         .all()
     )
 
-    comments = await AnnotationCommentService(db).list_for_annotation(
+    comments = await AnnotationCommentData(db).list_for_annotation(
         annotation_id, active_only=False
     )
 

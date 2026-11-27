@@ -6,9 +6,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.project_workspace import lock_managed_project
 from app.db.models.project import Project
+from app.services import comment_attachment_uploads
 from app.services.active_learning_references import guard_source
 from app.services.annotation import AnnotationService
 from app.services.bug_report import BugReportService
+from app.services.labeling_discussion_data import AnnotationCommentData
 from app.services.labeling_tasks import LabelingTaskService
 from app.services.labeling_task_maintenance import LabelingTaskMaintenanceService
 from yoao_labeling.task_maintenance_contract import (
@@ -47,6 +49,12 @@ async def delete_source_less_tasks(
         return {"deleted_tasks": 0, "deleted_annotations": 0}
 
     await guard_source(db, task_ids=task_ids)
+
+    comments = AnnotationCommentData(db)
+    comment_ids = await comments.ids_for_task_deletion(task_ids)
+    if comment_ids:
+        await comment_attachment_uploads.retire_for_comments(db, comment_ids)
+    await comments.delete_for_tasks(task_ids)
 
     labeling = LabelingTaskService(db)
     annotation_count = await labeling.delete_source_less_task_children(

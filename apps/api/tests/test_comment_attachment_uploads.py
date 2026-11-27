@@ -735,9 +735,9 @@ async def test_binding_last_wait_expiry_preserves_the_committed_comment_and_owne
 
         monkeypatch.setattr(NotificationService, "publish_committed", published)
     else:
-        from app.services.annotation_comment import AnnotationCommentService
+        from app.services.labeling_discussion_data import AnnotationCommentData
 
-        original_refresh = AnnotationCommentService.refresh
+        original_refresh = AnnotationCommentData.refresh
 
         async def refresh(service, instance, *args, **kwargs):
             result = await original_refresh(service, instance, *args, **kwargs)
@@ -746,7 +746,7 @@ async def test_binding_last_wait_expiry_preserves_the_committed_comment_and_owne
                 expire()
             return result
 
-        monkeypatch.setattr(AnnotationCommentService, "refresh", refresh)
+        monkeypatch.setattr(AnnotationCommentData, "refresh", refresh)
 
     response = await httpx_client.post(
         f"/api/v1/annotations/{discussion[1].id}/comments",

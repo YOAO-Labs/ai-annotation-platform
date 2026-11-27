@@ -14,7 +14,7 @@ from sqlalchemy.exc import DBAPIError
 
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.schemas._jsonb_types import Attachment
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.labeling_discussion_data import AnnotationCommentData
 from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import comment_attachment_storage as storage, storage_access
@@ -326,7 +326,7 @@ async def bind(db, rows, comment_id):
 
 async def locked_comment(db, identifier):
     try:
-        return await AnnotationCommentService(db).lock(identifier)
+        return await AnnotationCommentData(db).lock(identifier)
     except HTTPException as exc:
         if exc.status_code == 404:
             return None

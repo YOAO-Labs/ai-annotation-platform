@@ -167,7 +167,7 @@ async def test_native_cache_refresh_only_commits_owner_fields_and_skips_autoflus
         raise AssertionError(operation)
 
     monkeypatch.setattr(
-        "app.services.labeling_scene_read.read_scene_data", fake_read_scene_data
+        "app.services.labeling_scene.read_scene_data", fake_read_scene_data
     )
     database.scene_track_rows = [
         {
