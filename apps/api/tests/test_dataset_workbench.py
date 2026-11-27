@@ -546,7 +546,7 @@ async def test_finishing_older_registration_does_not_override_newer_scan_evidenc
 async def test_concurrent_item_delete_during_page_serialization_does_not_fail(
     db_session, super_admin, httpx_client, monkeypatch, single
 ):
-    from app.services.dataset import DatasetService
+    from app.services import dataset_workbench
 
     db = db_session
     dataset = Dataset(
@@ -562,14 +562,14 @@ async def test_concurrent_item_delete_during_page_serialization_does_not_fail(
     db.add(item)
     await db.commit()
     dataset_id, item_id = dataset.id, item.id
-    original = DatasetService.list_items
+    original = dataset_workbench.list_items
 
-    async def deleted_between_reads(service, *args, **kwargs):
+    async def deleted_between_reads(session, *args, **kwargs):
         await db.delete(item)
         await db.flush()
-        return await original(service, *args, **kwargs)
+        return await original(session, *args, **kwargs)
 
-    monkeypatch.setattr(DatasetService, "list_items", deleted_between_reads)
+    monkeypatch.setattr(dataset_workbench, "list_items", deleted_between_reads)
     url = f"/api/v1/datasets/{dataset_id}/items" + (f"/{item_id}" if single else "")
     response = await httpx_client.get(url, headers=headers(super_admin))
     assert response.status_code == (404 if single else 200), response.text

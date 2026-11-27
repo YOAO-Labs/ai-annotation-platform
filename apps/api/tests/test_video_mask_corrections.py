@@ -78,7 +78,7 @@ def correction_storage_mocks(monkeypatch, video_source_storage):
     lock = AsyncMock()
     load = AsyncMock(return_value=RLE)
     monkeypatch.setattr(
-        "app.services.video_tracking.jobs.validate_mask_geometry_for_task",
+        "app.services.video_tracking.jobs.validate_task_mask_dimensions",
         validate,
     )
     monkeypatch.setattr(
@@ -363,7 +363,7 @@ async def test_save_mask_keyframe_holds_task_lock_before_rle_lock(
         "app.services.video_tracking.jobs._assert_segment_lock", segment_lock
     )
     monkeypatch.setattr(
-        "app.services.video_tracking.jobs.validate_mask_geometry_for_task", validate
+        "app.services.video_tracking.jobs.validate_task_mask_dimensions", validate
     )
     monkeypatch.setattr(
         "app.services.video_tracking.jobs.lock_raster_mask_references", content_lock
