@@ -48,6 +48,15 @@ async def finish(task):
     return task.result()
 
 
+async def wait_for_settlement(pending):
+    while not pending.done():
+        try:
+            await asyncio.shield(pending)
+        except BaseException:
+            continue
+    return pending.result()
+
+
 async def settled_io(call, *args, **kwargs):
     """Retain the real Future through every interruption, including soft limits."""
     try:
@@ -60,7 +69,7 @@ async def settled_io(call, *args, **kwargs):
         return await asyncio.shield(pending)
     except BaseException as interrupted:
         try:
-            await finish(pending)
+            await wait_for_settlement(pending)
         except BaseException as late:
             if getattr(late, "storage_operation_unsettled", False):
                 mark_unsettled(interrupted)

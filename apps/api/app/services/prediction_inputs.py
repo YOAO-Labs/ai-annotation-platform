@@ -28,6 +28,7 @@ from app.services.content_snapshot import MAX_BYTES, MAX_PIXELS, ContentError, S
 from app.services.managed_original_reader import BinaryStage
 from app.services.storage import StorageService
 from app.services.storage_identity import LEGACY_LOCATION_ID
+from app.services.storage_io_settlement import wait_for_settlement
 from app.services.storage_io_settlement import settled_io
 
 log = logging.getLogger(__name__)
@@ -212,15 +213,6 @@ def _resolve(record):
     return ref
 
 
-async def _drain(pending):
-    while not pending.done():
-        try:
-            await asyncio.shield(pending)
-        except BaseException:
-            continue
-    return pending.result()
-
-
 def _uncertainty(original, later):
     if getattr(later, "storage_operation_unsettled", False):
         storage_access.mark_unsettled(original)
@@ -232,7 +224,7 @@ async def _async(call, *, late=None):
         return await asyncio.shield(pending)
     except BaseException as interrupted:
         try:
-            result = await _drain(pending)
+            result = await wait_for_settlement(pending)
         except BaseException as later:
             _uncertainty(interrupted, later)
         else:
