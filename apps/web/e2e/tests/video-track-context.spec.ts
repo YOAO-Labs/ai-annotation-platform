@@ -226,10 +226,16 @@ const test = base.extend<{ trackCase: TrackCase }>({
   },
 });
 
+async function expectWorkbenchReady(page: Page) {
+  const stage = page.getByTestId("video-konva-stage");
+  await expect(stage).toHaveAttribute("data-video-view-ready", "true", { timeout: 25_000 });
+  await expect(stage).toBeVisible();
+  await expect(bar(page)).toBeVisible();
+}
+
 async function open(page: Page, fixture: TrackCase, mode: "annotate" | "review" = "annotate") {
   await page.goto(`/projects/${fixture.data.project_id}/${mode}?task=${fixture.taskId}`);
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 25_000 });
-  await expect(bar(page)).toBeVisible();
+  await expectWorkbenchReady(page);
 }
 
 async function frame(page: Page) {
@@ -416,6 +422,7 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
     trackCase,
   }) => {
     await open(page, trackCase);
+    const savedVectorTracks: Track[] = [];
     for (const kind of ["bbox", "polygon", "polyline"] as const) {
       const track = trackCase.tracks[kind];
       await select(page, track);
@@ -442,12 +449,7 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
         await annotationWrite(page, trackCase, track, "恢复显示");
         await state(page, "keyframe", 5);
       }
-      await page.reload();
-      await expect(page.getByTestId("video-konva-stage")).toBeVisible();
-      await select(page, saved);
-      await seek(page, 5);
-      await state(page, "keyframe", 5);
-      expect((await readTrack(request, trackCase, track.id)).geometry).toEqual(saved.geometry);
+      savedVectorTracks.push(saved);
     }
     const mask = trackCase.tracks.mask;
     await select(page, mask);
@@ -471,7 +473,13 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
       expect(stored.geometry.keyframes).toEqual(mask.geometry.keyframes);
     }
     await page.reload();
-    await expect(page.getByTestId("video-konva-stage")).toBeVisible();
+    await expectWorkbenchReady(page);
+    for (const saved of savedVectorTracks) {
+      await select(page, saved);
+      await seek(page, 5);
+      await state(page, "keyframe", 5);
+      expect((await readTrack(request, trackCase, saved.id)).geometry).toEqual(saved.geometry);
+    }
     await select(page, mask);
     await seek(page, 5);
     await state(page, "held", 5);
@@ -536,7 +544,7 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
 
     bbox = await patchTrack(request, trackCase, bbox, { is_locked: false });
     await page.reload();
-    await expect(page.getByTestId("video-konva-stage")).toBeVisible();
+    await expectWorkbenchReady(page);
     await select(page, bbox);
     await blur(page);
     await page.keyboard.press("l");
