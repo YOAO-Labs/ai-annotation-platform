@@ -22,12 +22,8 @@ from app.services import managed_original_creation as creation
 from app.services.content_errors import ContentError
 from app.services.labeling_core_read_relations import task_dataset_item_link_row
 from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
-from app.services.task_original_key import (
-    _reject as _reject,
-)
-from app.services.task_original_key import (
-    key_for as key_for,
-)
+from app.services.task_original_key import _reject
+from app.services.task_original_key import key_for
 
 FACTS = (
     "id",

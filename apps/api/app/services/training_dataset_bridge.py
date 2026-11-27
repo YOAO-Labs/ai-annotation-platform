@@ -28,9 +28,7 @@ from training_contract.lineage import validate_source_lineage
 from yoao_task_contract import normalize_task
 
 from app.services import storage_access
-from app.services.storage_errors import (
-    TrainingDatasetError as TrainingDatasetError,
-)
+from app.services.storage_errors import TrainingDatasetError
 
 
 def contract_of(record):

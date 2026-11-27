@@ -17,9 +17,7 @@ from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 from app.services.managed_original_lifecycle_data import original_json
 from app.services.storage import storage_service
 from app.services.storage_identity import LEGACY_LOCATION_ID
-from app.services.storage_identity import (
-    managed_storage_identity as managed_storage_identity,
-)
+from app.services.storage_identity import managed_storage_identity
 
 
 def _identity_evidence(row):

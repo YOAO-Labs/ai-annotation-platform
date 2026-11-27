@@ -31,9 +31,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 from app.services.original_read_plan import PhysicalReadPlan, ReadRoute
-from app.services.original_read_transaction import (
-    _reads as _reads,
-)
+from app.services.original_read_transaction import _reads
 from app.services.reference_keys import is_reference, reference_key
 from app.services.storage_identity import LEGACY_LOCATION_ID
 

@@ -15,15 +15,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from app.services.storage_io_settlement import (
-    failure_unsettled as failure_unsettled,
-)
-from app.services.storage_io_settlement import (
-    finish as finish,
-)
-from app.services.storage_io_settlement import (
-    mark_unsettled as mark_unsettled,
-)
+from app.services.storage_io_settlement import failure_unsettled
+from app.services.storage_io_settlement import finish
+from app.services.storage_io_settlement import mark_unsettled
 
 logger = logging.getLogger(__name__)
 SAFE_LABEL = re.compile(r"[a-z][a-z0-9_]{0,63}")

@@ -29,12 +29,7 @@ from app.services import storage_access, storage_registry_data
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_s3_target import version_matches
 from app.services.storage import storage_service
-from app.services.storage_errors import (
-    BUG_ATTACHMENT_MESSAGES as BUG_ATTACHMENT_MESSAGES,
-)
-from app.services.storage_errors import (
-    BugAttachmentStorageError as BugAttachmentStorageError,
-)
+from app.services.storage_errors import BugAttachmentStorageError
 from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 _FIELDS = frozenset(

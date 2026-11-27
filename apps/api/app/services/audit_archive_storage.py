@@ -24,12 +24,7 @@ from app.config import settings
 from app.services import storage_access
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
-from app.services.storage_errors import (
-    AUDIT_ARCHIVE_MESSAGES as AUDIT_ARCHIVE_MESSAGES,
-)
-from app.services.storage_errors import (
-    AuditArchiveStorageError as AuditArchiveStorageError,
-)
+from app.services.storage_errors import AuditArchiveStorageError
 from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.services.storage_registry_data import get_binding, get_connection, get_location
 

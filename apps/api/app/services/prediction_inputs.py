@@ -28,9 +28,7 @@ from app.services.content_snapshot import MAX_BYTES, MAX_PIXELS, ContentError, S
 from app.services.managed_original_reader import BinaryStage
 from app.services.storage import StorageService
 from app.services.storage_identity import LEGACY_LOCATION_ID
-from app.services.storage_io_settlement import (
-    settled_io as settled_io,
-)
+from app.services.storage_io_settlement import settled_io
 
 log = logging.getLogger(__name__)
 MAX_VIDEO_BYTES = 5 * 1024**3

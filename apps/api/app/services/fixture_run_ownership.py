@@ -24,18 +24,10 @@ from app.db.models.fixture_run import (
     FixtureRunAdmission,
     FixtureRunResource,
 )
-from app.services.fixture_original_scope import (
-    _reject as _reject,
-)
-from app.services.fixture_original_scope import (
-    _require_settled_original_receipt as _require_settled_original_receipt,
-)
-from app.services.fixture_original_scope import (
-    lock_original_scope as lock_original_scope,
-)
-from app.services.fixture_original_scope import (
-    original_target as original_target,
-)
+from app.services.fixture_original_scope import _reject
+from app.services.fixture_original_scope import _require_settled_original_receipt
+from app.services.fixture_original_scope import lock_original_scope
+from app.services.fixture_original_scope import original_target
 from app.services.test_seed_access import assert_isolated_test_seed_database
 
 

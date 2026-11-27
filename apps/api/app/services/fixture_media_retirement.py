@@ -18,7 +18,7 @@ from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.fixture_media_execution import _control_url
 from app.services.fixture_media_output_retirement import (
-    _physical as _physical,
+    _physical,
 )
 from app.services.fixture_media_output_retirement import (
     _retire_output as _retire_output,

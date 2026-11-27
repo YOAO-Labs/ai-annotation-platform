@@ -4,9 +4,7 @@ import uuid
 from dataclasses import dataclass, replace
 
 from app.services.storage import storage_service
-from app.services.storage_errors import (
-    DatasetStorageError as DatasetStorageError,
-)
+from app.services.storage_errors import DatasetStorageError
 from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.services.storage_identity import parse_endpoint as _parse_endpoint
 from app.services.storage_identity import plain as _plain

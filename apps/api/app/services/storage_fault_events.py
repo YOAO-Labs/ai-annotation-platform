@@ -12,7 +12,7 @@ from app.middleware.request_id import request_id_var
 from app.services import storage_access
 from app.services import storage_observation_rates as rates
 from app.services.storage_fault_audit import (
-    append_observation as append_observation,
+    append_observation,
 )
 
 log = logging.getLogger(__name__)

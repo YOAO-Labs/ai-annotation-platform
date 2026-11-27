@@ -29,21 +29,18 @@ def plain(value, maximum):
 def parse_endpoint(value):
     if not plain(value, 2048) or value.endswith("/") or "\\" in value:
         raise ValueError("Invalid storage endpoint")
-    try:
-        parsed = urlsplit(value)
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("Invalid storage endpoint")
-        parsed.port
-    except ValueError:
+    parsed = urlsplit(value)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path
+        or parsed.query
+        or parsed.fragment
+    ):
         raise ValueError("Invalid storage endpoint")
+    parsed.port
     return value
 
 

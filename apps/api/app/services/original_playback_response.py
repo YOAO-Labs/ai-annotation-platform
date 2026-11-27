@@ -13,21 +13,11 @@ from starlette.responses import StreamingResponse
 
 from app.services.content_snapshot import ContentError
 from app.services.original_binary_response import _response_error
-from app.services.playback_range import (
-    _RANGE as _RANGE,
-)
-from app.services.playback_range import (
-    MAX_RANGE_HEADER as MAX_RANGE_HEADER,
-)
-from app.services.playback_range import (
-    PlaybackRange as PlaybackRange,
-)
-from app.services.playback_range import (
-    _invalid_range as _invalid_range,
-)
-from app.services.playback_range import (
-    select_range as select_range,
-)
+from app.services.playback_range import _RANGE as _RANGE
+from app.services.playback_range import MAX_RANGE_HEADER as MAX_RANGE_HEADER
+from app.services.playback_range import PlaybackRange as PlaybackRange
+from app.services.playback_range import _invalid_range as _invalid_range
+from app.services.playback_range import select_range
 from app.services.storage_access import mark_unsettled
 from app.services.storage_io_settlement import _drain
 

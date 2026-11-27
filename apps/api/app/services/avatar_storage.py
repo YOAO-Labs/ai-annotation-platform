@@ -18,12 +18,7 @@ from app.services import storage_registry_data as registry
 from app.services.avatar_image import MAX_AVATAR_FILE_BYTES
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
-from app.services.storage_errors import (
-    AVATAR_MESSAGES as AVATAR_MESSAGES,
-)
-from app.services.storage_errors import (
-    AvatarStorageError as AvatarStorageError,
-)
+from app.services.storage_errors import AvatarStorageError
 from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 _FIELDS = frozenset(

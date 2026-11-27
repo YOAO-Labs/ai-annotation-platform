@@ -15,9 +15,7 @@ from fastapi import HTTPException
 from PIL import Image
 from starlette.responses import StreamingResponse
 
-from app.services.content_errors import (
-    ContentError as ContentError,
-)
+from app.services.content_errors import ContentError
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_PIXELS = 32_000_000

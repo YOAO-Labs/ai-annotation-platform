@@ -47,7 +47,9 @@ def error(purpose, suffix):
     if purpose == "training":
         return TrainingDatasetError(
             "training_storage_" + suffix,
-            "训练文件存储归属或目标能力无法核实",
+            "训练对象存储身份与当前端点不匹配"
+            if suffix == "identity_changed"
+            else "训练文件存储归属或目标能力无法核实",
             status_code=409,
         )
     try:
@@ -61,12 +63,6 @@ def endpoint_value(value, purpose):
     try:
         return parse_endpoint(value)
     except ValueError:
-        if purpose == "training":
-            raise TrainingDatasetError(
-                "training_storage_identity_changed",
-                "训练对象存储身份与当前端点不匹配",
-                status_code=409,
-            ) from None
         raise error(purpose, "identity_changed") from None
 
 
@@ -77,15 +73,11 @@ def runtime_endpoint(purpose):
     if purpose not in {"media-cache", "annotations", "datasets"}:
         expected = expected.rstrip("/")
         actual = getattr(
-            getattr(storage_service.client, "meta", None), "endpoint_url", None
+            getattr(getattr(storage_service, "client", None), "meta", None),
+            "endpoint_url",
+            None,
         )
         if not isinstance(actual, str) or actual.rstrip("/") != expected:
-            if purpose == "training":
-                raise TrainingDatasetError(
-                    "training_storage_identity_changed",
-                    "训练对象存储身份与当前端点不匹配",
-                    status_code=409,
-                )
             raise error(purpose, "identity_changed")
     return endpoint_value(expected, purpose)
 

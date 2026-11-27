@@ -29,15 +29,9 @@ from app.services import original_sources as sources
 from app.services.auxiliary_original_contract import (
     MAX_CONTRACT_BYTES as MAX_CONTRACT_BYTES,
 )
-from app.services.auxiliary_original_contract import (
-    RAW_FIELDS as RAW_FIELDS,
-)
-from app.services.auxiliary_original_contract import (
-    contract as contract,
-)
-from app.services.auxiliary_original_contract import (
-    reject as reject,
-)
+from app.services.auxiliary_original_contract import RAW_FIELDS
+from app.services.auxiliary_original_contract import contract
+from app.services.auxiliary_original_contract import reject
 from app.services.content_snapshot import ContentError
 from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 

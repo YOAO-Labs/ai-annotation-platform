@@ -16,9 +16,7 @@ from starlette.concurrency import run_in_threadpool
 from app.config import settings
 from app.services import storage_registry_data
 from app.services.storage import storage_service
-from app.services.storage_identity import (
-    LEGACY_LOCATION_ID as LEGACY_LOCATION_ID,
-)
+from app.services.storage_identity import LEGACY_LOCATION_ID
 
 MAX_DIRECT_UPLOAD_BYTES = 5 * 1024**3
 log = logging.getLogger(__name__)

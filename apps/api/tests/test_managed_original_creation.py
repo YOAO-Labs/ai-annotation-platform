@@ -799,7 +799,7 @@ def test_operation_client_is_same_origin_nonretrying_and_uses_frozen_budget(
         calls.append((args, kwargs))
         return client
 
-    monkeypatch.setattr(service.boto3, "client", factory)
+    monkeypatch.setattr("boto3.client", factory)
     assert service.create_client(timeout_seconds=640) is client
     configuration = calls[0][1]["config"]
     assert configuration.read_timeout == 640 and configuration.connect_timeout == 2
