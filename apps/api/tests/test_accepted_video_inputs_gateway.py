@@ -315,7 +315,9 @@ async def test_local_gateway_closes_owned_clients_when_setup_or_body_fails(
     if fail_at == "config":
         source.config = object()
     monkeypatch.setattr(settings, "assets_media_url", "")
-    monkeypatch.setattr("app.services.assets_images.image_storage", lambda: source)
+    monkeypatch.setattr(
+        "app.services.assets_images.image_storage", lambda **_kwargs: source
+    )
     monkeypatch.setattr("app.services.assets_images.image_policy", policy)
     monkeypatch.setattr(
         "yoao_assets_video_inputs_runtime.storage.S3VideoInputStorage", make_storage

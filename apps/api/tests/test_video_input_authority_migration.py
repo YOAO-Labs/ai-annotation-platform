@@ -1,16 +1,16 @@
 """Installer/public-schema checks for the new video owner projections."""
 
 import importlib.util
-import json
 from pathlib import Path
 import re
 
 from yoao_assets_video_inputs import authority as c
+from tests.contract_schemas import load_contract_schema
 from tests.frozen_namespaces import historical
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql/0223_video_input_authorities.sql"
-SCHEMA = SQL.with_suffix(".schema.json")
+SCHEMA = "0223_video_input_authorities.schema.json"
 MIGRATION = ROOT / "apps/api/alembic/versions/0223_video_input_authorities.py"
 
 
@@ -24,7 +24,7 @@ def migration():
 
 
 def test_native_video_projection_schema_matches_the_portable_artifact():
-    assert json.loads(SCHEMA.read_text()) == historical(c.contract_document())
+    assert load_contract_schema(SCHEMA) == historical(c.contract_document())
     assert len(c.OPERATIONS) == 3
     assert all(op.consumer == "assets_owner" for op in c.OPERATIONS.values())
 

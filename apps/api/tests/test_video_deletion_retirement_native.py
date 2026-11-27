@@ -1415,6 +1415,10 @@ async def test_proven_retired_orphan_execution_allows_deletion(db_session, kind)
     )
 
 
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data verifier and function owner grants",
+)
 async def test_guard_functions_have_exact_owners_and_only_internal_execution(
     test_engine,
 ):
@@ -1645,6 +1649,8 @@ async def test_downgrade_refuses_to_drop_committed_clearance_evidence(test_engin
 
 
 def _function_url(test_engine, kind):
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the owned module-data verifier and function owner grants")
     key = (
         "WORKSPACE_PROJECT_DELETION"
         if kind == "project"

@@ -97,22 +97,22 @@ async def test_current_credentials_preserve_saved_physical_address(monkeypatch, 
         purpose="media-cache",
     )
 
-    class DB:
-        async def get(self, *args, **kwargs):
-            return SimpleNamespace(id=saved.location_id)
+    async def location_for(*args, **kwargs):
+        return SimpleNamespace(id=saved.location_id)
 
     async def target(*args, **kwargs):
         return current
 
+    monkeypatch.setattr(storage, "get_location", location_for)
     monkeypatch.setattr(storage, "target_for", target)
-    actual = await storage.target_for_ref(DB(), ref)
+    actual = await storage.target_for_ref(object(), ref)
     assert (
         actual.bucket == saved.bucket
         and actual.config_revision == current.config_revision
     )
     current = replace(current, endpoint_url="https://changed.example.test")
     with pytest.raises(storage.MediaCacheStorageError):
-        await storage.target_for_ref(DB(), ref)
+        await storage.target_for_ref(object(), ref)
 
 
 async def test_allocate_legacy_uses_shared_dispatcher_without_committing_caller(

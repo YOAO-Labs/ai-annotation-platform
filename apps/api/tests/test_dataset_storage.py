@@ -86,20 +86,20 @@ async def test_current_credentials_do_not_reinterpret_saved_bucket_or_revision(
         bucket="runtime-default" if legacy else destination.bucket,
     )
 
-    class DB:
-        async def get(self, *args, **kwargs):
-            return SimpleNamespace(id=destination.location_id)
+    async def location_for(*args, **kwargs):
+        return SimpleNamespace(id=destination.location_id)
 
     async def current_target(*args, **kwargs):
         return current
 
+    monkeypatch.setattr(storage, "get_location", location_for)
     monkeypatch.setattr(
         "app.services.dataset_storage_target.target_for", current_target
     )
-    actual = await storage.target_for_ref(DB(), reference)
+    actual = await storage.target_for_ref(object(), reference)
     assert actual.bucket == destination.bucket
     assert actual.config_revision == current.config_revision
     if not legacy:
         current = replace(current, endpoint_url="https://changed.example.test")
         with pytest.raises(storage.DatasetStorageError):
-            await storage.target_for_ref(DB(), reference)
+            await storage.target_for_ref(object(), reference)

@@ -51,7 +51,12 @@ async def test_video_scope_ignores_unselected_reference_but_never_the_selected_o
     db_session.add(job)
     await db_session.flush()
     args = dict(project_id=project.id, task_ids=None, job_uuid=job.id)
-    assert await authorize_export_job(db_session, **args) is actor
+    authorized = await authorize_export_job(db_session, **args)
+    assert (
+        authorized.id == actor.id
+        and authorized.role == actor.role
+        and authorized.is_active is True
+    )
     job.payload = {"video_export_scope": {"task_id": str(reference.id)}}
     await db_session.flush()
     with pytest.raises(ContentError, match="reference_export_authority_missing"):

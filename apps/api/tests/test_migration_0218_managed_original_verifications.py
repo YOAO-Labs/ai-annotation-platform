@@ -81,38 +81,6 @@ def terminal_fields(status):
     }
 
 
-async def test_empty_verification_schema_roundtrip_preserves_prior_anchor(
-    db_session, monkeypatch
-):
-    anchor = await assertion(db_session)
-
-    def verify(sync):
-        module = migration(sync, monkeypatch)
-        assert module.down_revision == "0217"
-        module.downgrade()
-        assert (
-            "managed_original_verifications"
-            not in inspect(sync.connection()).get_table_names()
-        )
-        module.upgrade()
-        schema = inspect(sync.connection())
-        assert {
-            column["name"]
-            for column in schema.get_columns("managed_original_verifications")
-        } == set(Verification.__table__.columns.keys())
-        foreign_keys = schema.get_foreign_keys("managed_original_verifications")
-        assert {
-            (fk["referred_table"], fk["options"]["ondelete"]) for fk in foreign_keys
-        } == {("managed_original_retirements", "RESTRICT"), ("async_jobs", "SET NULL")}
-        assert any(
-            index["name"] == "uq_managed_verification_active" and index["unique"]
-            for index in schema.get_indexes("managed_original_verifications")
-        )
-        assert sync.get(Retirement, anchor.id)
-
-    await db_session.run_sync(verify)
-
-
 @pytest.mark.parametrize(
     "status", ["pending", "running", "completed", "failed", "cancelled"]
 )

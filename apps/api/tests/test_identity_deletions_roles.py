@@ -238,6 +238,7 @@ async def test_deletion_policy_rejects_an_extra_security_definer_function():
 
 @pytest.mark.asyncio
 async def test_public_invoker_cannot_write_deletion_receipts():
+    dsn = _dsn()
     function_name = f"deletion_insert_probe_{uuid.uuid4().hex}"
     owner_engine = create_async_engine(settings.effective_migration_database_url)
     connection = None
@@ -266,7 +267,7 @@ async def test_public_invoker_cannot_write_deletion_receipts():
                 )
             )
 
-        connection = await asyncpg.connect(_dsn())
+        connection = await asyncpg.connect(dsn)
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_table_privilege(current_user, "
             "'public.identity_deletion_operation_receipts', 'INSERT')"

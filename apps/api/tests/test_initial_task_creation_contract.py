@@ -864,7 +864,9 @@ def test_task_creation_schema_and_frozen_sql_chunks():
     assert chunk["additionalProperties"] is False
     assert "project_id" in chunk["required"]
     assert "project_id" in chunk["properties"]
-    sql_path = schema_path.with_name("0194_initial_task_creation.sql")
+    from pathlib import Path
+
+    sql_path = Path(__file__).parents[1] / "alembic/sql/0194_initial_task_creation.sql"
     statements = [
         statement.strip()
         for statement in sql_path.read_text(encoding="utf-8").split(

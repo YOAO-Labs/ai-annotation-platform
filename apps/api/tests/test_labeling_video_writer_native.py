@@ -303,6 +303,13 @@ async def test_late_jobs_finish_rejection_rolls_back_job_publication(db_session)
             "'yoao_jobs_v1.video_writer_authority(text,jsonb)'::regprocedure)"
         )
     )
+    owner_role = await db_session.scalar(
+        text(
+            "SELECT pg_catalog.pg_get_userbyid(proowner) "
+            "FROM pg_catalog.pg_proc "
+            "WHERE oid='yoao_jobs_v1.video_writer_authority(text,jsonb)'::regprocedure"
+        )
+    )
     connection = await db_session.connection()
     await connection.exec_driver_sql(
         definition.replace(
@@ -311,8 +318,9 @@ async def test_late_jobs_finish_rejection_rolls_back_job_publication(db_session)
             1,
         )
     )
+    quoted_owner = '"' + owner_role.replace('"', '""') + '"'
     await connection.exec_driver_sql(
-        "ALTER FUNCTION yoao_jobs_v1._test_original_writer_authority(text,jsonb) OWNER TO jobs_code"
+        f"ALTER FUNCTION yoao_jobs_v1._test_original_writer_authority(text,jsonb) OWNER TO {quoted_owner}"
     )
     await connection.exec_driver_sql("""
         CREATE OR REPLACE FUNCTION yoao_jobs_v1.video_writer_authority(

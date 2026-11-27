@@ -596,14 +596,11 @@ async def test_allocate_alone_checks_current_canonical_binding(storage, monkeypa
         bucket="archive-current",
     )
 
-    async def scalar(query):
-        return location if "storage_locations" in str(query) else binding
-
-    db = SimpleNamespace(
-        get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=scalar)
-    )
+    db = SimpleNamespace()
     ensure = AsyncMock()
     monkeypatch.setattr(owners, "ensure_legacy_bindings", ensure)
+    monkeypatch.setattr(owners, "get_location", AsyncMock(return_value=location))
+    monkeypatch.setattr(owners, "get_binding", AsyncMock(return_value=binding))
     ref = await owners.allocate(db, row)
     assert ref == reference("archive-current")
     ensure.assert_awaited_once_with(db)

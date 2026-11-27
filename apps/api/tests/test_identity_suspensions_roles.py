@@ -370,6 +370,7 @@ async def test_suspension_policy_rejects_database_temp_and_recovers_after_revoke
 
 @pytest.mark.asyncio
 async def test_public_invoker_helper_cannot_write_suspension_receipts():
+    dsn = _dsn()
     function_name = f"suspension_insert_probe_{uuid.uuid4().hex}"
     owner_engine = create_async_engine(settings.effective_migration_database_url)
     connection = None
@@ -397,7 +398,7 @@ async def test_public_invoker_helper_cannot_write_suspension_receipts():
                     "TO yoao_identity_suspension_client"
                 )
             )
-        connection = await asyncpg.connect(_dsn())
+        connection = await asyncpg.connect(dsn)
         assert not await connection.fetchval(
             "SELECT pg_catalog.has_table_privilege(current_user, "
             "'public.identity_suspension_operation_receipts', 'INSERT')"

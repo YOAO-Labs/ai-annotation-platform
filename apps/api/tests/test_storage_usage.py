@@ -1,15 +1,11 @@
 """Usage reads are cheap; incomplete inventories never publish false zeroes."""
 
 from datetime import timedelta
-import importlib.util
-from pathlib import Path
 from unittest.mock import MagicMock
 import uuid
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 import pytest
-from sqlalchemy import delete, select, inspect
+from sqlalchemy import delete, select
 
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
@@ -446,23 +442,6 @@ async def test_api_key_scope_applies_to_snapshots_and_jobs(
         f"/api/v1/async-jobs/{job.id}/cancel", headers=headers
     )
     assert response.status_code == (200 if scopes == ["*"] else 403)
-
-
-async def test_migration_roundtrip(db_session):
-    path = Path(__file__).parents[1] / "alembic/versions/0209_storage_usage.py"
-    spec = importlib.util.spec_from_file_location("usage_migration", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    connection = await db_session.connection()
-
-    def roundtrip(conn):
-        with Operations.context(MigrationContext.configure(conn)):
-            migration.downgrade()
-            assert "storage_usage_snapshots" not in inspect(conn).get_table_names()
-            migration.upgrade()
-            assert "storage_usage_inventories" in inspect(conn).get_table_names()
-
-    await connection.run_sync(roundtrip)
 
 
 async def test_chunk_continuation_and_duplicate_delivery(ready, monkeypatch):

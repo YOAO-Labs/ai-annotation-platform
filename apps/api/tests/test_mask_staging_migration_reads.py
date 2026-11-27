@@ -76,7 +76,7 @@ class World:
         self.head_changes, self.get_changes = {}, {}
         self.body = None
         self.lookup = AsyncMock(return_value=self.route)
-        self.db = SimpleNamespace(rollback=AsyncMock())
+        self.db = SimpleNamespace(rollback=AsyncMock(), autoflush=False)
         self.target = SimpleNamespace(client=self.client)
 
         @asynccontextmanager
@@ -232,7 +232,11 @@ async def test_no_mapping_keeps_saved_active_source_and_original_read_permit(
     async def run(db, location_id, purpose, callback, *args, **kwargs):
         assert location_id == world.owner.location_id
         assert purpose == "mask_format_staging"
-        assert kwargs == {"expected_revision": 7, "timeout": service.STAGING_IO_SECONDS}
+        assert kwargs.get("expected_revision") == 7
+        assert kwargs.get("timeout") == service.STAGING_IO_SECONDS
+        assert set(kwargs) <= {"expected_revision", "timeout", "on_acquired"}
+        if "on_acquired" in kwargs:
+            assert callable(kwargs["on_acquired"])
         return callback(*args)
 
     monkeypatch.setattr(storage_access, "run", run)
@@ -426,6 +430,12 @@ async def test_preflight_rechecks_captured_publication_and_saved_owner_before_ba
             preflight_import=parse,
         ),
     )
+
+    async def fake_transfer(_db, command):
+        rows.append(command)
+        return SimpleNamespace(mask_import=SimpleNamespace(id=command.id))
+
+    monkeypatch.setattr(service, "_transfer", fake_transfer)
     world.db.commit = AsyncMock()
     world.db.add = rows.append
     world.db.flush = flush
@@ -445,7 +455,7 @@ async def test_preflight_rechecks_captured_publication_and_saved_owner_before_ba
 
     if change is None:
         result = await preflight()
-        assert len(rows) == 1 and rows[0].status == "staged"
+        assert len(rows) == 1 and rows[0].operation == "create_mask_format_import"
         assert rows[0].staging_ref == world.ref and rows[0].staged_sha256 == SHA
         assert rows[0].plan_digest == result.plan.plan_digest == plan.plan_digest
         assert world.rechecks[-1] == {"lock": True}
