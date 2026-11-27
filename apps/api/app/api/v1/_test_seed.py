@@ -1643,13 +1643,14 @@ async def _retire_fixture_execution_work(
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app.api.v1 import _test_seed_attachments as attachments
+    from app.application.fixture_export_retirement import retire_fixture_export
     from app.application.fixture_prediction_retirement import (
         FixturePredictionRetirementBlocked,
         retire_fixture_prediction_work,
     )
     from app.db.models.async_job import AsyncJob
     from app.db.models.fixture_run import FixturePresentationJob
-    from app.services import export_media_retirement, storage_access
+    from app.services import storage_access
 
     run_id = owned.run_id
     scope = await _resolve_fixture_scope(db, owned)
@@ -1703,7 +1704,7 @@ async def _retire_fixture_execution_work(
     )
     await db.rollback()
     for job_id, project_id in export_jobs:
-        if not await export_media_retirement.retire_fixture_export(
+        if not await retire_fixture_export(
             db, run_id=run_id, project_id=project_id, job_id=job_id
         ):
             raise HTTPException(

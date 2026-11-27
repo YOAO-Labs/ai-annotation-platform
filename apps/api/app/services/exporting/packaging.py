@@ -72,11 +72,11 @@ from app.services.exporting.lidar import (
     build_nuscenes_frame_records,
     build_kitti_lidar_frame,
     build_pointmask_label_bytes,
+    calibration_is_valid,
     category_map_json,
     count_lidar_points_in_boxes,
 )
-from app.services.exporting.lidar_preflight import calibration_is_valid
-from app.services.exporting import lidar_fetch
+from app.services.exporting import lidar_fetch, video_budget
 from app.services.exporting.image_fetch import FETCH_IMAGES_TEMPLATE
 from app.services.exporting.video import (
     FALLBACK_H,
@@ -568,9 +568,7 @@ async def build_export_zip(
             or list(targets) != video_media.targets
         ):
             raise ValueError("video_export_inputs_changed")
-        from app.services.exporting.video_budget import check
-
-        check(video_media)
+        video_budget.check(video_media)
 
     if image_media is not None and (
         project.id != project_id

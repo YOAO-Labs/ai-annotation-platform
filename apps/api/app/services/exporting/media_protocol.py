@@ -4,6 +4,22 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import ModuleType
 
+from app.services.exporting import (
+    image_delivery,
+    image_inputs,
+    image_jobs,
+    image_media_paths,
+    lidar_delivery,
+    lidar_inputs,
+    lidar_jobs,
+    lidar_media_paths,
+    lidar_preflight,
+    video_delivery,
+    video_inputs,
+    video_jobs,
+    video_media_paths,
+)
+
 
 @dataclass(frozen=True)
 class MediaProtocol:
@@ -23,11 +39,6 @@ class MediaProtocol:
 
 def protocol(kind="lidar"):
     if kind == "lidar":
-        from app.services.exporting import lidar_inputs, lidar_jobs
-        from app.services.exporting.lidar_delivery import prepare
-        from app.services.exporting.lidar_media_paths import logical_sources
-        from app.services.exporting.lidar_preflight import assert_frozen_lidar_ready
-
         return MediaProtocol(
             "lidar",
             2,
@@ -35,15 +46,11 @@ def protocol(kind="lidar"):
             "lidar_media",
             lidar_inputs,
             lidar_jobs,
-            logical_sources,
-            prepare,
-            assert_frozen_lidar_ready,
+            lidar_media_paths.logical_sources,
+            lidar_delivery.prepare,
+            lidar_preflight.assert_frozen_lidar_ready,
         )
     if kind == "image":
-        from app.services.exporting import image_inputs, image_jobs
-        from app.services.exporting.image_delivery import prepare
-        from app.services.exporting.image_media_paths import logical_sources
-
         return MediaProtocol(
             "image",
             3,
@@ -51,14 +58,10 @@ def protocol(kind="lidar"):
             "image_media",
             image_inputs,
             image_jobs,
-            logical_sources,
-            prepare,
+            image_media_paths.logical_sources,
+            image_delivery.prepare,
         )
     if kind == "video":
-        from app.services.exporting import video_inputs, video_jobs
-        from app.services.exporting.video_delivery import prepare
-        from app.services.exporting.video_media_paths import logical_sources
-
         return MediaProtocol(
             "video",
             4,
@@ -66,8 +69,8 @@ def protocol(kind="lidar"):
             "video_media",
             video_inputs,
             video_jobs,
-            logical_sources,
-            prepare,
+            video_media_paths.logical_sources,
+            video_delivery.prepare,
         )
     raise ValueError("Unknown export media protocol")
 

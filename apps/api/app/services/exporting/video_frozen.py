@@ -11,7 +11,11 @@ from app.services.content_snapshot import ContentError
 from app.services.exporting import image_frozen
 from app.services.exporting.contracts import source_contract
 from app.services.exporting.service import _export_annotation_copy
-from app.services.exporting.video_scope import VideoExportScope, clip_video_geometry
+from app.services.exporting.video_scope import (
+    VideoExportScope,
+    VideoExportSegment,
+    clip_video_geometry,
+)
 from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
 from app.services.video_canonical import (
     VideoBoundaryUnreconciledError,
@@ -59,8 +63,6 @@ def scope_from_dict(payload):
     ):
         reject("video_export_scope_changed")
     try:
-        from app.services.exporting.video_scope import VideoExportSegment
-
         segments = []
         for entry in payload.get("segments", []):
             if (

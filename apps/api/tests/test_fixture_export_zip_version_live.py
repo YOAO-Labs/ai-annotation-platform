@@ -15,10 +15,10 @@ from zipfile import ZipFile
 
 import pytest
 from app.config import settings
+from app.application.fixture_export_retirement import retire_fixture_export
 from app.db.models.export_output import ExportOutput
 from app.services import (
     async_job,
-    export_media_retirement,
     export_outputs,
     export_storage,
 )
@@ -184,7 +184,7 @@ async def test_native_fixture_retires_only_its_verified_zip_version(
             async with sessions() as db:
                 assert not await ownership.seal(db, suite_id, family="screenshot")
                 await db.commit()
-                assert not await export_media_retirement.retire_fixture_export(
+                assert not await retire_fixture_export(
                     db, run_id=suite_id, project_id=project_id, job_id=job_id
                 )
                 current = await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
@@ -194,7 +194,7 @@ async def test_native_fixture_retires_only_its_verified_zip_version(
             ).total_seconds()
             await asyncio.sleep(max(0, remaining) + 1)
             async with sessions() as db:
-                assert await export_media_retirement.retire_fixture_export(
+                assert await retire_fixture_export(
                     db, run_id=suite_id, project_id=project_id, job_id=job_id
                 )
                 assert (

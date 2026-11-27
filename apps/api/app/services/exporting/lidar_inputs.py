@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
 from app.services import original_sources, storage_access
-from app.services.exporting import core_reads
+from app.services.exporting import core_reads, lidar_media_paths
 from app.services.exporting.asset_facts import (
     calibration_facts as SensorCalibrationRevision,
     dataset_facts as Dataset,
@@ -853,10 +853,10 @@ async def _collect(
         select(cast(bindparam("frozen_inputs", frozen, type_=JSONB), JSONB))
     )
     digest(frozen)
-    from app.services.exporting.lidar_media_paths import logical_sources
-
     try:
-        logical_sources(frozen, allow_missing_kitti_camera=allow_missing_kitti_camera)
+        lidar_media_paths.logical_sources(
+            frozen, allow_missing_kitti_camera=allow_missing_kitti_camera
+        )
     except (KeyError, TypeError, ValueError):
         reject("lidar_export_archive_path_conflict", 422)
     return Inputs(frozen, sources)

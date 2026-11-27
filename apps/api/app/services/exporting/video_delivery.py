@@ -6,6 +6,12 @@ from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services.content_snapshot import ContentError
+from app.services.exporting import (
+    video_budget,
+    video_inputs,
+    video_media_paths,
+    video_probe,
+)
 from app.services.exporting.video_frozen import FrozenVideo
 from app.services.exporting.lidar_sources import canonical_identity
 
@@ -18,13 +24,11 @@ def _reject(code="video_export_delivery_changed", status=409):
 
 class Delivery(FrozenVideo):
     def __init__(self, snapshot):
-        from app.services.exporting.video_media_paths import paths, sequence_paths
-
         super().__init__(snapshot.input_snapshot)
         self.expires_at = snapshot.expires_at
         self.format_options = snapshot.input_snapshot["options"]
-        self.paths = paths(snapshot.input_snapshot)
-        self.sequence_paths = sequence_paths(snapshot.input_snapshot)
+        self.paths = video_media_paths.paths(snapshot.input_snapshot)
+        self.sequence_paths = video_media_paths.sequence_paths(snapshot.input_snapshot)
         self.metadata_receipts = {}
         self.media_paths = {
             identifier: "videos/" + relative
@@ -54,13 +58,10 @@ class Delivery(FrozenVideo):
 
 
 async def prepare(db, receipt, *, guard) -> Delivery:
-    from app.services.exporting import video_inputs, video_probe, video_budget
-    from app.services.exporting.video_media_paths import logical_sources
-
     if not callable(guard):
         _reject("export_media_callbacks_required", 422)
     data = receipt.input_snapshot
-    objects = bundles.source_objects(receipt, logical_sources(data))
+    objects = bundles.source_objects(receipt, video_media_paths.logical_sources(data))
     owner = physical.resolve(receipt)
     delivery = Delivery(receipt)
     tasks = {task.id for task in delivery.tasks}
