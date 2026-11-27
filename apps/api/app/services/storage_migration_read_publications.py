@@ -28,11 +28,11 @@ from app.services import (
 )
 from app.services.original_read_plan import ReadRoute
 from app.services.content_snapshot import ContentError
+from app.services.storage_migration_guards import ACTIVE_PUBLICATIONS as ACTIVE
 from app.services.storage_migration_read_evidence import mapping_digest
 
 SCHEMA = "aap.storage-migration-read-mapping/v1"
 TOKEN_SCHEMA = "aap.storage-migration-read-publication-token/v1"
-ACTIVE = ("active", "withdrawing")
 ANY_VERSION = object()
 ENTRY_FIELDS = {
     "source_object_id",
@@ -141,15 +141,6 @@ def _cas(row, revision):
 
 def purpose(publication_id):
     return "migration_read_" + publication_id.hex
-
-
-async def require_unpublished(db, finalization_id):
-    if await db.scalar(
-        select(Publication.id).where(
-            Publication.id == finalization_id, Publication.state.in_(ACTIVE)
-        )
-    ):
-        reject("read_publication_active")
 
 
 async def frozen_copy(db, copy_id):

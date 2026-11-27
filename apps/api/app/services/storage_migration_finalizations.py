@@ -28,6 +28,13 @@ from app.services import (
     storage_registry_data,
 )
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.storage_migration_guards import (
+    frozen_copy as frozen_copy,
+    reject as reject,
+    require_finalization_invalidatable,
+    require_resumable as require_resumable,
+    require_unpublished,
+)
 
 CLAIM_SCHEMA = "aap.storage-migration-fence-claim/v1"
 EVIDENCE_SCHEMA = "aap.storage-migration-final-evidence/v1"
@@ -59,10 +66,6 @@ COUNT_FIELDS = {
     "history_records",
 }
 ACTIVE = ("bound", "sealing", "sealed", "invalidating")
-
-
-def reject(code, status=409):
-    raise HTTPException(status, detail={"code": code})
 
 
 def digest(value):
@@ -300,58 +303,6 @@ def item(row):
         copy_id=row.copy_id,
         counts=(row.evidence or {}).get("counts"),
         error_code=row.error_code,
-    )
-
-
-async def public_for_window(db, window_id):
-    if db.autoflush:
-        await db.flush()
-    row = (
-        (
-            await db.execute(
-                text(
-                    "SELECT * FROM yoao_assets_v1.migration_finalization_for_window(:id)"
-                ),
-                {"id": window_id},
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
-    return (
-        StorageMigrationFinalizationItem.model_validate(row)
-        if row is not None
-        else None
-    )
-
-
-async def require_window_open(db, window_id, *, closing=False):
-    if db.autoflush:
-        await db.flush()
-    if await db.scalar(
-        text(
-            "SELECT yoao_assets_v1.migration_finalization_blocks_window(:id, :closing)"
-        ),
-        {"id": window_id, "closing": closing},
-    ):
-        reject("finalization_active" if closing else "finalization_closing")
-
-
-async def require_resumable(db, location_id):
-    if db.autoflush:
-        await db.flush()
-    if await db.scalar(
-        text("SELECT yoao_assets_v1.migration_finalization_blocks_source_resume(:id)"),
-        {"id": location_id},
-    ):
-        reject("finalization_active")
-
-
-async def frozen_copy(db, copy_id):
-    if db.autoflush:
-        await db.flush()
-    return await db.scalar(
-        text("SELECT yoao_assets_v1.migration_copy_is_frozen(:id)"), {"id": copy_id}
     )
 
 
@@ -670,13 +621,7 @@ async def begin_invalidation(db, actor_id, claim, expected_revision):
     claim = await _claim(db, actor_id, claim)
     window = await _window(db, uuid.UUID(claim["window_id"]))
     row = await _existing(db, claim)
-    from app.services.storage_migration_cutovers import (
-        require_finalization_invalidatable,
-    )
-
     await require_finalization_invalidatable(db, uuid.UUID(claim["finalization_id"]))
-    from app.services.storage_migration_read_publications import require_unpublished
-
     await require_unpublished(db, uuid.UUID(claim["finalization_id"]))
     if row is None:
         if claim["reserved"]:
@@ -710,13 +655,7 @@ async def finish_invalidation(db, actor_id, claim, expected_revision):
     row = await _existing(db, claim)
     if row is None:
         reject("finalization_unknown")
-    from app.services.storage_migration_cutovers import (
-        require_finalization_invalidatable,
-    )
-
     await require_finalization_invalidatable(db, row.id)
-    from app.services.storage_migration_read_publications import require_unpublished
-
     await require_unpublished(db, row.id)
     _cas(row, expected_revision)
     if row.state == "invalidated":

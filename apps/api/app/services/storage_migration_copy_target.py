@@ -14,7 +14,7 @@ from app.services.saved_io import saved_io_client
 from app.services.source_readers.s3 import directory_prefix
 from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.storage_migration_copy import CopyError, CopyStopped
-from app.services.storage_migration_inventories import reject
+from app.services.storage_migration_guards import reject
 
 
 async def lock_scope(db, target_location_id):

@@ -38,16 +38,20 @@ from app.services.jobs_lifecycle_data import (
     JobsLifecyclePostgresData,
     job_lock_statement,
 )
+from app.services.storage_migration_checkpoint import materialize
+from app.services.storage_migration_guards import frozen_copy
+from app.services.storage_migration_window_access import copy_scope
 from app.services.storage_migration_copy import (
     Checkpoint,
     CopyError,
-    digest as row_digest,
+    digest,
     packed,
 )
 
 KIND = "storage_migration_copy"
 ACTIVE = {"pending", "running"}
 STATES = ("verified", "pending", "writing", "uncertain", "failed", "skipped")
+row_digest = digest
 authority = inventories.authority
 reject = inventories.reject
 now = inventories.now
@@ -133,15 +137,11 @@ async def successor(db, copy_id):
 
 
 async def writable(db, row):
-    from app.services.storage_migration_finalizations import frozen_copy
-
     if await successor(db, row.id) is not None or await frozen_copy(db, row.id):
         reject("copy_read_only")
 
 
 async def item(db, row):
-    from app.services.storage_migration_finalizations import frozen_copy
-
     try:
         state = sa_inspect(row)
     except Exception:
@@ -248,9 +248,7 @@ async def scope(db, row, *, lock=False):
         getattr(row, "window_revision", None),
     )
     if window_id is not None:
-        from app.services import storage_migration_windows as windows
-
-        window = await windows.copy_scope(db, window_id, lock=lock)
+        window = await copy_scope(db, window_id, lock=lock)
         if (
             window is None
             or window.parent_copy_id != row.parent_copy_id
@@ -501,8 +499,6 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     if inventory is None:
         raise HTTPException(404, "Inventory not found")
     initial = await owner(db, parent_id)
-    from app.services.storage_migration_finalizations import frozen_copy
-
     if await frozen_copy(db, initial.id):
         reject("copy_read_only")
     bound = (
@@ -1059,35 +1055,6 @@ async def publish(
         if complete and not result.get("paused")
         else result.get("paused") or "copy_subset_incomplete",
     )
-
-
-def materialize(directory, values):
-    path = Path(directory) / "checkpoint.sqlite"
-    path.write_bytes(values["baseline"])
-    path.chmod(0o600)
-    with Checkpoint(path, max_bytes=BASELINE_LIMIT, strict_closure=True) as state:
-        if (
-            state.meta.get("generation", 1) != values["generation"]
-            or state.meta.get("parent_evidence_sha256")
-            != values["parent_evidence_sha256"]
-        ):
-            raise CopyError("copy_checkpoint_integrity")
-        for object_id, data, checksum in values["deltas"]:
-            if object_id != data.get("id") or row_digest(data) != checksum:
-                raise CopyError("copy_checkpoint_integrity")
-            saved = state.db.execute(
-                "SELECT data,digest FROM results WHERE id=?", (object_id,)
-            ).fetchone()
-            if saved is None:
-                raise CopyError("copy_checkpoint_integrity")
-            original = state.decode(*saved)
-            mutable = {"state", "nonce", "receipt", "error", "content"}
-            if {k: v for k, v in data.items() if k not in mutable} != {
-                k: v for k, v in original.items() if k not in mutable
-            } or (original.get("nonce") and data.get("nonce") != original["nonce"]):
-                raise CopyError("copy_checkpoint_integrity")
-            state.save(data)
-    return path
 
 
 def snapshot(values):

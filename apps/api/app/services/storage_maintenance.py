@@ -149,7 +149,7 @@ async def review(db, location_id, payload, actor, api_key_id, *, initialize=Fals
         reject("storage_maintenance_transition_invalid")
     if payload.operation == "resume":
         from app.services.managed_original_reclaim_fence import require_resumable
-        from app.services.storage_migration_cutovers import require_target_resumable
+        from app.services.storage_migration_guards import require_target_resumable
 
         await require_resumable(db, location_id)
         await require_target_resumable(db, location_id)

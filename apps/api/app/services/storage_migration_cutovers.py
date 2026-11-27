@@ -1,8 +1,8 @@
 """Trusted operator transactions; provider work belongs outside these locks."""
 
-import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import uuid
 
 from jose import JWTError, jwt
 from sqlalchemy import func, select, text
@@ -21,16 +21,14 @@ from app.db.models.storage_migration_read_publication import (
 from app.services import (
     managed_s3_target,
     storage_access,
+    storage_migration_finalizations as finals,
+    storage_migration_read_publications as reads,
+    storage_migration_windows as windows,
     storage_registry_data,
 )
-from app.services import (
-    storage_migration_finalizations as finals,
-)
-from app.services import (
-    storage_migration_read_publications as reads,
-)
-from app.services import (
-    storage_migration_windows as windows,
+from app.services.storage_migration_guards import (
+    cutover_owner as _owner,
+    require_target_resumable as require_target_resumable,
 )
 from app.services.storage_migration_inventory import PURPOSES
 
@@ -94,21 +92,6 @@ def item(row):
             for name in ("source_claim", "database_identity", "target_source")
         },
     }
-
-
-async def _owner(db, cutover_id, *, lock=False, required=True):
-    query = select(Cutover).where(Cutover.id == cutover_id)
-    if lock:
-        query = query.with_for_update(nowait=True)
-    try:
-        row = await db.scalar(query.execution_options(populate_existing=True))
-    except DBAPIError as exc:
-        if storage_access.unavailable(exc):
-            reject("cutover_busy")
-        raise
-    if row is None and required:
-        reject("cutover_unknown", 404)
-    return row
 
 
 async def _positions(db, ids):
@@ -716,19 +699,3 @@ async def status(db, actor_id, cutover_id):
     if row.review["context"]["database_identity"] != await finals.identity(db):
         reject("cutover_database_changed")
     return item(row)
-
-
-async def require_target_resumable(db, location_id):
-    if db.autoflush:
-        await db.flush()
-    if await db.scalar(
-        text("SELECT yoao_assets_v1.migration_cutover_blocks_target_resume(:id)"),
-        {"id": location_id},
-    ):
-        reject("cutover_active")
-
-
-async def require_finalization_invalidatable(db, finalization_id):
-    row = await _owner(db, finalization_id, lock=True, required=False)
-    if row is not None and row.state not in ("rollback_restoring", "rolled_back"):
-        reject("cutover_active")
