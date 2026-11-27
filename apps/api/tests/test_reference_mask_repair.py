@@ -1,5 +1,6 @@
 """Reference repairs cross committed sessions and retain strict original identity."""
 
+from contextlib import asynccontextmanager, contextmanager
 from copy import deepcopy
 import asyncio
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from urllib.parse import urlsplit
 import uuid
 
 import httpx
+from botocore.exceptions import ClientError
 from yoao_protocol_v2 import (
     CocoRlePayload,
     NativeMaskCandidate,
@@ -48,7 +50,7 @@ from app.db.models.user import User
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.mask_repair import MaskRepairDryRunRequest
 from app.services.content_snapshot import ContentError
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.services.mask_repair import (
     create_repair_plan,
     execute_repair_plan,
@@ -73,22 +75,23 @@ from app.services.reference_mask_repair import (
     validate_receipt,
     unit_items,
 )
+from app.services.storage import storage_service
 from app.utils.raster_mask_rle import encode_coco_rle
 from tests.factory import create_user
 from tests.inference_execution_test_ports import FakeModelExecutionPort
+from tests.mask_repair_publication import published_repair_database
 from tests.test_dataset_content import content_world
 from tests.test_interactive_native_mask_endpoint import _setup
+from tests.test_jobs_quality_queue_binding import _messages, media_queue as media_queue
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
-from tests.test_prediction_inputs import input_world as input_world
+from tests.test_prediction_inputs import input_storage_world, input_world as input_world
 
 
 pytestmark = pytest.mark.asyncio
 
 
-@pytest.fixture
-async def reference_repair(test_engine, tmp_path, monkeypatch, input_world):
-    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+async def _create_repair_world(factory, tmp_path, monkeypatch, input_world):
     request = SimpleNamespace(state=SimpleNamespace(api_key_id=None))
     async with factory() as db:
         actor = await create_user(
@@ -240,6 +243,14 @@ async def reference_repair(test_engine, tmp_path, monkeypatch, input_world):
         "app.application.mask_repair_execution.model_execution_port",
         lambda db: Execution(db),
     )
+    return w
+
+
+@pytest.fixture
+async def reference_repair(test_engine, tmp_path, monkeypatch, input_world):
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    w = await _create_repair_world(factory, tmp_path, monkeypatch, input_world)
+    content = w.content
     try:
         yield w
     finally:
@@ -319,7 +330,12 @@ async def reference_repair(test_engine, tmp_path, monkeypatch, input_world):
 
 @pytest.fixture
 async def repair_client(reference_repair, app_module):
-    w = reference_repair
+    async with _repair_client(reference_repair, app_module) as client:
+        yield client
+
+
+@asynccontextmanager
+async def _repair_client(w, app_module):
     previous = app_module.dependency_overrides.get(get_db)
 
     async def database():
@@ -340,6 +356,50 @@ async def repair_client(reference_repair, app_module):
             app_module.dependency_overrides.pop(get_db, None)
         else:
             app_module.dependency_overrides[get_db] = previous
+
+
+@contextmanager
+def _repair_annotations_bucket(monkeypatch):
+    bucket = f"ref-repair-{uuid.uuid4().hex}"
+    client = storage_service.client
+    with pytest.raises(ClientError) as missing:
+        client.head_bucket(Bucket=bucket)
+    assert missing.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+    client.create_bucket(Bucket=bucket)
+    try:
+        monkeypatch.setenv("MINIO_BUCKET", bucket)
+        monkeypatch.setattr(settings, "minio_bucket", bucket)
+        monkeypatch.setattr(storage_service, "bucket", bucket)
+        yield
+    finally:
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+            for obj in page.get("Contents", []):
+                client.delete_object(Bucket=bucket, Key=obj["Key"])
+        client.delete_bucket(Bucket=bucket)
+
+
+@pytest.fixture
+async def published_repair(
+    test_engine, tmp_path, monkeypatch, app_module, managed_database
+):
+    with _repair_annotations_bucket(monkeypatch):
+        async with (
+            published_repair_database(
+                test_engine, monkeypatch, managed_database
+            ) as engine,
+            input_storage_world(engine, monkeypatch) as inputs,
+        ):
+            monkeypatch.setattr("app.workers._db.task_session", inputs.factory)
+            monkeypatch.setattr(settings, "audit_async", False)
+            monkeypatch.setattr("app.middleware.audit.async_session", inputs.factory)
+            world = await _create_repair_world(
+                inputs.factory, tmp_path, monkeypatch, inputs
+            )
+            try:
+                async with _repair_client(world, app_module) as client:
+                    yield world, client
+            finally:
+                assert not inputs.objects
 
 
 async def plan(w, *, sam=False):
@@ -1032,9 +1092,9 @@ async def test_concurrent_sam_acceptance_creates_one_annotation(
 
 
 async def test_reference_repair_api_captures_actual_request_key(
-    reference_repair, repair_client, monkeypatch
+    published_repair, media_queue
 ):
-    w = reference_repair
+    w, repair_client = published_repair
     created = await repair_client.post(
         "/api/v1/me/api-keys",
         json={
@@ -1055,10 +1115,6 @@ async def test_reference_repair_api_captures_actual_request_key(
     )
     assert dry.status_code == 200, dry.text
 
-    async def dispatch(batch_id, *, dispatcher, execution_id, rollback=False):
-        return execution_id
-
-    monkeypatch.setattr("app.api.v1.mask_qc.dispatch_repair_batch", dispatch)
     executed = await repair_client.post(
         base,
         json={
@@ -1078,6 +1134,14 @@ async def test_reference_repair_api_captures_actual_request_key(
         assert "repair_authority" not in str(
             AsyncJobOut.model_validate(job).model_dump()
         )
+        assert _messages(media_queue) == [
+            (
+                "app.workers.mask_repair.run_mask_repair",
+                job.celery_task_id,
+                [str(w.batch_id)],
+                {},
+            )
+        ]
     await forward(w)
     batch, job, annotation, _ = await state(w)
     assert (batch.status, job.status, annotation.version) == (

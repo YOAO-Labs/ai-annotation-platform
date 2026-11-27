@@ -371,6 +371,7 @@ class BatchResultExecution:
             return await self.seal(ordinal, stage=stage, requests=requests)
 
     async def seal(self, ordinal, *, stage, requests=None):
+        from app.services.controlled_segmentation import validate_portable_masks
         from app.services.mask_gc import read_mask_write_epochs, lock_mask_write_epochs
         from app.services.raster_mask_storage import (
             collect_mask_references,
@@ -380,24 +381,29 @@ class BatchResultExecution:
 
         if requests is None:
             _result, requests = await self.load(ordinal, stage=stage)
-        references = [
-            reference
-            for request in requests
-            for reference in collect_mask_references(_request_json(request))
-        ]
-        if not references:
+        keys = set()
+        external = {}
+        for request in requests:
+            portable = set()
+            if (request.token_meta or {}).get("mask_objects") is not None:
+                portable = {
+                    _json_text(reference)
+                    for reference, _ in validate_portable_masks(
+                        request.result, request.token_meta
+                    )
+                }
+            for reference in collect_mask_references(_request_json(request)):
+                keys.add(reference["object_key"])
+                signature = _json_text(reference)
+                if signature not in portable:
+                    external[signature] = reference
+        if not keys:
             return await self.call("seal_batch_result", ordinal=ordinal, stage=stage)
         async with self.session_factory() as db:
             try:
-                epochs = await read_mask_write_epochs(
-                    db, (reference["object_key"] for reference in references)
-                )
-                verified = set()
-                for reference in references:
-                    signature = _json_text(reference)
-                    if signature not in verified:
-                        await load_coco_rle(reference)
-                        verified.add(signature)
+                epochs = await read_mask_write_epochs(db, keys)
+                for reference in external.values():
+                    await load_coco_rle(reference)
                 await lock_mask_write_epochs(db, epochs)
                 result = await self.call(
                     "seal_batch_result", db=db, ordinal=ordinal, stage=stage

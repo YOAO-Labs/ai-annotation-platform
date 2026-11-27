@@ -1,12 +1,12 @@
 """Observe exact retired-original bytes without granting physical permission."""
 
-from dataclasses import dataclass, field
-from datetime import datetime
 import hashlib
 import re
 import socket
 import sys
 import time
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -22,10 +22,10 @@ from botocore.exceptions import (
 from app.config import settings
 from app.services.dataset_assets import MAX_DIRECT_UPLOAD_BYTES
 from app.services.filesystem_storage import FilesystemStorageError as StorageError
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.reference_keys import is_reference
 from app.services.source_readers import s3 as s3_reference
 from app.services.storage_access import close_registered, mark_unsettled
+from app.services.storage_identity import managed_storage_identity
 
 MAX_BYTES = MAX_DIRECT_UPLOAD_BYTES
 CHUNK_BYTES = 256 * 1024

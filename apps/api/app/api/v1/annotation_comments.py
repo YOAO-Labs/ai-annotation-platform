@@ -42,7 +42,7 @@ from app.schemas.annotation_comment import (
 from app.services.audit import audit_origin_from_request
 from app.services.identity_read_relations import account_profiles
 from app.services.labeling_discussion_relations import annotation_comment_facts
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.labeling_discussion_data import AnnotationCommentData
 from app.services.identity_contracts import IdentityActorFacts
 from app.services import comment_attachment_uploads as attachment_uploads
 from app.services import comment_attachment_storage as attachment_storage
@@ -188,7 +188,7 @@ async def list_annotation_comment_counts(
     """Return sparse counts for active comments on available saved annotations."""
 
     task = await require_visible_task(db, task_id, actor_id)
-    rows = await AnnotationCommentService(db).counts_for_active_annotations(
+    rows = await AnnotationCommentData(db).counts_for_active_annotations(
         task_id=task_id, project_id=task.project_id
     )
     return AnnotationCommentCountsOut(

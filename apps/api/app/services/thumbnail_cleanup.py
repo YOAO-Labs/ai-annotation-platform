@@ -1,8 +1,8 @@
 """Collect only unreferenced, settled thumbnail owners at their saved targets."""
 
+import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
-import uuid
 
 from botocore.exceptions import ClientError
 from sqlalchemy import bindparam, text
@@ -10,7 +10,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.services import object_removal_accounting as removal
-from app.services import original_sources, storage_access, thumbnail_outputs as outputs
+from app.services import original_sources, storage_access
+from app.services import thumbnail_outputs as outputs
 from app.services.content_snapshot import ContentError
 
 
@@ -158,7 +159,7 @@ def remove(target, output, *, accounting=None, fixture=None, physical_permit=Non
 
 async def retire_fixture(db, control, identifier):
     """Use this thumbnail owner for one sealed, exactly born fixture output."""
-    from app.services.fixture_media_retirement import _retire_output
+    from app.services.fixture_media_output_retirement import _retire_output
 
     def retire(target, output, fixture):
         return remove(target, output, fixture=fixture)

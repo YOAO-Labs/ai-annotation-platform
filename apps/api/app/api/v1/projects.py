@@ -1408,7 +1408,6 @@ async def trigger_preannotation(
     )
     from app.services import prediction_references
 
-    freeze_image_scope = project.data_type == "image"
     requested_unit = next(
         (
             (stage.source or {}).get("execution_unit")
@@ -1417,6 +1416,7 @@ async def trigger_preannotation(
         ),
         None,
     )
+    freeze_image_scope = project.data_type == "image" and requested_unit != "scene"
     freeze_video_scope = project.data_type == "video" and requested_unit in {
         None,
         "video",
@@ -1512,7 +1512,8 @@ async def trigger_preannotation(
         text_threshold=float(project.text_threshold),
     )
     if (
-        not needs_snapshot
+        not uses_controlled_model
+        and not body.pipeline_stages
         and retry_context is not None
         and prediction_retry.retryable_request_context(retry_context) is None
     ):
@@ -1609,7 +1610,7 @@ async def trigger_preannotation(
                 raise HTTPException(status_code=422, detail=geo_violations[0].detail)
         pipeline_stages_payload = norm
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.data_management.actions import (
         assert_idempotent_request_matches,
         find_idempotent_job,

@@ -53,11 +53,11 @@ def stage(number, parent=None, *, target="geometry", **kwargs):
     }
 
 
-async def run(stages, clients, monkeypatch, *, modes=None):
+async def run(stages, clients, *, modes=None, task_id="task-1"):
     image = Image.new("RGB", (128, 96))
     try:
-        return await run_client_task_pipeline(
-            SimpleNamespace(id="task-1"),
+        results, extra, stats = await run_client_task_pipeline(
+            SimpleNamespace(id=task_id),
             stages,
             clients,
             [None] * len(stages),
@@ -67,6 +67,7 @@ async def run(stages, clients, monkeypatch, *, modes=None):
             project_id=uuid.UUID(int=2),
             execution_snapshot_id=uuid.UUID(int=5),
         )
+        return [item.to_wire() for item in results], extra, stats
     finally:
         image.close()
 
@@ -147,7 +148,7 @@ def test_native_roi_bad_content_never_uploads_or_becomes_a_geometry_skip(fault):
 
 
 @pytest.mark.asyncio
-async def test_native_nonzero_root_depth_three_attributes_keep_same_mask(monkeypatch):
+async def test_native_nonzero_root_depth_three_attributes_keep_same_mask():
     shape, objects = native_shape(name="bound-class")
     original = deepcopy(shape["geometry"])
     root = client([result([shape], objects)])
@@ -164,22 +165,21 @@ async def test_native_nonzero_root_depth_three_attributes_keep_same_mask(monkeyp
             stage(21, 13, target="attributes", label="detail"),
         ],
         [root, a, b],
-        monkeypatch,
     )
     assert stats[13]["ok"] == stats[21]["ok"] == 1
     assert stats[13]["skipped_geometry"] == stats[21]["skipped_geometry"] == 0
-    assert results[0].result[0]["attributes"] == {
+    assert results[0]["result"][0]["attributes"] == {
         "color": "blue",
         "detail_state": "open",
     }
-    assert results[0].result[0]["geometry"] == original
-    assert results[0].meta["mask_objects"] == objects
-    assert results[0].result[0]["instance_index"] == 0
+    assert results[0]["result"][0]["geometry"] == original
+    assert results[0]["meta"]["mask_objects"] == objects
+    assert results[0]["result"][0]["instance_index"] == 0
     assert extra["pipeline"]["shape_lineage"][0]["stage"] == 9
 
 
 @pytest.mark.asyncio
-async def test_native_root_geometry_prompt_and_vector_child_lineage(monkeypatch):
+async def test_native_root_geometry_prompt_and_vector_child_lineage():
     shape, objects = native_shape()
     polygon = {
         "type": "polygonlabels",
@@ -190,7 +190,7 @@ async def test_native_root_geometry_prompt_and_vector_child_lineage(monkeypatch)
         },
     }
     root = client([result([shape], objects)])
-    geometry = client([SimpleNamespace(result=[polygon], meta=None)])
+    geometry = client([SimpleNamespace(task_id="task-1", result=[polygon], meta=None)])
     attributes = client(
         [SimpleNamespace(task_id="0", result=[{"attributes": {"color": "red"}}])]
     )
@@ -201,7 +201,6 @@ async def test_native_root_geometry_prompt_and_vector_child_lineage(monkeypatch)
             stage(12, 8, target="attributes"),
         ],
         [root, geometry, attributes],
-        monkeypatch,
         modes=["crop", "geometry", "crop"],
     )
     assert stats[8]["ok"] == stats[12]["ok"] == 1
@@ -211,16 +210,14 @@ async def test_native_root_geometry_prompt_and_vector_child_lineage(monkeypatch)
     lineage = extra["pipeline"]["shape_lineage"]
     assert lineage[1]["parent_shape_id"] == lineage[0]["shape_id"]
     assert lineage[1]["stage"] == 8 and lineage[1]["parent_stage"] == 5
-    assert len(results[0].result) == 1
-    assert "attributes" not in results[0].result[0]
-    assert results[0].meta["mask_objects"] == objects
+    assert len(results[0]["result"]) == 1
+    assert "attributes" not in results[0]["result"][0]
+    assert results[0]["meta"]["mask_objects"] == objects
 
 
 @pytest.mark.parametrize("shared", [False, True])
 @pytest.mark.asyncio
-async def test_native_drop_prunes_only_unreferenced_objects_and_keeps_indices(
-    shared, monkeypatch
-):
+async def test_native_drop_prunes_only_unreferenced_objects_and_keeps_indices(shared):
     first, objects = native_shape(name="drop")
     second, second_objects = native_shape(name="keep", index=1, shifted=not shared)
     objects.update(second_objects)
@@ -238,33 +235,29 @@ async def test_native_drop_prunes_only_unreferenced_objects_and_keeps_indices(
             ),
         ],
         [root, child],
-        monkeypatch,
     )
     final = results[0]
-    assert len(final.result) == 1 and final.result[0]["instance_index"] == 1
-    assert set(final.meta["mask_objects"]) == set(second_objects)
+    assert len(final["result"]) == 1 and final["result"][0]["instance_index"] == 1
+    assert set(final["meta"]["mask_objects"]) == set(second_objects)
     assert stats[10]["failed"] == 1
     assert extra["pipeline"]["partial"] is True
-    assert validate_portable_masks(final.result, final.meta)
+    assert validate_portable_masks(final["result"], final["meta"])
 
 
 @pytest.mark.asyncio
-async def test_native_all_dropped_accepts_empty_final_envelope(monkeypatch):
+async def test_native_all_dropped_accepts_empty_final_envelope():
     shape, objects = native_shape()
     results, _, _ = await run(
         [stage(3), stage(4, 3, target="attributes", on_failure="drop_box")],
         [client([result([shape], objects)]), client(RuntimeError("offline"))],
-        monkeypatch,
     )
-    assert results[0].result == []
-    assert results[0].meta["mask_objects"] == {}
-    assert validate_portable_masks([], results[0].meta) == []
+    assert results[0]["result"] == []
+    assert results[0]["meta"]["mask_objects"] == {}
+    assert validate_portable_masks(results[0]["result"], results[0]["meta"]) == []
 
 
 @pytest.mark.asyncio
-async def test_invalid_original_extra_is_rejected_before_any_child_or_pruning(
-    monkeypatch,
-):
+async def test_invalid_original_extra_is_rejected_before_any_child_or_pruning():
     shape, objects = native_shape()
     objects["a" * 64] = next(iter(objects.values()))
     child = client(RuntimeError("must not dispatch"))
@@ -272,7 +265,6 @@ async def test_invalid_original_extra_is_rejected_before_any_child_or_pruning(
         await run(
             [stage(3), stage(4, 3, target="attributes", on_failure="drop_box")],
             [client([result([shape], objects)]), child],
-            monkeypatch,
         )
     child.predict.assert_not_awaited()
 
@@ -284,7 +276,7 @@ async def test_invalid_original_extra_is_rejected_before_any_child_or_pruning(
 @pytest.mark.parametrize("wire_format", ["native", "brushlabels"])
 @pytest.mark.asyncio
 async def test_unsupported_native_child_is_explicit_partial_failure(
-    mode, target, wire_format, monkeypatch
+    mode, target, wire_format
 ):
     shape, objects = native_shape()
     child_shape, child_objects = native_shape()
@@ -299,7 +291,6 @@ async def test_unsupported_native_child_is_explicit_partial_failure(
             client([result([shape], objects)]),
             client([result([child_shape], child_objects)]),
         ],
-        monkeypatch,
         modes=["crop", mode],
     )
     assert stats[4]["ok"] == 0 and stats[4]["failed"] == 1
@@ -307,40 +298,39 @@ async def test_unsupported_native_child_is_explicit_partial_failure(
         extra["pipeline"]["stage_errors"][0]["error_type"]
         == "NativeMaskChildOutputUnsupported"
     )
-    assert len(results[0].result) == 1
-    assert results[0].meta["mask_objects"] == objects
+    assert len(results[0]["result"]) == 1
+    assert results[0]["meta"]["mask_objects"] == objects
 
 
 @pytest.mark.asyncio
-async def test_multiple_result_envelopes_remain_separate(monkeypatch):
-    first, objects = native_shape()
-    second, second_objects = native_shape(shifted=True)
-    child = client(
-        [SimpleNamespace(task_id="0", result=[{"attributes": {"color": "red"}}])],
-        [SimpleNamespace(task_id="0", result=[{"attributes": {"color": "blue"}}])],
-    )
-    results, _, stats = await run(
-        [stage(3), stage(4, 3, target="attributes")],
-        [client([result([first], objects), result([second], second_objects)]), child],
-        monkeypatch,
-    )
-    assert stats[4]["ok"] == 2
-    assert results[0].meta["mask_objects"] == objects
-    assert results[1].meta["mask_objects"] == second_objects
-    assert (
-        results[0].result[0]["pipeline_shape_id"]
-        != results[1].result[0]["pipeline_shape_id"]
-    )
-    assert results[0].result[0]["attributes"] == {"color": "red"}
-    assert results[1].result[0]["attributes"] == {"color": "blue"}
+async def test_multiple_result_envelopes_remain_separate():
+    outputs = []
+    for task_id, color in (("task-1", "red"), ("task-2", "blue")):
+        shape, objects = native_shape(shifted=task_id == "task-2")
+        root = client([result([shape], objects, task_id=task_id)])
+        child = client(
+            [SimpleNamespace(task_id="0", result=[{"attributes": {"color": color}}])]
+        )
+        (output,), _, stats = await run(
+            [stage(3), stage(4, 3, target="attributes")], [root, child], task_id=task_id
+        )
+        assert stats[4]["ok"] == 1
+        assert output["meta"]["mask_objects"] == objects
+        outputs.append(output)
+    first, second = (output["result"][0] for output in outputs)
+    assert first["pipeline_shape_id"] != second["pipeline_shape_id"]
+    assert first["attributes"] == {"color": "red"}
+    assert second["attributes"] == {"color": "blue"}
 
 
 @pytest.mark.asyncio
 async def test_native_geometry_prompt_checks_actual_image_before_child_dispatch():
     shape, objects = native_shape()
     child = client([])
-    image = Image.new("RGB", (127, 96))
-    with pytest.raises(ValueError, match="source image"):
+    with (
+        Image.new("RGB", (127, 96)) as image,
+        pytest.raises(ValueError, match="source image"),
+    ):
         await run_client_task_pipeline(
             SimpleNamespace(id="task-1"),
             [stage(3), stage(4, 3)],
@@ -351,5 +341,3 @@ async def test_native_geometry_prompt_checks_actual_image_before_child_dispatch(
             stage_modes=["crop", "geometry"],
         )
     child.predict.assert_not_awaited()
-    with pytest.raises(ValueError):
-        image.getpixel((0, 0))

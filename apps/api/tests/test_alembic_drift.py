@@ -18,11 +18,85 @@ import app.db.models  # noqa: F401 · 确保全部 model 注册进 Base.metadata
 from app.db.base import Base
 
 
+_SQL_OWNER_INTERNAL_TABLES = frozenset(
+    {
+        "annotation_input_sources",
+        "annotation_video_input_sources",
+        "annotation_video_tracker_input_sources",
+        "asset_accepted_image_input_attempts",
+        "asset_accepted_image_input_manifest_members",
+        "asset_accepted_image_input_manifests",
+        "asset_accepted_image_inputs",
+        "asset_accepted_input_garbage",
+        "asset_accepted_video_frame_attempts",
+        "asset_accepted_video_frames",
+        "asset_accepted_video_input_attempts",
+        "asset_accepted_video_inputs",
+        "asset_accepted_video_manifests",
+        "asset_accepted_video_members",
+        "asset_accepted_video_times",
+        "batch_result_bundles",
+        "batch_result_executions",
+        "batch_result_members",
+        "batch_result_parts",
+        "batch_result_payloads",
+        "fixture_export_zip_retirements",
+        "identity_account_operation_receipts",
+        "identity_account_preferences",
+        "identity_account_presence",
+        "identity_admin_password_reset_receipts",
+        "identity_api_key_usage",
+        "identity_credential_mail_outbox",
+        "identity_deactivation_due_receipts",
+        "identity_deactivation_operation_receipts",
+        "identity_deactivation_requests",
+        "identity_deletion_operation_receipts",
+        "identity_directory_export_receipts",
+        "identity_group_operation_receipts",
+        "identity_invitation_operation_receipts",
+        "identity_key_operation_receipts",
+        "identity_offboarding_operation_receipts",
+        "identity_platform_role_operation_receipts",
+        "identity_recovery_operation_receipts",
+        "identity_revoked_jtis",
+        "identity_session_operation_receipts",
+        "identity_suspension_operation_receipts",
+        "image_export_scopes",
+        "mask_gc_intents",
+        "mask_gc_key_epochs",
+        "mask_gc_roots",
+        "mask_gc_sweeps",
+        "mask_gc_write_permit_secrets",
+        "notification_delivery_outbox",
+        "prediction_retry_attempts",
+        "prediction_retry_deliveries",
+        "storage_migration_io_flights",
+        "storage_migration_io_probes",
+        "storage_migration_io_reads",
+        "storage_migration_io_writes",
+        "training_saved_objects",
+        "video_tracker_input_scopes",
+        "workspace_configuration_operation_attempts",
+        "workspace_configuration_operation_receipts",
+        "workspace_configuration_operation_states",
+        "workspace_membership_operation_receipts",
+        "workspace_owner_transfer_operation_receipts",
+    }
+)
+
+
 @pytest.mark.asyncio
 async def test_models_match_database(test_engine, apply_migrations):
     reflected = MetaData()
+    extra_schemas = sorted(
+        {tbl.schema for tbl in Base.metadata.tables.values() if tbl.schema}
+    )
     async with test_engine.connect() as conn:
         await conn.run_sync(reflected.reflect)
+        for schema in extra_schemas:
+            await conn.run_sync(
+                lambda sync_conn, s=schema: reflected.reflect(sync_conn, schema=s)
+            )
 
     drift: list[str] = []
     for tbl_name, model_tbl in Base.metadata.tables.items():
@@ -50,11 +124,12 @@ async def test_models_match_database(test_engine, apply_migrations):
         if t.startswith("predictions_y") or t == "predictions_default"
     }
     db_only_tables = (
-        set(reflected.tables.keys())
-        - set(Base.metadata.tables.keys())
+        {t for t in reflected.tables if "." not in t}
+        - {t for t in Base.metadata.tables if "." not in t}
         - {"alembic_version"}
         - audit_partitions
         - prediction_partitions
+        - _SQL_OWNER_INTERNAL_TABLES
     )
     if db_only_tables:
         drift.append(

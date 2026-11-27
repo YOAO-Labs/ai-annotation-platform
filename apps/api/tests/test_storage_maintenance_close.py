@@ -175,12 +175,18 @@ def test_sftp_probe_does_not_swallow_failed_body_close(tmp_path, monkeypatch):
 
 
 def test_copy_adapter_closes_real_s3_client_and_failed_sftp_constructor(monkeypatch):
+    import boto3
+
     closed = []
     monkeypatch.setattr(
-        "yoao_assets_source.connectors.s3.boto3.client",
+        boto3,
+        "client",
         lambda *args, **kwargs: SimpleNamespace(close=lambda: closed.append("s3")),
     )
-    source = S3CompatibleSource({"endpoint": "example.test", "bucket": "data"}, {})
+    source = S3CompatibleSource(
+        {"endpoint": "example.test", "bucket": "data"},
+        {"access_key": "k", "secret_key": "s"},
+    )
     source.close()
 
     class SSH:

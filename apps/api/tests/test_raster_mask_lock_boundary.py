@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.services import raster_mask_storage as storage
+from app.services.raster_mask_validation import prepare_mask_payload_for_write
 from tests.test_raster_mask_storage import owned_mask_storage as owned_mask_storage
 from tests.test_raster_mask_write_gate import (
     FOREGROUND_RLE,
@@ -52,7 +53,7 @@ async def test_final_write_requires_the_exact_verified_reference(
         reference_value=[reference, alias] if verify_alias else [reference],
     )
     if verify_alias:
-        await storage.prepare_mask_payload_for_write(
+        await prepare_mask_payload_for_write(
             db_session,
             task,
             geometry,
@@ -62,7 +63,7 @@ async def test_final_write_requires_the_exact_verified_reference(
         )
     else:
         with pytest.raises(storage.RasterMaskContractError) as rejected:
-            await storage.prepare_mask_payload_for_write(
+            await prepare_mask_payload_for_write(
                 db_session,
                 task,
                 geometry,

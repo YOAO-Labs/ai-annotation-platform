@@ -8,6 +8,7 @@ import pytest
 
 from app.services import annotation_conversion, mask_mutation
 from app.services.content_snapshot import ContentError
+from app.services.mask_mutation_contract import MaskMutationError
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     build_rle_reference,
@@ -56,9 +57,37 @@ async def _exercise(monkeypatch, boundary, error):
         return await service._validate_pixel_algebra(
             SimpleNamespace(scope=scope, operation="join_masks"), [source], {source.id}
         )
-    return await service._assert_non_overlapping(
-        scope, [source], {}, set(), [], {}, mask_mutation._AlgebraBudget()
+    if isinstance(error, ValueError):
+        monkeypatch.setattr(
+            mask_mutation,
+            "coco_rle_bbox_norm",
+            lambda _rle: (_ for _ in ()).throw(error),
+        )
+        return await service._assert_non_overlapping(
+            scope,
+            [source],
+            {},
+            set(),
+            [],
+            {reference["object_key"]: RLE},
+            mask_mutation._AlgebraBudget(),
+        )
+    from app.services import raster_mask_storage
+
+    monkeypatch.setattr(
+        raster_mask_storage,
+        "read_mask_write_epochs",
+        AsyncMock(return_value={reference["object_key"]: 1}),
     )
+    monkeypatch.setattr(
+        raster_mask_storage, "load_coco_rle", AsyncMock(side_effect=error)
+    )
+    try:
+        return await raster_mask_storage.verify_mask_payload_content(
+            [source.geometry], db=SimpleNamespace(), reference_value=[reference]
+        )
+    except RasterMaskContractError as exc:
+        mask_mutation._raise_mask_mutation_contract_error(exc)
 
 
 @pytest.mark.parametrize("boundary", BOUNDARIES)
@@ -90,7 +119,7 @@ async def test_mask_service_preserves_typed_storage_status_and_reason(
         )
         error.args = ("private provider credentials must not reach the response",)
     expected_type = (
-        mask_mutation.MaskMutationError
+        MaskMutationError
         if boundary.startswith("mutation")
         else RasterMaskContractError
     )
@@ -119,7 +148,7 @@ async def test_plain_validation_error_keeps_existing_service_contract(
     monkeypatch, boundary, status, reason
 ):
     expected_type = (
-        mask_mutation.MaskMutationError
+        MaskMutationError
         if boundary.startswith("mutation")
         else annotation_conversion.AnnotationConversionError
     )

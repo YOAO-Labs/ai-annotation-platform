@@ -21,8 +21,8 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     build_rle_reference,
     validate_image_mask_dimensions,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.reference_bindings import task_binding
 from app.services.reference_keys import reference_key
 
@@ -370,11 +370,11 @@ async def test_native_receipt_is_bound_to_one_exact_mask(receipt_world, result):
 async def test_native_receipt_is_bound_to_request_and_idempotency_key(
     receipt_world, monkeypatch
 ):
-    from app.services import ai_mask_accept
+    from app.services import ai_mask_receipt
 
     world = receipt_world
     monkeypatch.setattr(
-        ai_mask_accept, "ai_mask_accept_request_digest", lambda data: "digest"
+        ai_mask_receipt, "ai_mask_accept_request_digest", lambda data: "digest"
     )
     for key in ("one-request", "different-request"):
         data = SimpleNamespace(idempotency_key=key)

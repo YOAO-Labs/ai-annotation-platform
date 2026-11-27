@@ -394,6 +394,7 @@ async def test_lost_child_blocks_next_and_manual_queue_shares_same_resource(
     await studies.coordinate(
         db_session, study.id, training_authority=bind_training_authority(db_session)
     )
+    await db_session.refresh(attempt)
     assert (
         attempt.status == "lost"
         and len(await studies.children(db_session, study.id)) == 1
@@ -518,14 +519,20 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
         run.completed_at = attempt.completed_at = runs.now()
         report, _, _, _, weights = evidence()
         report["validation_digest"] = run.config["validation_digest"]
+        report["evaluation"]["version"] = run.config["framework_version"]
         report["per_class"] = [{"index": 0, "name": "car", "mAP50": 0.2}]
         descriptor = report["comparison"]
         descriptor["config_digest"] = run.config_digest
+        descriptor["benchmark"]["validation_digest"] = run.config["validation_digest"]
         descriptor["benchmark"]["classes"] = run.config["classes"]
+        descriptor["evaluator"]["version"] = run.config["framework_version"]
         descriptor["evaluator"]["options"]["imgsz"] = run.config["parameters"]["imgsz"]
         report["summary"]["metrics/mAP50-95(B)"] = 0.2 + index * 0.3
         raw = json.dumps(report).encode()
-        key = "study/report/" + str(attempt.id)
+        attempt_prefix = (
+            f"projects/{study.project_id}/runs/{run.id}/attempts/{attempt.id}"
+        )
+        key = f"{attempt_prefix}/metrics.json"
         objects[key] = (raw, str(attempt.id))
         attempt.artifacts = {
             "metrics.json": {
@@ -534,7 +541,11 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
                 "sha256": hashlib.sha256(raw).hexdigest(),
                 "size_bytes": len(raw),
             },
-            "best.pt": {"role": "weights", **weights},
+            "best.pt": {
+                "role": "weights",
+                **weights,
+                "key": f"{attempt_prefix}/best.pt",
+            },
         }
         await db_session.flush()
         await studies.coordinate(
@@ -555,9 +566,7 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
         result["trials"][0]["id"],
     ]
     second_key = next(
-        key
-        for key in objects
-        if key.endswith(result["trials"][1]["result"]["attempt_id"])
+        key for key in objects if result["trials"][1]["result"]["attempt_id"] in key
     )
     raw, identity = objects[second_key]
     incompatible = json.loads(raw)
@@ -598,11 +607,49 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
     resource_id = training_adapters.resource_id()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     project_id = user_id = study_id = None
+    seeded_plugin = False
     try:
         async with maker() as db:
+            from tests.test_training_runs import IMAGE
+            from tests.trainer_plugin_fixtures import (
+                ULTRALYTICS_VERSION,
+                seed_enabled_trainer_plugin,
+            )
+
             assert (await db.scalar(text("SELECT current_database()"))).endswith(
                 "_test"
             )
+            had_plugin = bool(
+                await db.scalar(
+                    text(
+                        "SELECT 1 FROM yoao_learning_v1.trainer_plugins "
+                        "WHERE plugin_id = 'yoao.trainer.ultralytics'"
+                    )
+                )
+            )
+            await seed_enabled_trainer_plugin(
+                db,
+                framework_id="ultralytics",
+                framework_version=ULTRALYTICS_VERSION,
+                image_digest=IMAGE,
+                base_models={
+                    "yolo11n": {"sha256": "2" * 64, "filename": "yolo11n.pt"},
+                    "yolo11n-seg": {
+                        "sha256": "55ed65c56c91713d23e8402371c6c49a6fd84f257f7dce452e8d70e41dcbe152",
+                        "filename": "yolo11n-seg.pt",
+                    },
+                },
+            )
+            seeded_plugin = not had_plugin
+            await db.merge(
+                TrainingResourceLease(
+                    resource_id=resource_id,
+                    executor_id="owned-executor",
+                    last_seen_at=runs.now(),
+                    runtime=executor_claim().runtime,
+                )
+            )
+            await db.flush()
             owner, _ = await _create_user(
                 db,
                 "project_admin",
@@ -698,4 +745,11 @@ async def test_concurrent_coordinators_and_fenced_finish_do_not_require_study_lo
                 )
                 await db.execute(delete(Project).where(Project.id == project_id))
                 await db.execute(delete(User).where(User.id == user_id))
+                if seeded_plugin:
+                    await db.execute(
+                        text(
+                            "DELETE FROM yoao_learning_v1.trainer_plugins "
+                            "WHERE plugin_id = 'yoao.trainer.ultralytics'"
+                        )
+                    )
                 await db.commit()

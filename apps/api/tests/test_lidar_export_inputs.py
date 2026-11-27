@@ -7,21 +7,25 @@ import io
 import uuid
 
 import pytest
-from sqlalchemy import select, text, update
+import pytest_asyncio
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models.annotation import Annotation
-from app.db.models.dataset import Dataset, Scene, SensorCalibrationRevision
-from app.db.models.scene_track import SceneTrack
+from app.db.models.dataset import Dataset, DatasetItem, Scene, SensorCalibrationRevision
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.project import Project
+from app.db.models.scene_track import SceneTrack
 from app.db.models.task import Task
+from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from app.db.models.user import User
 from app.services import original_sources
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import ensure_legacy_bindings
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.exporting import lidar_inputs as inputs
 from tests.factory import build_tool_bindings
-from tests.test_original_sources import add_link, dataset_rows
+from tests.test_original_sources import add_link
 from tests import test_managed_original_creation as creation_tests
 
 from tests.test_auxiliary_originals import map_source, raw_source
@@ -93,7 +97,84 @@ async def input_db(test_engine):
             await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def lidar_database(managed_database):
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine).begin() as db:
+            await ensure_legacy_bindings(db)
+        yield engine
+
+
+@pytest.fixture
+async def lidar_input_db(lidar_database):
+    async with async_sessionmaker(lidar_database, expire_on_commit=False)() as db:
+        owner = User(
+            id=uuid.uuid4(),
+            name="LiDAR input owner",
+            email=f"lidar-input-{uuid.uuid4().hex}@example.test",
+            password_hash="not-a-login",
+        )
+        db.add(owner)
+        await db.flush()
+        db.info["lidar_input_owner_id"] = owner.id
+        yield db
+
+
+async def add_item(db, dataset_id, *, file_type, **facts):
+    item = DatasetItem(
+        id=uuid.uuid4(),
+        dataset_id=dataset_id,
+        file_name="original.bin",
+        file_path="originals/" + uuid.uuid4().hex,
+        file_type=file_type,
+        file_size=999,
+        content_hash="a" * 32,
+        width=24,
+        height=16,
+        **facts,
+    )
+    db.add(item)
+    await db.flush()
+    asset = DatasetAsset(
+        id=uuid.uuid4(),
+        dataset_item_id=item.id,
+        media_type=file_type,
+        verification_state="verified",
+        checksum_algorithm="sha256",
+        checksum_value=hashlib.sha256(b"saved").hexdigest(),
+        size_bytes=5,
+    )
+    db.add(asset)
+    await db.flush()
+    replica = DatasetAssetLocation(
+        asset_id=asset.id,
+        location_id=LEGACY_LOCATION_ID,
+        bucket="saved-original-bucket",
+        object_key=item.file_path,
+        role="managed_original",
+        reference_state="present",
+        etag="historical-etag",
+        verified_at=datetime.now(timezone.utc),
+    )
+    db.add(replica)
+    await db.flush()
+    return item, asset, replica
+
+
+def task_for(project, item, *, direct=True):
+    return Task(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        dataset_item_id=item.id if direct else None,
+        display_id="src-" + uuid.uuid4().hex[:20],
+        file_name=item.file_name,
+        file_path=item.file_path,
+        file_type=item.file_type,
+    )
+
+
 async def setup(db, *, direct=True, primary=True):
+    owner_id = db.info.get("lidar_input_owner_id") or uuid.uuid4()
     project = Project(
         id=uuid.uuid4(),
         display_id="freeze-" + uuid.uuid4().hex[:12],
@@ -101,7 +182,7 @@ async def setup(db, *, direct=True, primary=True):
         type_key="lidar-detection",
         type_label="LiDAR",
         data_type="lidar",
-        owner_id=uuid.uuid4(),
+        owner_id=owner_id,
         tool_bindings=build_tool_bindings(["car"], unit="point_mask_3d"),
     )
     dataset = Dataset(
@@ -109,24 +190,22 @@ async def setup(db, *, direct=True, primary=True):
         display_id="DS-" + uuid.uuid4().hex[:14],
         name="PCD",
         data_type="point_cloud",
-        created_by=uuid.uuid4(),
+        created_by=owner_id,
         metadata_={"axis_convention": "iso8855"},
     )
     db.add_all([project, dataset])
     await db.flush()
-    item, asset, replica, task = await dataset_rows(db, file_type="point_cloud")
-    item.dataset_id = dataset.id
-    task.project_id = project.id
-    if not direct:
-        task.dataset_item_id = None
+    item, asset, replica = await add_item(db, dataset.id, file_type="point_cloud")
+    task = task_for(project, item, direct=direct)
+    db.add(task)
     await db.flush()
     if primary:
         await add_link(db, task.id, item.id)
     cameras = []
     for role in ("camera_front", "camera_back"):
-        camera, camera_asset, camera_replica, unused_task = await dataset_rows(db)
-        camera.dataset_id = dataset.id
-        await db.delete(unused_task)
+        camera, camera_asset, camera_replica = await add_item(
+            db, dataset.id, file_type="image"
+        )
         link = await add_link(db, task.id, camera.id, role=role)
         link.sensor_name = role.removeprefix("camera_")
         cameras.append((camera, camera_asset, camera_replica, link))
@@ -177,6 +256,7 @@ async def attach_nuscenes(
             },
         )
         db.add(scene)
+        await db.flush()
     item.scene_id, item.frame_index = scene.id, 0
     await db.commit()
 
@@ -257,9 +337,9 @@ async def capture(db, project, targets=("pointmask",), *, lock=False):
     ],
 )
 async def test_actual_union_uses_canonical_saved_assets_without_object_io(
-    input_db, monkeypatch, targets, roles
+    lidar_input_db, monkeypatch, targets, roles
 ):
-    db = input_db
+    db = lidar_input_db
     project, _, item, asset, replica, task, _, _ = await setup(db)
     from app.services.storage import storage_service
 
@@ -281,25 +361,35 @@ async def test_actual_union_uses_canonical_saved_assets_without_object_io(
     assert len(frozen.snapshot["tasks"]) == 1
 
 
-async def test_primary_link_only_and_camera_only_keep_different_requirements(input_db):
-    db = input_db
+async def test_primary_link_only_and_camera_only_keep_different_requirements(
+    lidar_input_db,
+):
+    db = lidar_input_db
     project, _, item, _, _, task, _, _ = await setup(db, direct=False)
     frozen = await capture(db, project)
     assert frozen.sources[str(task.id) + ":primary_lidar"].item_id == item.id
-    from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 
     await db.execute(
-        text("DELETE FROM task_dataset_item_links WHERE role='primary_lidar'")
+        delete(TaskDatasetItemLink).where(
+            TaskDatasetItemLink.task_id == task.id,
+            TaskDatasetItemLink.role == "primary_lidar",
+        )
     )
     await db.commit()
     assert len((await capture(db, project, ("coco-multicamera",))).sources) == 2
     with pytest.raises(ContentError, match="no_readable_original"):
         await capture(db, project)
-    assert await db.scalar(select(TaskDatasetItemLink.id).limit(1))
+    assert await db.scalar(
+        select(TaskDatasetItemLink.id)
+        .where(TaskDatasetItemLink.task_id == task.id)
+        .limit(1)
+    )
 
 
-async def test_conflicting_primary_is_never_resolved_by_path_or_priority(input_db):
-    db = input_db
+async def test_conflicting_primary_is_never_resolved_by_path_or_priority(
+    lidar_input_db,
+):
+    db = lidar_input_db
     project, _, _, _, _, task, cameras, _ = await setup(db, primary=False)
     await add_link(db, task.id, cameras[0][0].id)
     await db.commit()
@@ -308,8 +398,10 @@ async def test_conflicting_primary_is_never_resolved_by_path_or_priority(input_d
             await capture(db, project, targets)
 
 
-async def test_task_heartbeat_does_not_change_input_but_annotation_edit_does(input_db):
-    db = input_db
+async def test_task_heartbeat_does_not_change_input_but_annotation_edit_does(
+    lidar_input_db,
+):
+    db = lidar_input_db
     project, _, _, _, _, task, _, annotation = await setup(db)
     frozen = await capture(db, project)
     await db.execute(
@@ -328,20 +420,19 @@ async def test_task_heartbeat_does_not_change_input_but_annotation_edit_does(inp
 @pytest.mark.parametrize(
     "changed", ["source", "axis", "role", "new_task", "calibration"]
 )
-async def test_frozen_actual_input_changes_are_rejected(input_db, changed):
-    db = input_db
-    project, dataset, item, asset, _, task, cameras, _ = await setup(db)
+async def test_frozen_actual_input_changes_are_rejected(lidar_input_db, changed):
+    db = lidar_input_db
+    project, dataset, _, _, replica, task, cameras, _ = await setup(db)
     frozen = await capture(db, project)
     if changed == "source":
-        asset.checksum_value = hashlib.sha256(b"newbytes").hexdigest()
+        replica.etag = "new-original-etag"
     elif changed == "axis":
         dataset.metadata_ = {"axis_convention": "threejs"}
     elif changed == "role":
         cameras[0][3].sensor_name = "renamed"
     elif changed == "new_task":
-        new_item, _, _, new_task = await dataset_rows(db, file_type="point_cloud")
-        new_item.dataset_id = dataset.id
-        new_task.project_id = project.id
+        new_item, _, _ = await add_item(db, dataset.id, file_type="point_cloud")
+        db.add(task_for(project, new_item))
     else:
         db.add(
             SensorCalibrationRevision(
@@ -353,12 +444,22 @@ async def test_frozen_actual_input_changes_are_rejected(input_db, changed):
             )
         )
     await db.commit()
+    if changed == "source":
+        current = await capture(db, project)
+        assert current.snapshot["tasks"] == frozen.snapshot["tasks"]
+        assert current.snapshot["items"] == frozen.snapshot["items"]
+        key = f"{task.id}:primary_lidar"
+        assert current.sources[key].sha256 == frozen.sources[key].sha256
+        assert current.sources[key].replica_facts.etag == "new-original-etag"
+        assert frozen.sources[key].replica_facts.etag == "historical-etag"
     with pytest.raises(ContentError, match="lidar_export_inputs_changed"):
         await inputs.check(db, frozen.snapshot)
 
 
-async def test_camera_member_on_historical_calibration_is_a_frozen_input(input_db):
-    db = input_db
+async def test_camera_member_on_historical_calibration_is_a_frozen_input(
+    lidar_input_db,
+):
+    db = lidar_input_db
     project, _, _, _, _, task, cameras, _ = await setup(db)
     camera = cameras[0][0]
     scene = Scene(
@@ -428,9 +529,9 @@ async def test_camera_member_on_historical_calibration_is_a_frozen_input(input_d
     ],
 )
 async def test_count_and_json_budgets_reject_without_original_io(
-    input_db, monkeypatch, limit
+    lidar_input_db, monkeypatch, limit
 ):
-    db = input_db
+    db = lidar_input_db
     project, *_ = await setup(db)
     monkeypatch.setattr(inputs, limit, 1)
     if limit in {"MAX_PCD_COUNT", "MAX_ANNOTATIONS"}:
@@ -439,8 +540,10 @@ async def test_count_and_json_budgets_reject_without_original_io(
         await capture(db, project)
 
 
-async def test_inactive_unknown_class_does_not_hide_active_unknown_class(input_db):
-    db = input_db
+async def test_inactive_unknown_class_does_not_hide_active_unknown_class(
+    lidar_input_db,
+):
+    db = lidar_input_db
     project, _, _, _, _, _, _, ann = await setup(db)
     ann.class_name = "unknown"
     ann.is_active = False
@@ -453,8 +556,8 @@ async def test_inactive_unknown_class_does_not_hide_active_unknown_class(input_d
 
 
 @pytest.mark.parametrize("operation", ["link", "annotation", "calibration"])
-async def test_final_parent_locks_block_new_input_phantoms(input_db, operation):
-    db = input_db
+async def test_final_parent_locks_block_new_input_phantoms(lidar_input_db, operation):
+    db = lidar_input_db
     project, _, _, _, _, task, cameras, _ = await setup(db)
     await capture(db, project, lock=True)
     async with async_sessionmaker(db.bind, expire_on_commit=False)() as other:
@@ -490,8 +593,8 @@ async def test_final_parent_locks_block_new_input_phantoms(input_db, operation):
     await db.rollback()
 
 
-async def test_parent_lock_conflict_is_explicit_and_caller_can_rollback(input_db):
-    db = input_db
+async def test_parent_lock_conflict_is_explicit_and_caller_can_rollback(lidar_input_db):
+    db = lidar_input_db
     project, _, _, _, _, task, _, _ = await setup(db)
     async with async_sessionmaker(db.bind, expire_on_commit=False)() as other:
         await other.execute(select(Task.id).where(Task.id == task.id).with_for_update())
@@ -514,13 +617,14 @@ def test_digest_preserves_budget_code_and_freeze_is_canonical():
             inputs.digest(invalid)
 
 
-async def test_check_preserves_source_error_and_does_not_mutate_saved_input(input_db):
-    db = input_db
+async def test_check_preserves_source_error_and_does_not_mutate_saved_input(
+    lidar_input_db,
+):
+    db = lidar_input_db
     project, _, _, asset, _, _, _, _ = await setup(db)
     frozen = await capture(db, project)
     saved = deepcopy(frozen.snapshot)
-    asset.verification_state = "unverified"
-    asset.checksum_algorithm = asset.checksum_value = None
+    await db.execute(delete(DatasetAsset).where(DatasetAsset.id == asset.id))
     await db.commit()
     with pytest.raises(ContentError, match="content_unverified"):
         await inputs.check(db, frozen.snapshot)
@@ -529,9 +633,9 @@ async def test_check_preserves_source_error_and_does_not_mutate_saved_input(inpu
 
 
 async def test_object_guard_checks_exact_binding_while_final_fence_covers_other_links(
-    input_db,
+    lidar_input_db,
 ):
-    db = input_db
+    db = lidar_input_db
     project, _, _, _, _, task, cameras, _ = await setup(db)
     frozen = await capture(db, project)
     main = next(
@@ -557,9 +661,9 @@ async def test_object_guard_checks_exact_binding_while_final_fence_covers_other_
 
 
 async def test_mixed_scene_freezes_project_members_outside_batch(
-    input_db, auxiliary_client
+    lidar_input_db, auxiliary_client
 ):
-    db = input_db
+    db = lidar_input_db
     project, dataset, item, _, _, task, cameras, _ = await setup(db)
     from app.db.models.task_batch import TaskBatch
     from app.services.exporting.lidar_frozen import FrozenLidar
@@ -599,9 +703,9 @@ async def test_mixed_scene_freezes_project_members_outside_batch(
 
 
 async def test_generated_calibration_paths_cannot_silently_overwrite_other_camera(
-    input_db,
+    lidar_input_db,
 ):
-    db = input_db
+    db = lidar_input_db
     project, _, _, _, _, _, cameras, _ = await setup(db)
     cameras[0][3].sensor_name = cameras[1][3].sensor_name = "shared-camera"
     await db.commit()
@@ -614,9 +718,9 @@ async def test_generated_calibration_paths_cannot_silently_overwrite_other_camer
 
 
 async def test_duplicate_task_frame_labels_are_rejected_instead_of_overwritten(
-    input_db,
+    lidar_input_db,
 ):
-    db = input_db
+    db = lidar_input_db
     project, _, item, _, _, task, _, _ = await setup(db)
     db.add(
         Task(
@@ -637,9 +741,9 @@ async def test_duplicate_task_frame_labels_are_rejected_instead_of_overwritten(
 @pytest.mark.parametrize("targets", [("nuscenes",), ("kitti", "nuscenes")])
 @pytest.mark.parametrize("raw_data", [b"r" * 80, b""])
 async def test_nuscenes_capture_owns_all_media_and_checks_exact_auxiliary_pointer(
-    input_db, auxiliary_client, monkeypatch, targets, raw_data
+    lidar_input_db, auxiliary_client, monkeypatch, targets, raw_data
 ):
-    db = input_db
+    db = lidar_input_db
     project, dataset, item, _, _, task, cameras, _ = await setup(db)
     _, raw_owner, map_owner = await attach_nuscenes(
         db, dataset, item, cameras, raw_data=raw_data
@@ -668,9 +772,27 @@ async def test_nuscenes_capture_owns_all_media_and_checks_exact_auxiliary_pointe
         row for row in frozen.snapshot["media"] if row["role"] == "raw_lidar"
     )
     assert (await inputs.check_source(db, binding)).sha256 == raw_owner.sha256
-    item.nuscenes_raw_original_id = None
+    unpinned, _, _ = await add_item(
+        db,
+        dataset.id,
+        file_type="point_cloud",
+        scene_id=item.scene_id,
+        frame_index=item.frame_index + 1,
+        metadata_=deepcopy(item.metadata_),
+    )
+    task.dataset_item_id = unpinned.id
+    task.file_name = unpinned.file_name
+    task.file_path = unpinned.file_path
+    await db.execute(
+        update(TaskDatasetItemLink)
+        .where(
+            TaskDatasetItemLink.task_id == task.id,
+            TaskDatasetItemLink.role == "primary_lidar",
+        )
+        .values(dataset_item_id=unpinned.id)
+    )
     await db.commit()
     with pytest.raises(ContentError, match="auxiliary_original_unpinned"):
         await inputs.check_source(db, binding)
-    with pytest.raises(ContentError):
+    with pytest.raises(ContentError, match="auxiliary_original_unpinned"):
         await inputs.check(db, frozen.snapshot, lock=True)

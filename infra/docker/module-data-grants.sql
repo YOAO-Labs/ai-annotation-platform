@@ -1521,6 +1521,7 @@ GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_query_step(
 GRANT EXECUTE ON FUNCTION yoao_identity_v1.workspace_template_query_org_ids(uuid)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_dataset_reference(uuid),
+    yoao_assets_v1.read_dataset_source_authority(uuid, boolean),
     yoao_assets_v1.lock_current_association(uuid, uuid),
     yoao_assets_v1.lock_append_sources(uuid, uuid[]),
     yoao_assets_v1.lock_task_creation_items(uuid, uuid[])
@@ -1554,6 +1555,7 @@ GRANT EXECUTE ON FUNCTION
 GRANT EXECUTE ON FUNCTION yoao_jobs_v1.accepted_image_input_job_consistency(uuid, uuid, uuid, uuid)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION
+    yoao_jobs_v1.read_job_execution_snapshot(uuid),
     yoao_jobs_v1.project_accepted_image_input_manifest_job(uuid, uuid, uuid, uuid, jsonb, text, boolean),
     yoao_jobs_v1.accepted_image_input_manifest_job_consistency(uuid, uuid, uuid, uuid, jsonb, text)
     TO :"assets_owner";
@@ -1593,6 +1595,9 @@ GRANT EXECUTE ON FUNCTION
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.lock_accepted_image_input(uuid, uuid, uuid)
     TO :"workflow_role", :"labeling_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1.is_sealed_image_reference_member(
+    uuid, uuid, uuid, uuid, text, uuid, text, integer, bigint
+) TO :"workflow_role", :"labeling_owner", :"jobs_owner";
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1._lock_accepted_image_input_receipt(uuid, uuid, uuid)
     TO :"labeling_owner";
@@ -4042,9 +4047,21 @@ GRANT EXECUTE ON FUNCTION
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._async_job_list_rows_scoped(uuid,text,text[],text[],uuid,text,boolean)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._async_job_list_rows_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_page_v2(uuid,text,text[],text[],uuid,text,integer,integer,boolean,boolean)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_total_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)
     OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_workspace_v1,
@@ -5591,7 +5608,9 @@ GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), yoao_jobs_v1.read_job_for
     yoao_jobs_v1.transition_directory_registration_job(uuid, uuid, text, text, text, timestamptz, text, jsonb)
     TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid, boolean) TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION yoao_assets_v1._catalog_dataset_summary(uuid) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_assets_v1._catalog_failure(text),
+    yoao_assets_v1._catalog_actor(uuid, boolean), yoao_assets_v1._catalog_dataset_summary(uuid)
+    TO :"assets_owner";
 GRANT SELECT (id, dataset_item_id, project_id) ON yoao_labeling_v1.task_rows TO :"assets_owner";
 GRANT SELECT (id, task_id, dataset_item_id, role) ON yoao_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
 GRANT SELECT (id, task_id) ON yoao_labeling_v1.annotation_rows TO :"assets_owner";
@@ -5621,6 +5640,7 @@ GRANT DELETE ON public.dataset_quality_review_batches TO :"assets_owner";
 GRANT USAGE ON SEQUENCE public.dataset_source_acceptance_order_seq TO :"assets_owner";
 
 GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.get_catalog_dataset_detail(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._dataset_quality_duplicate_groups(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._dataset_quality_evidence(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._dataset_quality_job_matches(uuid, text, text) OWNER TO :"assets_owner";
@@ -6745,6 +6765,20 @@ GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1._notification_task_visible(uuid,text,uuid,uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.notification_target_visible_to_actor(uuid,text,uuid,uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER TABLE yoao_labeling_v1.format_adapter_plugins OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._format_adapter_public_projection(
+    yoao_labeling_v1.format_adapter_plugins
+) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.list_format_adapter_plugins(boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.get_format_adapter_plugin(text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.register_format_adapter_plugin(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.transition_format_adapter_plugin(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.open_format_adapter_plugin_secret(text)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 

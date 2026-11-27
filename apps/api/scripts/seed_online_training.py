@@ -21,7 +21,11 @@ from app.db.models.task import Task
 from app.db.models.task_lock import AnnotationDraft, TaskLock
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
-from app.services import async_job as jobs, project_task_dataset, training_datasets
+from app.services import (
+    jobs_lifecycle_data as jobs,
+    project_task_dataset,
+    training_datasets,
+)
 from app.services import training_dataset_data, training_dataset_storage
 from app.services.annotation_evidence import freeze_review_contributor_evidence
 from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
@@ -348,9 +352,9 @@ async def _add_segmentation(
     """Extend an untouched fixture once, keeping all detection history immutable."""
     from app.services.raster_mask_storage import (
         assert_raster_mask_write_enabled,
-        prepare_mask_payload_for_write,
         store_coco_rle,
     )
+    from app.services.raster_mask_validation import prepare_mask_payload_for_write
 
     masks = _read_segmentation(root, samples)
     classes = [{"name": name, "order": i} for i, name in enumerate(COCO_NAMES)]
@@ -445,7 +449,7 @@ async def _add_segmentation(
         task = by_id[uuid.uuid5(PROJECT_ID, sample["task_id"])]
         geometries = []
         for instance in masks[sample["task_id"]]:
-            reference = await store_coco_rle(instance["rle"])
+            reference = await store_coco_rle(instance["rle"], db=db)
             geometry = {"type": "raster_mask", "mask": reference}
             geometries.append(geometry)
             db.add(
@@ -558,6 +562,8 @@ async def prepare_baseline(
 
 
 async def _reuse_baseline(db, existing):
+    if existing.storage_ref is None:
+        return existing
     if existing.status in {"failed", "cancelled", "running"}:
         try:
             await training_datasets.lock_dataset_execution(db, existing.id)

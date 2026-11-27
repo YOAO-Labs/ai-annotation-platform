@@ -9,30 +9,47 @@ import uuid
 import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.storage_usage import StorageUsageMutation
 from app.services import managed_original_creation as service
 from app.services.content_snapshot import ContentError
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
 from tests.managed_original_client_support import Client, stage_client
-from tests.test_migration_0230_managed_original_task_scope import (
-    allocation,
-    legacy_creation_db as _legacy_creation_db,
-    task_creation_db as _task_creation_db,
-)
-
-legacy_creation_db = _legacy_creation_db
+from tests.test_migration_0230_managed_original_task_scope import allocation
 
 
 @pytest.fixture
-async def task_creation_db(legacy_creation_db):
-    db = await _task_creation_db.__wrapped__(legacy_creation_db)
-    async with service.storage_access.engine(db).begin() as connection:
-        await connection.run_sync(StorageUsageMutation.__table__.create)
-    return db
+async def task_creation_db(managed_database):
+    from app.db.models.dataset import Dataset
+    from app.db.models.user import User
+
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            owner = User(
+                id=uuid.uuid4(),
+                name="Task creation fixture owner",
+                email=f"tcr-{uuid.uuid4().hex}@example.test",
+                password_hash="unused",
+                role="project_admin",
+                is_active=True,
+            )
+            db.add(owner)
+            await db.flush()
+            dataset = Dataset(
+                id=uuid.uuid4(),
+                display_id=f"tcr-{uuid.uuid4().hex[:12]}",
+                name="Task creation fixture dataset",
+                created_by=owner.id,
+            )
+            db.add(dataset)
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            db.info["dataset_id"] = dataset.id
+            yield db
 
 
 @pytest.fixture
@@ -72,7 +89,7 @@ async def test_allocation_is_independent_of_business_rows_and_rollback(
 ):
     db = task_creation_db
     pending = DatasetItem(
-        dataset_id=uuid.uuid4(),
+        dataset_id=db.info["dataset_id"],
         file_name="pending",
         file_path="pending",
         file_type="image",
@@ -337,10 +354,19 @@ async def test_unknown_task_write_keeps_exact_permit_and_never_retries(
         client.complete_multipart_upload = lost
     else:
         client.close_failure = True
-    with pytest.raises(ContentError) as caught:
-        await service.complete_direct(db, row)
-    assert caught.value.storage_operation_unsettled and caught.value.status == 503
-    assert "private" not in str(caught.value)
+    if failure == "lost_ack":
+        with pytest.raises(ContentError) as caught:
+            await service.complete_direct(db, row)
+        assert caught.value.storage_operation_unsettled and caught.value.status == 503
+        assert "private" not in str(caught.value)
+    else:
+        with pytest.raises(ExceptionGroup) as caught:
+            await service.complete_direct(db, row)
+        assert caught.value.storage_operation_unsettled
+        content_errors = caught.value.subgroup(ContentError)
+        assert content_errors is not None
+        assert content_errors.exceptions[0].status == 503
+        assert "private" not in str(content_errors.exceptions[0])
     saved = await service._read(db, row["id"])
     assert saved["status"] == "unknown"
     assert saved["operation_id"] in await operations(db)

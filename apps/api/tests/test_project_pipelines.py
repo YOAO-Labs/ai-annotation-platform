@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.project_pipeline import ProjectPipeline
-from app.services.ml_backend import MLBackendService
+from app.services.inference_topology_data import InferenceTopologyData
 from tests.conftest import create_registry_with_pool
 
 
@@ -47,7 +47,7 @@ async def _seed_backend(db: AsyncSession, name: str) -> MLBackendRegistry:
 
 
 async def _enable(db: AsyncSession, project: Project, backend: MLBackendRegistry):
-    pool = await MLBackendService(db)._pool_for_registry(backend.id)
+    pool = await InferenceTopologyData(db).pool_for_registry(backend.id)
     db.add(ProjectMLBackendPool(project_id=project.id, pool_id=pool.id, enabled=True))
     await db.flush()
 

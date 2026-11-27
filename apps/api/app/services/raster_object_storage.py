@@ -4,14 +4,14 @@ Only allocation consults the current annotations binding. Logical portable keys
 never select a physical bucket or replace the candidate's UUID locator.
 """
 
-from copy import deepcopy
-from dataclasses import dataclass, field, make_dataclass, replace
-from datetime import datetime
 import hashlib
 import json
 import re
 import time
 import uuid
+from copy import deepcopy
+from dataclasses import dataclass, field, make_dataclass, replace
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
@@ -20,9 +20,8 @@ from app.config import settings
 from app.services import annotations_storage, storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,

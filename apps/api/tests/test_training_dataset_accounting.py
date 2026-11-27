@@ -383,7 +383,7 @@ async def test_real_worker_ledger_waits_for_outer_directory_and_preserves_partia
         with directory(**kwargs) as path:
             paths.append(Path(path))
             yield path
-        if fault == "directory" and kwargs.get("prefix") == "aap-training-":
+        if fault == "directory" and kwargs.get("prefix") == "training-":
             raise storage_access.mark_unsettled(OSError("directory close unknown"))
 
     async def settled(rec, failure, *, settled):

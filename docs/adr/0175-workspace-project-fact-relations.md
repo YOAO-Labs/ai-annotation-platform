@@ -1,6 +1,6 @@
 # ADR-0175：Workspace 项目集合与原生事实关系
 
-- 状态：接受；限定本地读取边界验收通过
+- Status: 接受；限定本地读取边界验收通过
 - 日期：2026-10-22
 
 ## 决定
@@ -50,5 +50,5 @@ Ruff／格式、显式 OpenAPI 核对、文档构建和差异检查通过；公�
 三处 `labeling_tasks` 计数 UPDATE 仍是业务写入，未由本次读取迁移替代；测试 seed 和
 运维脚本也不记为读取消费者闭合。应用仅新增公开关系 SELECT，默认宽凭据仍处于
 兼容装配。完整 Workspace 凭据、冷工件、恢复及容量按
-[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)集中验收。
+[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)集中验收。
 本轮不切换主环境、不推送、发布、部署生产或扩展 Go。

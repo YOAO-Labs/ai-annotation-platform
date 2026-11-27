@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 
 import pytest
 from sqlalchemy import text
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data verifier and function owner grants",
+    ),
+]
 
 
 FUNCTIONS = (

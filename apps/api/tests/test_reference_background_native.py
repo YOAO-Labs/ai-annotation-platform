@@ -2,7 +2,7 @@
 
 from contextlib import asynccontextmanager
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 import uuid
@@ -18,10 +18,16 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.db.models.trained_model import ModelRelease, TrainedModelVersion
-from app.services import async_job as jobs, prediction_references as refs
+from app.services import jobs_lifecycle_data as jobs, prediction_references as refs
 from app.services import reference_native_predictions as native, trained_models
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.labeling_prediction_contract import (
+    ApplyPredictionResultError,
+    ApplyPredictionResultRequest,
+    BatchResultPredictionIdentity,
+)
+from app.services.labeling_write_scope import capture_labeling_write_scope
 from yoao_inference.backend_transport import PredictionResult
 from app.services.prediction import PredictionService
 from app.services.prediction_execution import execution_summary, load_snapshot
@@ -32,13 +38,18 @@ from app.utils.raster_mask_rle import encode_coco_rle
 from app.workers import predictions_retry as retry, tasks as worker
 from tests.inference_execution_test_ports import (
     PredictionClientExecutionPort,
-    run_batch_request,
     run_client_task_pipeline,
 )
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_references import reference_world as reference_world
 from tests.test_prediction_inputs import input_world as input_world
-from tests.test_prediction_jobs_worker import _passthrough_engine_and_factory
+from tests.test_prediction_reference_delivery import (
+    committed_reference_delivery as committed_reference_delivery,
+    frame_publication_login as frame_publication_login,
+    image_executor_logins as image_executor_logins,
+    managed_worker_world as managed_worker_world,
+    run_dispatched,
+)
 from tests.test_trained_models import ready_deployment, seed_source
 
 
@@ -214,6 +225,18 @@ def test_crop_lineage_requires_a_finite_image_transform(transform):
 
 @pytest.fixture
 async def native_world(db_session, reference_world, input_world, monkeypatch):
+    return await _native_world(db_session, reference_world, input_world, monkeypatch)
+
+
+@pytest.fixture
+async def committed_native_worker(
+    committed_reference_delivery, input_world, monkeypatch
+):
+    db, client, world, admin = committed_reference_delivery
+    return await _native_world(db, world, input_world, monkeypatch), client, admin
+
+
+async def _native_world(db_session, reference_world, input_world, monkeypatch):
     _, project, task, content = reference_world
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
@@ -371,9 +394,26 @@ async def enqueue(w, client, admin, monkeypatch, *, scope="bulk"):
     return await w.db.get(AsyncJob, uuid.UUID(result.json()["job_id"])), dispatch
 
 
-async def prepared(w, client, admin, monkeypatch):
-    job, _ = await enqueue(w, client, admin, monkeypatch)
+@pytest.fixture
+async def prepared(native_world, httpx_client, super_admin, monkeypatch):
+    w = native_world
+    job, _ = await enqueue(w, httpx_client, super_admin, monkeypatch)
     await jobs.mark_running(w.db, job.id)
+    if job.payload.get("accepted_input_manifest_protocol") is not None:
+        from yoao_assets_input_manifests.contract import SealManifestRequest
+        from yoao_assets_input_manifests_runtime.control import ManifestControl
+        from app.services.accepted_input_manifests import SqlAlchemyManifestDatabase
+
+        await ManifestControl(
+            SqlAlchemyManifestDatabase(w.db, commit=False), None
+        ).seal(
+            SealManifestRequest(
+                job_id=job.id,
+                actor_id=w.actor.id,
+                project_id=w.project.id,
+                selection_digest=job.payload["accepted_input_manifest_digest"],
+            )
+        )
     await w.db.commit()
     payload, digest = await load_snapshot(w.db, job.execution_snapshot_id, w.project.id)
     owner = refs.ReferencePredictionJob(
@@ -390,7 +430,19 @@ async def prepared(w, client, admin, monkeypatch):
         snapshot_digest=digest,
         node_id="worker:content@test",
     )
+    task_id = w.task.id
     await owner.open_inputs(w.task, w.inputs.factory)
+    try:
+        anchor, writes = await prepare_writes(w, job, owner, payload, digest)
+        yield job, owner, anchor, writes
+    finally:
+        try:
+            await w.db.rollback()
+        finally:
+            await owner.close_inputs(task_id)
+
+
+async def prepare_writes(w, job, owner, payload, digest):
     result = response_for(w)
     mapped = trained_models.validate_and_map_results(
         (ModelTaskResult(**vars(result)),), w.ref
@@ -416,9 +468,7 @@ async def prepared(w, client, admin, monkeypatch):
         [Client()],
         [None],
         resolve_url=owner.resolve_url,
-        before_dispatch=lambda stage_id, dispatch: owner.before_dispatch(
-            w.task, dispatch, stage_id=stage_id
-        ),
+        before_dispatch=lambda _stage_id, _dispatch: owner.before_dispatch(w.task),
         execution_snapshot_id=job.execution_snapshot_id,
         instance_id=w.backend.id,
         pool_id=pool_id,
@@ -443,28 +493,53 @@ async def prepared(w, client, admin, monkeypatch):
             project_id=w.project.id,
             ml_backend_id=w.backend.id,
             ml_backend_pool_id=uuid.UUID(extra["pipeline"]["selections"][0]["pool_id"]),
-            result=r.result,
+            result=thaw_json(r.result),
             score=r.score,
             model_version=r.model_version,
             inference_time_ms=r.inference_time_ms,
-            token_meta=r.meta,
+            token_meta=thaw_json(r.meta),
             pipeline_extra=extra,
             model_provenance=w.ref,
         )
         for r in results
     ]
-    return job, owner, anchor, writes
+    return anchor, writes
+
+
+async def _apply_native_prediction(w, job, anchor, write, receipt):
+    scope = capture_labeling_write_scope(
+        w.task,
+        actor_id=w.actor.id,
+        actor_known=True,
+        operation="preannotation",
+        execution_scope="bulk",
+        execution_scope_known=True,
+        job_id=job.id,
+        job_id_known=True,
+    )
+    request = ApplyPredictionResultRequest(
+        **write,
+        write_scope=scope,
+        accepted_input_job_id=job.id,
+        batch_result_identity=BatchResultPredictionIdentity(
+            prediction_id=uuid.uuid4(),
+            prediction_created_at=datetime.now(timezone.utc),
+        ),
+        reference_receipt=anchor,
+        background_native_reference_receipt=receipt,
+    )
+    applied = await PredictionService(w.db).apply_prediction_result(request)
+    return await w.db.get(Prediction, (applied.id, applied.created_at))
 
 
 @pytest.mark.parametrize(
     "fault", ["shape", "objects", "runtime", "model", "lineage", "dimensions", "gate"]
 )
 async def test_whole_group_is_qualified_before_first_object_put(
-    native_world, httpx_client, super_admin, monkeypatch, fault
+    native_world, prepared, monkeypatch, fault
 ):
     w = native_world
-    task_id = w.task.id
-    _, owner, anchor, writes = await prepared(w, httpx_client, super_admin, monkeypatch)
+    _, owner, anchor, writes = prepared
     bad = deepcopy(writes[0])
     if fault == "shape":
         bad["result"][0]["class_name"] = "foreign"
@@ -488,19 +563,13 @@ async def test_whole_group_is_qualified_before_first_object_put(
     )
     bad["result"][0]["pipeline_shape_id"] = ident
     bad["pipeline_extra"]["pipeline"]["shape_lineage"][0]["shape_id"] = ident
-    try:
-        with pytest.raises((ValueError, HTTPException)):
-            await owner.qualify_native_results(w.task, anchor, [writes[0], bad])
-        assert not w.puts
-        assert (
-            await w.db.scalar(
-                select(Prediction.id).where(Prediction.task_id == w.task.id)
-            )
-            is None
-        )
-    finally:
-        await w.db.rollback()
-        await owner.close_inputs(task_id)
+    with pytest.raises((ValueError, HTTPException)):
+        await owner.qualify_native_results(w.task, anchor, [writes[0], bad])
+    assert not w.puts
+    assert (
+        await w.db.scalar(select(Prediction.id).where(Prediction.task_id == w.task.id))
+        is None
+    )
 
 
 @pytest.mark.parametrize(
@@ -518,61 +587,49 @@ async def test_whole_group_is_qualified_before_first_object_put(
     ],
 )
 async def test_private_receipt_rejects_changed_payload_owner_and_transaction(
-    native_world, httpx_client, super_admin, monkeypatch, fault
+    native_world, prepared, monkeypatch, fault
 ):
     w = native_world
-    job, owner, anchor, writes = await prepared(
-        w, httpx_client, super_admin, monkeypatch
-    )
+    job, owner, anchor, writes = prepared
     receipt = (await owner.qualify_native_results(w.task, anchor, writes))[0]
     write = deepcopy(writes[0])
     task_id = w.task.id
-    try:
-        if fault == "forged":
-            receipt = {"qualification": receipt.qualification}
-        elif fault == "payload":
-            write["result"][0]["attributes"] = {"forged": True}
-        elif fault == "owner":
-            await owner.deliveries[task_id][0].close()
-        elif fault == "snapshot":
-            owner.deliveries[task_id][0]._snapshot.close()
-        elif fault == "expired":
-            expired = owner.deliveries[task_id][0].record.expires_at + timedelta(
-                seconds=1
-            )
+    if fault == "forged":
+        receipt = {"qualification": receipt.qualification}
+    elif fault == "payload":
+        write["result"][0]["attributes"] = {"forged": True}
+    elif fault == "owner":
+        await owner.deliveries[task_id][0].close()
+    elif fault == "snapshot":
+        owner.deliveries[task_id][0]._snapshot.close()
+    elif fault == "expired":
+        expired = owner.deliveries[task_id][0].record.expires_at + timedelta(seconds=1)
 
-            class Advanced(datetime):
-                @classmethod
-                def now(cls, tz=None):
-                    return expired
+        class Advanced(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return expired
 
-            monkeypatch.setattr(refs, "datetime", Advanced)
-        elif fault == "transaction":
-            await w.db.commit()
-        elif fault == "job":
-            job.payload = {**job.payload, "cancel_requested": True}
-            await w.db.flush()
-        if fault == "session":
-            async with w.inputs.factory() as other:
-                with pytest.raises(ContentError):
-                    await native.validate_receipt(
-                        other, task_id, w.project.id, receipt, write
-                    )
-        elif fault == "nested":
-            async with w.db.begin_nested():
-                with pytest.raises(ContentError):
-                    await PredictionService(w.db).create_from_ml_result(
-                        **write, background_native_reference_receipt=receipt
-                    )
-        else:
+        monkeypatch.setattr(refs, "datetime", Advanced)
+    elif fault == "transaction":
+        await w.db.commit()
+    elif fault == "job":
+        job.payload = {**job.payload, "cancel_requested": True}
+        await w.db.flush()
+    if fault == "session":
+        async with w.inputs.factory() as other:
             with pytest.raises(ContentError):
-                await PredictionService(w.db).create_from_ml_result(
-                    **write, background_native_reference_receipt=receipt
+                await native.validate_receipt(
+                    other, task_id, w.project.id, receipt, write
                 )
-        assert not w.puts
-    finally:
-        await w.db.rollback()
-        await owner.close_inputs(task_id)
+    elif fault == "nested":
+        async with w.db.begin_nested():
+            with pytest.raises((ContentError, ApplyPredictionResultError)):
+                await _apply_native_prediction(w, job, anchor, write, receipt)
+    else:
+        with pytest.raises((ContentError, ApplyPredictionResultError)):
+            await _apply_native_prediction(w, job, anchor, write, receipt)
+    assert not w.puts
 
 
 @pytest.mark.parametrize(
@@ -591,17 +648,13 @@ async def test_private_receipt_rejects_changed_payload_owner_and_transaction(
     ],
 )
 async def test_native_acceptance_checks_current_content_and_self_contained_proof(
-    native_world, httpx_client, super_admin, monkeypatch, mutation
+    native_world, prepared, httpx_client, super_admin, monkeypatch, mutation
 ):
     w = native_world
-    job, owner, anchor, writes = await prepared(
-        w, httpx_client, super_admin, monkeypatch
-    )
+    job, owner, anchor, writes = prepared
     task_id, project_id = w.task.id, w.project.id
     receipt = (await owner.qualify_native_results(w.task, anchor, writes))[0]
-    prediction = await PredictionService(w.db).create_from_ml_result(
-        **writes[0], background_native_reference_receipt=receipt
-    )
+    prediction = await _apply_native_prediction(w, job, anchor, writes[0], receipt)
     await w.db.commit()
     await owner.close_inputs(task_id)
     metadata = await w.db.scalar(
@@ -676,10 +729,10 @@ async def test_native_acceptance_checks_current_content_and_self_contained_proof
 
 
 async def test_pruned_root_retains_original_noncontiguous_instance_index(
-    native_world, httpx_client, super_admin, monkeypatch
+    native_world, prepared
 ):
     w = native_world
-    _, owner, anchor, writes = await prepared(w, httpx_client, super_admin, monkeypatch)
+    job, owner, anchor, writes = prepared
     task_id = w.task.id
     write = writes[0]
     ident = str(
@@ -695,23 +748,17 @@ async def test_pruned_root_retains_original_noncontiguous_instance_index(
             "transform": None,
         }
     )
-    try:
-        receipt = (await owner.qualify_native_results(w.task, anchor, [write]))[0]
-        prediction = await PredictionService(w.db).create_from_ml_result(
-            **write, background_native_reference_receipt=receipt
-        )
-        assert prediction.result[0]["instance_index"] == 1
-        assert prediction.result[0]["class_name"] == "car"
-    finally:
-        await w.db.rollback()
-        await owner.close_inputs(task_id)
+    receipt = (await owner.qualify_native_results(w.task, anchor, [write]))[0]
+    prediction = await _apply_native_prediction(w, job, anchor, write, receipt)
+    assert prediction.result[0]["instance_index"] == 1
+    assert prediction.result[0]["class_name"] == "car"
 
 
 @pytest.mark.parametrize("scope", ["bulk", "workbench"])
 async def test_api_to_batch_worker_persists_qualified_native_reference(
-    native_world, httpx_client, super_admin, monkeypatch, scope
+    committed_native_worker, monkeypatch, scope
 ):
-    w = native_world
+    w, httpx_client, super_admin = committed_native_worker
     job, dispatch = await enqueue(
         w, httpx_client, super_admin, monkeypatch, scope=scope
     )
@@ -738,22 +785,7 @@ async def test_api_to_batch_worker_persists_qualified_native_reference(
             Client(), instance_id=w.backend.id, pool_id=pool_id
         ),
     )
-    engine, factory = _passthrough_engine_and_factory(w.db)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.create_async_engine", engine)
-    monkeypatch.setattr("sqlalchemy.ext.asyncio.async_sessionmaker", factory)
-    monkeypatch.setattr(
-        "app.services.prediction_progress.publish_progress", lambda *a, **kw: None
-    )
-    args = dispatch.call_args.kwargs["args"]
-    kwargs = dict(dispatch.call_args.kwargs["kwargs"])
-    await run_batch_request(
-        project_id=args[0],
-        ml_backend_id=args[1],
-        task_ids=args[2],
-        **kwargs,
-        celery_task_id=str(job.id),
-        worker_node_id="worker:content@test",
-    )
+    await run_dispatched(dispatch)
     await w.db.refresh(job)
     failures = list(
         await w.db.scalars(
@@ -778,16 +810,13 @@ async def test_api_to_batch_worker_persists_qualified_native_reference(
 @pytest.mark.parametrize("entry", ["single", "job"])
 @pytest.mark.parametrize("outcome", ["success", "bad_second"])
 async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_failure(
-    native_world, httpx_client, super_admin, monkeypatch, entry, outcome
+    native_world, prepared, httpx_client, super_admin, monkeypatch, entry, outcome
 ):
     w = native_world
-    original, owner, anchor, writes = await prepared(
-        w, httpx_client, super_admin, monkeypatch
-    )
+    original, owner, anchor, writes = prepared
+    task_id = w.task.id
     receipt = (await owner.qualify_native_results(w.task, anchor, writes))[0]
-    previous = await PredictionService(w.db).create_from_ml_result(
-        **writes[0], background_native_reference_receipt=receipt
-    )
+    previous = await _apply_native_prediction(w, original, anchor, writes[0], receipt)
     previous_id = previous.id
     failure = FailedPrediction(
         project_id=w.project.id,
@@ -824,7 +853,7 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
     response = await httpx_client.post(url, headers=headers(super_admin))
     assert response.status_code == 202, response.text
     options = dispatch.call_args.kwargs
-    job_id = options["kwargs"]["async_job_id"]
+    job_id = options["kwargs"]["job_id"]
 
     class Client:
         def __init__(self, *args, **kw):
@@ -841,9 +870,18 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
                 w.ref,
             )
 
+    from app.db.models.ml_backend_registry import ProjectMLBackendPool
+
+    pool_id = await w.db.scalar(
+        select(ProjectMLBackendPool.pool_id).where(
+            ProjectMLBackendPool.project_id == w.project.id
+        )
+    )
     monkeypatch.setattr(
         "app.application.durable_prediction_retry._model_execution_port",
-        lambda *_args, **_kwargs: PredictionClientExecutionPort(Client()),
+        lambda *_args, **_kwargs: PredictionClientExecutionPort(
+            Client(), instance_id=w.backend.id, pool_id=pool_id
+        ),
     )
 
     @asynccontextmanager
@@ -870,14 +908,12 @@ async def test_both_retry_apis_use_native_qualification_and_preserve_partial_on_
         assert result["status"] == "succeeded", result
         assert previous.rejected_shape_indexes == [0]
         predictions = list(
-            await w.db.scalars(
-                select(Prediction).where(Prediction.task_id == w.task.id)
-            )
+            await w.db.scalars(select(Prediction).where(Prediction.task_id == task_id))
         )
         assert len(predictions) == 2
         fresh = next(p for p in predictions if p.id != previous.id)
         response = await httpx_client.post(
-            f"/api/v1/tasks/{w.task.id}/predictions/{fresh.id}/accept",
+            f"/api/v1/tasks/{task_id}/predictions/{fresh.id}/accept",
             headers=headers(super_admin),
         )
         assert response.status_code == 200, response.text

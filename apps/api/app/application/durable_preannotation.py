@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from contextlib import asynccontextmanager, nullcontext
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from pathlib import Path
 
@@ -18,8 +18,10 @@ from app.application.preannotation_results import (
     restore_write_scope,
     scope_json,
 )
+from app.services.content_snapshot import ContentError
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
 from app.services.labeling_write_scope import capture_labeling_write_scope
+from app.services.reference_keys import is_reference
 from app.services.raster_mask_contract import RasterMaskContractError
 from app.services.labeling_core_read_relations import get_core_row, task_row
 
@@ -192,7 +194,7 @@ async def freeze_batch_members(
 
 
 async def _cancel_requested(db, job_id):
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
 
     job = await async_job_svc.get_job(db, job_id, populate_existing=True)
     return (
@@ -213,11 +215,47 @@ async def _actor_available(db, execution, execution_scope):
     )
 
 
+def _reference_owner(member, scope, reference_job, *, manifest_backed):
+    frozen = member.manifest_member
+    bound = (
+        reference_job is not None and member.task_id in reference_job.reference_tasks
+    )
+    if manifest_backed:
+        if frozen is None:
+            raise ContentError("prediction_scope_changed")
+        selected = frozen["state"] == "reference"
+    else:
+        selected = scope.execution_scope == "workbench" and bound
+    if (
+        selected != bound
+        or selected != is_reference(scope.source_file_path)
+        or (selected and scope.accepted_input_id is not None)
+        or (selected and frozen is not None and frozen.get("input") is not None)
+    ):
+        raise ContentError("prediction_scope_changed")
+    return reference_job if selected else None
+
+
 async def _apply_ready_result(
-    execution, db, writer, member, result, requests, *, request, manifest_backed
+    execution,
+    db,
+    writer,
+    member,
+    result,
+    requests,
+    *,
+    request,
+    manifest_backed,
+    reference_job=None,
 ):
     from copy import deepcopy
     from app.services.labeling_write_guard import lock_labeling_write
+
+    reference_owner = (
+        reference_job
+        if reference_job is not None and member.task_id in reference_job.reference_tasks
+        else None
+    )
 
     values = dict(
         ordinal=member.ordinal,
@@ -226,7 +264,7 @@ async def _apply_ready_result(
     )
     for attempt in range(3):
         try:
-            await lock_labeling_write(
+            locked = await lock_labeling_write(
                 db,
                 restore_write_scope(member.write_scope),
                 operations=("preannotation",),
@@ -237,15 +275,41 @@ async def _apply_ready_result(
             if await _cancel_requested(db, execution.scope["job_id"]):
                 await db.rollback()
                 return False
-            if manifest_backed or request.accepted_inputs_protocol is not None:
-                await _overwrite(execution, db, request, member=member)
-            if requests:
-                predictions = await writer.apply_prediction_result_bundle(
-                    deepcopy(requests)
+            writes = deepcopy(requests)
+            if reference_owner is not None:
+                from app.services.prediction import prediction_write_facts
+
+                if not writes:
+                    raise ValueError("Model returned no result for the selected task")
+                task, _actor, _access = locked
+                anchor = await reference_owner.final_receipt(task)
+                native_receipts = await reference_owner.qualify_native_results(
+                    task, anchor, [prediction_write_facts(w, w.result) for w in writes]
                 )
+                writes = tuple(
+                    replace(
+                        w,
+                        reference_receipt=anchor,
+                        background_native_reference_receipt=native,
+                    )
+                    for w, native in zip(writes, native_receipts, strict=True)
+                )
+            elif reference_job is not None and reference_job.reference_tasks:
+                await reference_job.lock_key()
+                await reference_job.authorize(db)
+            partial = result.context.get("pipeline_partial") is True
+            member_overwrite = (
+                not partial
+                if reference_owner is not None
+                else manifest_backed or request.accepted_inputs_protocol is not None
+            )
+            if member_overwrite:
+                await _overwrite(execution, db, request, member=member)
+            if writes:
+                predictions = await writer.apply_prediction_result_bundle(writes)
             else:
                 predictions = ()
-            if result.context.get("pipeline_partial") is True:
+            if partial:
                 context = result.context
                 await writer.create_failed(
                     task_id=member.task_id,
@@ -318,6 +382,8 @@ async def _overwrite(execution, db, request, *, member=None):
         if item.write_scope is None:
             continue
         scope = restore_write_scope(item.write_scope)
+        if member is None and is_reference(scope.source_file_path):
+            raise ContentError("prediction_scope_changed")
         if (
             await get_core_row(db, task_row, item.task_id, populate_existing=True)
             is None
@@ -363,11 +429,12 @@ async def run_durable_batch(
     writer,
     job_meta,
     result_extra,
-    authorize=None,
+    reference_job=None,
     finish_batch=None,
     failure_context=None,
 ):
     """Resume captured raw/prepared bodies; count only atomic native outcomes."""
+    from yoao_assets_input_manifests.contract import ManifestFailure
     from yoao_preannotation_results.contract import BatchResultFailure
     from yoao_assets_mask_content.contract import MaskContentFailure
     from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
@@ -386,21 +453,23 @@ async def run_durable_batch(
     )
     await execution.call("start_batch_result_execution")
     cancelled_before_authorization = False
-    if authorize is not None:
-        from app.services.content_snapshot import ContentError
-
+    if reference_job is not None:
         cancelled_before_authorization = await _cancel_requested(
             db, execution.scope["job_id"]
         )
         if not cancelled_before_authorization:
             try:
-                await authorize(db)
+                await reference_job.authorize(db)
             except ContentError:
                 if not await _cancel_requested(db, execution.scope["job_id"]):
                     raise
                 cancelled_before_authorization = True
     manifest_backed = request.accepted_input_manifest_protocol is not None
-    member_overwrite = manifest_backed or request.accepted_inputs_protocol is not None
+    member_overwrite = (
+        manifest_backed
+        or request.accepted_inputs_protocol is not None
+        or (reference_job is not None and bool(reference_job.reference_tasks))
+    )
     if (
         not cancelled_before_authorization
         and not member_overwrite
@@ -413,9 +482,9 @@ async def run_durable_batch(
         after_ordinal=execution.progress.next_ordinal - 1
     ):
         execution.ensure_owned()
-        if cancelled_before_authorization:
-            break
-        if await _cancel_requested(db, execution.scope["job_id"]):
+        if cancelled_before_authorization or await _cancel_requested(
+            db, execution.scope["job_id"]
+        ):
             saved = await execution.read_result(member.ordinal)
             cancelled = True
             if saved.result is None:
@@ -425,7 +494,7 @@ async def run_durable_batch(
                     reason="cancelled_before_capture",
                 )
                 continue
-            if not saved.result.raw_complete:
+            if cancelled_before_authorization or not saved.result.raw_complete:
                 break
         if not await _actor_available(db, execution, request.execution_scope):
             forced_error = "preannotation_actor_revoked"
@@ -438,6 +507,7 @@ async def run_durable_batch(
             **(failure_context(member) if failure_context is not None else {}),
         }
         result = None
+        reference_owner = None
         try:
             if member.write_scope is None:
                 await execution.call(
@@ -453,7 +523,8 @@ async def run_durable_batch(
             await execution.call("start_batch_result_member", ordinal=member.ordinal)
             current = await execution.read_result(member.ordinal)
             result = current.result
-            if result is None or not result.raw_complete:
+            needs_inference = result is None or not result.raw_complete
+            if needs_inference:
                 task = await get_core_row(
                     db, task_row, member.task_id, populate_existing=True
                 )
@@ -481,24 +552,57 @@ async def run_durable_batch(
                         reason="already_predicted",
                     )
                     continue
+            frozen = member.manifest_member
+            if manifest_backed and frozen is not None and frozen["state"] == "failed":
+                raise ManifestFailure(frozen["error"])
+            scope = restore_write_scope(member.write_scope)
+            reference_owner = _reference_owner(
+                member, scope, reference_job, manifest_backed=manifest_backed
+            )
+            if (
+                reference_owner is not None
+                and result is not None
+                and result.context.get("reference_authority_digest")
+                != reference_owner.authority_digest
+            ):
+                raise ContentError("prediction_scope_changed")
+            reference_inputs = None
+            if needs_inference or reference_owner is not None:
                 from app.services.labeling_write_guard import lock_labeling_write
 
-                await lock_labeling_write(
+                locked = await lock_labeling_write(
                     db,
-                    restore_write_scope(member.write_scope),
+                    scope,
                     operations=("preannotation",),
                     accepted_input_job_id=(
                         execution.scope["job_id"] if manifest_backed else None
                     ),
                 )
                 await db.commit()
-                async with _retained_input(execution, member) as retained:
+                if reference_owner is not None:
+                    task, _actor, _access = locked
+                    reference_inputs = await reference_owner.open_inputs(
+                        task, execution.session_factory
+                    )
+                    await db.commit()
+            if needs_inference:
+                input_manager = (
+                    nullcontext()
+                    if reference_owner is not None
+                    else _retained_input(execution, member)
+                )
+                async with input_manager as retained:
                     requests, context = await infer(
                         task,
-                        restore_write_scope(member.write_scope),
+                        scope,
                         retained,
                         member.manifest_member,
                         member.ordinal,
+                        reference_inputs=reference_inputs,
+                    )
+                if reference_owner is not None:
+                    context["reference_authority_digest"] = (
+                        reference_owner.authority_digest
                     )
                 await execution.capture(
                     member.ordinal, requests, stage="raw", context=context
@@ -512,7 +616,8 @@ async def run_durable_batch(
                     member.ordinal, stage="raw"
                 )
                 async with prediction_mask_producer(execution, member.ordinal):
-                    requests = await normalize_batch_prediction_masks(db, requests)
+                    if reference_owner is None:
+                        requests = await normalize_batch_prediction_masks(db, requests)
                     await db.commit()
                     await execution.capture(
                         member.ordinal, requests, stage="prepared", context=context
@@ -529,13 +634,19 @@ async def run_durable_batch(
                 requests,
                 manifest_backed=manifest_backed,
                 request=request,
+                reference_job=reference_job,
             )
             if not applied:
                 cancelled = True
                 break
-        except PreannotationResultDeferred:
+        except PreannotationResultDeferred as exc:
             await db.rollback()
-            raise
+            if str(exc) != "lease_lost" or not await _cancel_requested(
+                db, execution.scope["job_id"]
+            ):
+                raise
+            cancelled = True
+            break
         except BatchResultFailure as exc:
             await db.rollback()
             if exc.code == "job_not_writable" and await _cancel_requested(
@@ -559,6 +670,24 @@ async def run_durable_batch(
             raise PreannotationResultDeferred(exc.code) from None
         except Exception as exc:
             await db.rollback()
+            if reference_owner is not None and await _cancel_requested(
+                db, execution.scope["job_id"]
+            ):
+                cancelled = True
+                if result is None:
+                    await execution.call(
+                        "skip_batch_result_member",
+                        ordinal=member.ordinal,
+                        reason="cancelled_before_capture",
+                    )
+                    continue
+                break
+            if isinstance(exc, ContentError):
+                if exc.status in {401, 403}:
+                    forced_error = "preannotation_actor_revoked"
+                    break
+                if exc.status >= 500 or exc.code.endswith("_busy"):
+                    raise PreannotationResultDeferred(exc.code) from None
             if isinstance(exc, RasterMaskContractError) and (
                 exc.detail.get("retryable") or exc.status_code >= 500
             ):
@@ -644,6 +773,13 @@ async def run_durable_batch(
             except SQLAlchemyError:
                 await db.rollback()
                 raise PreannotationResultDeferred("storage_unavailable") from None
+        finally:
+            if reference_owner is not None:
+                try:
+                    if db.in_transaction():
+                        await db.rollback()
+                finally:
+                    await reference_owner.close_inputs(member.task_id)
         progress = execution.progress
         completed = (
             progress.success_count + progress.failed_count + progress.skipped_count
@@ -703,7 +839,7 @@ async def run_durable_batch(
         else None,
         result_extra=extra,
     )
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
 
     await async_job_svc.get_job(db, execution.scope["job_id"], populate_existing=True)
     await notify_job_terminal(db, job_id=execution.scope["job_id"])

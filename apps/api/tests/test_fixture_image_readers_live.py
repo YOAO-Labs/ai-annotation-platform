@@ -364,9 +364,8 @@ async def _thumbnail(media, engine, worker, log, job_id, source_bytes):
 async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
     test_engine, monkeypatch, tmp_path
 ):
-    assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1", (
-        "run only in the canonical disposable verifier"
-    )
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("run only in the canonical disposable verifier")
     routing = fixture_routing_owner(test_engine, monkeypatch)
     media = owner = suite = owner_log = None
     workers = []
@@ -708,7 +707,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     async with test_engine.begin() as db:
         await db.execute(
             text(
-                "GRANT EXECUTE ON FUNCTION yoao_assets_v1.get_catalog_dataset(uuid,uuid) "
+                "GRANT EXECUTE ON FUNCTION yoao_assets_v1.get_catalog_dataset_detail(uuid,uuid) "
                 f'TO "{role}"'
             )
         )

@@ -1,19 +1,21 @@
 """Bounded request snapshots; the temporary file owns its admission slot."""
 
 import asyncio
-from dataclasses import dataclass, field
 import contextvars
-from functools import partial
 import hashlib
 import re
 import tempfile
 import threading
 import time
 import warnings
+from dataclasses import dataclass, field
+from functools import partial
 
-from PIL import Image
 from fastapi import HTTPException
+from PIL import Image
 from starlette.responses import StreamingResponse
+
+from app.services.content_errors import ContentError
 
 MAX_BYTES = 64 * 1024 * 1024
 MAX_PIXELS = 32_000_000
@@ -43,12 +45,6 @@ VERIFIED_IMAGE_RESPONSES = {
     },
     416: {"description": "Unsupported or unsatisfiable image range"},
 }
-
-
-class ContentError(ValueError):
-    def __init__(self, code, status=409):
-        self.code, self.status = code, status
-        super().__init__(code)
 
 
 @dataclass
@@ -384,7 +380,7 @@ class SnapshotResponse(StreamingResponse):
                 raise HTTPException(
                     416, "Range is not supported for verified snapshots"
                 )
-            from app.services.original_playback_response import select_range
+            from app.services.playback_range import select_range
 
             try:
                 selected = select_range(
@@ -454,7 +450,7 @@ class SnapshotResponse(StreamingResponse):
         try:
             return await asyncio.shield(pending)
         except asyncio.CancelledError:
-            from app.services.original_binary_response import _drain
+            from app.services.storage_io_settlement import _drain
 
             await _drain(pending)
             raise

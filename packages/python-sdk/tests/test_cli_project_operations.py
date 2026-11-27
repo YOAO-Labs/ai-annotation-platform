@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import project_performance as performance_cli
@@ -55,7 +56,7 @@ def test_rejected_destructive_project_commands_never_open_client(monkeypatch):
     for command in commands:
         result = runner.invoke(projects_cli.app, [*command, "--json"])
         assert result.exit_code != 0
-        assert "--yes" in result.output
+        assert "--yes" in Text.from_ansi(result.output).plain
     assert calls == []
 
 

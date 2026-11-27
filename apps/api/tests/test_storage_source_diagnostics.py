@@ -7,6 +7,7 @@ import hashlib
 import pytest
 from sqlalchemy import delete, event, select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, StorageBinding
@@ -19,12 +20,15 @@ from app.db.models.dataset_source import (
     DatasetSourceItem,
     DatasetSourcePreview,
 )
-from app.services import dataset_source_revisions as revisions
 from app.services import filesystem_storage as fs
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.directory_previews import SPEC
 from app.services.storage import storage_service
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_dataset_source_access import managed_world as managed_world
 from tests.test_dataset_source_changes import (
     accept_all_files,
@@ -173,9 +177,9 @@ async def test_policy_and_authority_block_previews_without_fabricating_failure(
         world[5].cache_policy = "none"
         world[5].policy_revision += 1
     elif policy == "location":
-        world[4].config = {**world[4].config, "cache_policy": "none"}
+        await change_content_location(db_session, world, cache_policy="none")
     elif policy == "disabled":
-        world[4].enabled = False
+        await change_content_location(db_session, world, enabled=False)
     else:
         world[5].unregistered_at = datetime.now(timezone.utc)
     await db_session.commit()
@@ -205,11 +209,9 @@ async def test_history_never_inherits_new_revision_preview_and_move_uses_current
     db, world = db_session, content_world
     await accept_all_files(db, world)
     world, run, change, payload = await candidate(db, world)
-    result = await revisions.accept(
-        db, run.id, change["path_digest"], payload, world[2]
-    )
+    result = await accept_revision(db, run.id, change["path_digest"], payload, world[2])
     world, run, old, new, payload = await moved_candidate(db, world)
-    moved = await revisions.accept(
+    moved = await accept_revision(
         db, run.id, new["path_digest"], payload, world[2], relocate=True
     )
     assert moved["item_id"] == result["item_id"]
@@ -354,7 +356,7 @@ async def test_active_old_runs_and_last_complete_survive_new_failure_and_job_ret
     assert row["preflight"]["recent"]["matches_current_config"]
     assert "private-path" not in str(row) and "snapshot" not in str(row)
     source.config_revision += 1
-    world[4].config_revision += 1
+    await change_content_location(db, world, name=f"{world[4].name}-renamed")
     await db.commit()
     stale = (await read_summary(httpx_client, world, super_admin))["items"][0][
         "diagnostics"

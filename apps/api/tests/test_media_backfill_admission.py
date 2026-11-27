@@ -62,7 +62,7 @@ async def test_uncertain_backfill_keeps_its_job_anchor(
 
     from app.config import settings
     from app.db.models.async_job import AsyncJob
-    from app.services import async_job
+    from app.services import jobs_lifecycle_data as async_job
     from app.services.content_snapshot import ContentError
     from app.workers import media
 

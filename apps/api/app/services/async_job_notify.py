@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.notification import NotificationService
 
 

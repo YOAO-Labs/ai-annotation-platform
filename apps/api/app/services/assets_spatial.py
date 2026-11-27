@@ -967,6 +967,7 @@ class AssetsSpatialGateway:
         same_session_native: bool = False,
     ) -> ItemFactsPage:
         items: list[SpatialItem] = []
+        seen_ids: set[uuid.UUID] = set()
         scenes: dict[uuid.UUID, SpatialScene] = {}
         cursor = request.after_item_id
         first: ItemFactsPage | None = None
@@ -993,9 +994,7 @@ class AssetsSpatialGateway:
                 raise self._invalid_response("Item facts snapshot changed while paging")
             self._extend_scenes(scenes, page.scenes)
             keys = [item.id for item in page.items]
-            if keys != sorted(keys) or any(
-                item_id in {item.id for item in items} for item_id in keys
-            ):
+            if keys != sorted(keys) or any(item_id in seen_ids for item_id in keys):
                 raise self._invalid_response(
                     "Item facts page is not ordered and unique"
                 )
@@ -1006,6 +1005,7 @@ class AssetsSpatialGateway:
                     "Item facts cursor does not match its page"
                 )
             items.extend(page.items)
+            seen_ids.update(keys)
             if page.complete:
                 break
             cursor = page.next_item_id

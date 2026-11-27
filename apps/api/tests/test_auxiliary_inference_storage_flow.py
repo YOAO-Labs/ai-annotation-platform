@@ -150,7 +150,12 @@ def world(monkeypatch):
         generation=run.generation,
     )
     run.current_attempt_id = attempt.id
-    round = SimpleNamespace(id=uuid.uuid4(), project_id=project_id, generation=1)
+    round = SimpleNamespace(
+        id=uuid.uuid4(),
+        project_id=project_id,
+        generation=1,
+        current_attempt_id=None,
+    )
     round.storage_ref = reference(
         project_id,
         round.id,
@@ -396,7 +401,7 @@ async def test_unknown_evaluation_delete_cannot_create_misleading_intent(
         await evaluation_api.delete(
             world.run.id,
             project=SimpleNamespace(id=world.run.project_id),
-            user=SimpleNamespace(),
+            user=SimpleNamespace(id=uuid.uuid4()),
             db=db,
         )
     assert error.value.status_code == 409
@@ -599,6 +604,11 @@ async def test_legacy_queued_claim_does_not_start_inference(
     db = SimpleNamespace(
         get=AsyncMock(side_effect=[attempt, record]), commit=AsyncMock()
     )
+    if record_name == "run":
+        monkeypatch.setattr(worker.data, "for_attempt", AsyncMock(return_value=record))
+    else:
+        monkeypatch.setattr(worker.data, "get_attempt", AsyncMock(return_value=attempt))
+        monkeypatch.setattr(worker.data, "get_round", AsyncMock(return_value=record))
     monkeypatch.setattr(service, "authority", AsyncMock())
     monkeypatch.setattr(
         service,
@@ -612,8 +622,5 @@ async def test_legacy_queued_claim_does_not_start_inference(
     assert await worker.claim(factory_for(db), attempt.id, "legacy-claim") is None
     cancel.assert_awaited_once()
     started.assert_not_awaited()
-    if record_name == "run":
-        assert record.error_code == "training_storage_unpinned"
-    else:
-        assert cancel.await_args.kwargs["code"] == "training_storage_unpinned"
+    assert cancel.await_args.kwargs["code"] == "training_storage_unpinned"
     assert not world.client.calls

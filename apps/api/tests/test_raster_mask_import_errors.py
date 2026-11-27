@@ -15,7 +15,7 @@ from app.api.v1 import annotations, predictions
 from app.schemas.native_json import ImportResult
 from app.services import (
     annotations_import,
-    async_job,
+    jobs_lifecycle_data as async_job,
     async_job_notify,
     predictions_import,
     reference_access,

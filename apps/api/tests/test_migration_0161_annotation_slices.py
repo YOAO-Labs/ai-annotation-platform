@@ -13,7 +13,7 @@ from app.db.models.annotation_operation import AnnotationOperation
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
-from tests.test_migration_0173_project_role_preparation import _replay
+from tests.migration_helpers import replay as _replay
 
 
 def test_empty_downgrade_upgrade_and_used_ledger_refuses_downgrade(

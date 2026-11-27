@@ -2,12 +2,12 @@
 
 from contextlib import contextmanager
 from dataclasses import replace
-from types import SimpleNamespace
 
 import pytest
 
 from app.services import training_dataset_analysis as analysis
 from app.services import training_dataset_storage as owners, training_storage_io as io
+from app.services.source_readers.s3 import ScopedS3Access
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.workers import training_dataset as worker
 from tests.test_training_storage_consumers import (
@@ -24,15 +24,19 @@ def destination(frozen):
     client = Objects("https://objects.example.test")
     lifecycle = []
 
-    @contextmanager
-    def admitted_client(**kwargs):
-        lifecycle.append("open")
-        try:
-            yield client
-        finally:
-            lifecycle.append("close")
+    class Access(ScopedS3Access):
+        def __init__(self):
+            pass
 
-    destination = replace(target(), _access=SimpleNamespace(client=admitted_client))
+        @contextmanager
+        def client(self, **kwargs):
+            lifecycle.append("open")
+            try:
+                yield client
+            finally:
+                lifecycle.append("close")
+
+    destination = replace(target(), _access=Access())
     frozen.version.storage_ref = owners.make_ref(
         destination, 2, owners.prefix_for(frozen.version.project_id, frozen.version.id)
     )

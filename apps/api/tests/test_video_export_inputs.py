@@ -26,49 +26,22 @@ from app.services.mask_formats.contracts import canonical_digest
 from app.services.video_track_quality import _snapshot
 from app.services.video_canonical import VideoBoundaryUnreconciledError
 from tests.factory import build_tool_bindings
-from tests.test_lidar_export_inputs import input_db as input_db
+from tests.test_lidar_export_inputs import (
+    lidar_database as lidar_database,
+    lidar_input_db as lidar_input_db,
+)
 from tests.test_original_sources import add_link
 
 
 @pytest.fixture
-async def video_db(input_db, test_engine):
-    """Extend the already-owned random schema; never select a database URL."""
-    db = input_db
-    schema = await db.scalar(text("SELECT current_schema()"))
-    assert (
-        schema.startswith("lidar_input_test_")
-        and schema.removeprefix("lidar_input_test_").isalnum()
-    )
-    async with test_engine.connect() as connection:
-        source = await connection.scalar(text("SELECT current_schema()"))
-    quoted_source = '"' + source.replace('"', '""') + '"'
-    for table in ("video_segments", "video_track_quality_runs"):
-        await db.execute(
-            text(
-                f'CREATE TABLE "{schema}"."{table}" (LIKE {quoted_source}."{table}" INCLUDING ALL)'
-            )
-        )
-    for child, column, parent in (
-        ("tasks", "project_id", "projects"),
-        ("tasks", "dataset_item_id", "dataset_items"),
-        ("dataset_items", "dataset_id", "datasets"),
-        ("video_segments", "dataset_item_id", "dataset_items"),
-        ("video_track_quality_runs", "task_id", "tasks"),
-        ("video_track_quality_runs", "left_segment_id", "video_segments"),
-        ("video_track_quality_runs", "right_segment_id", "video_segments"),
-        ("predictions", "task_id", "tasks"),
-    ):
-        await db.execute(
-            text(
-                f'ALTER TABLE "{schema}"."{child}" ADD FOREIGN KEY ("{column}") REFERENCES "{schema}"."{parent}" (id)'
-            )
-        )
-    await db.commit()
-    yield db
+async def video_db(lidar_input_db):
+    """Use the module-owned migrated database with real public schema bindings."""
+    yield lidar_input_db
 
 
 async def setup(db, *, collaboration=False, primary=False):
     """Return (project,item,asset,replica,task,annotation), with real SQL owners."""
+    owner_id = db.info.get("lidar_input_owner_id") or uuid.uuid4()
     project = Project(
         id=uuid.uuid4(),
         display_id="video-" + uuid.uuid4().hex[:14],
@@ -76,7 +49,7 @@ async def setup(db, *, collaboration=False, primary=False):
         type_key="video-track",
         type_label="Video",
         data_type="video",
-        owner_id=uuid.uuid4(),
+        owner_id=owner_id,
         video_sampling={"mode": "step", "frame_step": 3},
         video_collaboration={
             "enabled": collaboration,
@@ -318,7 +291,7 @@ async def test_database_empty_project_has_zero_media(video_db):
 @pytest.mark.parametrize("mutation", ["annotation", "segment", "pair", "sampling"])
 async def test_database_final_check_rejects_temporal_drift(video_db, mutation):
     db = video_db
-    project, _, _, _, _, annotation = await setup(db, collaboration=True)
+    project, _, _, _, task, annotation = await setup(db, collaboration=True)
     frozen = await inputs.collect(db, project.id, None, ["video_json"], {})
     if mutation == "annotation":
         annotation.version += 1
@@ -326,7 +299,9 @@ async def test_database_final_check_rejects_temporal_drift(video_db, mutation):
         segment = await db.get(VideoSegment, annotation.video_segment_id)
         segment.end_frame -= 1
     elif mutation == "pair":
-        run = await db.scalar(select(VideoTrackQualityRun))
+        run = await db.scalar(
+            select(VideoTrackQualityRun).where(VideoTrackQualityRun.task_id == task.id)
+        )
         run.pairs = []
     else:
         project.video_sampling = {"mode": "step", "frame_step": 2}
@@ -435,7 +410,7 @@ async def test_quality_projection_ignores_large_unused_history(video_db, monkeyp
     monkeypatch.setattr(inputs, "MAX_JSON_BYTES", 2048)
     budget = inputs._Budget()
     rows = await inputs._quality_rows(
-        db, VideoTrackQualityRun.task_id == identifier, budget=budget, lock=True
+        db, inputs.VideoTrackQualityRun.task_id == identifier, budget=budget, lock=True
     )
     assert 0 < budget.read_bytes < 2048
     assert len(rows) == 1 and not isinstance(rows[0], VideoTrackQualityRun)
@@ -450,11 +425,15 @@ async def test_quality_projection_ignores_large_unused_history(video_db, monkeyp
 async def test_quality_projection_rejects_nonobject_metrics(video_db, metrics):
     db = video_db
     _, _, _, _, task, _ = await setup(db, collaboration=True)
-    await db.execute(update(VideoTrackQualityRun).values(metrics=metrics))
+    await db.execute(
+        update(VideoTrackQualityRun)
+        .where(VideoTrackQualityRun.task_id == task.id)
+        .values(metrics=metrics)
+    )
     await db.commit()
     with pytest.raises(ContentError, match="video_export_quality_invalid"):
         await inputs._quality_rows(
-            db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
+            db, inputs.VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
         )
 
 
@@ -463,11 +442,13 @@ async def test_quality_projection_preserves_sampling_validation(video_db, frames
     db = video_db
     _, _, _, _, task, _ = await setup(db, collaboration=True)
     await db.execute(
-        update(VideoTrackQualityRun).values(metrics={"sampling_frames": frames})
+        update(VideoTrackQualityRun)
+        .where(VideoTrackQualityRun.task_id == task.id)
+        .values(metrics={"sampling_frames": frames})
     )
     await db.commit()
     rows = await inputs._quality_rows(
-        db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
+        db, inputs.VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
     )
     with pytest.raises(ContentError, match="video_export_quality_invalid"):
         inputs._quality_facts(rows)
@@ -480,7 +461,7 @@ async def test_quality_projection_preserves_aggregate_fact_limits(
     db = video_db
     _, _, _, _, task, _ = await setup(db, collaboration=True)
     rows = await inputs._quality_rows(
-        db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
+        db, inputs.VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget()
     )
     monkeypatch.setattr(inputs, maximum, 0)
     with pytest.raises(ContentError, match="video_export_input_budget_exceeded"):
@@ -493,7 +474,9 @@ async def test_quality_projection_same_statement_guard_blocks_enlarged_facts(
     db = video_db
     _, _, _, _, task, _ = await setup(db, collaboration=True)
     identifier = task.id
-    run_id = await db.scalar(select(VideoTrackQualityRun.id))
+    run_id = await db.scalar(
+        select(VideoTrackQualityRun.id).where(VideoTrackQualityRun.task_id == task.id)
+    )
     await db.commit()
     monkeypatch.setattr(inputs, "MAX_JSON_BYTES", 2048)
     original_execute = db.execute
@@ -519,7 +502,9 @@ async def test_quality_projection_same_statement_guard_blocks_enlarged_facts(
         monkeypatch.setattr(db, "execute", execute)
         with pytest.raises(ContentError, match="video_export_input_budget_exceeded"):
             await inputs._quality_rows(
-                db, VideoTrackQualityRun.task_id == identifier, budget=inputs._Budget()
+                db,
+                inputs.VideoTrackQualityRun.task_id == identifier,
+                budget=inputs._Budget(),
             )
     assert len(queries) == 2
     assert len(hydrated) == 1
@@ -532,9 +517,14 @@ async def test_quality_projection_same_statement_guard_blocks_enlarged_facts(
 async def test_quality_projection_row_lock_blocks_existing_run_update(video_db):
     db = video_db
     _, _, _, _, task, _ = await setup(db, collaboration=True)
-    run_id = await db.scalar(select(VideoTrackQualityRun.id))
+    run_id = await db.scalar(
+        select(VideoTrackQualityRun.id).where(VideoTrackQualityRun.task_id == task.id)
+    )
     await inputs._quality_rows(
-        db, VideoTrackQualityRun.task_id == task.id, budget=inputs._Budget(), lock=True
+        db,
+        inputs.VideoTrackQualityRun.task_id == task.id,
+        budget=inputs._Budget(),
+        lock=True,
     )
     async with async_sessionmaker(db.bind, expire_on_commit=False)() as other:
         await other.execute(text("SET LOCAL lock_timeout = '100ms'"))

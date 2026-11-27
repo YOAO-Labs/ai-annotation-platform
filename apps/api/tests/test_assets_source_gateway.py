@@ -219,8 +219,13 @@ def _deletion_receipt(request: SourceDeletionRequest) -> DatasetSourceDeletionRe
 async def test_upload_init_binds_original_workflow_even_with_source_host_configured(
     monkeypatch,
 ):
+    from app.services import assets_source
+
     monkeypatch.setattr(settings, "assets_source_url", "http://source.internal:8767")
     monkeypatch.setattr(settings, "assets_source_token", "unused")
+    monkeypatch.setattr(
+        assets_source.managed_original_creation, "bootstrap", AsyncMock()
+    )
     request = _upload_init_request()
     init = AsyncMock(
         return_value=UploadInitResult(
@@ -512,6 +517,11 @@ async def test_failed_delete_does_not_commit_caller_session(monkeypatch):
 
 @pytest.mark.parametrize("kind", ["zip", "scan"])
 async def test_ingest_passes_exact_command_and_stream_to_owner(monkeypatch, kind):
+    from app.services import assets_source
+
+    monkeypatch.setattr(
+        assets_source.managed_original_creation, "bootstrap", AsyncMock()
+    )
     command = _ingest_command()
     receipt = IngestReceipt.model_validate(_ingest_reply(command, kind=kind)["data"])
     run = AsyncMock(return_value=receipt)
@@ -881,6 +891,11 @@ async def test_ingest_public_response_is_size_bounded(monkeypatch):
 async def test_ingest_public_error_status_and_detail_mapping(
     monkeypatch, code, detail, status, public_detail
 ):
+    from app.services import assets_source
+
+    monkeypatch.setattr(
+        assets_source.managed_original_creation, "bootstrap", AsyncMock()
+    )
     command = _ingest_command()
     error = IngestFailure(
         code, IngestFailureDetail.model_validate(detail) if detail is not None else None

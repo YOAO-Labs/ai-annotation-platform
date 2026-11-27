@@ -107,12 +107,13 @@ async def test_real_dispatch_callbacks_and_nonzero_root_validation_order():
             {"id": str(task.id), "file_path": "fixed-version"},
         )
         assert operation.context["from_frame"] == 2
-        seen["dispatch"] = dispatch
+        assert dispatch is seen["dispatch"]
         return _operation(operation, (original,), dispatch)
 
     async def before(number, actual):
-        assert number == 7 and actual is seen["dispatch"]
+        assert number == 7
         assert actual.endpoint_digest == "0" * 64
+        seen["dispatch"] = actual
         events.append("guard")
 
     async def validate(number, operation, wire):
@@ -131,6 +132,7 @@ async def test_real_dispatch_callbacks_and_nonzero_root_validation_order():
         owner_prefix="test",
         route_operation="batch_predict",
         max_response_bytes=64 * 1024**2,
+        before_dispatch=before,
         validate_results=validate,
     )
     assert output.results == (converted,)

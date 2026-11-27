@@ -41,12 +41,11 @@ from app.services.annotation_evidence import (
     task_contributor_snapshot,
 )
 from app.services.labeling_tasks import LabelingTaskService
-from app.services.raster_mask_storage import (
-    build_rle_reference,
-    prepare_mask_payload_for_write,
-)
+from app.services.raster_mask_storage import build_rle_reference
+from app.services.raster_mask_validation import prepare_mask_payload_for_write
 from app.services.task_access import resolve_task_access
 from tests.factory import create_membership, create_user
+from tests.video_derivative_fixtures import owned_metadata
 
 
 RLE_A = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
@@ -169,6 +168,7 @@ async def _seed_video_task(db, owner_id: uuid.UUID):
     )
     db.add(item)
     await db.flush()
+    await owned_metadata(db, item)
     project = Project(
         display_id=f"P-MMV-{suffix}",
         name=f"mask-mutation-video-{suffix}",
@@ -429,9 +429,9 @@ async def test_mask_mutation_reads_rle_content_before_business_locks(
     original_lock_task = MaskMutationService._lock_task
     original_lock_scope = MaskMutationService._lock_scope
 
-    async def tracked_lock_task(service, task_id):
+    async def tracked_lock_task(service, task_id, *args, **kwargs):
         events.append("task_lock")
-        return await original_lock_task(service, task_id)
+        return await original_lock_task(service, task_id, *args, **kwargs)
 
     async def tracked_lock_scope(service, task_id, scope, *, for_update=True, **kwargs):
         if for_update:

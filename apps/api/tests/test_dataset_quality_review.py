@@ -192,6 +192,7 @@ async def test_cancel_resume_checkpoints_and_stale_callbacks(ready):
     batch = await make_batch(ready)
     await confirm(ready, batch)
     job = await db.get(AsyncJob, batch.async_job_id)
+    run_id = run.id
     old_id, old_task, old_generation = job.id, job.celery_task_id, batch.generation
     assert await worker.process_one(db, batch.id, job.id, old_task, old_generation)
     await db.refresh(batch)
@@ -200,7 +201,7 @@ async def test_cancel_resume_checkpoints_and_stale_callbacks(ready):
     await db.commit()
     await db.refresh(batch)
     assert batch.status == "cancelled"
-    await svc.resume(db, ds.id, run.id, batch.id, actor)
+    await svc.resume(db, ds.id, run_id, batch.id, actor)
     await db.commit()
     await db.refresh(batch)
     new_job = batch.async_job_id
@@ -213,7 +214,7 @@ async def test_cancel_resume_checkpoints_and_stale_callbacks(ready):
     await execute_all(db, batch)
     assert batch.status == "completed" and await audits(db) == 5
     revisions = list(
-        await db.scalars(select(Result.review_revision).where(Result.run_id == run.id))
+        await db.scalars(select(Result.review_revision).where(Result.run_id == run_id))
     )
     assert revisions == [1] * 5
 

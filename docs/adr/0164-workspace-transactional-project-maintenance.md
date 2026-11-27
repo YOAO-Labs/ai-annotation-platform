@@ -52,7 +52,7 @@ Audit 继续留在同一外层事务。严格解码拒绝额外字段、重复 J
 
 这些能力信任运维／管理工作流，不是新的用户 API，也不替代身份认证或项目权限围栏。
 新回复是事务内结果，不是持久幂等回执。完整 Workspace 的删除／解绑装配、其余权限
-消费者及模块资格只记录在[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
+消费者及模块资格只记录在[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)。
 
 ## Notes
 

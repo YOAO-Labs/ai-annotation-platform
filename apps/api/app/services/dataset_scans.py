@@ -11,7 +11,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from yoao_jobs.lifecycle import JobsLifecycleManager
 
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     dataset_scan_data as data,
     dataset_source_access as access,
     filesystem_storage as fs,
@@ -41,7 +41,6 @@ def path_digest(path):
 async def source_out(db, source, *, location=None, agent_status=...):
     from app.services import agent_availability
     from app.services.directory_policy import effective_cache_policy
-    from app.services.dataset_source_protection import declaration
 
     location = location or await get_location(db, source.location_id)
     if agent_status is ...:
@@ -69,7 +68,7 @@ async def source_out(db, source, *, location=None, agent_status=...):
         | source.config
         | {
             "mode": "inventory",
-            "external_protection": declaration(source),
+            "external_protection": data.external_protection(source),
             "agent_status": agent_status,
             "effective_cache_policy": effective_cache_policy(source, location)
             if location
@@ -100,10 +99,13 @@ async def source_context(db, source_id):
 
 
 async def run_context(db, run_id):
-    run = await data.execution_run(db, run_id, lock=True)
+    run = await data.execution_run(db, run_id, lock=False)
     if run is None:
         raise HTTPException(404, "Dataset scan not found")
     location, source = await source_context(db, run.source_id)
+    run = await data.execution_run(db, run_id, lock=True)
+    if run is None:
+        raise HTTPException(404, "Dataset scan not found")
     job = (
         await jobs.get_job(db, run.async_job_id, populate_existing=True)
         if run.async_job_id
@@ -174,7 +176,7 @@ async def validate_write_context(db, location, source, *, snapshot=None):
 
 
 async def create_source(db, payload, actor, *, api_key_id=None):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
     actor = await access.assert_dataset_manage(db, payload.dataset_id, actor)
@@ -224,7 +226,7 @@ async def create_source(db, payload, actor, *, api_key_id=None):
 
 
 async def update_source(db, source_id, payload, actor, *, api_key_id=None):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
     _, source = await source_context(db, source_id)
@@ -251,7 +253,7 @@ async def update_source(db, source_id, payload, actor, *, api_key_id=None):
 
 
 async def new_job(db, run, source, actor, *, api_key_id=None, key_proof=None):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     await require_actor(db, actor.id, source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
@@ -278,7 +280,7 @@ async def new_job(db, run, source, actor, *, api_key_id=None, key_proof=None):
 
 
 async def start_scan(db, source_id, actor, *, api_key_id=None):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source = await source_context(db, source_id)
@@ -328,7 +330,7 @@ async def finish(db, run, job, status, code=None):
 
 
 async def resume_scan(db, run_id, actor, *, api_key_id=None):
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
     location, source, run, job = await run_context(db, run_id)
@@ -398,7 +400,7 @@ async def claim(db, run_id, task_id, node_id):
         return None
     try:
         actor = await require_actor(db, job.user_id, source)
-        from app.services.dataset_content import key_authority
+        from app.services.dataset_source_access import key_authority
 
         if await key_authority(
             db, actor, run.snapshot.get("api_key_id"), "datasets:write"
@@ -471,7 +473,7 @@ async def fenced_context(db, run_id, task_id, fence):
         raise LostScanLease()
     actor = await require_actor(db, job.user_id, source)
     await validate_write_context(db, location, source, snapshot=run.snapshot)
-    from app.services.dataset_content import key_authority
+    from app.services.dataset_source_access import key_authority
 
     if await key_authority(
         db, actor, run.snapshot.get("api_key_id"), "datasets:write"
@@ -483,9 +485,7 @@ async def fenced_context(db, run_id, task_id, fence):
 async def next_directory(db, run_id, task_id, fence):
     location, source, run, job = await fenced_context(db, run_id, task_id, fence)
     if location.kind == "s3":
-        from app.services.s3_dataset_scan import next_page
-
-        work = await next_page(db, location, source, run, job)
+        work = await _next_s3_page(db, location, source, run, job)
         if work is not None:
             work["_fault_observation"] = await scan_fault_observation(
                 db, location, source, run, job, work
@@ -580,9 +580,7 @@ async def scan_fault_observation(db, location, source, run, job, work):
 async def apply_directory(db, run_id, task_id, fence, work, manifest):
     _, source, run, job = await fenced_context(db, run_id, task_id, fence)
     if work.get("kind") == "s3":
-        from app.services.s3_dataset_scan import apply_page
-
-        return await apply_page(db, run, job, work, manifest)
+        return await _apply_s3_page(db, run, job, work, manifest)
     if run.phase != work["phase"]:
         raise LostScanLease()
     if work["phase"] != "enumerating":
@@ -629,6 +627,64 @@ async def apply_directory(db, run_id, task_id, fence, work, manifest):
     await data.execution_run(db, run.id)
     await jobs.replace_result(db, job.id, result={**result.counts, "complete": False})
     await directory_progress(db, run, job, task_id, work, result.progress_count)
+
+
+async def _next_s3_page(db, location, source, run, job):
+    root = await data.read_directory(db, run, job, path_digest(""))
+    if root is None:
+        raise LostScanLease()
+    if root.state == "captured":
+        await finish(db, run, job, "completed")
+        return None
+    access = await reference_storage.configuration(db, location)
+    if access.anchor != run.snapshot["anchor"]:
+        raise fs.FilesystemStorageError("configuration_changed")
+    checkpoint = root.observed.get("checkpoint", {})
+    if checkpoint.get("pages", 0) >= 1000:
+        raise fs.FilesystemStorageError("scan_budget_exceeded")
+    if not await data.open_s3_page(db, run, job):
+        raise LostScanLease()
+    await data.execution_run(db, run.id)
+    await jobs.update_payload(db, job.id, {"stage": "enumerating"})
+    return {
+        "kind": "s3",
+        "location_id": location.id,
+        "maintenance_revision": run.snapshot.get("maintenance_revision", 1),
+        "config": access,
+        "path": source.config["relative_path"],
+        "cursor": checkpoint.get("cursor"),
+        "pages": checkpoint.get("pages", 0),
+    }
+
+
+async def _apply_s3_page(db, run, job, work, page):
+    config = run.snapshot["config"]
+    rows = []
+    for item in page["entries"]:
+        path = item["name"]
+        selected = selection.selected_file(config, path, "s3")
+        rows.append(
+            {
+                "path_digest": path_digest(path),
+                "relative_path": path,
+                "state": "observed" if selected else "skipped",
+                "observed": {k: v for k, v in item.items() if k != "name"},
+            }
+        )
+    result = await data.capture_s3_page(db, run, job, work, page, rows)
+    require_capture(result.outcome)
+    await data.execution_run(db, run.id)
+    await jobs.replace_result(db, job.id, result={**result.counts, "complete": False})
+    await db.flush()
+    await progress.record(
+        db,
+        job,
+        task_id=job.celery_task_id,
+        stage="scanning",
+        unit="pages",
+        completed=work["pages"] + 1,
+        marker=f"{run.id}:{run.generation}:{work['pages'] + 1}",
+    )
 
 
 def require_capture(outcome):

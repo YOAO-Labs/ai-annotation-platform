@@ -25,6 +25,7 @@ from app.db.models.training_run import (
 )
 from app.schemas.training_run import ExecutorFinish
 from app.services import training_artifacts, training_runs as service
+from app.services.training_datasets import bind_training_authority
 from tests.test_training_runs import (
     GPU,
     create_run,
@@ -77,16 +78,21 @@ async def test_new_run_freezes_members_and_old_image_cannot_claim_or_replay(
     assert run.config_digest == digest(run.config)
     claim = executor_claim()
     assert not service.runtime_compatible(run.config, claim.runtime)
-    assert await service.claim(db_session, claim) is None
+    authority = bind_training_authority(db_session)
+    assert await service.claim(db_session, claim, training_authority=authority) is None
     claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
-    assignment = await service.claim(db_session, claim)
+    assignment = await service.claim(db_session, claim, training_authority=authority)
     assert assignment["run_id"] == str(run.id)
-    assert (await service.claim(db_session, claim)) == assignment
+    assert (
+        await service.claim(db_session, claim, training_authority=authority)
+    ) == assignment
     claim.runtime["image_digest"] = "sha256:" + "f" * 64
-    assert (await service.claim(db_session, claim)) == assignment
+    assert (
+        await service.claim(db_session, claim, training_authority=authority)
+    ) == assignment
     claim.runtime.pop("input_receipt_policy_digest")
     with pytest.raises(HTTPException) as rejected:
-        await service.claim(db_session, claim)
+        await service.claim(db_session, claim, training_authority=authority)
     assert rejected.value.status_code == 409
     dataset.manifest = {**dataset.manifest, "samples": []}
     await db_session.flush()
@@ -168,7 +174,8 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
     _, dataset, run, _ = await frozen_run(db_session, httpx_client, owner, token)
     claim = executor_claim()
     claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
-    assignment = await service.claim(db_session, claim)
+    authority = bind_training_authority(db_session)
+    assignment = await service.claim(db_session, claim, training_authority=authority)
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     manifest = execution_manifest(run, attempt, dataset.manifest)
     if change == "missing":
@@ -182,6 +189,8 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
     elif change == "split":
         groups = manifest["input_membership"]["members"]
         groups["train"][0], groups["val"][0] = groups["val"][0], groups["train"][0]
+    from tests.trainer_plugin_fixtures import build_v3_receipt
+
     spec, calls, bodies, saved_owner = stored_manifest(
         monkeypatch, run, attempt, manifest
     )
@@ -190,17 +199,47 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
     )
     if change == "role":
         spec["role"] = "log"
+    extra_artifacts = {
+        f"artifact-{role}": {
+            "name": f"artifact-{role}",
+            "role": role,
+            "sha256": "d" * 64,
+            "size_bytes": 3,
+        }
+        for role in ("weights", "checkpoint", "metrics", "config", "log")
+    }
+    receipt_raw, _ = build_v3_receipt(
+        extra_artifacts, framework=run.config.get("framework", "ultralytics")
+    )
+    receipt_key = service.artifact_key(saved_owner, attempt.id, "result.json")
+    receipt_spec = {
+        "name": "result.json",
+        "role": "config",
+        "key": receipt_key,
+        "sha256": hashlib.sha256(receipt_raw).hexdigest(),
+        "size_bytes": len(receipt_raw),
+    }
+    original_get_object = training_artifacts.storage.client.get_object
+
+    def get_object_with_receipt(**kwargs):
+        if kwargs.get("Key") == receipt_key:
+            calls.append(kwargs)
+            body = io.BytesIO(receipt_raw)
+            bodies.append(body)
+            return {
+                "Body": body,
+                "Metadata": {"attempt-id": str(attempt.id)},
+                "ContentLength": len(receipt_raw),
+            }
+        return original_get_object(**kwargs)
+
+    monkeypatch.setattr(
+        training_artifacts.storage.client, "get_object", get_object_with_receipt
+    )
     attempt.upload_inventory = {
         "manifest.json": spec,
-        **{
-            f"artifact-{role}": {
-                "name": f"artifact-{role}",
-                "role": role,
-                "sha256": "d" * 64,
-                "size_bytes": 3,
-            }
-            for role in ("weights", "checkpoint", "metrics", "config", "log")
-        },
+        "result.json": receipt_spec,
+        **extra_artifacts,
     }
     original_verify = service.verify_artifact
     monkeypatch.setattr(service, "verify_artifact", lambda *args, **kwargs: None)
@@ -209,7 +248,9 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
     )
     if change is not None:
         with pytest.raises(HTTPException) as rejected:
-            await service.finish(db_session, attempt.id, body)
+            await service.finish(
+                db_session, attempt.id, body, training_authority=authority
+            )
         assert rejected.value.status_code == 422
         assert attempt.status == "preparing" and attempt.finish_request_digest is None
         assert (
@@ -218,14 +259,19 @@ async def test_success_verifies_saved_owner_manifest_before_terminal_and_replay(
         body = ExecutorFinish(
             **fence(claim, assignment), status="failed", process_exited=True
         )
-    finished = await service.finish(db_session, attempt.id, body)
+    finished = await service.finish(
+        db_session, attempt.id, body, training_authority=authority
+    )
     assert finished.status == ("failed" if change else "succeeded")
     assert (
         await db_session.get(TrainingResourceLease, "test/" + GPU)
     ).attempt_id is None
     reads = len(calls)
     monkeypatch.setattr(service, "verify_artifact", original_verify)
-    assert await service.finish(db_session, attempt.id, body) is finished
+    assert (
+        await service.finish(db_session, attempt.id, body, training_authority=authority)
+        == finished
+    )
     assert len(calls) == reads
     assert all(call["Bucket"] == saved_owner.bucket for call in calls)
     assert all(body.closed for body in bodies)
@@ -275,7 +321,8 @@ async def test_stopped_new_contract_releases_lease_without_input_receipt(
     _, _, run, _ = await frozen_run(db_session, httpx_client, owner, token)
     claim = executor_claim()
     claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
-    assignment = await service.claim(db_session, claim)
+    authority = bind_training_authority(db_session)
+    assignment = await service.claim(db_session, claim, training_authority=authority)
     if cancel_requested:
         run.status = "cancelling"
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
@@ -292,6 +339,7 @@ async def test_stopped_new_contract_releases_lease_without_input_receipt(
             process_exited=True,
             status="succeeded" if cancel_requested else "failed",
         ),
+        training_authority=authority,
     )
     assert result.status == ("cancelled" if cancel_requested else "failed")
     assert (
@@ -306,7 +354,8 @@ async def test_resume_keeps_contract_but_requires_new_attempt_observation(
     project, dataset, run, _ = await frozen_run(db_session, httpx_client, owner, token)
     claim = executor_claim()
     claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
-    assignment = await service.claim(db_session, claim)
+    authority = bind_training_authority(db_session)
+    assignment = await service.claim(db_session, claim, training_authority=authority)
     old = await db_session.get(TrainingAttempt, run.current_attempt_id)
     old_receipt = execution_manifest(run, old, dataset.manifest)["input_membership"]
     config = deepcopy(run.config)
@@ -318,6 +367,7 @@ async def test_resume_keeps_contract_but_requires_new_attempt_observation(
             status="failed",
             process_exited=True,
         ),
+        training_authority=authority,
     )
     saved_owner = service.attempt_storage_owner(run, old)
     old.artifacts = {
@@ -344,8 +394,10 @@ async def test_resume_keeps_contract_but_requires_new_attempt_observation(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 202, response.text
+    await db_session.refresh(run)
     assert run.config == config and run.current_attempt_id != old.id
-    assignment = await service.claim(db_session, claim)
+    authority = bind_training_authority(db_session)
+    assignment = await service.claim(db_session, claim, training_authority=authority)
     current = await db_session.get(TrainingAttempt, run.current_attempt_id)
     assert assignment["config"] == config and assignment["attempt_id"] == str(
         current.id

@@ -1,16 +1,18 @@
 """Saved annotation-file addresses; allocation alone follows the binding."""
 
-from dataclasses import dataclass, replace
 import re
+import uuid
+from dataclasses import dataclass, replace
 
 from sqlalchemy.exc import DBAPIError
-import uuid
 
 from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.export_storage import _endpoint as _parse_endpoint, _plain
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
+from app.services.storage_errors import AnnotationsStorageError
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
+from app.services.storage_identity import parse_endpoint as _parse_endpoint
+from app.services.storage_identity import plain as _plain
 from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 MANAGED_NAMESPACE = "_aap_managed/annotations/"
@@ -45,12 +47,6 @@ _FIELDS = frozenset(
         "storage_identity",
     }
 )
-
-
-class AnnotationsStorageError(ValueError):
-    def __init__(self, code, message=None, *, status_code=409):
-        super().__init__(message or "标注文件存储归属或目标能力无法核实")
-        self.code, self.status_code = code, status_code
 
 
 def _reject(code="annotations_storage_identity_changed"):

@@ -1,7 +1,7 @@
 """Durable per-submission facts at the actual media writer boundaries."""
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import timedelta
 import hashlib
 import io
@@ -384,9 +384,11 @@ def test_owned_single_attempt_client_preserves_default_shared_client(monkeypatch
         options.append(kwargs["client_config"])
         return SimpleNamespace(client=owned)
 
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+
     monkeypatch.setattr(storage_module, "StorageService", factory)
     target = Target(
-        uuid.uuid4(),
+        LEGACY_LOCATION_ID,
         1,
         None,
         owned.meta.endpoint_url,
@@ -409,8 +411,18 @@ def test_owned_constructor_failure_preserves_unsettled_transport(monkeypatch):
     def broken(**kwargs):
         raise OSError("transport construction failed")
 
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+
     monkeypatch.setattr(storage_module, "StorageService", broken)
-    target = Target(uuid.uuid4(), 1, None, Provider().meta.endpoint_url, "saved", "")
+    target = Target(
+        LEGACY_LOCATION_ID,
+        1,
+        None,
+        Provider().meta.endpoint_url,
+        "saved",
+        "",
+        _legacy_client=object(),
+    )
     with pytest.raises(OSError) as failure:
         with target.client(single_attempt=True):
             pytest.fail("the failed constructor cannot yield a transport")
@@ -495,6 +507,8 @@ async def test_actual_minio_writer_seams_match_current_bytes(
                 return root, overview, 1, 1, 1, 1
 
             monkeypatch.setattr(worker, "_generate_local", generated)
+            stage_dir = tmp_path / "stage"
+            stage_dir.mkdir()
             with storage_access.closing_registered(path.open("rb")) as source:
                 await asyncio.to_thread(
                     worker._build_generation,
@@ -509,6 +523,7 @@ async def test_actual_minio_writer_seams_match_current_bytes(
                         file=source, sha256=receipt(data)["sha256"], size=len(data)
                     ),
                     output=output,
+                    native_stage=nullcontext(stage_dir),
                     accounting=rec,
                 )
         else:

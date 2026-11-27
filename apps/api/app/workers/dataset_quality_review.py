@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import HTTPException
 
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import dataset_quality_review as svc
 from app.services.dataset_quality_data import QualityData
 from app.workers.celery_app import celery_app

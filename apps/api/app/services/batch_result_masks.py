@@ -18,8 +18,8 @@ from app.services.raster_mask_storage import (
     assert_raster_mask_write_enabled,
     build_rle_reference,
     store_generated_mask_content,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.labeling_core_read_relations import get_core_row, task_row
 
 

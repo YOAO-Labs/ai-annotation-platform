@@ -10,10 +10,11 @@ import uuid
 from fastapi import HTTPException
 import pytest
 
+from app.application.dataset_reference_registration import apply_copy
+from app.application import dataset_ingest
 from app.db.models.dataset import Dataset
 from app.services import dataset as datasets
 from app.services import dataset_assets
-from app.services import dataset_references
 from app.services import content_snapshot
 
 
@@ -62,14 +63,20 @@ async def ingest(db_session, super_admin, monkeypatch):
         )
     )
     await db_session.flush()
-    service = datasets.DatasetService(db_session)
+    service = dataset_ingest.DatasetIngestWorkflow(db_session)
     item = SimpleNamespace(id=uuid.uuid4(), metadata_={})
-    service._unique_file_name = AsyncMock(return_value="folder/file.txt")
-    service._find_by_file_path = AsyncMock(return_value=None)
-    service.add_item = AsyncMock(return_value=item)
-    service.create_tasks_for_items = AsyncMock(return_value=2)
-    monkeypatch.setattr(datasets, "validate_dataset_write", AsyncMock())
-    monkeypatch.setattr(datasets, "find_verified_content", AsyncMock(return_value=None))
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+
+    service.assets._unique_file_name = AsyncMock(return_value="folder/file.txt")
+    service.assets._find_by_file_path = AsyncMock(return_value=None)
+    service.assets.add_item = AsyncMock(return_value=item)
+    monkeypatch.setattr(
+        DatasetTaskCreationWorkflow, "append_items", AsyncMock(return_value=2)
+    )
+    monkeypatch.setattr(dataset_ingest, "validate_dataset_write", AsyncMock())
+    monkeypatch.setattr(
+        dataset_ingest, "find_verified_content", AsyncMock(return_value=None)
+    )
     monkeypatch.setattr(datasets.storage_service, "delete_object", Mock())
     return service, dataset_id, item
 
@@ -106,7 +113,7 @@ async def test_connector_attaches_only_verified_creation_in_caller_transaction(
     originals.create_stream.assert_awaited_once_with(
         service.db, allocation, stream, content_type="text/plain"
     )
-    fields = service.add_item.await_args.kwargs
+    fields = service.assets.add_item.await_args.kwargs
     assert fields["file_path"] == allocation["object_key"]
     assert fields["sha256"] == receipt.sha256
     assert fields["object_etag"] == receipt.etag
@@ -121,14 +128,14 @@ async def test_connector_dedupe_retains_unlinked_creation(
     service, dataset_id, _ = ingest
     duplicate = SimpleNamespace(id=uuid.uuid4(), file_type="other")
     monkeypatch.setattr(
-        datasets, "find_verified_content", AsyncMock(return_value=duplicate)
+        dataset_ingest, "find_verified_content", AsyncMock(return_value=duplicate)
     )
     outcome = await service.ingest_one(
         dataset_id, "file.txt", io.BytesIO(b"sealed bytes"), max_bytes=12
     )
     assert outcome.status == "skipped" and outcome.item_id == duplicate.id
     assert outcome.file_size == receipt.size_bytes
-    service.add_item.assert_not_awaited()
+    service.assets.add_item.assert_not_awaited()
     originals.attach.assert_not_awaited()
     datasets.storage_service.delete_object.assert_not_called()
 
@@ -140,9 +147,9 @@ async def test_connector_failures_never_delete_sealed_final(
     originals, _, _ = creation
     service, dataset_id, _ = ingest
     if failure == "authority":
-        datasets.validate_dataset_write.side_effect = [None, HTTPException(403)]
+        dataset_ingest.validate_dataset_write.side_effect = [None, HTTPException(403)]
     elif failure == "business":
-        service.add_item.side_effect = RuntimeError("business rollback")
+        service.assets.add_item.side_effect = RuntimeError("business rollback")
     else:
         originals.attach.side_effect = RuntimeError("link rollback")
     with pytest.raises((HTTPException, RuntimeError)):
@@ -163,7 +170,7 @@ async def test_scan_of_existing_object_never_invents_creation(creation, ingest):
     originals.allocate.assert_not_awaited()
     originals.create_stream.assert_not_awaited()
     originals.attach.assert_not_awaited()
-    assert service.add_item.await_args.kwargs["sha256"] is None
+    assert service.assets.add_item.await_args.kwargs["sha256"] is None
 
 
 @pytest.mark.parametrize("mismatch", [None, "sha256", "size_bytes"])
@@ -204,7 +211,7 @@ async def test_directory_copy_rechecks_sealed_creation_without_preview_ownership
     elif mismatch == "size_bytes":
         receipt.size_bytes += 1
     uploaded_previews = []
-    call = dataset_references.apply_copy(
+    call = apply_copy(
         db,
         source,
         entry,

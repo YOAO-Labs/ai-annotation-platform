@@ -27,6 +27,7 @@ class RetryCredentialAuthority:
     authorization: str
     api_key_id: str | None = None
     api_key_scopes: tuple[str, ...] | None = None
+    identity_principal: object | None = None
 
     @classmethod
     def from_request(cls, actor_id: UUID, request) -> "RetryCredentialAuthority":
@@ -38,6 +39,7 @@ class RetryCredentialAuthority:
             authorization=request.headers.get("authorization", ""),
             api_key_id=str(key_id) if key_id is not None else None,
             api_key_scopes=tuple(scopes) if scopes is not None else None,
+            identity_principal=getattr(state, "identity_principal", None),
         )
 
 
@@ -69,9 +71,18 @@ class AsyncJobReadPort(Protocol):
         search: str | None,
         limit: int,
         offset: int,
+        api_key_id: UUID | None = None,
+        api_key_scopes: tuple[str, ...] | None = None,
     ) -> AsyncJobListResponse: ...
 
-    async def get_job(self, *, job_id: UUID, actor_id: UUID) -> AsyncJobOut | None: ...
+    async def get_job(
+        self,
+        *,
+        job_id: UUID,
+        actor_id: UUID,
+        api_key_id: UUID | None = None,
+        api_key_scopes: tuple[str, ...] | None = None,
+    ) -> AsyncJobOut | None: ...
 
 
 class JobCancellationPort(Protocol):

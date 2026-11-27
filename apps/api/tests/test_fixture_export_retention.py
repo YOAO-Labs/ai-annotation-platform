@@ -14,7 +14,7 @@ from app.db.models.fixture_run import (
     FixtureRun,
     FixtureRunResource,
 )
-from app.services import async_job, export_outputs
+from app.services import jobs_lifecycle_data as async_job, export_outputs
 from app.services.exporting import lidar_jobs
 from tests import test_export_media_bundle_models as bundle_models
 from tests.factory import create_project, create_user

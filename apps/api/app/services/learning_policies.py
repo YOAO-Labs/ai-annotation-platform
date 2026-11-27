@@ -23,7 +23,7 @@ from app.services import (
 )
 from app.services import training_adapters as adapters
 from app.services import training_claims as claims
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_terminal import JobTerminal
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.training_dataset_bridge import (

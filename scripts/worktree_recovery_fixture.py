@@ -797,7 +797,7 @@ async def seed(db, external: Path):
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
     from app.schemas.training_dataset import TrainingDatasetSelection
     from app.services import (
-        async_job as jobs,
+        jobs_lifecycle_data as jobs,
         original_cache as cache,
         prediction_inputs,
         directory_previews,
@@ -831,7 +831,7 @@ async def seed(db, external: Path):
         world = await rescan(db, world)
         await accept_all_files(db, world)
         from app.schemas.dataset_source import SourceExternalProtectionUpdate
-        from app.services import dataset_source_protection
+        from app.services import dataset_scan_data, dataset_source_protection
 
         await dataset_source_protection.update(
             db,
@@ -1355,7 +1355,7 @@ async def seed(db, external: Path):
                 "source_id": str(world[5].id),
                 "location_id": str(world[4].id),
                 "root_handle": "test",
-                "external_protection": dataset_source_protection.declaration(world[5]),
+                "external_protection": dataset_scan_data.external_protection(world[5]),
                 "backed_up": False,
             }
         ]
@@ -1424,11 +1424,11 @@ async def verify_application(db, external: Path):
     actor = await db.scalar(select(User).where(User.role == "super_admin"))
     assert actor is not None
     from app.db.models.dataset_source import DatasetSource
-    from app.services import dataset_source_protection
+    from app.services import dataset_scan_data
 
     declared_sources = list(await db.scalars(select(DatasetSource)))
     assert len(declared_sources) == 1
-    declaration = dataset_source_protection.declaration(declared_sources[0])
+    declaration = dataset_scan_data.external_protection(declared_sources[0])
     assert declaration["revision"] == 1
     assert declaration["responsible_party"] == "External original owner"
     assert declaration["recovery_method"] == "external_backup"

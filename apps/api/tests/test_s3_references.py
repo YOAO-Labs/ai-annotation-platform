@@ -27,7 +27,8 @@ from app.schemas.dataset_source import DatasetSourceCreate
 from app.services import dataset_scans as scans, dataset_content as content
 from app.services import storage_location as locations
 from app.services.content_snapshot import ContentError
-from app.services.dataset_references import register_entry, reference_snapshot
+from app.application.dataset_reference_registration import register_entry
+from app.services.dataset_references import reference_snapshot
 from app.services.filesystem_storage import FilesystemStorageError
 from tests.reference_provider_fixture import use_provider
 from yoao_assets_source.connectors import s3_socket
@@ -125,9 +126,10 @@ async def s3_world(db_session, super_admin, monkeypatch):
     db_session.add_all([connection, dataset])
     await db_session.flush()
     location = await locations.register_connection(db_session, connection)
+    connection_config = dict(connection.config)
     monkeypatch.setattr(backend.S3Reader, "_client", client)
     use_provider(
-        monkeypatch, location.id, lambda: backend.S3Reader(connection.config, {}, ())
+        monkeypatch, location.id, lambda: backend.S3Reader(connection_config, {}, ())
     )
     for node in ["worker:content@test", locations.api_node_id()]:
         result = await locations.perform_probe(

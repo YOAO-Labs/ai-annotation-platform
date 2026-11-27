@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime, timedelta
+import os
 from uuid import uuid4
 
 import pytest
+
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -24,6 +26,15 @@ from tests.test_gpu_arbiter_proof_recovery import (
 import json
 
 from sqlalchemy.exc import DBAPIError
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 async def _step(factory, action, arguments):

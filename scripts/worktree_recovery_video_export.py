@@ -398,7 +398,10 @@ async def _new_job(db, *, state, project, actor, storage, expected, source_facts
 async def _interrupt_after_pending_zip(db, receipt):
     from sqlalchemy import select
     from app.db.models.export_output import ExportOutput
-    from app.services import async_job as jobs, export_media_bundles as bundles
+    from app.services import (
+        jobs_lifecycle_data as jobs,
+        export_media_bundles as bundles,
+    )
     from app.services import export_outputs, export_storage
     from app.services.exporting import video_delivery, video_inputs
     from app.services.exporting.packaging import build_export_zip

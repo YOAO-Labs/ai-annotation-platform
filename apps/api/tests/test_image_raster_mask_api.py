@@ -245,8 +245,11 @@ async def test_single_frame_video_mask_get_is_bound_to_its_frame(
     await db_session.refresh(item)
     item.width = 3
     item.height = 2
-    item.metadata_ = {"video": {"frame_count": 10}}
+    item.metadata_ = {"video": {"width": 3, "height": 2, "frame_count": 10}}
     item.media_materialized_generation = item.media_source_generation
+    from tests.video_derivative_fixtures import owned_metadata
+
+    await owned_metadata(db_session, item)
     await db_session.commit()
 
     static = await httpx_client.get(

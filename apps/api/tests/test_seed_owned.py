@@ -12,6 +12,7 @@ service, mirroring the existing `test_seed_router.py` harness.
 from __future__ import annotations
 
 from contextlib import closing
+import os
 import uuid
 
 import pytest
@@ -40,7 +41,13 @@ from tests.seed_owned_scenarios import (
     _owned_project_name,
 )
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @pytest.mark.parametrize(

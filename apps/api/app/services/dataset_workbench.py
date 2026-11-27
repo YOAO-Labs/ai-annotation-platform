@@ -22,6 +22,7 @@ from sqlalchemy.orm import aliased
 
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
+from app.services.dataset_item_display import list_items
 from app.services import agent_availability, assets_dataset_data
 from app.services.data_management.task_filters import (
     apply_task_visibility,
@@ -343,14 +344,10 @@ async def item_page(
             )
         ).mappings()
     )
-    from app.services.dataset import DatasetService
-
     ids = [row["item_id"] for row in rows]
     if not ids:
         return [], total
-    items, _ = await DatasetService(db).list_items(
-        dataset_id, limit=limit, item_ids=ids
-    )
+    items, _ = await list_items(db, dataset_id, limit=limit, item_ids=ids)
     by_id = {item["id"]: item for item in items}
     return [
         dict(by_id[row["item_id"]], availability=availability(row))

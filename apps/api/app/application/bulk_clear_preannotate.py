@@ -12,7 +12,7 @@ from app.db.models.project import Project
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorFacts, IdentityActorStatus
 from app.services.annotation_cleanup import detach_prediction_parents_for_tasks
-from app.services.async_job import delete_batch_predict_jobs
+from app.services.jobs_lifecycle_data import delete_batch_predict_jobs
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
 from app.services.batch import BatchService

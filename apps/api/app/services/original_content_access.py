@@ -1,5 +1,7 @@
 """Fresh Task read authority and bounded locks around original-byte capture."""
 
+from datetime import datetime, timezone
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
@@ -58,6 +60,8 @@ def check_clock(proof, key=None):
             credentials.check_clock(proof)
         except HTTPException as exc:
             raise credential_error(exc) from None
+    if key is not None and key[2] is not None and key[2] <= datetime.now(timezone.utc):
+        raise HTTPException(403, {"code": "api_key_authority_revoked"})
 
 
 async def visible_task(db, task_id, actor, *, lock=False, wait_for_task=False):

@@ -300,9 +300,9 @@ def _start_container(
     image: str,
     identity: str,
     environment_file: Path,
-    entrypoint: str,
+    entrypoint: str | None,
     command: list[str],
-    user: str,
+    user: str | None,
     cpus: str,
     memory: str,
     port: int | None = None,
@@ -323,8 +323,6 @@ def _start_container(
         "ALL",
         "--security-opt",
         "no-new-privileges:true",
-        "--user",
-        user,
         "--pids-limit",
         "64",
         "--tmpfs",
@@ -340,7 +338,11 @@ def _start_container(
     ]
     if port is not None:
         arguments.extend(["--publish", f"127.0.0.1::{port}"])
-    arguments.extend(["--entrypoint", entrypoint, image, *command])
+    if user is not None:
+        arguments.extend(["--user", user])
+    if entrypoint is not None:
+        arguments.extend(["--entrypoint", entrypoint])
+    arguments.extend([image, *command])
     container_id = _docker(*arguments, timeout=120)
     if re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
         pytest.fail(
@@ -357,7 +359,7 @@ def _verify_container(
     image: str,
     identity: str,
     environment_file: Path,
-    entrypoint: str,
+    entrypoint: str | None,
     command: list[str],
     user: str,
     cpus: str,
@@ -374,7 +376,7 @@ def _verify_container(
         observed.get("Id") == container_id
         and observed.get("Name") == f"/{name}"
         and config.get("Image") == image
-        and config.get("Entrypoint") == [entrypoint]
+        and (config.get("Entrypoint") or []) == ([entrypoint] if entrypoint else [])
         and config.get("Cmd") == command
         and config.get("User") == user
         and environment_file.stat().st_mode & 0o777 == 0o600
@@ -412,8 +414,13 @@ def _verify_container(
     return f"http://127.0.0.1:{int(bindings[0]['HostPort'])}"
 
 
-def _launch_container(*, owned: list[str], **settings) -> tuple[str, str | None]:
-    container_id = _start_container(**settings)
+def _launch_container(
+    *, owned: list[str], use_image_defaults: bool = False, **settings
+) -> tuple[str, str | None]:
+    launch = settings
+    if use_image_defaults:
+        launch = {**settings, "user": None, "entrypoint": None, "command": []}
+    container_id = _start_container(**launch)
     owned.append(container_id)
     origin = _verify_container(container_id=container_id, **settings)
     return container_id, origin

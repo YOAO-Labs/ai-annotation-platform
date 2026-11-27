@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 import pytest
 
 from app.services import avatar, avatar_storage, avatar_storage_target as targets
+from app.services.source_readers.s3 import ScopedS3Access
 from tests.test_avatar_storage import TOKEN, external_reference
 
 
@@ -18,7 +19,10 @@ def missing():
     return ClientError({"Error": {"Code": "NoSuchKey"}}, "GetObject")
 
 
-class Objects:
+class Objects(ScopedS3Access):
+    __setattr__ = object.__setattr__
+    __delattr__ = object.__delattr__
+
     def __init__(self, version=None):
         self.version = version
         self.objects = {}
@@ -283,31 +287,53 @@ def test_unversioned_retirement_checks_full_saved_bytes_before_delete():
 
 
 def connection_target(*, enabled=True):
+    connection_id = uuid.uuid4()
     location = SimpleNamespace(
         id=uuid.uuid4(),
+        name="avatars-location",
         config_revision=3,
-        connection_id=uuid.uuid4(),
+        config={},
+        connection_id=connection_id,
         kind="s3",
         enabled=enabled,
     )
     connection = SimpleNamespace(
+        id=connection_id,
+        name="avatars-connection",
         kind="s3",
         scope="global",
         project_id=None,
+        created_by=None,
         config={
             "endpoint": "https://registered.example.test",
             "bucket": "avatars-target",
             "base_prefix": "team/图片/",
         },
         revision=4,
-        secret_enc=b"private-encrypted-secret",
+        secret_set=True,
     )
     return location, connection
 
 
+def origin_db(connection, location=None):
+    async def execute(statement, params=None):
+        sql = str(statement)
+        if "connector_origin" in sql:
+            row = vars(connection) if connection is not None else None
+        elif "location_facts" in sql:
+            row = vars(location) if location is not None else None
+        else:
+            row = None
+        return SimpleNamespace(
+            mappings=lambda: SimpleNamespace(one_or_none=lambda: row)
+        )
+
+    return SimpleNamespace(execute=AsyncMock(side_effect=execute))
+
+
 async def test_capture_contains_no_network_and_keeps_credentials_private(monkeypatch):
     location, connection = connection_target()
-    db = SimpleNamespace(get=AsyncMock(return_value=connection))
+    db = origin_db(connection)
     monkeypatch.setattr(
         targets.connector_guard,
         "get_allowlist",
@@ -335,7 +361,7 @@ async def test_disabled_target_can_be_validated_as_mapping_but_not_allocated(
     monkeypatch,
 ):
     location, connection = connection_target(enabled=False)
-    db = SimpleNamespace(get=AsyncMock(return_value=connection))
+    db = origin_db(connection)
     monkeypatch.setattr(
         targets.connector_guard, "get_allowlist", AsyncMock(return_value=[])
     )
@@ -352,7 +378,7 @@ async def test_disabled_target_can_be_validated_as_mapping_but_not_allocated(
         ("kind", "sftp"),
         ("scope", "owner"),
         ("project_id", uuid.uuid4()),
-        ("secret_enc", None),
+        ("secret_set", False),
     ],
 )
 async def test_only_existing_global_credentialed_s3_is_a_target(
@@ -360,7 +386,7 @@ async def test_only_existing_global_credentialed_s3_is_a_target(
 ):
     location, connection = connection_target()
     setattr(connection, field, value)
-    db = SimpleNamespace(get=AsyncMock(return_value=connection))
+    db = origin_db(connection)
     monkeypatch.setattr(
         targets.connector_guard, "get_allowlist", AsyncMock(return_value=[])
     )
@@ -379,18 +405,15 @@ async def test_io_target_uses_rotated_credentials_without_rewriting_saved_locati
     connection.config.update(
         endpoint=ref["endpoint_url"], bucket=ref["bucket"], base_prefix="team/图片/"
     )
-    connection.secret_enc = b"rotated-encrypted-secret"
 
-    db = SimpleNamespace(get=AsyncMock(return_value=connection))
-    monkeypatch.setattr(
-        avatar_storage.registry, "get_location", AsyncMock(return_value=location)
-    )
+    db = origin_db(connection, location)
     monkeypatch.setattr(
         targets.connector_guard, "get_allowlist", AsyncMock(return_value=[])
     )
     row = SimpleNamespace(token=TOKEN, storage_ref=ref, sha256="a" * 64, size_bytes=1)
     captured = await avatar_storage.io_target(db, row)
-    assert captured._access.secret_enc == b"rotated-encrypted-secret"
+    assert captured.is_registered and captured._access is None
+    assert captured.connection_revision == 100
     assert captured.config_revision == 99 and row.storage_ref == ref
 
 

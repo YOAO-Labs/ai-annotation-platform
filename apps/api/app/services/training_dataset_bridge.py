@@ -8,31 +8,27 @@ import math
 import zipfile
 from copy import deepcopy
 from pathlib import Path
-from yoao_task_contract import normalize_task
-from app.services import storage_access
+
 from training_contract.dataset import (
     DETECTION_CONTRACT,
-    DatasetContractError,
+    INSTANCE_RLE_CONTRACT,
+    INSTANCE_RLE_LIMITS,
     LEGACY_SEGMENTATION_CONTRACT,
     SEGMENTATION,
     SEGMENTATION_CONTRACT,
+    DatasetContractError,
     data_contract,
-    segmentation_labels,
-    INSTANCE_RLE_CONTRACT,
-    INSTANCE_RLE_LIMITS,
-    is_instance_rle,
     instance_rle_budget,
     instance_rle_evidence,
+    is_instance_rle,
     polygon_area,
+    segmentation_labels,
 )
 from training_contract.lineage import validate_source_lineage
+from yoao_task_contract import normalize_task
 
-
-class TrainingDatasetError(ValueError):
-    def __init__(self, code: str, message: str, *, status_code: int = 422):
-        super().__init__(message)
-        self.code = code
-        self.status_code = status_code
+from app.services import storage_access
+from app.services.storage_errors import TrainingDatasetError
 
 
 def contract_of(record):
@@ -403,9 +399,10 @@ def semantic_partitions(manifest: dict) -> dict:
 
 def instance_rle_payload(sample, classes, width, height, *, load_rle=None):
     """Materialize only frozen sources, one instance at a time, never contours."""
+    from training_contract.dataset import instance_mask_annotations
+
     from app.services.mask_conversion import rasterize_region_geometry
     from app.services.raster_mask_storage import load_coco_rle_sync
-    from training_contract.dataset import instance_mask_annotations
 
     annotations = sample["annotations"]
     instance_mask_annotations(annotations, classes, width, height)
@@ -471,7 +468,7 @@ def instance_rle_semantic(instances):
 
 def build_instance_rle_package(snapshot, media, output, *, parent_manifest=None):
     """Spool encoded labels instead of retaining the whole dataset in RAM."""
-    from app.services.training_dataset_originals import temporary_directory
+    from app.services.training_dataset_staging import temporary_directory
 
     with temporary_directory(prefix="training-rle-") as temporary:
         return _build_instance_rle_package(

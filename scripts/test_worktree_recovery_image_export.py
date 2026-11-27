@@ -122,7 +122,10 @@ class RecoveryImageContracts(unittest.TestCase):
 
 class RecoveryImageSeed(unittest.IsolatedAsyncioTestCase):
     async def interrupted(self, *, wrong_candidate=False):
-        from app.services import async_job as jobs, export_media_bundles as bundles
+        from app.services import (
+            jobs_lifecycle_data as jobs,
+            export_media_bundles as bundles,
+        )
         from app.services import export_outputs, export_storage
         from app.services.exporting import (
             image_delivery,

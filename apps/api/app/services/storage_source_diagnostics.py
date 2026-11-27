@@ -3,9 +3,9 @@
 from sqlalchemy import Text, Uuid, cast, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_workbench import STATES, available_cache_ids
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.storage_registry_data import get_location
 
 PREVIEW_STATES = ("ready", "failed", "unrecorded", "not_requested", "blocked")

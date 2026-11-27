@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.application.quality_execution import _AsyncJobLifecycle
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.notification import Notification
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.notification import NotificationService
 
 

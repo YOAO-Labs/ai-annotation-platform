@@ -686,6 +686,12 @@ async def test_same_task_stage_cannot_switch_physical_instance_after_dispatch(
     world = setup_job()
     live_inputs(world)
     first = uuid.uuid4()
+
+    @asynccontextmanager
+    async def session(_db):
+        yield world.db
+
+    monkeypatch.setattr(originals, "_session", session)
     monkeypatch.setattr(world.owner, "_fresh", AsyncMock())
     monkeypatch.setattr(world.owner, "_task", AsyncMock())
     install_backend(monkeypatch, first)
@@ -711,6 +717,12 @@ async def test_final_sql_fences_recorded_dispatch_and_owned_source(monkeypatch, 
     source = SimpleNamespace(closed=True, settled=True, unsettled=False)
     world.owner.sources[world.task.id] = source
     world.owner.finished.add(world.task.id)
+
+    @asynccontextmanager
+    async def session(_db):
+        yield world.db
+
+    monkeypatch.setattr(originals, "_session", session)
     monkeypatch.setattr(world.owner, "_fresh", AsyncMock())
     monkeypatch.setattr(world.owner, "_task", AsyncMock(return_value=world.task))
     install_backend(monkeypatch, actual_id)

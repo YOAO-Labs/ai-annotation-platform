@@ -26,7 +26,7 @@ from app.config import settings
 from app.services.storage import storage_service
 from app.db.models.async_job import AsyncJob, AsyncJobKind, AsyncJobStatus
 from app.db.models.audit_archive_output import AuditArchiveOutput
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import audit_archive_storage as archive_storage
 from app.services import conditional_write_accounting
 from app.services import saved_output_io

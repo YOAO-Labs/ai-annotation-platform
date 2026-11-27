@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.enums import PlatformRole, ProjectRole
 from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
-from app.services import async_job as jobs, task_access
+from app.services import jobs_lifecycle_data as jobs, task_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from yoao_workspace_contract.access import ProjectCapability
@@ -17,6 +17,24 @@ from app.services.project_access import resolve_project_access
 EXPORT_JOB_KIND = "export"
 GLOBAL_ASYNC_JOB_KINDS = frozenset(
     {AsyncJobKind.AUDIT_ARCHIVE.value, AsyncJobKind.DATASET_IMPORT.value}
+)
+PLATFORM_STORAGE_ADMIN_JOB_KINDS = frozenset(
+    {
+        "storage_usage",
+        "managed_original_verification",
+        "managed_original_reclaim",
+        "managed_reference_reconciliation",
+        "storage_migration_inventory",
+        "storage_migration_copy",
+    }
+)
+DATASET_ASYNC_JOB_KINDS = frozenset(
+    {
+        "dataset_scan",
+        "dataset_registration",
+        "dataset_quality",
+        "dataset_quality_review",
+    }
 )
 
 
@@ -30,21 +48,9 @@ async def _can_access_job(
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active:
         return False
-    if job.kind in {
-        "storage_usage",
-        "managed_original_verification",
-        "managed_original_reclaim",
-        "managed_reference_reconciliation",
-        "storage_migration_inventory",
-        "storage_migration_copy",
-    }:
+    if job.kind in PLATFORM_STORAGE_ADMIN_JOB_KINDS:
         return actor.role == PlatformRole.SUPER_ADMIN.value
-    if job.kind in {
-        "dataset_scan",
-        "dataset_registration",
-        "dataset_quality",
-        "dataset_quality_review",
-    }:
+    if job.kind in DATASET_ASYNC_JOB_KINDS:
         data = JobsDomainQueryPostgresData(db)
         return await data.dataset_job_visible(actor.id, job.id)
     project_id = job.project_id or job.retained_project_id

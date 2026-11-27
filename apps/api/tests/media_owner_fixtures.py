@@ -62,6 +62,10 @@ class FakeMediaStorage:
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
         return f"http://storage.local/{key}"
 
+    def bind_original(self, permit) -> "FakeMediaStorage":
+        del permit
+        return self
+
 
 class MediaOwnerTestBinding:
     """A same-session Assets provider and deterministic S3 double."""
@@ -132,8 +136,10 @@ class MediaOwnerTestBinding:
 
     async def seed_video_item(self, item, actor_id: UUID) -> c.MediaSource:
         """Publish current metadata/timetable and portable playback references."""
+        from tests.video_derivative_fixtures import RAW_VIDEO
+
         self.item_ids.add(item.id)
-        source_bytes = f"video-fixture:{item.id}".encode()
+        source_bytes = RAW_VIDEO
         identity = self.storage.register_source(item.file_path, source_bytes)
         item.file_size = identity.byte_size
         item.content_hash = hashlib.sha256(source_bytes).hexdigest()
@@ -202,6 +208,59 @@ class MediaOwnerTestBinding:
                 result=result,
             ),
         )
+        from app.services import (
+            storage_access,
+            video_derivative_objects as vobjects,
+            video_derivative_originals as voriginals,
+            video_derivative_storage as vphysical,
+            video_derivatives as vcore,
+        )
+        from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
+        from tests.video_derivative_fixtures import inventory
+
+        await register_item_asset(
+            self.db,
+            item,
+            sha256=source_sha256,
+            size_bytes=identity.byte_size,
+        )
+        await storage_access.ensure(self.db, LEGACY_LOCATION_ID)
+        pinned = await voriginals.pin(self.db, "dataset_item", item.id)
+        authority = await voriginals.delegated(
+            self.db, voriginals.system_authorization("dataset_item", item.id, pinned)
+        )
+        output, _ = await vcore.prepare(
+            self.db, item.id, authority, "metadata", spec={"schema": 1}, force=True
+        )
+        owner = vphysical.resolve(output)
+        token = output.lease_token or await vobjects.claim(self.db, output)
+        revision = await storage_access.check(self.db, LEGACY_LOCATION_ID)
+        owned_result = {
+            "schema": 1,
+            "kind": "metadata",
+            "video": {
+                **metadata_patch,
+                "poster_frame_path": owner.key("poster.webp"),
+                "playback_path": owner.key("playback.mp4"),
+            },
+            "frames": [],
+        }
+        await vcore.publish(
+            self.db,
+            output,
+            authority,
+            token,
+            owned_result,
+            inventory(
+                output,
+                owned_result,
+                {"poster.webp": b"fixture poster", "playback.mp4": b"fixture playback"},
+            ),
+            revision,
+        )
+        await self.db.refresh(item)
+        item.media_materialized_generation = item.media_source_generation
+        await self.db.flush()
         return await self._source(item, actor_id)
 
     async def _claim(self, job_id: UUID, kind: str) -> c.MediaClaim:

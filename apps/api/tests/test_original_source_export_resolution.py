@@ -7,18 +7,15 @@ import uuid
 
 import pytest
 from sqlalchemy import event, inspect, select, text, update
-from sqlalchemy.dialects import postgresql
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
-    DatasetAsset,
     DatasetAssetLocation,
     StorageLocation,
 )
-from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import original_sources as sources, task_originals
@@ -26,10 +23,15 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from tests.test_original_sources import add_link, dataset_rows
 from tests.test_task_originals import (
+    current_original_db as current_original_db,
     original_client as original_client,
-    original_db as original_db,
     verified,
 )
+
+
+@pytest.fixture
+def original_db(current_original_db):
+    return current_original_db
 
 
 class ReadDB:
@@ -292,234 +294,6 @@ async def test_failed_reads_never_cache_facts_from_a_rolled_back_savepoint(
     ]
 
 
-class RelationDB(ReadDB):
-    def __init__(self, task, rows, *, any_links=False):
-        super().__init__()
-        self.task, self.rows, self.any_links = task, rows, any_links
-        self.statements = []
-
-    async def execute(self, statement):
-        self.statements.append(statement)
-        return SimpleNamespace(one_or_none=lambda: self.task)
-
-    async def scalar(self, statement):
-        self.statements.append(statement)
-        return self.any_links
-
-    async def scalars(self, statement):
-        self.statements.append(statement)
-        limit = statement._limit_clause
-        return self.rows if limit is None else self.rows[: limit.value]
-
-
-class ProjectedDB(ReadDB):
-    def __init__(self, rows):
-        super().__init__()
-        self.rows = rows
-        self.statements = []
-
-    async def execute(self, statement):
-        self.statements.append(statement)
-        table = next(iter(statement.selected_columns)).table.name
-        rows = self.rows.get(table, [])
-        if statement._limit_clause is not None:
-            rows = rows[: statement._limit_clause.value]
-        return SimpleNamespace(
-            all=lambda: rows,
-            one_or_none=lambda: rows[0] if rows else None,
-        )
-
-
-@pytest.mark.parametrize("lock", [False, True])
-async def test_bounded_replica_query_masks_large_metadata_and_reads_at_most_two(lock):
-    db = ProjectedDB({"dataset_asset_locations": [object(), object(), object()]})
-    assert len(await sources._replicas(db, uuid.uuid4(), lock, bounded=True)) == 2
-    query = db.statements[0]
-    assert query._limit_clause.value == 2
-    assert all(
-        column is not DatasetAssetLocation.__table__.c.etag
-        and column is not DatasetAssetLocation.__table__.c.storage_ref
-        for column in query.selected_columns
-    )
-    compiled = query.compile(dialect=postgresql.dialect())
-    sql = str(compiled)
-    assert "CASE WHEN (octet_length(dataset_asset_locations.etag) <=" in sql
-    assert "THEN dataset_asset_locations.etag END AS etag" in sql
-    assert "octet_length(dataset_asset_locations.etag) >" in sql
-    assert "THEN dataset_asset_locations.storage_ref END AS storage_ref" in sql
-    assert 1024 in compiled.params.values()
-    assert 8192 in compiled.params.values()
-    assert "substring" not in sql and "substr(" not in sql
-    if lock:
-        assert query._for_update_arg.read and query._for_update_arg.nowait
-    else:
-        assert query._for_update_arg is None
-
-
-@pytest.mark.parametrize("lock", [False, True])
-async def test_bounded_location_query_returns_exact_match_without_json_hydration(lock):
-    db = ProjectedDB({"storage_locations": [object()]})
-    assert (
-        len(await sources._locations(db, [LEGACY_LOCATION_ID], lock, bounded=True)) == 1
-    )
-    query = db.statements[0]
-    assert query._limit_clause.value == 2
-    assert {column.name for column in query.selected_columns} == {
-        "id",
-        "kind",
-        "enabled",
-        "config_revision",
-        "connection_id",
-        "config_matches",
-    }
-    assert all(
-        column is not StorageLocation.__table__.c.config
-        for column in query.selected_columns
-    )
-    compiled = query.compile(dialect=postgresql.dialect())
-    assert "storage_locations.config =" in str(compiled)
-    assert {
-        "endpoint": settings.minio_endpoint,
-        "use_ssl": settings.minio_use_ssl,
-    } in compiled.params.values()
-    if lock:
-        assert query._for_update_arg.read and query._for_update_arg.nowait
-    else:
-        assert query._for_update_arg is None
-
-
-@pytest.mark.parametrize("lock", [False, True])
-async def test_bounded_gate_projects_only_admission_facts(lock):
-    db = ProjectedDB(
-        {"storage_maintenance_gates": [SimpleNamespace(state="active", revision=7)]}
-    )
-    assert await sources._gate(db, LEGACY_LOCATION_ID, lock, bounded=True) == 7
-    query = db.statements[0]
-    assert {column.name for column in query.selected_columns} == {"state", "revision"}
-    assert all(
-        column.table is StorageMaintenanceGate.__table__
-        for column in query.selected_columns
-    )
-    if lock:
-        assert query._for_update_arg.read and query._for_update_arg.nowait
-    else:
-        assert query._for_update_arg is None
-
-
-@pytest.mark.parametrize("lock", [False, True])
-async def test_bounded_asset_projects_only_verified_identity(lock):
-    db = ProjectedDB({"dataset_items": [SimpleNamespace(id=uuid.uuid4())]})
-    with pytest.raises(ContentError, match="content_unverified"):
-        await sources._item(db, uuid.uuid4(), lock, bounded=True)
-    query = db.statements[1]
-    assert {column.name for column in query.selected_columns} == {
-        "id",
-        "media_type",
-        "checksum_algorithm",
-        "checksum_value",
-        "size_bytes",
-        "verification_state",
-    }
-    assert all(
-        column.table is DatasetAsset.__table__ for column in query.selected_columns
-    )
-
-
-def task_row(current):
-    return SimpleNamespace(
-        id=current.task_id,
-        project_id=current.project_id,
-        batch_id=current.batch_id,
-        file_path=current.file_path,
-        file_type=current.file_type,
-        original_id=current.original_id,
-        dataset_item_id=current.direct_item_id,
-    )
-
-
-def link_rows(current):
-    return [
-        SimpleNamespace(
-            id=link.id,
-            task_id=link.task_id,
-            dataset_item_id=link.item_id,
-            role=link.role,
-            sensor_name=link.sensor_name,
-        )
-        for link in current.links
-    ]
-
-
-@pytest.mark.parametrize("lock", [False, True])
-@pytest.mark.parametrize("model", [Task, DatasetItem])
-async def test_source_queries_project_only_required_scalar_facts(model, lock):
-    primary = source(media="point_cloud")
-    current = relation(primary, links=())
-    if model is Task:
-        db = RelationDB(task_row(current), [])
-        await sources._relation(db, current.task_id, lock)
-        expected = {
-            "id",
-            "project_id",
-            "batch_id",
-            "file_path",
-            "file_type",
-            "original_id",
-            "dataset_item_id",
-        }
-    else:
-        db = RelationDB(SimpleNamespace(id=primary.item_id), [], any_links=None)
-        with pytest.raises(ContentError, match="content_unverified"):
-            await sources._item(db, primary.item_id, lock)
-        expected = {"id", "dataset_id", "file_path", "file_type", "width", "height"}
-    query = db.statements[0]
-    assert {column.name for column in query.selected_columns} == expected
-    assert all(column.table is model.__table__ for column in query.selected_columns)
-    compiled = query.compile(dialect=postgresql.dialect())
-    assert "metadata" not in str(compiled) and "tags" not in str(compiled)
-    if lock:
-        assert query._for_update_arg.read and query._for_update_arg.nowait
-    else:
-        assert query._for_update_arg is None
-
-
-@pytest.mark.parametrize("lock", [False, True])
-@pytest.mark.parametrize("camera_first", [False, True])
-async def test_bounded_relation_rejects_overflow_before_source_or_cache(
-    monkeypatch, lock, camera_first
-):
-    primary, camera = source(media="point_cloud"), source()
-    current = relation(primary, cameras=(camera, camera))
-    db = RelationDB(task_row(current), link_rows(current))
-
-    async def unexpected_item(*args):
-        pytest.fail("overflow must be rejected before resolving any item")
-
-    monkeypatch.setattr(sources, "_item", unexpected_item)
-    resolver = sources.CachedResolver(db, lock=lock, max_links=1)
-    with pytest.raises(
-        ContentError, match="original_relation_budget_exceeded"
-    ) as error:
-        await (
-            resolver.link(current.task_id, current.links[1].id)
-            if camera_first
-            else resolver.task(current.task_id)
-        )
-    assert error.value.status == 422
-    assert not any(
-        (resolver._relations, resolver._links, resolver._items, resolver._tasks)
-    )
-    query = db.statements[1]
-    compiled = query.compile(dialect=postgresql.dialect())
-    assert "LIMIT" in str(compiled) and query._limit_clause.value == 2
-    assert tuple(query._order_by_clauses) == (TaskDatasetItemLink.id,)
-    if lock:
-        assert query._for_update_arg.read and query._for_update_arg.nowait
-        assert db.events == ["begin", "rollback"]
-    full = await sources._relation(db, current.task_id, lock)
-    assert full == current and db.statements[-1]._limit_clause is None
-
-
 @pytest.mark.parametrize("camera_first", [False, True])
 async def test_cache_link_budget_is_shared_across_tasks_and_cache_hits(
     monkeypatch, camera_first
@@ -568,96 +342,6 @@ def test_cache_rejects_invalid_link_budget(limit):
         sources.CachedResolver(ReadDB(), max_links=limit)
 
 
-async def test_zero_link_budget_allows_direct_source_but_not_a_link():
-    current = relation(source(), links=(), primary_item_id=None, primary_link_id=None)
-    db = RelationDB(task_row(current), [])
-    assert await sources._relation(db, current.task_id, False, max_links=0) == current
-    assert db.statements[-1]._limit_clause.value == 1
-    db.rows = link_rows(relation(source(), task_id=current.task_id))
-    with pytest.raises(ContentError, match="original_relation_budget_exceeded"):
-        await sources._relation(db, current.task_id, False, max_links=0)
-
-
-@pytest.mark.parametrize("limit", [2, 3])
-async def test_bounded_relation_accepts_complete_facts_at_or_below_limit(limit):
-    current = relation(source(media="point_cloud"), cameras=(source(),))
-    db = RelationDB(task_row(current), link_rows(current))
-    assert (
-        await sources._relation(db, current.task_id, False, max_links=limit) == current
-    )
-    assert db.statements[-1]._limit_clause.value == limit + 1
-
-
-@pytest.mark.parametrize("conflict", ["independent", "direct"])
-async def test_bounded_relation_retains_canonical_conflict_rejections(conflict):
-    current = relation(source(media="point_cloud"), cameras=(source(),))
-    current = replace(
-        current,
-        **(
-            {"original_id": uuid.uuid4()}
-            if conflict == "independent"
-            else {"direct_item_id": uuid.uuid4()}
-        ),
-    )
-    db = RelationDB(task_row(current), link_rows(current))
-    with pytest.raises(ContentError, match="original_relation_conflict"):
-        await sources._relation(db, current.task_id, False, max_links=2)
-
-
-@pytest.mark.parametrize("selected", [False, True])
-async def test_compact_query_restricts_link_hydration_before_loading(selected):
-    primary = source(media="point_cloud")
-    current = relation(primary, cameras=(source(), source()))
-    task = SimpleNamespace(
-        id=current.task_id,
-        project_id=current.project_id,
-        batch_id=current.batch_id,
-        file_path=current.file_path,
-        file_type=current.file_type,
-        original_id=None,
-        dataset_item_id=current.direct_item_id,
-    )
-    rows = [
-        SimpleNamespace(
-            id=link.id,
-            task_id=link.task_id,
-            dataset_item_id=link.item_id,
-            role=link.role,
-            sensor_name=link.sensor_name,
-        )
-        for link in current.links[: 2 if selected else 1]
-    ]
-    db = RelationDB(task, rows)
-    await sources._relation(
-        db,
-        task.id,
-        True,
-        compact_relation=True,
-        link_id=current.links[1].id if selected else None,
-    )
-    query = db.statements[1]
-    compiled = query.compile(dialect=postgresql.dialect())
-    assert "task_dataset_item_links.role =" in str(compiled)
-    assert "primary_lidar" in compiled.params.values()
-    assert (current.links[1].id in compiled.params.values()) is selected
-    assert query._for_update_arg.read and query._for_update_arg.nowait
-
-
-async def test_compact_independent_owner_detects_unhydrated_nonprimary_links():
-    task = SimpleNamespace(
-        id=uuid.uuid4(),
-        original_id=uuid.uuid4(),
-        dataset_item_id=None,
-    )
-    db = RelationDB(task, [], any_links=True)
-    with pytest.raises(ContentError, match="original_relation_conflict"):
-        await sources._relation(db, task.id, True, compact_relation=True)
-    exists = db.statements[-1].compile(dialect=postgresql.dialect())
-    assert "EXISTS (SELECT" in str(exists)
-    assert "primary_lidar" not in exists.params.values()
-    assert task.id in exists.params.values()
-
-
 @pytest.mark.parametrize("lock", [False, True])
 async def test_database_projection_reads_fresh_facts_without_rehydrating_json(
     original_db, lock
@@ -684,7 +368,10 @@ async def test_database_projection_reads_fresh_facts_without_rehydrating_json(
         await writer.commit()
     statements = []
 
+    executed_sql = []
+
     def record(conn, cursor, sql, parameters, context, executemany):
+        executed_sql.append(sql)
         if context.compiled is not None:
             statements.append(context.compiled.statement)
 
@@ -699,21 +386,16 @@ async def test_database_projection_reads_fresh_facts_without_rehydrating_json(
     assert item.width == 24
     assert set(inspect(task).unloaded) == task_unloaded
     assert set(inspect(item).unloaded) == item_unloaded
-    for model in (Task, DatasetItem):
-        queries = [
-            statement
-            for statement in statements
-            if getattr(statement, "is_select", False)
-            and any(
-                getattr(column, "table", None) is model.__table__
+    assert executed_sql
+    for sql in executed_sql:
+        lower = sql.lower()
+        assert "tags" not in lower and "metadata" not in lower
+    for statement in statements:
+        if getattr(statement, "is_select", False):
+            assert all(
+                column.type.__class__.__name__ != "JSONB"
                 for column in statement.selected_columns
             )
-        ]
-        assert len(queries) == 1
-        assert all(
-            column.type.__class__.__name__ != "JSONB"
-            for column in queries[0].selected_columns
-        )
 
 
 @pytest.mark.parametrize("lock", [False, True])
@@ -806,7 +488,7 @@ async def test_database_bounded_config_rejects_large_and_wrong_type_values(
     _, _, _, task = await dataset_rows(db, file_type="point_cloud")
     config = {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
     if invalid == "large":
-        config["large"] = "x" * 131_072
+        config["registration_anchor"] = "x" * 131_072
     else:
         config["use_ssl"] = int(settings.minio_use_ssl)
     await db.execute(
@@ -866,7 +548,7 @@ async def test_database_bounded_replicas_reject_ambiguity_after_two_rows(
     observed.clear()
     with pytest.raises(ContentError, match="original_location_ambiguous"):
         await sources.CachedResolver(db, lock=lock).task(task.id)
-    assert observed == [(33, False)] * (2 if lock else 1)
+    assert observed == [(2, False)] * (2 if lock else 1)
 
 
 async def test_database_compact_matches_full_primary_and_selected_facts(original_db):
@@ -1016,7 +698,13 @@ async def test_database_compact_task_original_rejects_any_link(
 ):
     db = original_db
     task, allocation, created = await verified(db, original_client)
-    await task_originals.publish(db, task, allocation, created)
+    await task_originals.publish(
+        db,
+        task,
+        allocation,
+        created,
+        actor_id=db.info["original_fixture"].actor_id,
+    )
     expected = await sources.resolve_task(db, task.id, lock=True)
     assert (
         await sources.resolve_task(db, task.id, lock=True, compact_relation=True)

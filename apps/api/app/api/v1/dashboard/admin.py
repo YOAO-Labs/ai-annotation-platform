@@ -887,7 +887,7 @@ _RANGE_DAYS = {"7d": 7, "30d": 30}
 
 @router.get("/admin/prediction-cost-stats", response_model=PredictionCostStats)
 async def prediction_cost_stats(
-    range: str = Query("30d", pattern="^(7d|30d)$"),
+    time_range: str = Query("30d", alias="range", pattern="^(7d|30d)$"),
     db: AsyncSession = Depends(get_db),
     _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
@@ -896,7 +896,7 @@ async def prediction_cost_stats(
     数据来源：predictions × prediction_metas × failed_predictions × ml_backends。
     异常时降级返回零，避免 Dashboard 因聚合失败黑屏。
     """
-    days = _RANGE_DAYS.get(range, 30)
+    days = _RANGE_DAYS.get(time_range, 30)
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     try:
@@ -995,7 +995,7 @@ async def prediction_cost_stats(
         failure_rate = (failed_count / denom) if denom else 0.0
 
         return PredictionCostStats(
-            range=range,
+            range=time_range,
             total_predictions=total,
             failed_predictions=failed_count,
             failure_rate=round(failure_rate, 4),
@@ -1016,4 +1016,4 @@ async def prediction_cost_stats(
             by_backend=by_backend,
         )
     except Exception:
-        return PredictionCostStats(range=range)
+        return PredictionCostStats(range=time_range)

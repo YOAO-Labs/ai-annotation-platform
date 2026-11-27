@@ -23,6 +23,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.source_readers.s3 import S3Access
 from app.services.storage import storage_service
+from tests.test_dataset_content import change_content_location
 from tests.test_storage_source_diagnostics import (
     content_world as content_world,
     evidence_world as evidence_world,
@@ -92,11 +93,9 @@ async def cache_evidence(db_session, evidence_world, no_provider, request):
     connection, location = await saved_target(db)
     source = world[5]
     source.cache_policy = "on_demand"
-    world[4].config = {
-        **world[4].config,
-        "cache_policy": "on_demand",
-        "original_cache_quota_bytes": 999999,
-    }
+    world = await change_content_location(
+        db, world, cache_policy="on_demand", original_cache_quota_bytes=999999
+    )
     asset = await db.get(DatasetAsset, mappings[0].asset_id)
     now = datetime.now(timezone.utc)
     entry = OriginalCacheEntry(
@@ -177,23 +176,25 @@ async def test_b_cache_evidence_survives_current_a_binding_and_credential_rotati
     assert binding.location_id == LEGACY_LOCATION_ID
     frozen = deepcopy(entry.storage_ref)
     connection.secret_enc = b"rotated-credentials"
-    connection.revision = location.config_revision = 2
+    connection.revision = location.config_revision = world[4].config_revision + 1
     await db.flush()
     capture, seen = original_cache.prepare_target, []
 
-    async def transport(*args, **kwargs):
+    async def observe_target(*args, **kwargs):
         target = await capture(*args, **kwargs)
-        seen.append(target._access.secret_enc)
+        assert target.is_registered
+        seen.append((target.location_id, target.connection_revision))
         return target
 
-    monkeypatch.setattr(original_cache, "prepare_target", transport)
+    monkeypatch.setattr(original_cache, "prepare_target", observe_target)
     item_id = await db.scalar(
         select(DatasetAsset.dataset_item_id).where(DatasetAsset.id == entry.asset_id)
     )
     ids = await workbench.available_cache_ids(
         db, world[3].id, world[2], item_ids=[item_id]
     )
-    assert ids == [entry.id] and seen == [b"rotated-credentials"]
+    assert ids == [entry.id]
+    assert seen == [(location.id, connection.revision)]
     obs = workbench.observations(
         world[3].id, world[2], item_ids=[item_id], cache_entry_ids=ids
     )
@@ -208,7 +209,13 @@ async def test_b_cache_evidence_survives_current_a_binding_and_credential_rotati
     )
     evidence = await diagnostics.reference_evidence(db, [world[5].id], world[2])
     assert evidence[world[5].id]["original_cache_recorded_count"] == 1
-    assert entry.storage_ref == frozen and entry.location_revision == 1
+    assert entry.storage_ref == frozen
+    assert (
+        entry.location_revision == world[4].config_revision != location.config_revision
+    )
+    connection.secret_enc = None
+    await db.flush()
+    assert await workbench.available_cache_ids(db, world[3].id, world[2]) == []
 
 
 async def test_cache_candidates_stay_page_bounded_and_skip_disabled_targets(
@@ -295,7 +302,11 @@ async def test_cache_evidence_rejects_unavailable_or_stale_saved_addresses(
     elif change == "policy":
         world[5].cache_policy = "preview"
     elif change == "quota":
-        world[4].config = {**world[4].config, "original_cache_quota_bytes": 0}
+        scope_location = await db.get(StorageLocation, world[4].id)
+        scope_location.config = {
+            **scope_location.config,
+            "original_cache_quota_bytes": 0,
+        }
     elif change == "expired":
         entry.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
     elif change == "source_revision":

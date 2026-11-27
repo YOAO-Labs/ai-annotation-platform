@@ -148,10 +148,19 @@ class AssetsTaskMediaSummaryReader(TaskMediaSummaryReader):
     async def current_video_summary(
         self, item_id: uuid.UUID
     ) -> tuple[int | None, int | None, dict[str, Any]] | None:
+        row = (await self._read((item_id,))).get(item_id)
+        if row is None or row.file_type != "video" or row.source_drifted:
+            return None
+        video = _current_video_document(row)
+        if video is not None:
+            width, height = video.get("width"), video.get("height")
+            if type(width) is int and type(height) is int:
+                return width, height, video
+
         from app.services import video_derivative_originals, video_derivatives
 
         item = await video_derivatives.item_row(self._db, item_id)
-        if item is None or item.file_type != "video" or item.video_output_id is None:
+        if item is None or item.video_output_id is None:
             return None
         source = await video_derivative_originals.pin(self._db, "dataset_item", item_id)
         output = await video_derivatives.metadata(self._db, item, source)

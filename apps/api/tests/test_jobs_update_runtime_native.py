@@ -19,7 +19,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.db.models.async_job import AsyncJob
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 
 ROOT = Path(__file__).resolve().parents[3]
 _LAN_GRANTS = ROOT / "infra/docker/lan-production-grants.sql"

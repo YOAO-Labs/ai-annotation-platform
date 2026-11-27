@@ -275,10 +275,8 @@ async def input_storage_world(engine, monkeypatch):
 
 
 @pytest.fixture
-async def input_world(test_db_url, monkeypatch):
-    from tests.managed_image_inference_fixtures import managed_database
-
-    async with managed_database(test_db_url) as engine:
+async def input_world(managed_database, monkeypatch):
+    async with managed_database() as engine:
         async with input_storage_world(engine, monkeypatch) as world:
             yield world
 
@@ -857,3 +855,25 @@ def test_task_image_loader_closes_body_and_client(monkeypatch, outcome):
     if outcome != "get-error":
         assert body.closed
     body.close()
+
+
+async def test_interrupted_physical_io_waits_through_a_second_interruption(monkeypatch):
+    import asyncio
+    from celery.exceptions import SoftTimeLimitExceeded
+    from app.services.storage_io_settlement import settled_io
+
+    loop = asyncio.get_running_loop()
+    physical = loop.create_future()
+    monkeypatch.setattr(loop, "run_in_executor", lambda *args: physical)
+    interruptions = iter([asyncio.CancelledError(), SoftTimeLimitExceeded()])
+
+    async def shield(pending):
+        interruption = next(interruptions, None)
+        if interruption is not None:
+            raise interruption
+        pending.set_result(None)
+
+    monkeypatch.setattr(asyncio, "shield", shield)
+    with pytest.raises(asyncio.CancelledError):
+        await settled_io(lambda: None)
+    assert physical.done()

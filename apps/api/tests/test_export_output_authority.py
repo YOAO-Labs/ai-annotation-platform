@@ -15,16 +15,17 @@ from starlette.requests import Request
 from app.core.security import create_access_token, hash_password
 from app.db.models.api_key import ApiKey
 from app.db.models.task import Task
-from app.services import async_job as jobs, identity_request_authority
+from app.services import jobs_lifecycle_data as jobs, identity_request_authority
 from app.services.exporting import output_authority as authority
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import get_identity_gateway
 from tests.factory import create_batch
+from tests.mask_repair_publication import bind_publication_login
 from tests.test_reference_original_cache import referenced_cache as referenced_cache
 
 
 @pytest.fixture
-async def world(referenced_cache):
+async def world(referenced_cache, test_engine, monkeypatch):
     """Committed Identity and reference owners visible to independent sessions."""
     owner = referenced_cache
     token = "ak_" + uuid.uuid4().hex
@@ -51,14 +52,15 @@ async def world(referenced_cache):
     request.state.api_key_id = str(key_id)
     request.state.api_key_scopes = list(principal.scopes)
     request.state.identity_principal = principal
-    return SimpleNamespace(
-        owner=owner,
-        actor=owner.manager,
-        project=owner.project,
-        key_id=key_id,
-        token=token,
-        request=request,
-    )
+    async with bind_publication_login(test_engine, monkeypatch):
+        yield SimpleNamespace(
+            owner=owner,
+            actor=owner.manager,
+            project=owner.project,
+            key_id=key_id,
+            token=token,
+            request=request,
+        )
 
 
 async def job_for(world):

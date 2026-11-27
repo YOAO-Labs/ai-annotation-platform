@@ -6,7 +6,7 @@ import uuid
 from fastapi import HTTPException
 
 from app.schemas.dataset_quality import DatasetQualityResultOut
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services import dataset_source_access as access

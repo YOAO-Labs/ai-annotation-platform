@@ -243,4 +243,4 @@ must complete before any deployment decision.
   and `infra/docker/identity-recovery-grants.sql`.
 - API composition and public compatibility: `apps/api/app/config.py`,
   `identity_recovery_commands.py` and `identity_mail_delivery.py`.
-- Remaining full Identity scope: [module deployment status](../../docs-site/dev/concepts/module-deployment.md).
+- Remaining full Identity scope: [module deployment status](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment).

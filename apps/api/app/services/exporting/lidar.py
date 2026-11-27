@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from app.db.models.annotation import Annotation
+from app.services.exporting.lidar_pcd import MAX_PCD_POINTS, MAX_POINTMASK_INDICES
 from yoao_assets_catalog.spatial_values import SensorCalibration
 from yoao_assets_catalog.axis_convention import PsrDict, _euler_xyz_to_mat3
 from app.services.pointcloud_projection import (
@@ -30,6 +31,71 @@ from app.services.pointcloud_projection import (
     iso_to_source as _iso_to_source,
     pixel_bbox,
 )
+
+
+def _rotation_determinant(matrix: list[float]) -> float:
+    a, b, c = matrix[0], matrix[1], matrix[2]
+    d, e, f = matrix[4], matrix[5], matrix[6]
+    g, h, i = matrix[8], matrix[9], matrix[10]
+    return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+
+
+def _rotation_is_orthonormal(matrix: list[float]) -> bool:
+    rows = (
+        (float(matrix[0]), float(matrix[1]), float(matrix[2])),
+        (float(matrix[4]), float(matrix[5]), float(matrix[6])),
+        (float(matrix[8]), float(matrix[9]), float(matrix[10])),
+    )
+    for row in rows:
+        if abs(sum(value * value for value in row) - 1.0) > 1e-3:
+            return False
+    return all(
+        abs(sum(left[i] * right[i] for i in range(3))) <= 1e-3
+        for index, left in enumerate(rows)
+        for right in rows[index + 1 :]
+    )
+
+
+def calibration_is_valid(raw: object) -> bool:
+    try:
+        calibration = SensorCalibration.model_validate(raw)
+    except ValueError:
+        return False
+    values = [*calibration.extrinsic, *calibration.intrinsic]
+    if calibration.rect:
+        values.extend(calibration.rect)
+    if not all(math.isfinite(float(value)) for value in values):
+        return False
+    extrinsic = calibration.extrinsic
+    if abs(
+        _rotation_determinant(extrinsic) - 1.0
+    ) > 0.05 or not _rotation_is_orthonormal(extrinsic):
+        return False
+    if any(
+        abs(float(extrinsic[index]) - expected) > 1e-6
+        for index, expected in zip((12, 13, 14, 15), (0, 0, 0, 1), strict=True)
+    ):
+        return False
+    intrinsic = calibration.intrinsic
+    if float(intrinsic[0]) <= 1e-9 or float(intrinsic[4]) <= 1e-9:
+        return False
+    if (
+        abs(float(intrinsic[6])) > 1e-9
+        or abs(float(intrinsic[7])) > 1e-9
+        or abs(float(intrinsic[8]) - 1.0) > 1e-9
+    ):
+        return False
+    if calibration.rect and any(
+        abs(float(calibration.rect[index]) - expected) > 1e-6
+        for index, expected in zip((12, 13, 14, 15), (0, 0, 0, 1), strict=True)
+    ):
+        return False
+    if calibration.rect and (
+        abs(_rotation_determinant(calibration.rect) - 1.0) > 0.05
+        or not _rotation_is_orthonormal(calibration.rect)
+    ):
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -1129,8 +1195,6 @@ def build_pointmask_label_bytes(
     category_map: dict[str, int],
 ) -> bytes:
     """Label the verified original record space, preserving annotation order."""
-    from app.services.exporting.lidar_pcd import MAX_PCD_POINTS, MAX_POINTMASK_INDICES
-
     if source_point_count is None:
         raise ValueError("pointmask_point_count_required")
     if type(source_point_count) is not int or source_point_count < 0:

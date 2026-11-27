@@ -4,8 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
@@ -14,9 +13,9 @@ from starlette.requests import Request
 
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.export import ExportRequestBody, LidarExportOptions
-from app.services import export_storage
+from app.services import export_media_bundles, export_media_storage, export_storage
 from app.services.content_snapshot import ContentError
-from app.services.exporting import lidar_jobs
+from app.services.exporting import lidar_inputs, lidar_jobs, lidar_media_paths
 
 
 def digest(value):
@@ -36,16 +35,8 @@ class JobDB:
         self.events.append("commit")
 
 
-class MediaStorageError(ValueError):
-    code = "export_media_storage_identity_changed"
-    status_code = 409
-
-
 @pytest.fixture
 def contract(monkeypatch):
-    import app.services as services
-    import app.services.exporting as exporting
-
     project = SimpleNamespace(id=uuid.uuid4(), data_type="lidar", display_id="P-LIDAR")
     batch_id = uuid.uuid4()
     opts = {"include_attributes": True, "lidar": {"kitti_camera_role": "camera_front"}}
@@ -140,37 +131,9 @@ def contract(monkeypatch):
         state.zip_owners.append(output)
         return {**owner, "object_key": "reserved.zip"}
 
-    for package, name, attributes in (
-        (
-            exporting,
-            "lidar_inputs",
-            {
-                "uses_contract": lambda p, t: (
-                    p.data_type == "lidar"
-                    and bool(
-                        {
-                            "pointmask",
-                            "kitti",
-                            "coco-multicamera",
-                            "nuscenes",
-                        }.intersection(t)
-                    )
-                ),
-                "collect": collect,
-            },
-        ),
-        (exporting, "lidar_media_paths", {"logical_sources": logical_sources}),
-        (services, "export_media_bundles", {"allocate": allocate}),
-        (
-            services,
-            "export_media_storage",
-            {"ExportMediaStorageError": MediaStorageError},
-        ),
-    ):
-        module = ModuleType(package.__name__ + "." + name)
-        module.__dict__.update(attributes)
-        monkeypatch.setitem(sys.modules, module.__name__, module)
-        monkeypatch.setattr(package, name, module, raising=False)
+    monkeypatch.setattr(lidar_inputs, "collect", collect)
+    monkeypatch.setattr(lidar_media_paths, "logical_sources", logical_sources)
+    monkeypatch.setattr(export_media_bundles, "allocate", allocate)
     monkeypatch.setattr(export_storage, "allocate", allocate_zip)
     return state
 
@@ -305,13 +268,11 @@ async def test_capture_maps_metadata_binding_errors_without_committing(
 
 
 async def test_capture_maps_bundle_owner_metadata_errors(contract, monkeypatch):
-    from app.services import export_media_bundles
-
     state = contract
     del state.job.payload["lidar_media"]
 
     async def unavailable(*args, **kwargs):
-        raise MediaStorageError()
+        raise export_media_storage.ExportMediaStorageError("identity_changed")
 
     monkeypatch.setattr(export_media_bundles, "allocate", unavailable)
     with pytest.raises(ContentError, match="export_media_storage_identity_changed"):
@@ -493,14 +454,13 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
     contract, monkeypatch, batch, capture_failure
 ):
     from app.api.v1 import batches, projects
-    from app.services import async_job
+    from app.services import jobs_lifecycle_data as async_job
     from app.services.audit import AuditService
     from app.services.exporting import (
         lidar_preflight,
         output_authority,
         reference_media,
     )
-    from app.workers.export import run_export
 
     state = contract
     delivered = []
@@ -526,7 +486,17 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
         assert db is state.db
         state.db.events.append("audit")
 
-    def dispatch(**kwargs):
+    async def prepare_dispatch(db, **kwargs):
+        assert db is state.db
+        state.db.events.append("prepare")
+        return kwargs
+
+    async def publish_dispatch(db, lease, *, publish):
+        assert db is state.db
+        return publish()
+
+    def dispatch(*, task_name, execution_id, args, kwargs):
+        assert task_name == "app.workers.export.run_export"
         state.db.events.append("delay")
         delivered.append(kwargs)
 
@@ -546,7 +516,11 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
     monkeypatch.setattr(reference_media, "capture_export_authority", capture_reference)
     monkeypatch.setattr(async_job, "create_job", create_job)
     monkeypatch.setattr(AuditService, "log", audit)
-    monkeypatch.setattr(run_export, "delay", dispatch)
+    from app.services import jobs_dispatch, jobs_queue
+
+    monkeypatch.setattr(jobs_dispatch, "prepare_job_dispatch", prepare_dispatch)
+    monkeypatch.setattr(jobs_dispatch, "publish_prepared_dispatch", publish_dispatch)
+    monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch)
     monkeypatch.setattr(batches.BatchService, "get", get_batch)
     kwargs = {
         "request": Request({"type": "http", "headers": []}),
@@ -588,6 +562,7 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
         "zip-binding",
         "flush",
         "audit",
+        "prepare",
         "commit",
         "delay",
     ]

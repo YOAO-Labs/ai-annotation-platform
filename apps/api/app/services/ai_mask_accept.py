@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-import hashlib
-import json
 import uuid
 from copy import deepcopy
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
 
 from yoao_protocol_v2 import native_mask_candidate_id
@@ -15,10 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.util import identity_key
 
 from yoao_labeling.ai_mask_accept_contract import (
-    AiMaskDecisionData,
     ExpireAiMaskDecisions,
-    FindAiMaskDecision,
-    LockAiMaskDecision,
     RecordAiMaskDecision,
     RefineAiMaskAnnotation,
     AI_MASK_ACCEPT_PROTOCOL,
@@ -46,7 +41,15 @@ from app.db.models.user import User
 from app.schemas.ai_mask import AiMaskAcceptRequest, AiMaskAcceptResponse
 from app.schemas.annotation import AnnotationOut
 from app.schemas.prediction import PredictionOut
-from app.services.ai_mask_receipt import AiMaskReceiptError, verify_ai_mask_receipt
+from app.services.ai_mask_decisions import (
+    find_decision as _find_decision,
+    validate_replay as _validate_replay,
+)
+from app.services.ai_mask_receipt import (
+    AiMaskAcceptError as AiMaskAcceptError,
+    ai_mask_accept_request_digest as ai_mask_accept_request_digest,
+    validate_acceptance_receipt as _validate_receipt,
+)
 from app.services.annotation import AnnotationService
 from app.services.annotation_evidence import record_annotation_actor
 from app.services.annotation_propagation import _new_track_id
@@ -64,62 +67,14 @@ from app.services.raster_mask_storage import (
     assert_raster_mask_write_enabled,
     build_rle_reference,
     store_mask_reference_objects,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.task_lock import TaskLockConflictError, TaskLockService
 from app.services.video_tracks import (
     remove_frame_from_outside_ranges,
     resolve_track_at_frame,
 )
 from app.services.identity_contracts import IdentityActorFacts
-
-
-class AiMaskAcceptError(ValueError):
-    def __init__(
-        self,
-        *,
-        status_code: int,
-        reason: str,
-        message: str,
-        extra: dict[str, Any] | None = None,
-    ):
-        super().__init__(message)
-        self.status_code = status_code
-        self.detail = {"reason": reason, "message": message, **(extra or {})}
-
-
-def ai_mask_accept_request_digest(data: AiMaskAcceptRequest) -> str:
-    payload = data.model_dump(mode="json")
-    payload.pop("idempotency_key", None)
-    payload["candidate"].pop("receipt", None)
-    canonical = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode()
-    return hashlib.sha256(canonical).hexdigest()
-
-
-def _replay_response(decision: AiMaskDecisionData) -> AiMaskAcceptResponse:
-    snapshot = dict(decision.response_json or {})
-    snapshot.pop("_reference_input", None)
-    snapshot.pop("_original_input", None)
-    snapshot["replayed"] = True
-    return AiMaskAcceptResponse.model_validate(snapshot)
-
-
-async def _find_decision(
-    db: AsyncSession, *, task_id: uuid.UUID, idempotency_key: str, lock: bool = False
-) -> AiMaskDecisionData | None:
-    result = await ai_mask_accept_command(
-        db,
-        (LockAiMaskDecision if lock else FindAiMaskDecision)(
-            schema=AI_MASK_ACCEPT_PROTOCOL,
-            operation="lock_decision" if lock else "find_decision",
-            task_id=task_id,
-            idempotency_key=idempotency_key,
-        ),
-    )
-    decision = result.decision
-    return decision if decision is not None and decision.found else None
 
 
 async def expire_accept_decisions(
@@ -132,106 +87,6 @@ async def expire_accept_decisions(
             schema=AI_MASK_ACCEPT_PROTOCOL, operation="expire_decisions", now=now
         ),
     )
-
-
-def _validate_replay(
-    decision: AiMaskDecisionData,
-    request_digest: str,
-    current_user: User | IdentityActorFacts,
-    *,
-    access: Any = None,
-) -> AiMaskAcceptResponse:
-    if decision.request_digest != request_digest:
-        raise AiMaskAcceptError(
-            status_code=409,
-            reason="idempotency_conflict",
-            message="idempotency key was already used for a different request",
-        )
-    if decision.expires_at is None or decision.expires_at <= datetime.now(timezone.utc):
-        raise AiMaskAcceptError(
-            status_code=409,
-            reason="idempotency_expired",
-            message="the previous idempotent result has expired",
-        )
-    if (
-        decision.actor_id is not None
-        and decision.actor_id != current_user.id
-        and not (access is not None and access.is_manager)
-    ):
-        raise AiMaskAcceptError(
-            status_code=403,
-            reason="idempotency_owner_conflict",
-            message="idempotency key belongs to another actor",
-        )
-    return _replay_response(decision)
-
-
-def _validate_receipt(
-    data: AiMaskAcceptRequest,
-    *,
-    task_id: uuid.UUID,
-    content_digest: str,
-) -> dict[str, Any]:
-    try:
-        claims = verify_ai_mask_receipt(data.candidate.receipt)
-    except AiMaskReceiptError as exc:
-        raise AiMaskAcceptError(
-            status_code=409,
-            reason=exc.reason,
-            message=str(exc),
-        ) from exc
-
-    expected = {
-        "task_id": str(task_id),
-        "frame_index": data.target.frame_index,
-        "candidate_id": data.candidate.candidate.candidate_id,
-        "candidate_index": data.candidate.candidate_index,
-        "content_digest": content_digest,
-        "prompt_revision": data.candidate.prompt_revision,
-        "score": data.candidate.candidate.score,
-        "routing": data.routing.model_dump(mode="json"),
-        "inference": data.inference.model_dump(mode="json"),
-        "prompt_summary": data.prompt_summary.model_dump(mode="json"),
-    }
-    if any(claims.get(key) != value for key, value in expected.items()):
-        raise AiMaskAcceptError(
-            status_code=409,
-            reason="candidate_receipt_mismatch",
-            message="candidate receipt does not match the accept request",
-        )
-    accept_target = claims.get("accept_target")
-    if accept_target is not None and accept_target != data.target.model_dump(
-        mode="json"
-    ):
-        raise AiMaskAcceptError(
-            status_code=409,
-            reason="candidate_receipt_mismatch",
-            message="candidate receipt does not match the accept target",
-        )
-    prompt_source = claims.get("prompt_source")
-    if prompt_source is not None:
-        expected_source = {
-            "source_annotation_id": (
-                str(data.target.source_annotation_id)
-                if data.target.source_annotation_id is not None
-                else None
-            ),
-            "source_version": data.target.source_version,
-        }
-        if (
-            data.target.mode != "refine"
-            or not isinstance(prompt_source, dict)
-            or any(
-                prompt_source.get(key) != value
-                for key, value in expected_source.items()
-            )
-        ):
-            raise AiMaskAcceptError(
-                status_code=409,
-                reason="candidate_receipt_mismatch",
-                message="Mask prompt source does not match the accept target",
-            )
-    return claims
 
 
 def _validate_prompt_source_digest(

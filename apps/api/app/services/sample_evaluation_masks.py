@@ -170,11 +170,7 @@ def predictions_from_wire(
     items, mapping, *, metadata, width, height, runtime_qualification=None
 ):
     segmentation = metadata.get("segmentation") if isinstance(metadata, dict) else None
-    runtime = (
-        segmentation.get("runtime_qualification")
-        if runtime_qualification is None and isinstance(segmentation, dict)
-        else runtime_qualification
-    )
+    runtime = runtime_qualification
     if (
         not isinstance(runtime, dict)
         or not isinstance(runtime.get("decoder"), str)

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 from tests.contract_schemas import load_contract_schema
+from tests.frozen_namespaces import historical
 import uuid
 from datetime import datetime, timezone
 
@@ -44,7 +45,7 @@ def test_template_query_identity_fact_artifacts_are_narrow_and_aligned():
         "actor_id",
         "organization_ids",
     ]
-    assert schema["x-postgresql-functions"] == [_FUNCTION]
+    assert schema["x-postgresql-functions"] == [historical(_FUNCTION)]
     fact = schema["$defs"]["WorkspaceTemplateQueryOrganizationIds"]
     assert fact["additionalProperties"] is False
     assert set(fact["properties"]) == {"schema", "actor_id", "organization_ids"}

@@ -2,13 +2,13 @@
 
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import replace
 from datetime import timedelta
-from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import delete, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import delete
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
@@ -24,7 +24,6 @@ from app.services import guide_asset_uploads, raster_mask_objects
 from app.services import raster_object_storage as raster
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_s3_target import Target
-from app.services.source_readers.s3 import S3Access
 from tests import test_comment_attachment_storage as comment_facts
 from tests import test_guide_asset_storage as guide_facts
 from tests import test_raster_object_storage as raster_facts
@@ -52,15 +51,21 @@ ENDPOINT = "https://saved-annotations.example.test"
 
 
 def target_for(provider, *, secret=b"current", fail_close=False):
-    @contextmanager
-    def client(**kwargs):
-        provider.seen.append(secret)
-        try:
-            yield provider
-        finally:
-            provider.closed += 1
-            if fail_close:
-                raise OSError("private close outcome")
+    from app.services.source_readers.s3 import ScopedS3Access
+
+    class Access(ScopedS3Access):
+        def __init__(self):
+            pass
+
+        @contextmanager
+        def client(self, **kwargs):
+            provider.seen.append(secret)
+            try:
+                yield provider
+            finally:
+                provider.closed += 1
+                if fail_close:
+                    raise OSError("private close outcome")
 
     return Target(
         uuid.uuid4(),
@@ -70,7 +75,7 @@ def target_for(provider, *, secret=b"current", fail_close=False):
         "saved-b",
         ROOT,
         purpose="annotations",
-        _access=SimpleNamespace(client=client),
+        _access=Access(),
     )
 
 
@@ -157,42 +162,12 @@ async def test_schema1_transport_adapter_does_not_rewrite_receipt(
 
 
 @pytest.fixture
-async def consumer_db(test_engine):
-    schema = "annotations_consumers_" + uuid.uuid4().hex
-    tables = (
-        "storage_connections",
-        "storage_locations",
-        "storage_bindings",
-        "storage_maintenance_gates",
-        "storage_operations",
-        "system_settings",
-        "comment_attachment_uploads",
-        "guide_asset_uploads",
-        "raster_mask_objects",
-    )
-    async with test_engine.begin() as connection:
-        source = await connection.scalar(text("SELECT current_schema()"))
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" '
-                    f'(LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    try:
+async def consumer_db(managed_database):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()
             yield db
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 @pytest.mark.parametrize("family,make_record,raw,model", CASES)
@@ -225,6 +200,7 @@ async def test_durable_b_allocation_uses_current_credentials_after_switchback(
         connection_id=connection.id,
         config={},
     )
+    await ensure_legacy_bindings(db)
     db.add(connection)
     await db.flush()
     db.add(location)
@@ -249,16 +225,32 @@ async def test_durable_b_allocation_uses_current_credentials_after_switchback(
     connection.revision = location.config_revision = 2
     await db.commit()
 
-    @contextmanager
-    def client(access, **kwargs):
-        assert not db.in_transaction()
-        physical.seen.append(access.secret_enc)
-        try:
-            yield physical
-        finally:
-            physical.closed += 1
+    from app.services.source_readers.s3 import ScopedS3Access
 
-    monkeypatch.setattr(S3Access, "client", client)
+    original_target_for = annotations_storage.target_for
+
+    async def scoped_target_for(session, loc, **kwargs):
+        captured = await original_target_for(session, loc, **kwargs)
+        if captured.location_id != location.id:
+            return captured
+        secret = (await session.get(StorageConnection, connection.id)).secret_enc
+
+        class Access(ScopedS3Access):
+            def __init__(self):
+                pass
+
+            @contextmanager
+            def client(self, **options):
+                assert not db.in_transaction()
+                physical.seen.append(secret)
+                try:
+                    yield physical
+                finally:
+                    physical.closed += 1
+
+        return replace(captured, _access=Access())
+
+    monkeypatch.setattr(annotations_storage, "target_for", scoped_target_for)
 
     async def run(operation, *args):
         current = None
@@ -330,15 +322,33 @@ async def external_b(test_engine, monkeypatch):
         )
         await db.commit()
 
-    @contextmanager
-    def client(access, **kwargs):
-        physical.seen.append(access.secret_enc)
-        try:
-            yield physical
-        finally:
-            physical.closed += 1
+    from app.services.source_readers.s3 import ScopedS3Access
 
-    monkeypatch.setattr(S3Access, "client", client)
+    original_target_for = annotations_storage.target_for
+
+    async def scoped_target_for(session, loc, **kwargs):
+        captured = await original_target_for(session, loc, **kwargs)
+        if captured.location_id != location.id:
+            return captured
+        secret = (
+            await session.get(StorageConnection, connection.id, populate_existing=True)
+        ).secret_enc
+
+        class Access(ScopedS3Access):
+            def __init__(self):
+                pass
+
+            @contextmanager
+            def client(self, **options):
+                physical.seen.append(secret)
+                try:
+                    yield physical
+                finally:
+                    physical.closed += 1
+
+        return replace(captured, _access=Access())
+
+    monkeypatch.setattr(annotations_storage, "target_for", scoped_target_for)
 
     async def switchback(db):
         binding = await db.get(StorageBinding, "annotations", populate_existing=True)

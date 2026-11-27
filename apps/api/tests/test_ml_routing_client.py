@@ -10,7 +10,10 @@ import pytest
 from yoao_inference_contract.backend_endpoint import (
     make_backend_endpoint_subject,
 )
-from yoao_inference_contract.execution import FrozenModelOperation
+from yoao_inference_contract.execution import (
+    FrozenModelOperation,
+    ModelExecutionDispatch,
+)
 from yoao_inference_contract.routing import RoutingScopeView
 from app.db.models.ml_backend_pool import MLBackendPoolMember
 from app.db.models.ml_backend_registry import (
@@ -129,7 +132,9 @@ def _gateway_fakes(monkeypatch, scope, *, fail=False):
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def execute(self, request):
+        async def execute(self, request, *, before_dispatch=None):
+            if before_dispatch is not None:
+                await before_dispatch(ModelExecutionDispatch.from_request(request))
             calls["execute"].append(request)
             if fail:
                 raise RuntimeError("selected execution failed")
@@ -171,14 +176,24 @@ async def test_model_gateway_pins_actual_selection_and_finishes_its_scope(
 
     port = model_execution_port(db_session)
     assert not hasattr(port, "last_instance_id")
-    result = await port.execute(_request(project, requested, pool, selected.id))
+    dispatched = []
+
+    async def record_dispatch(dispatch):
+        assert not calls["execute"]
+        dispatched.append(dispatch)
+
+    result = await port.execute(
+        _request(project, requested, pool, selected.id), before_dispatch=record_dispatch
+    )
 
     assert result.results == [{"task_id": "task-1"}]
     pool_id, acquire = calls["acquire"][0]
     assert pool_id == pool.id
-    assert acquire["registry_id"] == requested.id
     assert acquire["required_instance_id"] == selected.id
     bound = calls["execute"][0]
+    assert [d.instance_id for d in dispatched] == [selected.id]
+    assert dispatched[0].attempt_id == bound.request_id
+    assert bound.requested_registry_id == requested.id
     assert bound.endpoint_registry_id == selected.id
     assert bound.selected_pool_id == pool.id
     assert bound.selected_member_id == member.id

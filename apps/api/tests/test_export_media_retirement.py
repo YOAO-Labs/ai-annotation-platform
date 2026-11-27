@@ -15,12 +15,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.services import async_job
+from app.services import jobs_lifecycle_data as async_job
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services import export_outputs, export_storage
 from tests import test_export_media_bundle_models as model_tests
+from tests.export_worker_native_fixtures import worker_db as worker_db
 from tests.factory import create_project
 from tests.test_export_media_storage import Client
 
@@ -112,7 +113,7 @@ async def test_unpublished_attempt_end_is_explicit_and_never_a_job_age_timeout(
         )
     )
     expected = status not in {"pending", "running"}
-    await store_policy(db_session, super_admin, row, job)
+    await store_policy(db_session, super_admin[0], row, job)
     assert await retirement.attempt_ended(db_session, row) is expected
     row.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
     assert await retirement.attempt_ended(db_session, row)
@@ -162,7 +163,7 @@ async def test_replacement_must_match_its_media_protocol(
     key, schema, accepted, db_session, super_admin
 ):
     row, job, replacement = replacement_claim(key, schema)
-    await store_policy(db_session, super_admin, row, job, replacement)
+    await store_policy(db_session, super_admin[0], row, job, replacement)
     assert await retirement.attempt_ended(db_session, row) is accepted
 
 
@@ -203,7 +204,7 @@ async def test_unproven_replacement_does_not_retire_bundle(
         job.payload["image_media"] = proof
     elif fault == "missing":
         replacement = None
-    await store_policy(db_session, super_admin, row, job, replacement)
+    await store_policy(db_session, super_admin[0], row, job, replacement)
     assert not await retirement.attempt_ended(db_session, row)
 
 
@@ -484,10 +485,11 @@ def objects(monkeypatch, *rows):
 
 
 @pytest.fixture
-async def retirement_queue(gc_db):
+async def retirement_queue(worker_db):
+    db = worker_db
     start = datetime.now(timezone.utc) - timedelta(hours=1)
     media, write, read, first, later = [
-        await database_owner(gc_db, created_at=start + timedelta(minutes=i))
+        await database_owner(db, created_at=start + timedelta(minutes=i))
         for i in range(5)
     ]
     for purpose in (
@@ -496,9 +498,9 @@ async def retirement_queue(gc_db):
         f"export_read_{read.zip_output_id.hex}",
     ):
         location = uuid.uuid4()
-        gc_db.add(StorageMaintenanceGate(location_id=location))
-        await gc_db.flush()
-        gc_db.add(
+        db.add(StorageMaintenanceGate(location_id=location))
+        await db.flush()
+        db.add(
             StorageOperation(
                 id=uuid.uuid4(),
                 location_id=location,
@@ -508,30 +510,33 @@ async def retirement_queue(gc_db):
                 started_at=start - timedelta(days=100),
             )
         )
-    await gc_db.commit()
+    await db.commit()
     return (media, write, read), first, later
 
 
 async def test_database_unknown_operations_do_not_starve_next_candidate_before_limit(
-    gc_db, retirement_queue, monkeypatch
+    worker_db, retirement_queue, monkeypatch
 ):
+    db = worker_db
     protected, first, later = retirement_queue
     client = objects(monkeypatch, *protected, first, later)
-    counts = await retirement.cleanup(gc_db, limit=1)
+    counts = await retirement.cleanup(db, limit=1)
     assert counts == {"deleted": 1, "retained": 0, "failed": 0}
-    states = dict((await gc_db.execute(select(Bundle.id, Bundle.state))).all())
+    states = dict((await db.execute(select(Bundle.id, Bundle.state))).all())
     assert states == {
         **{row.id: "building" for row in (*protected, later)},
         first.id: "deleted",
     }
-    assert await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 3
+    assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 3
     assert {
         params["Key"] for action, params in client.calls if action == "delete"
     } == set(first.inventory["objects"])
 
 
-async def test_database_locked_candidate_is_skipped_without_waiting(gc_db, monkeypatch):
-    db = gc_db
+async def test_database_locked_candidate_is_skipped_without_waiting(
+    worker_db, monkeypatch
+):
+    db = worker_db
     first, second = await database_owner(db), await database_owner(db)
     await db.commit()
     objects(monkeypatch, first, second)
@@ -550,9 +555,9 @@ async def test_database_locked_candidate_is_skipped_without_waiting(gc_db, monke
 
 
 async def test_database_failed_partial_delete_retries_without_dropping_inventory(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    db = gc_db
+    db = worker_db
     values = model_tests._values()
     values["inventory"]["objects"][
         physical.prefix_for(values["id"]) + str(uuid.uuid4()) + ".bin"
@@ -601,9 +606,9 @@ async def test_database_failed_partial_delete_retries_without_dropping_inventory
 
 
 async def test_database_unknown_close_keeps_operation_and_retiring_owner(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    db = gc_db
+    db = worker_db
     row = await database_owner(db)
     await db.commit()
     client = objects(monkeypatch, row)
@@ -617,9 +622,9 @@ async def test_database_unknown_close_keeps_operation_and_retiring_owner(
 
 
 async def test_database_published_delivery_survives_job_and_cache_absence(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    db = gc_db
+    db = worker_db
     row = await database_owner(db)
     row.lease_token = uuid.uuid4()
     row.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
@@ -641,9 +646,9 @@ async def test_database_published_delivery_survives_job_and_cache_absence(
 
 
 async def test_database_pending_zip_and_media_retire_independently_legacy_pending_stays(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    db = gc_db
+    db = worker_db
     row = await database_owner(db)
     endpoint = physical._runtime_endpoint()
     zip_bucket = "saved-export-zip"
@@ -673,7 +678,7 @@ async def test_database_pending_zip_and_media_retire_independently_legacy_pendin
     client = objects(monkeypatch, row)
     assert (await export_outputs.cleanup(db))["outputs_deleted"] == 1
     assert deleted == [output.id]
-    assert await db.get(ExportOutput, output.id) is None
+    assert await db.get(ExportOutput, output.id, populate_existing=True) is None
     assert (await db.get(Bundle, row.id)).state == "building"
     assert await db.get(ExportOutput, legacy.id) is not None
     assert not client.calls
@@ -682,9 +687,9 @@ async def test_database_pending_zip_and_media_retire_independently_legacy_pendin
 
 
 async def test_database_zip_cleanup_observes_bundle_reads_at_any_location_before_limit(
-    gc_db, retirement_queue, monkeypatch
+    worker_db, retirement_queue, monkeypatch
 ):
-    db = gc_db
+    db = worker_db
     protected, first, later = retirement_queue
     for row in (*protected, first, later):
         ref = {

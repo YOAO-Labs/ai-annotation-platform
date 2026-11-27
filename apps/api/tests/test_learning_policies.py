@@ -1,11 +1,14 @@
 """Automatic training: semantic growth, current authority and durable scheduling."""
 
 import copy
+import hashlib
 import uuid
 from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import func, select
+from training_contract.dataset import DETECTION_CONTRACT
+from training_contract.input_membership import POLICY_DIGEST
 
 from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.training_dataset import TrainingDatasetVersion
@@ -13,9 +16,18 @@ from app.db.models.training_run import TrainingRun
 from app.services import learning_policies as service, training_runs as runs
 from app.application import learning_policy_execution
 from app.services import training_claims as claims
-from app.services.training_dataset_bridge import semantic_partitions
+from app.services import training_dataset_data, training_dataset_storage
+from app.services.training_dataset_bridge import (
+    build_training_package,
+    semantic_partitions,
+)
 from app.services.training_datasets import bind_training_authority
-from tests.test_training_runs import ready_dataset, executor_claim
+from app.schemas.training_dataset import TrainingDatasetSelection
+from tests.sample_evaluation_original_fixtures import Objects
+from tests.test_training_datasets import reviewed_project
+from tests.test_training_parameters import configuration
+from tests.test_training_runs import executor_claim, ready_dataset
+from tests.training_original_fixtures import image_bytes, register_original
 
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
 
@@ -41,8 +53,6 @@ async def check_policy_with_db_reader(db, policy_id, *, force=False):
 async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effective_values(
     db_session, super_admin, httpx_client, frozen_source
 ):
-    from tests.trainer_plugin_fixtures import ultralytics_schema
-
     owner, token = super_admin
     project, parent, policy, path, body = await setup_policy(
         db_session, httpx_client, owner, token
@@ -50,20 +60,12 @@ async def test_v2_policy_adoption_is_explicit_and_children_replay_pinned_effecti
     legacy = copy.deepcopy(policy.config)
     assert "configuration" not in legacy
     assert await claims.policy_template_current(db_session, policy)
-    schema = ultralytics_schema("yolo11n")
     update = {key: value for key, value in body.items() if key != "parameters"}
     update.update(
         expected_revision=1,
-        configuration={
-            "schema_id": schema["schema_id"],
-            "schema_digest": schema["schema_digest"],
-            "values": {
-                "epochs": 4,
-                "optimizer": "AdamW",
-                "close_mosaic": 0,
-                "mosaic": 0.5,
-            },
-        },
+        configuration=configuration(
+            epochs=4, optimizer="AdamW", close_mosaic=0, mosaic=0.5
+        ),
     )
     response = await httpx_client.put(
         path, json=update, headers={"Authorization": "Bearer " + token}
@@ -105,45 +107,117 @@ def manifest(train=None, val="v1", classes=None):
 
 
 @pytest.fixture
-def frozen_source(monkeypatch, dataset_dispatcher):
-    source = {"revision": 1}
+def frozen_source(db_session, tmp_path, monkeypatch):
+    objects = Objects().install(monkeypatch)
+    db_session.info["policy_packages"] = (tmp_path, objects)
+    yield objects
+    assert all(body.closed for body in objects.bodies)
 
-    async def freeze(db, project, selection, **kw):
-        snapshot = {
+
+def package_version(db, version, parent_manifest):
+    directory, objects = db.info["policy_packages"]
+    media = []
+    for sample in version.snapshot["samples"]:
+        facts = sample["media"]
+        path = directory / (facts["sha256"] + ".png")
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == facts["sha256"]
+        media.append(
+            {**facts, "task_id": sample["task_id"], "extension": ".png", "path": path}
+        )
+    path = directory / f"{version.attempt_id}.zip"
+    result = build_training_package(
+        version.snapshot, media, path, parent_manifest=parent_manifest
+    )
+    owner = training_dataset_storage.resolve(version)
+    key = owner.key(f"attempts/{version.attempt_id}/dataset.zip")
+    raw = path.read_bytes()
+    objects.put(owner.bucket, key, raw)
+    return {
+        "manifest": result,
+        "package_key": key,
+        "package_sha256": hashlib.sha256(raw).hexdigest(),
+        "size_bytes": len(raw),
+    }
+
+
+async def legacy_version(db, project_id, creator_id, snapshot, parent=None):
+    digest = service.content_digest(snapshot)
+    version = TrainingDatasetVersion(
+        project_id=project_id,
+        creator_id=creator_id,
+        parent_id=parent.id if parent else None,
+        request_id=uuid.uuid4(),
+        request_digest=digest,
+        snapshot_digest=digest,
+        name="Historical detection dataset",
+        snapshot=snapshot,
+        status="pending",
+    )
+    db.add(version)
+    await db.flush()
+    await training_dataset_storage.allocate(db, version)
+    package = package_version(db, version, parent.manifest if parent else None)
+    for field, value in package.items():
+        setattr(version, field, value)
+    version.status = "ready"
+    await db.flush()
+    return version
+
+
+async def edit_label(db, dataset, split):
+    from app.db.models.annotation import Annotation
+
+    member = next(s for s in dataset.manifest["samples"] if s["split"] == split)
+    annotation = await db.scalar(
+        select(Annotation).where(Annotation.task_id == uuid.UUID(member["task_id"]))
+    )
+    annotation.geometry = {**annotation.geometry, "w": 0.25}
+    annotation.version += 1
+    await db.flush()
+
+
+def baseline_without_one_train_member(dataset):
+    samples = list(dataset.manifest["samples"])
+    samples.remove(next(s for s in samples if s["split"] == "train"))
+    return semantic_partitions({**dataset.manifest, "samples": samples})
+
+
+def policy_executor():
+    claim = executor_claim()
+    claim.runtime["input_receipt_policy_digest"] = POLICY_DIGEST
+    return claim
+
+
+async def ready_policy_parent(db, owner):
+    directory, objects = db.info["policy_packages"]
+    project, tasks = await reviewed_project(db, owner)
+    for index, task in enumerate(tasks):
+        raw = image_bytes(color=(index, 40, 100))
+        await register_original(db, task, owner, raw=raw, provider=objects)
+        (directory / (hashlib.sha256(raw).hexdigest() + ".png")).write_bytes(raw)
+    selection = TrainingDatasetSelection()
+    snapshot, report = await service.datasets.freeze_selection(
+        db, project, selection, actor_id=owner.id, trusted_actor=True
+    )
+    assert report["ready"], report["issues"]
+    parent = await legacy_version(
+        db,
+        project.id,
+        owner.id,
+        {
             "schema": 1,
-            "classes": ["car"],
-            "samples": [],
-            "seed": 42,
-            "validation_fraction": 0.2,
-            "selection": selection.model_dump(mode="json"),
-            "authorization": {
-                "actor_id": str(kw["actor_id"]),
-                "api_key_id": kw.get("api_key_id"),
-            },
-            "source_revision": source["revision"],
-        }
-        return snapshot, {
-            "ready": True,
-            "issues": [],
-            "excluded": [],
-            "digest": service.content_digest(snapshot),
-            "summary": {
-                "selected": 0,
-                "eligible": 0,
-                "positives": 0,
-                "negatives": 0,
-                "excluded": 0,
-            },
-        }
-
-    monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
-    return source
+            "classes": snapshot["classes"],
+            "samples": snapshot["samples"],
+            "seed": snapshot["seed"],
+            "validation_fraction": snapshot["validation_fraction"],
+            "selection": snapshot["selection"],
+        },
+    )
+    return project, parent
 
 
 async def setup_policy(db, client, owner, token, *, enabled=True, threshold=1):
-    project, parent = await ready_dataset(db, owner)
-    parent.manifest = manifest()
-    await db.flush()
+    project, parent = await ready_policy_parent(db, owner)
     body = {
         "expected_revision": 0,
         "enabled": enabled,
@@ -168,7 +242,7 @@ async def setup_policy(db, client, owner, token, *, enabled=True, threshold=1):
     )
 
 
-async def build_candidate(db, policy, value=None):
+async def build_candidate(db, policy):
     await check_policy_with_db_reader(db, policy.id, force=True)
     await db.flush()
     trigger = await db.scalar(
@@ -180,13 +254,11 @@ async def build_candidate(db, policy, value=None):
     data = await db.get(TrainingDatasetVersion, trigger.dataset_id)
     assert data.preparation_report["snapshot_digest"] == data.snapshot_digest
     assert data.preparation_report["schema"] == 1
-    data.status, data.package_sha256, data.package_key = (
-        "ready",
-        "e" * 64,
-        "owned/data.zip",
-    )
-    data.manifest = value or manifest()
-    await db.flush()
+    parent = await db.get(TrainingDatasetVersion, data.parent_id)
+    assert all(data.snapshot[key] == value for key, value in DETECTION_CONTRACT.items())
+    assert await training_dataset_data.start_version(db, data)
+    package = package_version(db, data, parent.manifest)
+    assert await training_dataset_data.publish_version(db, data, **package)
     await check_policy_with_db_reader(db, policy.id, force=True)
     await db.flush()
     run = await db.scalar(
@@ -236,16 +308,16 @@ async def test_policy_is_explicit_revisioned_and_guards_referenced_storage(
         path, json=body, headers={"Authorization": "Bearer " + token}
     )
     assert stale.status_code == 409
-    delete_objects = AsyncMock()
-    monkeypatch.setattr(
-        "app.api.v1.training_datasets.storage_service.delete_prefix", delete_objects
-    )
+    purge = AsyncMock()
+    monkeypatch.setattr("app.services.training_storage_cleanup.purge_committed", purge)
     deleted = await httpx_client.delete(
         f"/api/v1/projects/{p.id}/training-datasets/{parent.id}",
         headers={"Authorization": "Bearer " + token},
     )
     assert deleted.status_code == 409
-    delete_objects.assert_not_called()
+    purge.assert_not_awaited()
+    await db_session.refresh(parent)
+    assert parent.status == "ready"
     invalid = await httpx_client.put(
         path,
         json={**body, "expected_revision": 1, "min_changed_samples": 0},
@@ -326,21 +398,23 @@ async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
     p, parent, policy, path, body = await setup_policy(
         db_session, httpx_client, owner, token
     )
-    policy.baseline = semantic_partitions(manifest({"a": "label-a"}))
+    policy.baseline = baseline_without_one_train_member(parent)
     saved = copy.deepcopy(policy.baseline)
     t, data, run = await build_candidate(db_session, policy)
+    from tests.trainer_plugin_fixtures import ULTRALYTICS_VERSION
+
     assert (
-        run and t.changed_samples == 1 and run.config["framework_version"] == "8.4.177"
+        run
+        and t.changed_samples == 1
+        and run.config["framework_version"] == ULTRALYTICS_VERSION
     )
     run.status = "failed"
     await db_session.flush()
     await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert policy.baseline == saved and policy.blocked_train_digest == t.train_digest
-    frozen_source["revision"] += 1
-    t2, d2, r2 = await build_candidate(
-        db_session, policy, manifest(val="val-correction")
-    )
+    await edit_label(db_session, data, "val")
+    t2, d2, r2 = await build_candidate(db_session, policy)
     assert r2 is None and t2.status == "skipped" and "失败" in t2.message
     assert policy.baseline == saved
     r = await httpx_client.put(
@@ -361,7 +435,7 @@ async def test_success_alone_advances_baseline_and_edits_during_training_survive
         db_session, httpx_client, owner, token
     )
     t, data, run = await build_candidate(db_session, policy)
-    frozen_source["revision"] += 1
+    await edit_label(db_session, data, "train")
     await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert (
@@ -376,9 +450,7 @@ async def test_success_alone_advances_baseline_and_edits_during_training_survive
         policy.baseline_dataset_id == data.id
         and policy.baseline == semantic_partitions(data.manifest)
     )
-    t2, d2, r2 = await build_candidate(
-        db_session, policy, manifest({"a": "label-a", "b": "corrected"})
-    )
+    t2, d2, r2 = await build_candidate(db_session, policy)
     assert r2 and t2.changed_samples == 1
     assert run.config["dataset_id"] == str(data.id)
 
@@ -390,10 +462,9 @@ async def test_validation_only_candidate_does_not_trigger_training(
     p, parent, policy, path, body = await setup_policy(
         db_session, httpx_client, owner, token
     )
-    policy.baseline = semantic_partitions(manifest())
-    trigger, data, run = await build_candidate(
-        db_session, policy, manifest(val="new-val")
-    )
+    policy.baseline = semantic_partitions(parent.manifest)
+    await edit_label(db_session, parent, "val")
+    trigger, data, run = await build_candidate(db_session, policy)
     assert run is None and trigger.changed_samples == 0 and trigger.status == "skipped"
 
 
@@ -409,7 +480,7 @@ async def test_disable_cancels_only_unclaimed_training(
     if started:
         assignment = await runs.claim(
             db_session,
-            executor_claim(),
+            policy_executor(),
             training_authority=bind_training_authority(db_session),
         )
         assert assignment["run_id"] == str(run.id)
@@ -418,6 +489,8 @@ async def test_disable_cancels_only_unclaimed_training(
         headers={"Authorization": "Bearer " + token},
     )
     assert response.status_code == 200, response.text
+    await db_session.refresh(run)
+    await db_session.refresh(policy)
     assert run.status == ("preparing" if started else "cancelled")
     assert not policy.enabled
 
@@ -435,11 +508,12 @@ async def test_claim_rechecks_policy_revision_even_when_tick_has_not_cancelled(
     assert (
         await runs.claim(
             db_session,
-            executor_claim(),
+            policy_executor(),
             training_authority=bind_training_authority(db_session),
         )
         is None
     )
+    await db_session.refresh(run)
     assert run.status == "cancelled"
 
 
@@ -511,7 +585,7 @@ async def test_legacy_parent_with_unqualified_output_media_suspends_before_freez
     parent.manifest = {**parent.manifest, "media_type": media_type}
     await db_session.flush()
     freeze = AsyncMock(side_effect=AssertionError("Unqualified parent must not freeze"))
-    monkeypatch.setattr(service.datasets, "freeze_selection", freeze)
+    monkeypatch.setattr(service.datasets, "prepare_selection", freeze)
     await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     assert not policy.enabled and policy.state == "suspended"
@@ -625,13 +699,20 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
         "last.pt": {
             "role": "checkpoint",
             "epoch": 1,
-            "key": f"projects/{p.id}/runs/{run.id}/attempts/{attempt.id}/last.pt",
+            "key": runs.storage_owner(run).key(f"attempts/{attempt.id}/last.pt"),
             "sha256": "f" * 64,
             "size_bytes": 1,
         }
     }
-    lease = await runs.lock_resource(db_session, run.config["resource_id"])
-    lease.runtime = executor_claim().runtime
+    await db_session.flush()
+    assert (
+        await runs.claim(
+            db_session,
+            policy_executor(),
+            training_authority=bind_training_authority(db_session),
+        )
+        is None
+    )
     monkeypatch.setattr(
         runs.storage.client,
         "head_object",
@@ -643,12 +724,13 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
     await db_session.flush()
     await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
-    frozen_source["revision"] += 1
+    await edit_label(db_session, data, "train")
     await check_policy_with_db_reader(db_session, policy.id, force=True)
     await db_session.flush()
     url = f"/api/v1/projects/{p.id}/training-runs/{run.id}/resume"
     r = await httpx_client.post(url, headers={"Authorization": "Bearer " + token})
     assert r.status_code == 409
+    assert "其他自动候选" in r.json()["detail"]
     r = await httpx_client.post(
         path + "/disable?expected_revision=1",
         headers={"Authorization": "Bearer " + token},
@@ -658,7 +740,7 @@ async def test_resume_rejects_another_candidate_and_explicit_resume_can_continue
     assert r.status_code == 202, r.text
     assignment = await runs.claim(
         db_session,
-        executor_claim(),
+        policy_executor(),
         training_authority=bind_training_authority(db_session),
     )
     assert assignment["run_id"] == str(run.id)
@@ -673,7 +755,7 @@ async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
 
     owner, _ = super_admin
     identities = []
-    for _ in range(5):
+    for _ in range(101):
         p = await create_project(db_session, owner_id=owner.id)
         policy = LearningPolicy(
             project_id=p.id,
@@ -692,15 +774,15 @@ async def test_bounded_tick_rotates_fairly_across_more_than_one_page(
         policy = await db.get(LearningPolicy, identity)
         policy.last_checked_at = runs.now()
 
-    monkeypatch.setattr(learning_policy_execution, "CHECK_BATCH_SIZE", 2)
     monkeypatch.setattr(service, "check_policy", check)
     factory = async_sessionmaker(db_session.bind, expire_on_commit=False)
-    for _ in range(3):
+    for expected_total in (100, 200):
         await learning_policy_execution.tick(
             factory,
             dispatcher=dataset_dispatcher,
             training_authority_factory=bind_training_authority,
         )
+        assert len(seen) == expected_total
     assert set(seen) == set(identities)
 
 
@@ -728,24 +810,45 @@ async def test_success_parent_advance_without_source_change_does_not_repackage(
 async def test_contract_upgrade_does_not_retry_same_failed_training_content(
     db_session, super_admin, httpx_client, frozen_source, changed_validation
 ):
-    from training_contract.dataset import DETECTION_CONTRACT
-
     owner, token = super_admin
-    _, _, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
-    policy.baseline = semantic_partitions(manifest({"a": "label-a"}))
-    old, old_data, run = await build_candidate(db_session, policy)
+    _, parent, policy, _, _ = await setup_policy(db_session, httpx_client, owner, token)
+    policy.baseline = baseline_without_one_train_member(parent)
+    historical = {
+        **parent.snapshot,
+        "selection": {**parent.snapshot["selection"], "parent_id": str(parent.id)},
+        "deduplicate": True,
+    }
+    old_data = await legacy_version(
+        db_session, parent.project_id, owner.id, historical, parent
+    )
+    old = LearningTrigger(
+        policy_id=policy.id,
+        policy_revision=policy.revision,
+        project_id=parent.project_id,
+        dataset_id=old_data.id,
+        source_digest=old_data.snapshot_digest,
+        status="building",
+    )
+    db_session.add(old)
+    await db_session.flush()
+    await check_policy_with_db_reader(db_session, policy.id, force=True)
+    run = await db_session.scalar(
+        select(TrainingRun).where(TrainingRun.auto_trigger_id == old.id)
+    )
     assert run is not None and old.changed_samples == 1
     saved_manifest = copy.deepcopy(old_data.manifest)
     saved_digest = old.train_digest
     run.status = "failed"
     await db_session.flush()
     await check_policy_with_db_reader(db_session, policy.id, force=True)
-    frozen_source["revision"] += 1
-    current = {
-        **manifest(val="corrected" if changed_validation else "v1"),
-        **DETECTION_CONTRACT,
-    }
-    skipped, _, retried = await build_candidate(db_session, policy, current)
+    if changed_validation:
+        await edit_label(db_session, parent, "val")
+    skipped, current, retried = await build_candidate(db_session, policy)
+    assert old_data.manifest["schema"] == 1 and current.manifest["schema"] == 3
+    previous = semantic_partitions(saved_manifest)
+    next_partitions = semantic_partitions(current.manifest)
+    assert next_partitions["train"] == previous["train"]
+    assert (next_partitions["val"] != previous["val"]) == changed_validation
     assert skipped.train_digest != saved_digest
     assert retried is None and skipped.status == "skipped"
     assert "失败" in skipped.message or "相同候选" in skipped.message

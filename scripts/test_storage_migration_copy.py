@@ -391,7 +391,12 @@ class CopyTests(unittest.TestCase):
         try:
             asyncio.run(
                 reference_cli.expand_inventory(
-                    engine, family, spool, spool.budget, set()
+                    engine,
+                    family,
+                    spool,
+                    spool.budget,
+                    "yoao_assets_v1.inventory_objects",
+                    record=True,
                 )
             )
         finally:

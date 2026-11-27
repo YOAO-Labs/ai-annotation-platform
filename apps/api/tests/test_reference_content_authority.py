@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 import pytest
 from sqlalchemy import delete, func, select, update
 from starlette.requests import Request
@@ -20,10 +21,12 @@ from app.db.models.storage_maintenance import (
     StorageMaintenanceGate as Gate,
     StorageOperation,
 )
+from app.deps import get_current_principal, get_current_user
 from app.services import comment_attachment_authority as credentials
 from app.services import dataset_content as content, dataset_references as refs
-from app.services import reference_storage, storage_access
+from app.services import filesystem_storage, storage_access
 from app.services.content_snapshot import ContentError
+from app.services.identity_gateway import IdentityGateway
 from tests.test_original_cache import MemoryStorage
 from tests.test_reference_original_cache import (
     referenced_cache as referenced_cache,
@@ -59,18 +62,6 @@ async def authority_world(referenced_cache, monkeypatch):
         assert remaining == 0, "reference request leaked a durable read permit"
 
 
-def request(token, *, key_id=None, scopes=None):
-    value = Request(
-        {
-            "type": "http",
-            "headers": [(b"authorization", ("Bearer " + token).encode())],
-        }
-    )
-    value.state.api_key_id = str(key_id) if key_id is not None else None
-    value.state.api_key_scopes = list(scopes) if scopes is not None else None
-    return value
-
-
 async def prepared(world, path):
     cached_id = None
     if path == "cache":
@@ -81,7 +72,7 @@ async def prepared(world, path):
 
 def observe_reads(monkeypatch):
     source_reads, cache_reads = [], []
-    source = reference_storage.content_file
+    source = filesystem_storage.content_file
     stored = MemoryStorage.get_object
 
     def source_file(*args, **kwargs):
@@ -92,24 +83,34 @@ def observe_reads(monkeypatch):
         cache_reads.append(True)
         return stored(self, **kwargs)
 
-    monkeypatch.setattr(reference_storage, "content_file", source_file)
+    monkeypatch.setattr(filesystem_storage, "content_file", source_file)
     monkeypatch.setattr(MemoryStorage, "get_object", cache_object)
     return source_reads, cache_reads
 
 
 async def call_task(world, token, *, key_id=None):
     async with world.factory() as db:
+        request = Request(
+            {
+                "type": "http",
+                "headers": [(b"authorization", ("Bearer " + token).encode())],
+            }
+        )
+        identity = IdentityGateway()
+        principal = await get_current_principal(
+            request,
+            HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+            db,
+            identity,
+        )
+        actor = await get_current_user(request, principal, db, identity)
         return await content.task_snapshot(
             db,
             world.task.id,
-            world.actor,
+            actor,
             world.sha,
             api_key_id=key_id,
-            request=request(
-                token,
-                key_id=key_id,
-                scopes=["tasks:read"] if key_id else None,
-            ),
+            request=request,
         )
 
 
@@ -164,6 +165,16 @@ async def test_reference_admission_rechecks_original_request_before_any_bytes(
                 )
             )
             await db.commit()
+
+        read_reference = refs.reference_snapshot
+
+        async def revoke_before_reference(*args, **kwargs):
+            async with world.factory.begin() as owner:
+                key = await owner.get(ApiKey, key_id)
+                key.revoked_at = datetime.now(timezone.utc)
+            return await read_reference(*args, **kwargs)
+
+        monkeypatch.setattr(refs, "reference_snapshot", revoke_before_reference)
     acquire = storage_access.acquire
     admitted = []
 
@@ -177,10 +188,6 @@ async def test_reference_admission_rechecks_original_request_before_any_bytes(
             assert len(admitted) == 1
             async with world.factory() as observer:
                 assert await observer.get(StorageOperation, permit.id) is not None
-                if mutation == "key_revoke":
-                    key = await observer.get(ApiKey, key_id)
-                    key.revoked_at = datetime.now(timezone.utc)
-                    await observer.commit()
             if mutation == "jwt_expiry":
                 monkeypatch.setattr(
                     credentials, "now", lambda: expiration + timedelta(seconds=1)
@@ -202,7 +209,13 @@ async def test_reference_admission_rechecks_original_request_before_any_bytes(
     finally:
         if image is not None:
             image.close()
-    assert admitted == ["original_cache_read" if path == "cache" else "reference_read"]
+    if mutation == "key_revoke":
+        assert error.value.detail == {"code": "api_key_authority_revoked"}
+        assert not admitted
+    else:
+        assert admitted == [
+            "original_cache_read" if path == "cache" else "reference_read"
+        ]
     assert source_reads == cache_reads == []
     await assert_no_read_responsibility(world, cached_id)
     assert not world.deletions

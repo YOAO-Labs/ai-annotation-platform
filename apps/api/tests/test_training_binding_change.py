@@ -21,7 +21,7 @@ from app.services.dataset_assets import (
 )
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_location import register_connection
-from tests.test_storage_locations_api import headers
+from tests.test_storage_locations_api import headers, stub_saved_binding_probe
 from tests.test_storage_maintenance_impact import key_headers
 
 BASE = "/api/v1/storage-locations/bindings/training"
@@ -79,7 +79,7 @@ async def world(db_session, super_admin, monkeypatch, test_engine):
             "list": True,
         }
 
-    monkeypatch.setattr(controller(), "probe_target", probe)
+    stub_saved_binding_probe(monkeypatch, controller(), probe)
     await db.commit()
     target_id = target.id
     yield db, connection, target, calls
@@ -274,14 +274,30 @@ async def test_candidates_are_paginated_and_only_global_s3(
     result = await httpx_client.get(
         BASE + "/candidates?limit=1&offset=0", headers=headers(super_admin)
     )
-    assert result.status_code == 200 and result.json()["total"] == 1
-    assert result.json()["items"][0]["location_id"] == str(LEGACY_LOCATION_ID)
+    assert result.status_code == 200
+    base_total = result.json()["total"]
+    assert base_total >= 1 and len(result.json()["items"]) == 1
+    owner_all = await httpx_client.get(
+        f"{BASE}/candidates?limit={base_total + 5}&offset=0",
+        headers=headers(super_admin),
+    )
+    owner_ids = {item["location_id"] for item in owner_all.json()["items"]}
+    assert str(LEGACY_LOCATION_ID) in owner_ids
+    assert str(target.id) not in owner_ids
     connection.scope = "global"
     await db.commit()
     second = await httpx_client.get(
-        BASE + "/candidates?limit=1&offset=1", headers=headers(super_admin)
+        f"{BASE}/candidates?limit=1&offset={base_total}", headers=headers(super_admin)
     )
-    assert second.json()["total"] == 2 and len(second.json()["items"]) == 1
+    assert second.status_code == 200
+    assert second.json()["total"] == base_total + 1 and len(second.json()["items"]) == 1
+    global_all = await httpx_client.get(
+        f"{BASE}/candidates?limit={base_total + 5}&offset=0",
+        headers=headers(super_admin),
+    )
+    assert str(target.id) in {
+        item["location_id"] for item in global_all.json()["items"]
+    }
 
 
 async def test_nonadministrator_cannot_probe_or_apply(
@@ -363,10 +379,10 @@ async def test_probe_phase_rejects_revision_change_before_publishing_review(
 ):
     db, connection, target, calls = world
 
-    async def raced(_db, _location, _purpose, probe, captured_target, **_kwargs):
+    async def raced(_db, _location, _purpose, probe, *args, **_kwargs):
         connection.revision += 1
         await db.flush()
-        return probe(captured_target)
+        return probe(*args)
 
     monkeypatch.setattr(controller().storage_access, "run", raced)
     response = await httpx_client.post(
@@ -425,28 +441,144 @@ async def test_confirmation_cannot_be_replayed_and_return_to_legacy_is_reviewed(
     assert response.json()["location_id"] == str(LEGACY_LOCATION_ID)
 
 
-async def test_history_counts_all_states_including_unpinned_owners(db_session):
-    from sqlalchemy import text
-
-    tables = (
-        "training_dataset_versions",
-        "training_runs",
-        "training_previews",
-        "sample_evaluation_runs",
-        "active_learning_rounds",
-        "training_storage_deletions",
+async def test_history_counts_all_states_including_unpinned_owners(
+    db_session, super_admin
+):
+    from tests.conftest import create_registry_with_pool
+    from tests.factory import create_project
+    from tests.test_storage_maintenance_targets import (
+        NOW,
+        SHA,
+        insert,
+        location as seed_location,
+        root,
+        saved_ref,
+        saved_version,
     )
-    try:
-        for table in tables:
-            await db_session.execute(
-                text(f'CREATE TEMP TABLE "{table}" (status text, storage_ref jsonb)')
-            )
-            await db_session.execute(
-                text(
-                    f"INSERT INTO \"{table}\" (status) VALUES ('pending'), ('failed'), ('retired')"
-                )
-            )
-        assert await controller().history(db_session) == {name: 3 for name in HISTORY}
-    finally:
-        for table in tables:
-            await db_session.execute(text(f'DROP TABLE IF EXISTS pg_temp."{table}"'))
+
+    db = db_session
+    before = await controller().history(db)
+    await ensure_legacy_bindings(db)
+    loc = await seed_location(db)
+    project = await create_project(db, owner_id=super_admin[0].id)
+    registry, _ = await create_registry_with_pool(db, name="training-history-fixture")
+    for status in ("queued", "failed", "cancelled"):
+        version = await saved_version(
+            db, project, None, status="pending" if status == "queued" else status
+        )
+        run = await insert(
+            db,
+            "training_runs",
+            id=uuid.uuid4(),
+            project_id=project.id,
+            dataset_id=version.id,
+            request_id=uuid.uuid4(),
+            request_digest=SHA,
+            name="Unpinned " + status,
+            config={},
+            config_digest=SHA,
+            status=status,
+            storage_ref=None,
+        )
+        attempt = await insert(
+            db,
+            "training_attempts",
+            id=uuid.uuid4(),
+            run_id=run["id"],
+            ordinal=1,
+            status=status,
+        )
+        model = await insert(
+            db,
+            "trained_model_versions",
+            id=uuid.uuid4(),
+            project_id=project.id,
+            run_id=run["id"],
+            attempt_id=attempt["id"],
+            request_id=uuid.uuid4(),
+            request_digest=SHA,
+            name="Model " + status,
+            framework="fixture",
+            framework_version="1",
+            artifact={},
+            classes=[],
+            bindings=[],
+            binding_digest=SHA,
+            provenance={},
+        )
+        deployment = await insert(
+            db,
+            "trained_model_deployments",
+            id=uuid.uuid4(),
+            model_version_id=model["id"],
+            registry_id=registry.id,
+        )
+        await insert(
+            db,
+            "training_previews",
+            id=uuid.uuid4(),
+            project_id=project.id,
+            dataset_id=version.id,
+            request_id=uuid.uuid4(),
+            request_digest=SHA,
+            request={},
+            input_digest=SHA,
+            spec={},
+            authorization={},
+            resource_id="fixture",
+            expires_at=NOW + timedelta(days=1),
+            status="expired" if status == "cancelled" else status,
+            storage_ref=None,
+        )
+        await insert(
+            db,
+            "sample_evaluation_runs",
+            id=uuid.uuid4(),
+            project_id=project.id,
+            dataset_id=version.id,
+            model_version_id=model["id"],
+            deployment_id=deployment["id"],
+            request_id=uuid.uuid4(),
+            request_digest=SHA,
+            name="Eval " + status,
+            spec={},
+            spec_digest=SHA,
+            status=status,
+            storage_ref=None,
+        )
+        await insert(
+            db,
+            "active_learning_rounds",
+            id=uuid.uuid4(),
+            project_id=project.id,
+            model_version_id=model["id"],
+            deployment_id=deployment["id"],
+            request_id=uuid.uuid4(),
+            request_digest=SHA,
+            name="Round " + status,
+            spec={},
+            spec_digest=SHA,
+            status=status,
+            storage_ref=None,
+        )
+        ref = saved_ref(
+            loc,
+            "training-dataset",
+            key_prefix=root("training"),
+            prefix=f"{root('training')}projects/{project.id}/datasets/{uuid.uuid4()}/",
+            origin="new",
+            evidence=None,
+        )
+        await insert(
+            db,
+            "training_storage_deletions",
+            id=uuid.uuid4(),
+            storage_ref=ref,
+            bucket=ref["bucket"],
+            prefix=ref["prefix"],
+        )
+    await db.flush()
+    after = await controller().history(db)
+    assert {key: after[key] - before[key] for key in HISTORY} == {
+        name: 3 for name in HISTORY
+    }

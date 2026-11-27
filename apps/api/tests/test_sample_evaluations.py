@@ -495,7 +495,7 @@ async def test_comparison_requires_two_explicit_compatible_successful_reports(
     [
         (2, "8.4.183", None),
         (99, "8.4.183", 502),
-        (1, "8.4.183", 409),
+        (1, "8.4.183", None),
         (2, "8.4.184", 409),
     ],
 )

@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import event
 
 from app.services import user_brief
-from tests.factory import create_membership, create_project, create_user
+from tests.factory import create_membership, create_project
 
 _FIXTURE = json.loads(
     (Path(__file__).parent / "fixtures/project_owner_profiles_legacy.json").read_text()
@@ -22,21 +22,36 @@ _RESPONSES = {item["phase"]: item["response"] for item in _FIXTURE["records"]}
 
 def _persisted_response(phase):
     expected = json.loads(json.dumps(_RESPONSES[phase]))
-    rows = expected if isinstance(expected, list) else expected.get("items", [])
+    rows = (
+        expected
+        if isinstance(expected, list)
+        else expected["items"]
+        if "items" in expected
+        else [expected]
+    )
     for row in rows:
+        row.setdefault("guide_assets_revision", 1)
         for field in ("box_threshold", "text_threshold"):
             row[field] = struct.unpack("!f", struct.pack("!f", row[field]))[0]
     return expected
 
 
 async def _seed(db):
+    from app.core.security import hash_password
+    from app.db.models.user import User
+
     for item in _FIXTURE["owners"]:
-        user = await create_user(db, item["role"], item["email"], item["name"])
-        user.id = uuid.UUID(item["id"])
-        user.is_active = item["active"]
-        user.avatar_ref = item["avatar_ref"]
-        if not item["active"]:
-            user.disabled_kind = "suspended"
+        user = User(
+            id=uuid.UUID(item["id"]),
+            email=item["email"],
+            name=item["name"],
+            password_hash=hash_password("TestPass123!"),
+            role=item["role"],
+            is_active=item["active"],
+            avatar_ref=item["avatar_ref"],
+            disabled_kind=None if item["active"] else "suspended",
+        )
+        db.add(user)
         await db.flush()
     projects = []
     for item in _FIXTURE["projects"]:
@@ -153,7 +168,10 @@ async def test_empty_and_out_of_range_pages_never_acquire_profile_owner(
     monkeypatch.setattr(user_brief.IdentityBriefsCommands, "execute", forbid)
     for path, params in (
         ("/api/v1/projects", {"search": "does-not-exist"}),
-        ("/api/v1/projects/query", {"page": 3, "page_size": 2}),
+        (
+            "/api/v1/projects/query",
+            {"search": "project-owner-profiles-", "page": 3, "page_size": 2},
+        ),
     ):
         response = await httpx_client.get(
             path, params=params, headers={"Authorization": "Bearer " + token}

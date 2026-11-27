@@ -566,6 +566,34 @@ class ModuleDataSelectionTests(unittest.TestCase):
         self.assertEqual(sorted(selected_paths & RETIRED_MODULE_DATA_SELECTORS), [])
         self.assertEqual(sorted(strict_paths & RETIRED_MODULE_DATA_SELECTORS), [])
 
+    def test_collect_only_writes_manifest_without_starting_docker(self):
+        from scripts.verify_module_data_boundary import main as verify_main
+
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "collection.json"
+            with redirect_stdout(io.StringIO()):
+                code = verify_main(
+                    ["--output", str(output), "--reclamation-only"],
+                    collect_only=True,
+                )
+            self.assertEqual(code, 0)
+            evidence = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(evidence["status"], "collected")
+            manifest = output.with_name("collection.collection.json")
+            collected = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(collected, evidence["collected_test_nodes"])
+            self.assertTrue(collected)
+            for target in _RECLAMATION_PROFILES:
+                self.assertTrue(
+                    any(
+                        node == target
+                        or node.startswith(f"{target}[")
+                        or node.startswith(f"{target}::")
+                        for node in collected
+                    ),
+                    target,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

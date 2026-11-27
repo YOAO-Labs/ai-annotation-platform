@@ -14,10 +14,10 @@ from app.schemas.scene import (
     SceneTimelineTrackOccurrence,
 )
 from app.services.labeling_scene import (
+    read_scene_data,
     get_scene_timeline_annotation_summaries,
     get_scene_timeline_window,
 )
-from app.services.labeling_scene_read import read_scene_data
 from app.services.project_access import get_workspace_project
 from app.services.identity_contracts import IdentityActorFacts
 

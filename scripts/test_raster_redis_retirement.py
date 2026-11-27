@@ -13,7 +13,12 @@ import worktree_resources as resources
 class RasterRedisRetirementTests(unittest.TestCase):
     def setUp(self):
         self.backend = resources.LocalResources.__new__(resources.LocalResources)
-        self.backend.resources = {"redis_name": "owned-redis", "owner": "owned"}
+        self.backend.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.backend.resources = {
+            "redis_name": "owned-redis",
+            "owner": "owned",
+            "mode": "e2e",
+        }
         self.prepared = resources._WorktreeDestroyPreparation(self.backend, None, None)
         self.prepared.storage = "raster_provider_retired"
         self.backend._destroy_preparation = self.prepared

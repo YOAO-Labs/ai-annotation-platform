@@ -404,7 +404,10 @@ class RecoveryVideoSeed(unittest.IsolatedAsyncioTestCase):
 
     async def test_pending_zip_is_saved_under_running_attempt_without_publication(self):
         from app.db.models.export_output import ExportOutput
-        from app.services import async_job as jobs, export_media_bundles as bundles
+        from app.services import (
+            jobs_lifecycle_data as jobs,
+            export_media_bundles as bundles,
+        )
         from app.services import export_outputs, export_storage
         from app.services.exporting import video_delivery, video_inputs, packaging
         from app.workers import lidar_export as publisher

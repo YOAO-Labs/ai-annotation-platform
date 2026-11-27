@@ -13,7 +13,7 @@ from sqlalchemy import text
 
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.annotation_comment import validate_mentions
 from app.services.notification import NotificationService
 from app.services.project_aggregates import member_user_ids
 from app.services.project_performance import ResolvedScope, _build_roster
@@ -136,13 +136,13 @@ async def test_mentions_keep_any_role_inactive_and_missing_order(test_engine):
                 {"member": world["member_id"], "owner": world["owner_id"]},
             )
         async with owner() as db:
-            service = AnnotationCommentService(db)
-            await service.validate_mentions(
-                world["project_id"], [world["member_id"], world["owner_id"]]
+            await validate_mentions(
+                db, world["project_id"], [world["member_id"], world["owner_id"]]
             )
             missing = [uuid.uuid4(), uuid.uuid4()]
             with pytest.raises(HTTPException) as invalid:
-                await service.validate_mentions(
+                await validate_mentions(
+                    db,
                     world["project_id"],
                     [missing[1], world["member_id"], missing[0], missing[1]],
                 )

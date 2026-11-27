@@ -27,14 +27,12 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from starlette.requests import Request
 
 from app.application.mask_repair_execution import (
     run_mask_repair,
     run_mask_repair_rollback,
 )
 from app.config import settings
-from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.audit_log import AuditLog
@@ -50,7 +48,7 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.schemas.mask_repair import MaskRepairDryRunRequest
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.mask_repair import (
@@ -69,8 +67,9 @@ from app.services.ml_interaction_proxy import prepare_interactive_context
 from app.services.raster_mask_storage import build_rle_reference
 from app.services.reference_bindings import task_binding
 from app.workers.celery_app import celery_app
-from tests.factory import create_user
+from tests.factory import admitted_request, create_user
 from tests.inference_execution_test_ports import FakeModelExecutionPort
+from tests.mask_repair_publication import bind_publication_login
 from tests.test_interactive_native_mask_endpoint import _setup
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
@@ -82,11 +81,7 @@ _WORKER_NODE = "worker:repair-control@test"
 
 def _http_request(actor):
     """A real admitted bearer request for the exact actor credential facts."""
-    role = getattr(actor.role, "value", actor.role)
-    token = create_access_token(str(actor.id), role)
-    return Request(
-        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
-    )
+    return admitted_request(actor)
 
 
 class _UnitRepairReceipt:
@@ -227,7 +222,14 @@ class _TrackerDispatcher:
 
 @pytest.fixture
 async def repair_world(test_db_url, apply_migrations, monkeypatch):
+    from tests.raster_mask_isolation import (
+        remove_test_raster_owners,
+        track_raster_owners,
+    )
+
     engine = create_async_engine(test_db_url)
+    raster_tracker = track_raster_owners(engine)
+    created_raster_owners = raster_tracker.__enter__()
     factory = async_sessionmaker(engine, expire_on_commit=False)
     async with factory() as db:
         owner = await create_user(
@@ -425,7 +427,8 @@ async def repair_world(test_db_url, apply_migrations, monkeypatch):
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
     world.rles = rles
     try:
-        yield world
+        async with bind_publication_login(engine, monkeypatch):
+            yield world
     finally:
         async with factory() as db:
             actor_ids = [world.owner_id, world.author_id, *world.extra_user_ids]
@@ -471,6 +474,8 @@ async def repair_world(test_db_url, apply_migrations, monkeypatch):
             await db.execute(delete(Dataset).where(Dataset.id == world.dataset_id))
             await db.execute(delete(User).where(User.id.in_(actor_ids)))
             await db.commit()
+        raster_tracker.__exit__(None, None, None)
+        await remove_test_raster_owners(engine, created_raster_owners)
         await engine.dispose()
 
 
@@ -791,11 +796,13 @@ async def test_cancel_is_durable_when_revoke_fails(repair_world, monkeypatch, st
 
     monkeypatch.setattr(celery_app.control, "revoke", unavailable)
     async with world.factory() as db:
+        owner = await db.get(User, world.owner_id)
         cancellation = get_job_cancellation_port(
             db=db, execution_control=get_job_execution_control()
         )
         response = await cancel_async_job(
             job_id=world.job_id,
+            request=_http_request(owner),
             db=db,
             actor_id=world.owner_id,
             cancellation=cancellation,
@@ -1186,19 +1193,7 @@ async def test_deterministic_shards_follow_only_committed_versions(
         db.add(issue)
         await db.flush()
         actor = await db.get(User, world.owner_id)
-        request = Request(
-            {
-                "type": "http",
-                "headers": [
-                    (
-                        b"authorization",
-                        (
-                            "Bearer " + create_access_token(str(actor.id), actor.role)
-                        ).encode(),
-                    )
-                ],
-            }
-        )
+        request = _http_request(actor)
         response = await create_repair_plan(
             db,
             project=await db.get(Project, world.project_id),

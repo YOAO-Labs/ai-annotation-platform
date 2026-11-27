@@ -293,7 +293,8 @@ async def publish_source(
 
 async def ensure_month(db: AsyncSession, month: date) -> None:
     try:
-        await platform_maintenance(db, "ensure", month=month)
+        async with db.begin_nested():
+            await platform_maintenance(db, "ensure", month=month)
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) == "55000":
             raise AuditArchiveError("audit_archive_source_invalid") from None

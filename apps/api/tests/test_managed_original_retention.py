@@ -209,6 +209,7 @@ async def test_group_holds_require_exact_anchor_and_preserve_released_history(
     )
     result = await reviewed_apply(db, peer, actor, release)
     assert result.policy_revision == 3 and result.summary.backup_holds == 0
+    await db.refresh(hold)
     assert (
         hold.revision == 2
         and hold.released_by == actor.id

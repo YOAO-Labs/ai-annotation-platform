@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
@@ -20,7 +21,6 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.dataset_source import SourceRevisionAccept
 from app.services import dataset_scans as scans
 from app.services import dataset_source_changes as changes
-from app.services import dataset_source_revisions as revisions
 from app.services import filesystem_storage as fs
 from app.services import training_datasets
 from app.services.dataset import DatasetService
@@ -112,7 +112,7 @@ async def test_managed_source_changes_preserve_ready_training_version(
             for row in original.values()
         }
 
-        async def no_dispatch(*args):
+        async def no_dispatch(*args, **kwargs):
             pass
 
         monkeypatch.setattr(training_datasets, "dispatch_dataset", no_dispatch)
@@ -140,29 +140,33 @@ async def test_managed_source_changes_preserve_ready_training_version(
         version_prefix = f"projects/{project.id}/datasets/{version.id}/"
         raised = False
         real_commit = db.commit
-        real_scalar = db.scalar
+        real_read_facts = worker.data.read_version_facts
         lookup_failed = False
 
-        async def uncertain_lookup(statement, *args, **kwargs):
+        async def uncertain_lookup(session, vid, *, lock=False):
             nonlocal lookup_failed
-            if (
-                publication_fault == "ack_and_lookup"
-                and raised
-                and "training_dataset_versions.package_key" in str(statement)
-            ):
+            if publication_fault == "ack_and_lookup" and raised and not lock:
                 lookup_failed = True
                 raise RuntimeError("publication verification temporarily unavailable")
-            return await real_scalar(statement, *args, **kwargs)
+            return await real_read_facts(session, vid, lock=lock)
 
-        monkeypatch.setattr(db, "scalar", uncertain_lookup)
+        monkeypatch.setattr(worker.data, "read_version_facts", uncertain_lookup)
 
         async def commit_then_lose_ack():
             nonlocal raised
-            publication = (
-                version.status == "ready" and bool(version.package_key) and not raised
-            )
+            publication = False
+            if lose_commit_ack and not raised:
+                row = (
+                    await db.execute(
+                        select(
+                            TrainingDatasetVersion.status,
+                            TrainingDatasetVersion.package_key,
+                        ).where(TrainingDatasetVersion.id == version_id)
+                    )
+                ).one_or_none()
+                publication = bool(row and row[0] == "ready" and row[1])
             await real_commit()
-            if publication and lose_commit_ack:
+            if publication:
                 raised = True
                 raise RuntimeError("publication commit acknowledgement lost")
 
@@ -174,7 +178,7 @@ async def test_managed_source_changes_preserve_ready_training_version(
 
         await worker.build_dataset(version_id, job_id, attempt_id, sessions)
         monkeypatch.setattr(db, "commit", real_commit)
-        monkeypatch.setattr(db, "scalar", real_scalar)
+        monkeypatch.setattr(worker.data, "read_version_facts", real_read_facts)
         assert lookup_failed == (publication_fault == "ack_and_lookup")
         await db.refresh(version)
         assert version.status == "ready", version.error_message
@@ -212,7 +216,7 @@ async def test_managed_source_changes_preserve_ready_training_version(
                     == sample["label_sha256"]
                 )
 
-        for record in world[2:]:
+        for record in (world[2], world[3], world[5], world[6]):
             await db.refresh(record)
         await db.refresh(project)
         (world[0] / "图片 空格.png").write_bytes(picture("green"))
@@ -227,12 +231,12 @@ async def test_managed_source_changes_preserve_ready_training_version(
             before_revision_id=change["before_revision_id"],
             candidate_sha256=change["candidate_sha256"],
         )
-        result = await revisions.accept(
+        result = await accept_revision(
             db, registration.id, change["path_digest"], payload, world[2]
         )
         assert result["created"] and result["item_id"] not in old_items
         assert not (
-            await revisions.accept(
+            await accept_revision(
                 db, registration.id, change["path_digest"], payload, world[2]
             )
         )["created"]

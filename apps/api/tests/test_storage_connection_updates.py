@@ -42,6 +42,138 @@ async def _success(*args, **kwargs):
     return True, "连接成功", 0
 
 
+def install_in_process_connections_peer(monkeypatch):
+    import json
+
+    from yoao_assets_source.connections_contract import (
+        CONNECTION_NATIVE_ARGUMENTS,
+        CONNECTION_NATIVE_OPERATIONS,
+        CONNECTION_NATIVE_SIGNATURES,
+        RUNTIME_NATIVE_ARGUMENTS,
+        RUNTIME_NATIVE_OPERATIONS,
+        RUNTIME_NATIVE_SIGNATURES,
+        decode_connection_probe_reply,
+    )
+    from app.services.assets_connections import AssetsConnectionsGateway, _json_value
+
+    monkeypatch.setattr(settings, "assets_source_url", "http://assets-source.test")
+    monkeypatch.setattr(
+        settings,
+        "assets_source_connections_token",
+        "test-connections-token-0123456789",
+    )
+
+    class _InProcessNativePort:
+        def __init__(self, gateway: AssetsConnectionsGateway):
+            self._gateway = gateway
+
+        async def _call_connection(self, operation: str, request):
+            _, result_type = CONNECTION_NATIVE_OPERATIONS[operation]
+            names = CONNECTION_NATIVE_ARGUMENTS[operation]
+            casts = CONNECTION_NATIVE_SIGNATURES[operation].split(",")
+            arguments = tuple(
+                list(getattr(request, name))
+                if cast == "text[]" and getattr(request, name) is not None
+                else getattr(request, name)
+                for name, cast in zip(names, casts, strict=True)
+            )
+            return await self._gateway._native_call(
+                operation, request, arguments, result_type
+            )
+
+        async def _call_runtime(self, operation: str, request):
+            _, result_type = RUNTIME_NATIVE_OPERATIONS[operation]
+            names = RUNTIME_NATIVE_ARGUMENTS[operation]
+            casts = RUNTIME_NATIVE_SIGNATURES[operation].split(",")
+            placeholders = ", ".join(
+                f"CAST(:{name} AS {cast})"
+                for name, cast in zip(names, casts, strict=True)
+            )
+            parameters = {}
+            for name, cast in zip(names, casts, strict=True):
+                value = getattr(request, name)
+                if cast == "jsonb" and value is not None:
+                    parameters[name] = json.dumps(
+                        _json_value(value), separators=(",", ":"), allow_nan=False
+                    )
+                elif cast == "text[]" and value is not None:
+                    parameters[name] = list(value)
+                else:
+                    parameters[name] = value
+            maker = async_sessionmaker(self._gateway.db.bind, expire_on_commit=False)
+            async with maker.begin() as probe_db:
+                raw = await probe_db.scalar(
+                    text(f"SELECT yoao_assets_v1.{operation}({placeholders})"),
+                    parameters,
+                )
+            return decode_connection_probe_reply(raw, result_type)
+
+        async def list_storage_connections(self, request):
+            return await self._call_connection("list_storage_connections", request)
+
+        async def read_storage_connection(self, request):
+            return await self._call_connection("read_storage_connection", request)
+
+        async def read_storage_connection_policy(self, request):
+            return await self._call_connection(
+                "read_storage_connection_policy", request
+            )
+
+        async def capture_storage_connection(self, request):
+            return await self._call_connection("capture_storage_connection", request)
+
+        async def read_storage_connection_receipt(self, request):
+            return await self._call_connection(
+                "read_storage_connection_receipt", request
+            )
+
+        async def create_storage_connection(self, request):
+            return await self._call_connection("create_storage_connection", request)
+
+        async def update_storage_connection_authorized(self, request):
+            return await self._call_connection(
+                "update_storage_connection_authorized", request
+            )
+
+        async def delete_storage_connection(self, request):
+            return await self._call_connection("delete_storage_connection", request)
+
+        async def record_storage_connection_test(self, request):
+            return await self._call_connection(
+                "record_storage_connection_test", request
+            )
+
+        async def begin_connection_probe(self, request):
+            return await self._call_runtime("begin_connection_probe", request)
+
+        async def finish_connection_probe(self, request):
+            return await self._call_runtime("finish_connection_probe", request)
+
+    async def remote(self, _peer, _token, operation, request, result_type):
+        workflow = connections_workflow.ConnectionsWorkflow(
+            native=_InProcessNativePort(self),
+            options=connections_workflow.ConnectionsOptions(
+                encryption_key=settings.connector_encryption_key,
+                fallback_allowlist=tuple(settings.connector_host_allowlist),
+            ),
+        )
+        try:
+            result = await workflow.invoke(operation, request)
+        except Exception:
+            await self.db.rollback()
+            raise
+        if operation in {"create", "update", "delete", "test"}:
+            await self.db.commit()
+        return result_type.model_validate(result.model_dump(mode="json"))
+
+    monkeypatch.setattr(AssetsConnectionsGateway, "_remote", remote)
+
+
+@pytest.fixture(autouse=True)
+def _in_process_connections_peer(monkeypatch):
+    install_in_process_connections_peer(monkeypatch)
+
+
 @pytest.fixture
 async def connection(httpx_client, super_admin, monkeypatch):
     monkeypatch.setattr(

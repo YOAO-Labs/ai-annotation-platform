@@ -25,13 +25,16 @@ from app.schemas.export import (
 )
 from app.services import export_execution_context
 from app.services.content_snapshot import ContentError
-from app.services.sensor_calibration import (
+from app.services.exporting import lidar_inputs
+from app.services.exporting.lidar import calibration_is_valid
+from app.services.exporting.lidar_frozen import (
+    FrozenLidar,
     SensorCalibrationState,
     _metadata_calibration,
-    calibration_digest,
 )
 from app.services.project_access import get_workspace_project
 from yoao_assets_catalog.axis_convention import R_NORM
+from yoao_assets_catalog.spatial_values import calibration_digest
 from yoao_workspace_contract import derive_classes_list
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.assets_spatial import AssetsSpatialGateway
@@ -69,33 +72,10 @@ class LidarExportPreflightFailed(ValueError):
         super().__init__(",".join(codes) or "lidar_export_preflight_failed")
 
 
-def _rotation_determinant(matrix: list[float]) -> float:
-    a, b, c = matrix[0], matrix[1], matrix[2]
-    d, e, f = matrix[4], matrix[5], matrix[6]
-    g, h, i = matrix[8], matrix[9], matrix[10]
-    return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
-
-
-def _rotation_is_orthonormal(matrix: list[float]) -> bool:
-    rows = (
-        (float(matrix[0]), float(matrix[1]), float(matrix[2])),
-        (float(matrix[4]), float(matrix[5]), float(matrix[6])),
-        (float(matrix[8]), float(matrix[9]), float(matrix[10])),
-    )
-    for row in rows:
-        if abs(sum(value * value for value in row) - 1.0) > 1e-3:
-            return False
-    return all(
-        abs(sum(left[i] * right[i] for i in range(3))) <= 1e-3
-        for index, left in enumerate(rows)
-        for right in rows[index + 1 :]
-    )
-
-
 def _item_metadata(item) -> dict:
     """Read metadata from a frozen owner row or a published spatial item."""
     value = getattr(item, "metadata", None)
-    if value is None:
+    if not isinstance(value, dict):
         value = getattr(item, "metadata_", None)
     return value if isinstance(value, dict) else {}
 
@@ -115,48 +95,6 @@ def _frame_key(task: Task, item: DatasetItem | None) -> str:
     )
     base = relative.rsplit(".", 1)[0]
     return base or task.display_id
-
-
-def calibration_is_valid(raw: object) -> bool:
-    try:
-        calibration = SensorCalibration.model_validate(raw)
-    except ValueError:
-        return False
-    values = [*calibration.extrinsic, *calibration.intrinsic]
-    if calibration.rect:
-        values.extend(calibration.rect)
-    if not all(math.isfinite(float(value)) for value in values):
-        return False
-    extrinsic = calibration.extrinsic
-    if abs(
-        _rotation_determinant(extrinsic) - 1.0
-    ) > 0.05 or not _rotation_is_orthonormal(extrinsic):
-        return False
-    if any(
-        abs(float(extrinsic[index]) - expected) > 1e-6
-        for index, expected in zip((12, 13, 14, 15), (0, 0, 0, 1), strict=True)
-    ):
-        return False
-    intrinsic = calibration.intrinsic
-    if float(intrinsic[0]) <= 1e-9 or float(intrinsic[4]) <= 1e-9:
-        return False
-    if (
-        abs(float(intrinsic[6])) > 1e-9
-        or abs(float(intrinsic[7])) > 1e-9
-        or abs(float(intrinsic[8]) - 1.0) > 1e-9
-    ):
-        return False
-    if calibration.rect and any(
-        abs(float(calibration.rect[index]) - expected) > 1e-6
-        for index, expected in zip((12, 13, 14, 15), (0, 0, 0, 1), strict=True)
-    ):
-        return False
-    if calibration.rect and (
-        abs(_rotation_determinant(calibration.rect) - 1.0) > 0.05
-        or not _rotation_is_orthonormal(calibration.rect)
-    ):
-        return False
-    return True
 
 
 def _finite_vector(raw: object, length: int) -> bool:
@@ -295,7 +233,7 @@ class _RegisteredPreflight:
             calibration = (
                 SensorCalibration.model_validate(row.calibration)
                 if row is not None
-                else _metadata_calibration(item.metadata)
+                else _metadata_calibration(_item_metadata(item))
             )
             states[item.id] = SensorCalibrationState(
                 item.id,
@@ -311,13 +249,10 @@ class _RegisteredPreflight:
 
 
 async def _collect_registered(db, project_id, batch_id, targets, options):
-    from app.services.exporting.lidar_frozen import FrozenLidar
-    from app.services.exporting.lidar_inputs import collect
-
     pending_kitti_camera = "kitti" in targets and not (
         options and options.kitti_camera_role
     )
-    inputs = await collect(
+    inputs = await lidar_inputs.collect(
         db,
         project_id,
         batch_id,
@@ -1224,10 +1159,7 @@ async def _preflight_lidar_export(
             box_count = box_counts_by_task.get(task.id, 0)
             if box_count == 0:
                 continue
-            item_metadata = getattr(primary_item, "metadata", None) or getattr(
-                primary_item, "metadata_", None
-            )
-            raw_point_count = (item_metadata or {}).get("point_count")
+            raw_point_count = _item_metadata(primary_item).get("point_count")
             try:
                 metadata_point_count = max(int(raw_point_count), 0)
             except (TypeError, ValueError):
@@ -1764,7 +1696,6 @@ async def assert_lidar_export_ready(
 
 async def assert_frozen_lidar_ready(snapshot):
     """Recheck all owned LiDAR business rules on captured inputs without I/O."""
-    from app.services.exporting.lidar_frozen import FrozenLidar
 
     class NoLiveReads:
         def __getattr__(self, _name):

@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
+
 from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -27,6 +28,15 @@ from tests.conftest import create_registry_with_pool
 from tests.factory import create_project, create_user
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_routing_native import _cleanup, _connect
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @pytest_asyncio.fixture

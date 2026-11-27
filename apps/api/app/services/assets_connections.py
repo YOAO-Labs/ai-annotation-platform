@@ -38,8 +38,7 @@ from yoao_assets_source.connections_contract import (
     require_connection_scope,
 )
 from yoao_assets_source.saved_io import SavedIOError, valid_token
-from app.config import settings
-from app.services.saved_io import source_token
+from app.config import assets_source_scoped_token, settings
 
 _RESULT = TypeVar("_RESULT", bound=BaseModel)
 _MAX_REQUEST_BYTES = 1 * 1024 * 1024
@@ -326,7 +325,10 @@ class AssetsConnectionsGateway:
         token = ""
         if operation in _MUTATING_OPERATIONS:
             try:
-                token = source_token("connections") or settings.assets_source_token
+                token = (
+                    assets_source_scoped_token("connections")
+                    or settings.assets_source_token
+                )
             except SavedIOError:
                 raise AssetsConnectionsGatewayError(
                     "service_unavailable", "Assets source service is unavailable", 503

@@ -98,18 +98,18 @@ async def test_current_credentials_preserve_saved_address(monkeypatch):
         purpose="annotations",
     )
 
-    class DB:
-        async def get(self, *args, **kwargs):
-            return SimpleNamespace(id=saved.location_id)
+    async def location_for(*args, **kwargs):
+        return SimpleNamespace(id=saved.location_id)
 
     async def target(*args, **kwargs):
         return current
 
+    monkeypatch.setattr(storage, "get_location", location_for)
     monkeypatch.setattr(storage, "target_for", target)
-    assert (await storage.target_for_ref(DB(), ref)).connection_revision == 9
+    assert (await storage.target_for_ref(object(), ref)).connection_revision == 9
     current = replace(current, bucket="redirected")
     with pytest.raises(storage.AnnotationsStorageError):
-        await storage.target_for_ref(DB(), ref)
+        await storage.target_for_ref(object(), ref)
 
 
 async def test_allocation_stays_in_callers_transaction(db_session):

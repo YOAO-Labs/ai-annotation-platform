@@ -158,7 +158,11 @@ async def test_dispatch_commit_failure_rolls_back_attempt_and_job(world, monkeyp
 
         async def fail_after_flush():
             await db.flush()
-            assert attempt.dispatched_at is not None
+            current_attempt = await evaluation_data.get_attempt(db, run.id, attempt.id)
+            assert (
+                current_attempt is not None
+                and current_attempt.dispatched_at is not None
+            )
             assert job.celery_task_id and job.celery_task_id != previous
             raise RuntimeError("commit failed")
 
@@ -186,10 +190,14 @@ async def test_dispatch_missing_job_and_nonqueued_run(world, monkeypatch):
         attempt = await db.get(Attempt, world.attempt.id)
         attempt.async_job_id = None
         run.status = "running"
+        await db.flush()
         await worker.dispatch(db, run)
+        await db.refresh(attempt)
         assert not published and attempt.dispatched_at is None
         run.status = "queued"
+        await db.flush()
         await worker.dispatch(db, run)
+        await db.refresh(attempt)
         assert published[0]["args"] == [str(attempt.id)]
         assert attempt.dispatched_at is not None
 
@@ -616,7 +624,10 @@ async def test_crash_signal_preserves_cancel_intent_and_revocation_reason(world)
         run.error_message = attempt.error_message = "Current authority was revoked"
         attempt.claim_id = uuid.uuid4()
         job = await db.get(AsyncJob, attempt.async_job_id)
+        await db.flush()
         await apply_signal_terminal(db, job, cancelled=False)
+        await db.refresh(run)
+        await db.refresh(attempt)
         assert run.status == "cancelling" and run.error_code == "authority_revoked"
         assert attempt.claim_id is None and job.status == "pending"
 
@@ -630,7 +641,9 @@ async def test_deletion_intent_blocks_resurrection_and_purge_io_holds_no_domain_
             await db.get(Attempt, world.attempt.id),
         )
         run.status = attempt.status = "failed"
-        service.request_deletion(run)
+        await db.flush()
+        await evaluation_data.request_deletion(db, run, at=service.now())
+        await db.refresh(run)
         requested_at = run.deletion_requested_at
         await db.commit()
     original = service.storage.delete_prefix

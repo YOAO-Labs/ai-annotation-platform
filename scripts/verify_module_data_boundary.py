@@ -332,7 +332,6 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in (
             "yoao_assets_v1._native_pyramid_retirement_policy_valid(jsonb)",
             "yoao_assets_v1._native_pyramid_retirement_grace(jsonb)",
-            "yoao_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
             "yoao_assets_v1.guard_native_pyramid_retirement_target()",
             "yoao_assets_v1.guard_native_pyramid_retirement_page()",
             "yoao_assets_v1.record_native_pyramid_retirement()",
@@ -423,16 +422,16 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_inference_topology_v1.patch_registry_auth_cas(uuid,text,text,bigint)": "0410_inference_managed_auth.sql",
     "yoao_inference_topology_v1.lock_repair_model_rows(uuid,uuid,uuid[])": "0386_inference_repair_model_lock.sql",
     "yoao_inference_topology_v1.lock_plugin_registry(uuid)": "0393_plugin_registry_admission_fence.sql",
-    "yoao_inference_topology_v1.prepare_plugin_installation(text)": "0388_inference_plugin_installation.sql",
+    "yoao_inference_topology_v1.prepare_plugin_installation(text)": "0513_inference_plugin_direct_mode.sql",
     "yoao_inference_topology_v1.plugin_installation(uuid)": "0388_inference_plugin_installation.sql",
     "yoao_inference_topology_v1.plugin_installations()": "0388_inference_plugin_installation.sql",
     "yoao_inference_topology_v1.plugin_installation_evidence(uuid)": "0388_inference_plugin_installation.sql",
-    "yoao_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0412_plugin_tracker_retirement_order.sql",
-    "yoao_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0400_plugin_routing_replacement.sql",
+    "yoao_inference_topology_v1.command_plugin_installation(uuid,integer,text,text)": "0513_inference_plugin_direct_mode.sql",
+    "yoao_inference_topology_v1.authorize_plugin_routing_replacement(uuid,integer,uuid,text,text,text)": "0513_inference_plugin_direct_mode.sql",
     "yoao_inference_routing_v1._tracker_scopes_physically_retired(uuid)": "0412_plugin_tracker_retirement_order.sql",
     "yoao_inference_routing_v1._guard_disabled_plugin_tracker_scope()": "0412_plugin_tracker_retirement_order.sql",
     "yoao_inference_topology_v1.plugin_asset_approval(uuid)": "0403_plugin_asset_approval.sql",
-    "yoao_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0403_plugin_asset_approval.sql",
+    "yoao_inference_topology_v1.set_plugin_asset_approval(uuid,integer,text)": "0513_inference_plugin_direct_mode.sql",
     "yoao_inference_topology_v1.create_manual_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
     "yoao_inference_topology_v1.patch_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
     "yoao_inference_topology_v1.delete_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
@@ -449,7 +448,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_inference_backend_endpoint_v1.open_installation_terminal_endpoint(uuid,uuid,text,text,text)": "0399_plugin_terminal_hold.sql",
     "yoao_inference_backend_endpoint_v1.backend_endpoint_policy()": "0399_plugin_terminal_hold.sql",
     "yoao_inference_routing_v1._routing_registry_before_change()": "0399_plugin_terminal_hold.sql",
-    "yoao_inference_gpu_v1.gpu_authority_step(text,text)": "0399_plugin_terminal_hold.sql",
+    "yoao_inference_gpu_v1.gpu_authority_step(text,text)": "0519_sql_bug_and_lifecycle_fixes.sql",
     "yoao_inference_gpu_v1.gpu_plugin_terminal_proof_valid(uuid,jsonb)": "0391_gpu_plugin_transition.sql",
     "yoao_inference_gpu_v1.gpu_plugin_prepared_cancellation_valid(uuid,jsonb)": "0392_plugin_prepared_cancellation.sql",
     "yoao_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
@@ -487,8 +486,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_labeling_v1.lock_scene_track_interval_rows_for_core_read_share(uuid[],integer)": "0414_export_core_locks.sql",
     "yoao_labeling_v1.lock_video_segment_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
     "yoao_labeling_v1.lock_video_quality_run_ids_for_export_share(uuid[],integer)": "0428_video_export_core_reads.sql",
-    "yoao_labeling_v1.mask_qc_command(jsonb)": "0353_labeling_mask_quality.sql",
-    "yoao_labeling_v1.mask_repair_command(jsonb)": "0385_labeling_repair_rollback_shard.sql",
+    "yoao_labeling_v1.mask_qc_command(jsonb)": "0519_sql_bug_and_lifecycle_fixes.sql",
+    "yoao_labeling_v1.mask_repair_command(jsonb)": "0519_sql_bug_and_lifecycle_fixes.sql",
     "yoao_labeling_v1.raster_mask_retention_query(jsonb)": "0353_labeling_mask_quality.sql",
     "yoao_labeling_v1._quality_exact_keys(jsonb,text[])": "0353_labeling_mask_quality.sql",
     "yoao_labeling_v1._raster_mask_reference_keys()": "0353_labeling_mask_quality.sql",
@@ -518,7 +517,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_labeling_v1.annotation_write_command(jsonb)": "0338_labeling_annotation_writes.sql",
     "public.capture_mask_annotation_revision()": "0338_labeling_annotation_revision_support.sql",
     "public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)": "0338_labeling_annotation_revision_support.sql",
-    "yoao_labeling_v1.task_edit_lock_command(jsonb)": "0466_task_edit_lock_domain.sql",
+    "yoao_labeling_v1.task_edit_lock_command(jsonb)": "0518_sql_collation_and_query_fixes.sql",
     "yoao_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)": "0466_task_edit_lock_domain.sql",
     "yoao_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])": "0466_task_edit_lock_domain.sql",
     "yoao_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)": "0466_task_edit_lock_domain.sql",
@@ -842,10 +841,15 @@ FUNCTION_BODY_ARTIFACTS = {
         )
     },
     **{
-        signature: "0434_prediction_execution_routing.sql"
+        signature: "0513_inference_plugin_direct_mode.sql"
         for signature in (
             "yoao_inference_routing_v1.prediction_scope_reserve(text)",
             "yoao_inference_routing_v1.prediction_test_scope_reserve(text)",
+        )
+    },
+    **{
+        signature: "0434_prediction_execution_routing.sql"
+        for signature in (
             "yoao_inference_routing_v1.guard_prediction_scope_insert()",
             "yoao_inference_routing_v1.guard_prediction_dispatch_start()",
             "yoao_inference_routing_v1.guard_prediction_managed_attempt()",
@@ -1252,6 +1256,45 @@ FUNCTION_BODY_ARTIFACTS = {
             *LEASED_IMPORT_FUNCTIONS,
             "yoao_assets_v1.import_saved_io_list(uuid,uuid,jsonb,jsonb)",
             "yoao_assets_v1.import_saved_io_action(jsonb,text,jsonb,jsonb)",
+        )
+    },
+    **{
+        signature: "0516_image_reference_manifest_members.sql"
+        for signature in (
+            "yoao_assets_v1._image_manifest_reference_matches(jsonb,jsonb,jsonb)",
+            "yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb)",
+            "yoao_assets_v1.seal_accepted_image_input_manifest(uuid,uuid,uuid,text)",
+            "yoao_assets_v1.is_sealed_image_reference_member(uuid,uuid,uuid,uuid,text,uuid,text,integer,bigint)",
+        )
+    },
+    **{
+        signature: "0517_jobs_list_platform_storage.sql"
+        for signature in (
+            "yoao_jobs_v1._async_job_list_rows_scoped(uuid,text,text[],text[],uuid,text,boolean)",
+            "yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean)",
+            "yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)",
+        )
+    },
+    **{
+        signature: "0518_sql_collation_and_query_fixes.sql"
+        for signature in (
+            "yoao_jobs_v1._async_job_list_rows_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)",
+            "yoao_jobs_v1.async_job_list_page_v2(uuid,text,text[],text[],uuid,text,integer,integer,boolean,boolean)",
+            "yoao_jobs_v1.async_job_list_total_v2(uuid,text,text[],text[],uuid,text,boolean,boolean)",
+            "yoao_learning_v1.training_create_run(uuid,uuid,uuid,uuid,uuid,uuid,uuid,uuid,text,text,jsonb,text,jsonb,jsonb)",
+            "yoao_learning_v1.training_gpu_queue()",
+        )
+    },
+    **{
+        signature: "0519_sql_bug_and_lifecycle_fixes.sql"
+        for signature in (
+            "yoao_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
+            "yoao_assets_v1.observe_original_reclamation(text,uuid,text,text,text,jsonb,uuid,uuid,integer,integer)",
+            "yoao_inference_topology_v1.patch_registry_plugin_legacy(uuid,text)",
+            "yoao_labeling_v1.accept_dataset_task_creation(uuid,uuid,uuid,uuid,uuid,uuid,text,integer)",
+            "yoao_labeling_v1.read_dataset_task_creation(uuid)",
+            "yoao_labeling_v1.prepare_dataset_task_creation(uuid,jsonb)",
+            "yoao_labeling_v1.advance_dataset_task_creation(uuid,integer)",
         )
     },
 }
@@ -1914,6 +1957,11 @@ CURRENT_NAMESPACE_SQL = (
     "0508_migration_saved_io.sql",
     "0509_import_saved_io.sql",
     "0510_notification_target_visibility.sql",
+    "0513_inference_plugin_direct_mode.sql",
+    "0516_image_reference_manifest_members.sql",
+    "0517_jobs_list_platform_storage.sql",
+    "0518_sql_collation_and_query_fixes.sql",
+    "0519_sql_bug_and_lifecycle_fixes.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -7921,6 +7969,89 @@ SELECT 'insights_contract_rolled_back=' || (
     }
 
 
+def _run_collect_only(
+    args: argparse.Namespace,
+    test_files: tuple[str, ...],
+    output: Path,
+    junit: Path,
+    collection_manifest: Path,
+) -> int:
+    """Collect acceptance pytest node IDs without provisioning a Docker runtime."""
+    evidence = {
+        "schema": 1,
+        "acceptance": "module-data-boundary",
+        "status": "running",
+        "phase": "pytest-collection",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "code_root": str(ROOT),
+        "test_files": list(test_files),
+        "collection_manifest": str(collection_manifest),
+        "collected_test_nodes": None,
+        "test_exit_code": None,
+        "cleanup": {"errors": []},
+    }
+    _write_evidence(output, evidence)
+    exit_code = 1
+    try:
+        selected_test_paths = {target.partition("::")[0] for target in test_files}
+        missing_tests = sorted(
+            name
+            for name in selected_test_paths
+            if not (ROOT / "apps/api" / name).is_file()
+        )
+        if missing_tests:
+            raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
+        command = [
+            sys.executable,
+            "-c",
+            "import json,os,sys\n"
+            "args=sys.argv[1:]\n"
+            "os.chdir(args.pop(0))\n"
+            "manifest=args.pop(0)\n"
+            "sys.path.insert(0, os.getcwd())\n"
+            "import pytest\n"
+            "class CollectionManifest:\n"
+            "    def pytest_collection_finish(self, session):\n"
+            "        with open(manifest, 'w', encoding='utf-8') as output:\n"
+            "            json.dump([item.nodeid for item in session.items], output)\n"
+            "raise SystemExit(pytest.main(args, plugins=[CollectionManifest()]))\n",
+            str(ROOT / "apps/api"),
+            str(collection_manifest),
+            "-q",
+            "--tb=short",
+            "--collect-only",
+            *test_files,
+        ]
+        env = os.environ.copy()
+        env["AAP_MODULE_DATA_ROLE_ACCEPTANCE"] = "1"
+        result = subprocess.run(command, env=env, check=False)
+        evidence["test_exit_code"] = result.returncode
+        if result.returncode == 0:
+            collected = json.loads(collection_manifest.read_text(encoding="utf-8"))
+            evidence["collected_test_nodes"] = collected
+        exit_code = result.returncode
+        evidence["status"] = "collected" if exit_code == 0 else "failed"
+    except Exception as error:
+        evidence["status"] = "failed"
+        evidence["failure"] = {
+            "phase": "pytest-collection",
+            "error_type": type(error).__name__,
+        }
+    finally:
+        if exit_code != 0:
+            evidence["status"] = "failed"
+        evidence["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _write_evidence(output, evidence)
+        result_label = "COLLECTED" if exit_code == 0 else "FAIL"
+        scope_label = "selected subset" if args.test_files else "default selection"
+        print(
+            f"{result_label}: module-data {scope_label}; "
+            f"evidence={output} junit={junit}",
+            flush=True,
+        )
+    return exit_code
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -7950,6 +8081,8 @@ def main(
     junit.parent.mkdir(parents=True, exist_ok=True)
     junit.unlink(missing_ok=True)
     collection_manifest.unlink(missing_ok=True)
+    if collect_only:
+        return _run_collect_only(args, test_files, output, junit, collection_manifest)
 
     evidence = {
         "schema": 1,

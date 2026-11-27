@@ -22,7 +22,7 @@ from app.services.dataset_assets import (
 )
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_location import register_connection
-from tests.test_storage_locations_api import headers
+from tests.test_storage_locations_api import headers, stub_saved_binding_probe
 from tests.test_storage_maintenance_impact import key_headers
 
 BASE = "/api/v1/storage-locations/bindings/audit-archive"
@@ -60,7 +60,7 @@ async def world(db_session, super_admin, monkeypatch, test_engine):
         calls.append(target.facts)
         return {"conditional_write": True, "full_read": True, "delete": True}
 
-    monkeypatch.setattr(change, "probe_target", probe)
+    stub_saved_binding_probe(monkeypatch, change, probe)
     await db.commit()
     target_id = target.id
     yield db, connection, target, calls

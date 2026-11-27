@@ -42,6 +42,25 @@ def request(token, key=None):
     )
     value.state.api_key_id = str(key.id) if key else None
     value.state.api_key_scopes = list(key.scopes) if key else None
+    if key is not None:
+        value.state.identity_principal = SimpleNamespace(
+            actor_id=key.user_id,
+            credential_type="api_key",
+            credential_id=key.id,
+            scopes=tuple(key.scopes),
+            expires_at=key.expires_at,
+            generation=0,
+        )
+    else:
+        payload = decode_access_token(token)
+        value.state.identity_principal = SimpleNamespace(
+            actor_id=uuid.UUID(payload["sub"]),
+            credential_type="jwt",
+            credential_id=payload.get("jti"),
+            scopes=None,
+            expires_at=datetime.fromtimestamp(payload["exp"], timezone.utc),
+            generation=int(payload.get("gen", 0)),
+        )
     return value
 
 
@@ -83,6 +102,7 @@ class ArchiveObjects:
 def objects(monkeypatch):
     value = ArchiveObjects()
     monkeypatch.setattr(storage, "storage_service", value)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", value)
     return value
 
 
@@ -368,16 +388,15 @@ async def test_list_rechecks_current_role_after_query(
     httpx_client, super_admin, db_session, objects, monkeypatch
 ):
     await seed_archive(db_session, objects)
-    original = db_session.scalars
+    original = reads.list_ready_outputs
 
-    async def scalars(statement, *args, **kwargs):
-        result = await original(statement, *args, **kwargs)
-        if statement.column_descriptions[0]["entity"] is AuditArchiveOutput:
-            super_admin[0].role = UserRole.EMPLOYEE
-            await db_session.flush()
+    async def list_ready_outputs(db, *args, **kwargs):
+        result = await original(db, *args, **kwargs)
+        super_admin[0].role = UserRole.EMPLOYEE
+        await db_session.flush()
         return result
 
-    monkeypatch.setattr(db_session, "scalars", scalars)
+    monkeypatch.setattr(reads, "list_ready_outputs", list_ready_outputs)
     response = await httpx_client.get(ARCHIVES, headers=bearer(super_admin[1]))
     assert response.status_code == 403, response.text
     assert not objects.heads

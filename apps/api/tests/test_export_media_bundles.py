@@ -8,24 +8,39 @@ import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from zipfile import ZipFile
 
-from app.services import export_storage
+from app.services import export_outputs, export_storage, storage_access
 from app.config import settings
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 import uuid
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
+from app.db.models.export_output import ExportOutput
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
-from tests import test_export_media_bundle_models as model_tests
+from tests.export_worker_native_fixtures import worker_db as worker_db
 
-create_zip = model_tests._zip
+
+async def create_zip(db, bundle, path, *, format):
+    with ZipFile(path, "w") as archive:
+        archive.writestr("manifest.json", "{}")
+    return await export_outputs.create(
+        db,
+        project_id=bundle.project_id,
+        job_id=bundle.job_id,
+        media_bundle_id=bundle.id,
+        media="image",
+        format=format,
+        file_count=1,
+        path=path,
+    )
 
 
 def digest(value):
@@ -124,15 +139,18 @@ class FakeDB:
             raise self.failure
         row = self.rows.get(identifier)
         if capability == "allocate_media":
-            row = self.rows[identifier] = SimpleNamespace(**params, fixture_run_id=None)
-            result = row
-        elif capability == "media_delivery":
-            result = row
-        elif capability == "media_fence":
+            row = self.rows[identifier] = Bundle(**params, fixture_zip_created=False)
+            result = SimpleNamespace(
+                fixture_run_id=row.fixture_run_id,
+                created_at=row.created_at,
+                expires_at=row.expires_at,
+            )
+        elif capability in {"media_delivery", "media_fence"}:
+            fields = bundles._SCALARS
+            if capability == "media_delivery":
+                fields += bundles._DOCUMENTS
             result = (
-                SimpleNamespace(
-                    **{name: getattr(row, name) for name in bundles._SCALARS}
-                )
+                SimpleNamespace(**{name: getattr(row, name) for name in fields})
                 if row is not None
                 else None
             )
@@ -675,9 +693,9 @@ async def test_publication_rechecks_clock_after_complete_json_comparison(monkeyp
 
 
 async def test_database_allocation_and_claim_are_caller_owned_transactions(
-    bundle_owned_db,
+    worker_db,
 ):
-    db = bundle_owned_db
+    db = worker_db
     _, receipt, _, _ = await allocated(db)
     identifier = receipt.id
     await db.rollback()
@@ -693,9 +711,9 @@ async def test_database_allocation_and_claim_are_caller_owned_transactions(
 
 
 async def test_database_claim_nowait_conflict_preserves_caller_transaction(
-    bundle_owned_db,
+    worker_db,
 ):
-    db = bundle_owned_db
+    db = worker_db
     _, receipt, _, _ = await allocated(db)
     await db.commit()
     first = await bundles.claim(db, receipt.id)
@@ -710,31 +728,29 @@ async def test_database_claim_nowait_conflict_preserves_caller_transaction(
 
 
 async def test_database_final_publication_rolls_back_and_commits_with_exact_zip_pair(
-    bundle_owned_db,
+    worker_db, tmp_path
 ):
-    db = bundle_owned_db
+    db = worker_db
     _, receipt, _, _ = await allocated(db)
     await db.commit()
     claim = await bundles.claim(db, receipt.id)
     await db.commit()
-    row = await db.get(Bundle, receipt.id)
-    output = await create_zip(db, row)
-    await db.commit()
-    await bundles.publish(db, claim)
-    output.state = "ready"
-    await db.flush()
-    await db.rollback()
-    row = await db.scalar(
-        select(Bundle)
-        .where(Bundle.id == receipt.id)
-        .execution_options(populate_existing=True)
+    paired = await create_zip(db, receipt, tmp_path / "lidar.zip", format="pointmask")
+    revision = await storage_access.check(
+        db, uuid.UUID(paired.storage_ref["location_id"])
     )
-    assert row.state == "building" and row.published_at is None
-    output = await db.get(type(output), receipt.zip_output_id)
     await bundles.publish(db, claim)
-    output.state = "ready"
+    await export_outputs.publish(db, paired, revision)
+    await db.rollback()
+    row = await db.get(Bundle, receipt.id)
+    assert row.state == "building" and row.published_at is None
+    output = await db.get(ExportOutput, receipt.zip_output_id)
+    assert output.state == "pending"
+    await bundles.publish(db, claim)
+    await export_outputs.publish(db, paired, revision)
     await db.commit()
     await db.refresh(row)
+    await db.refresh(output)
     assert row.state == "ready" and row.published_at is not None
     assert output.state == "ready" and output.expires_at == row.expires_at
 

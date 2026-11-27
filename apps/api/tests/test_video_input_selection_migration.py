@@ -6,11 +6,12 @@ from pathlib import Path
 import re
 
 from yoao_assets_video_inputs import selection as contract
+from tests.contract_schemas import load_contract_schema
 from tests.frozen_namespaces import historical
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql/0224_video_input_selection.sql"
-SCHEMA = SQL.with_suffix(".schema.json")
+SCHEMA = "0224_video_input_selection.schema.json"
 MIGRATION = ROOT / "apps/api/alembic/versions/0224_video_input_selection.py"
 
 
@@ -24,7 +25,7 @@ def _migration():
 
 
 def test_video_selection_artifact_matches_portable_contract():
-    assert json.loads(SCHEMA.read_text()) == historical(contract.contract_document())
+    assert load_contract_schema(SCHEMA) == historical(contract.contract_document())
     assert (
         json.loads(
             (

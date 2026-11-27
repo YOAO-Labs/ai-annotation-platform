@@ -287,6 +287,9 @@ async def test_non_agent_provider_rejects_range_before_source_or_cache_io(
             None, uuid.uuid4(), "p" * 64, actor, require_range_support=True
         )
     elif kind == "reference":
+        monkeypatch.setattr(
+            "app.services.dataset_source_access.key_authority", authority
+        )
         operation = references.reference_snapshot(
             None, uuid.uuid4(), actor, require_range_support=True
         )
@@ -411,35 +414,37 @@ async def test_verified_cache_uses_current_source_kind_for_range_capability(
     from app.services import dataset_references as references, original_cache
 
     snapshot = await snapshots.capture(reader(image_bytes()))
-    context = {
-        "sha256": snapshot.sha256,
-        "source_policy": "on_demand",
-        "location_policy": "on_demand",
-        "source_id": uuid.uuid4(),
-        "asset_id": uuid.uuid4(),
-        "location_kind": kind,
-    }
-
-    async def current(*args, **kwargs):
-        return dict(context)
-
-    async def authority(*args):
-        return None
-
-    async def cached(*args, **kwargs):
-        return snapshot
-
-    monkeypatch.setattr(references, "reference_context", current)
-    monkeypatch.setattr(references, "_cache_factory", lambda db: object())
-    monkeypatch.setattr(original_cache, "read", cached)
-    monkeypatch.setattr("app.services.dataset_content.key_authority", authority)
-    actual = await references.reference_snapshot(
-        None,
-        uuid.uuid4(),
-        SimpleNamespace(id=uuid.uuid4()),
-        expected_sha256=snapshot.sha256,
-    )
     try:
+        context = {
+            "sha256": snapshot.sha256,
+            "source_policy": "on_demand",
+            "location_policy": "on_demand",
+            "source_id": uuid.uuid4(),
+            "asset_id": uuid.uuid4(),
+            "location_kind": kind,
+        }
+
+        async def current(*args, **kwargs):
+            return dict(context)
+
+        async def authority(*args):
+            return None
+
+        async def cached(*args, **kwargs):
+            return snapshot
+
+        monkeypatch.setattr(references, "reference_context", current)
+        monkeypatch.setattr(references, "_cache_factory", lambda db: object())
+        monkeypatch.setattr(original_cache, "read", cached)
+        monkeypatch.setattr(
+            "app.services.dataset_source_access.key_authority", authority
+        )
+        actual = await references.reference_snapshot(
+            None,
+            uuid.uuid4(),
+            SimpleNamespace(id=uuid.uuid4()),
+            expected_sha256=snapshot.sha256,
+        )
         assert actual.supports_ranges is (kind == "agent")
     finally:
-        actual.close()
+        snapshot.close()

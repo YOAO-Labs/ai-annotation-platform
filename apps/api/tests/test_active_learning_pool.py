@@ -509,10 +509,20 @@ async def test_frozen_and_retained_evidence_digest_corruption_never_publishes_re
     world = await seed(db_session, owner, monkeypatch)
     round, attempt, _ = await create(db_session, owner, world)
     await complete(db_session, round, attempt)
+    from sqlalchemy import update
+    from app.db.models.active_learning import ActiveLearningCandidate
+
     row = (await service.candidate_rows(db_session, round))[0]
     evidence = copy.deepcopy(row.evidence)
     evidence["features"]["priority"] = 0
-    row.evidence = evidence
+    await db_session.execute(
+        update(ActiveLearningCandidate)
+        .where(
+            ActiveLearningCandidate.round_id == round.id,
+            ActiveLearningCandidate.ordinal == row.ordinal,
+        )
+        .values(evidence=evidence)
+    )
     await db_session.flush()
     with pytest.raises(HTTPException) as error:
         await service.read_report(db_session, round, attempt)

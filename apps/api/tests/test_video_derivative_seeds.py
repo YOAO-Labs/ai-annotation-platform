@@ -155,7 +155,7 @@ async def test_fixture_publication_waits_for_source_and_output_close(
         storage_ref={"endpoint_url": "http://127.0.0.1:9000", "bucket": "cache"},
     )
     source, authority, stage, client = object(), object(), object(), object()
-    permit = SimpleNamespace(id=uuid.uuid4(), location_id=uuid.uuid4())
+    permit = SimpleNamespace(id=uuid.uuid4(), location_id=uuid.uuid4(), revision=1)
     path = tmp_path / f"aap-media-stage-{permit.id}"
     events = []
     db = SimpleNamespace(
@@ -1096,7 +1096,9 @@ async def test_cleanup_retains_claim_and_rows_when_an_operation_is_unsettled(
     monkeypatch.setattr(seed, "_fixture_video_source_operations", AsyncMock())
     monkeypatch.setattr(seed, "_fixture_video_foreign_refs", AsyncMock())
     monkeypatch.setattr(objects, "snapshot", lambda value: value)
-    monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        seed, "_fixture_video_output_in_use", AsyncMock(return_value=True)
+    )
     with pytest.raises(HTTPException) as failure:
         await seed._prepare_fixture_video_cleanup(db, object())
     assert failure.value.detail == {"code": "e2e_seed_video_operation_unsettled"}
@@ -1350,7 +1352,9 @@ async def test_finalize_adopts_only_idle_unbuilt_owners_allocated_during_cleanup
         "snapshot",
         lambda value: receipt if value is planned else value,
     )
-    monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        seed, "_fixture_video_output_in_use", AsyncMock(return_value=False)
+    )
     resolve = AsyncMock(return_value=scope)
     if exact:
         with pytest.raises(HTTPException) as failure:
@@ -1387,7 +1391,9 @@ async def test_finalize_keeps_published_late_owner_as_unknown_ownership(monkeypa
         AsyncMock(return_value=((), [receipt, extra])),
     )
     monkeypatch.setattr(objects, "snapshot", lambda value: value)
-    monkeypatch.setattr(objects, "_in_use", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        seed, "_fixture_video_output_in_use", AsyncMock(return_value=False)
+    )
     monkeypatch.setattr(
         seed, "_drain_fixture_video_operations", AsyncMock(return_value=True)
     )

@@ -37,8 +37,79 @@ from tests.tracker_input_test_ports import (
 
 
 @pytest.fixture(autouse=True)
-def _tracker_input_owner_test_port(tracker_input_owner_fakes):
+def _tracker_input_owner_test_port(tracker_input_owner_fakes, db_session, monkeypatch):
+    from app.db.models.ml_backend_pool import (
+        MLBackendPoolMember,
+        MLBackendServicePool,
+    )
+    from app.services.ml_routing.authority import RoutingAuthority
+    from yoao_inference_contract.routing import RoutingScopeView
+
+    monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
     tracker_input_owner_fakes.declare_tracker_backend = True
+
+    async def acquire(
+        _authority,
+        *,
+        pool_id=None,
+        registry_id=None,
+        project_id=None,
+        mode="direct",
+        owner="api",
+        operation="backend_http",
+        required_instance_id=None,
+        **_kwargs,
+    ):
+        instance_id = required_instance_id or registry_id
+        resolved_pool_id = pool_id
+        if instance_id is None and resolved_pool_id is not None:
+            instance_id = await db_session.scalar(
+                select(MLBackendPoolMember.registry_id)
+                .where(MLBackendPoolMember.pool_id == resolved_pool_id)
+                .limit(1)
+            )
+        if resolved_pool_id is None and instance_id is not None:
+            resolved_pool_id = await db_session.scalar(
+                select(MLBackendPoolMember.pool_id)
+                .where(MLBackendPoolMember.registry_id == instance_id)
+                .limit(1)
+            )
+        generation = 1
+        if resolved_pool_id is not None:
+            pool_gen = await db_session.scalar(
+                select(MLBackendServicePool.routing_generation).where(
+                    MLBackendServicePool.id == resolved_pool_id
+                )
+            )
+            if pool_gen is not None:
+                generation = pool_gen
+        return RoutingScopeView(
+            id=uuid.uuid4(),
+            pool_id=resolved_pool_id,
+            registry_id=instance_id,
+            project_id=project_id,
+            mode=mode,
+            owner=owner,
+            operation=operation,
+            generation=generation,
+            config_revision=1,
+            eligibility_revision=1,
+            authority_epoch=uuid.uuid4(),
+            state="reserved",
+            closed=False,
+            heartbeat_deadline_ms=9_999_999_999_999,
+            capability="a" * 64,
+        )
+
+    async def close(_authority, _scope, _outcome="success"):
+        return {"closed": True}
+
+    async def snapshot(_authority, _registry_ids):
+        return None
+
+    monkeypatch.setattr(RoutingAuthority, "acquire", acquire)
+    monkeypatch.setattr(RoutingAuthority, "close", close)
+    monkeypatch.setattr(RoutingAuthority, "runtime_snapshot", snapshot)
     return tracker_input_owner_fakes
 
 

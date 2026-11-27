@@ -362,7 +362,7 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
         create_async_engine,
     )
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services import storage_access
 
     engine = create_async_engine(settings.database_url, echo=False)

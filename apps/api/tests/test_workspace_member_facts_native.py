@@ -22,7 +22,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.config import settings
 from app.core.security import create_access_token
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.annotation_comment import validate_mentions
 from app.services.batch import BatchService
 from app.services.labeling_core_read_relations import task_row
 from app.services.notification import NotificationService
@@ -267,8 +267,8 @@ async def test_delivery_and_mentions_need_no_private_member_select(test_engine):
                     "SELECT has_any_column_privilege(current_user,'public.project_members','SELECT')"
                 )
             )
-            await AnnotationCommentService(db).validate_mentions(
-                world["project_id"], [world["member_id"], world["owner_id"]]
+            await validate_mentions(
+                db, world["project_id"], [world["member_id"], world["owner_id"]]
             )
             rows = [
                 SimpleNamespace(user_id=world["member_id"]),

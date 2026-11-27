@@ -28,7 +28,7 @@ from app.schemas.storage_migration_copy import (
     StorageMigrationCopyAttemptRequest,
     StorageMigrationCopyGenerationRequest,
 )
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_access, storage_migration_copies as service
 from app.services.storage_migration_copy import CopyStopped
 from app.workers import storage_migration_copy as worker

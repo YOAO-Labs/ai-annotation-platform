@@ -33,7 +33,9 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.candidate_decision_contract import CandidateAcceptCommand
+from app.services.content_errors import ContentError
 from app.services.exporting.packaging import _rotated_corners_norm
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest
 from app.services.prediction import PredictionService, to_internal_shape
@@ -658,6 +660,7 @@ async def test_import_aap_json_video_predictions_dry_run_and_accept(
     item = await db_session.get(DatasetItem, task.dataset_item_id)
     assert item is not None
     item.metadata_ = {"video": {"frame_count": 1}}
+    item.media_materialized_generation = 0
     await db_session.flush()
     rle = encode_coco_rle([0, 1, 1, 0, 0, 1, 0, 0], 4, 2)
     reference = build_rle_reference(rle)
@@ -921,23 +924,44 @@ async def test_import_aap_json_video_prediction_contract_errors(
     assert any("one tool unit" in reason for reason in reasons)
 
 
+async def test_current_video_summary_qualifies_metadata_after_source_change(
+    super_admin,
+    db_session: AsyncSession,
+):
+    _, task = await _seed_video_project_task(db_session, super_admin[0].id)
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    assert item is not None
+    reader = AssetsTaskMediaSummaryReader(db_session)
+    item.media_source_drifted = True
+    await db_session.flush()
+    assert await reader.current_video_summary(item.id) is None
+
+    item.file_path += ".changed"
+    await db_session.flush()
+    await db_session.refresh(item)
+    assert item.video_output_id is not None
+    with pytest.raises(ContentError, match="content_binding_changed"):
+        await reader.current_video_summary(item.id)
+
+    current_video = {"width": 8, "height": 4, "frame_count": 9}
+    item.metadata_ = {"video": current_video}
+    item.media_materialized_generation = item.media_source_generation
+    await db_session.flush()
+    assert await reader.current_video_summary(item.id) == (8, 4, current_video)
+
+
 async def test_import_aap_json_video_prediction_requires_video_context(
     super_admin,
     db_session: AsyncSession,
-    monkeypatch: pytest.MonkeyPatch,
 ):
     user, _ = super_admin
     project, task = await _seed_video_project_task(
         db_session, user.id, frame_count=None
     )
-
-    async def current_video_summary_without_frame_count(_reader, _dataset_item_id):
-        return 4, 2, {"width": 4, "height": 2}
-
-    monkeypatch.setattr(
-        "app.services.assets_media_summary.AssetsTaskMediaSummaryReader.current_video_summary",
-        current_video_summary_without_frame_count,
-    )
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    assert item is not None and item.video_output_id is None
+    item.media_materialized_generation = item.media_source_generation
+    await db_session.flush()
     prediction = {
         "geometry": {
             "type": "video_bbox",

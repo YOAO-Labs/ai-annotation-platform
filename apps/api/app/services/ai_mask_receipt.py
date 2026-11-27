@@ -5,9 +5,11 @@ import hashlib
 import hmac
 import json
 import time
+import uuid
 from typing import Any
 
 from app.config import settings
+from app.schemas.ai_mask import AiMaskAcceptRequest
 
 RECEIPT_TTL_SECONDS = 15 * 60
 _RECEIPT_VERSION = 1
@@ -99,3 +101,95 @@ __all__ = [
     "issue_ai_mask_receipt",
     "verify_ai_mask_receipt",
 ]
+
+
+class AiMaskAcceptError(ValueError):
+    def __init__(
+        self,
+        *,
+        status_code: int,
+        reason: str,
+        message: str,
+        extra: dict[str, Any] | None = None,
+    ):
+        super().__init__(message)
+        self.status_code = status_code
+        self.detail = {"reason": reason, "message": message, **(extra or {})}
+
+
+def ai_mask_accept_request_digest(data: AiMaskAcceptRequest) -> str:
+    payload = data.model_dump(mode="json")
+    payload.pop("idempotency_key", None)
+    payload["candidate"].pop("receipt", None)
+    canonical = json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode()
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def validate_acceptance_receipt(
+    data: AiMaskAcceptRequest,
+    *,
+    task_id: uuid.UUID,
+    content_digest: str,
+) -> dict[str, Any]:
+    try:
+        claims = verify_ai_mask_receipt(data.candidate.receipt)
+    except AiMaskReceiptError as exc:
+        raise AiMaskAcceptError(
+            status_code=409,
+            reason=exc.reason,
+            message=str(exc),
+        ) from exc
+
+    expected = {
+        "task_id": str(task_id),
+        "frame_index": data.target.frame_index,
+        "candidate_id": data.candidate.candidate.candidate_id,
+        "candidate_index": data.candidate.candidate_index,
+        "content_digest": content_digest,
+        "prompt_revision": data.candidate.prompt_revision,
+        "score": data.candidate.candidate.score,
+        "routing": data.routing.model_dump(mode="json"),
+        "inference": data.inference.model_dump(mode="json"),
+        "prompt_summary": data.prompt_summary.model_dump(mode="json"),
+    }
+    if any(claims.get(key) != value for key, value in expected.items()):
+        raise AiMaskAcceptError(
+            status_code=409,
+            reason="candidate_receipt_mismatch",
+            message="candidate receipt does not match the accept request",
+        )
+    accept_target = claims.get("accept_target")
+    if accept_target is not None and accept_target != data.target.model_dump(
+        mode="json"
+    ):
+        raise AiMaskAcceptError(
+            status_code=409,
+            reason="candidate_receipt_mismatch",
+            message="candidate receipt does not match the accept target",
+        )
+    prompt_source = claims.get("prompt_source")
+    if prompt_source is not None:
+        expected_source = {
+            "source_annotation_id": (
+                str(data.target.source_annotation_id)
+                if data.target.source_annotation_id is not None
+                else None
+            ),
+            "source_version": data.target.source_version,
+        }
+        if (
+            data.target.mode != "refine"
+            or not isinstance(prompt_source, dict)
+            or any(
+                prompt_source.get(key) != value
+                for key, value in expected_source.items()
+            )
+        ):
+            raise AiMaskAcceptError(
+                status_code=409,
+                reason="candidate_receipt_mismatch",
+                message="Mask prompt source does not match the accept target",
+            )
+    return claims

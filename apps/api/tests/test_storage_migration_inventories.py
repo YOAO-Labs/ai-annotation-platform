@@ -444,8 +444,8 @@ async def test_private_report_database_cap_and_job_fk_are_enforced(
     row, job = await running(db_session, super_admin[0])
     raw = report(row)
     await service.publish(db_session, job.id, row.task_id, report=raw)
-    async with db_session.begin_nested():
-        with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError):
+        async with db_session.begin_nested():
             await db_session.execute(
                 update(Inventory)
                 .where(Inventory.async_job_id == job.id)

@@ -619,11 +619,20 @@ async def test_cancelled_commit_drains_acknowledgement_before_return(
     _, reference, data = harness.content()
     entered, release = asyncio.Event(), asyncio.Event()
     original = AsyncSession.commit
+    original_owner_commit = owners._commit
+    owner_sessions: set[int] = set()
     calls = 0
+
+    async def marked_owner_commit(db):
+        owner_sessions.add(id(db))
+        try:
+            return await original_owner_commit(db)
+        finally:
+            owner_sessions.discard(id(db))
 
     async def delayed_commit(db):
         nonlocal calls
-        if not any(isinstance(row, Object) for row in db.identity_map.values()):
+        if id(db) not in owner_sessions:
             return await original(db)
         calls += 1
         current = calls
@@ -633,6 +642,7 @@ async def test_cancelled_commit_drains_acknowledgement_before_return(
             await release.wait()
         return result
 
+    monkeypatch.setattr(owners, "_commit", marked_owner_commit)
     monkeypatch.setattr(AsyncSession, "commit", delayed_commit)
     async with harness.factory() as caller:
         task = asyncio.create_task(

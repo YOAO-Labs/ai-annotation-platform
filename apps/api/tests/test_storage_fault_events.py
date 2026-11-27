@@ -10,13 +10,14 @@ import pytest
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
+from app.application.dataset_reference_registration import register_entry
 from app.config import settings
 from app.db.models.audit_log import AuditLog
 from app.db.models.storage_fault import StorageFaultState
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset_source import DatasetSourceItem
 from app.db.models.user import User
-from app.services import dataset_content as content, dataset_references as references
+from app.services import dataset_content as content
 from app.services import dataset_scans
 from app.services import directory_previews, filesystem_storage as fs
 from app.services import storage_fault_events as events
@@ -177,9 +178,7 @@ async def test_preview_failure_does_not_discard_verified_original(
     world, db_session, test_engine, monkeypatch
 ):
     _, data, actor, _, location, source, run, entry = world
-    registered = await references.register_entry(
-        db_session, run.id, entry.path_digest, actor
-    )
+    registered = await register_entry(db_session, run.id, entry.path_digest, actor)
     mapping = await db_session.get(DatasetSourceItem, (source.id, entry.path_digest))
     source.cache_policy = "preview"
     snapshot = await content.scan_snapshot(

@@ -18,8 +18,12 @@ from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.schemas.export import LidarExportOptions
 from app.services.content_snapshot import ContentError
 from app.services.exporting import lidar_preflight as preflight
-from app.services.sensor_calibration import calibration_digest
+from yoao_assets_catalog.spatial_values import calibration_digest
 from app.schemas._jsonb_types import SensorCalibration
+from tests.test_lidar_export_inputs import (
+    lidar_database as lidar_database,
+    lidar_input_db as lidar_input_db,
+)
 
 
 def calibration():
@@ -159,8 +163,18 @@ def world(monkeypatch):
         calls.append((batch_id, targets, options))
         return preflight._RegisteredPreflight(snapshot, view)
 
+    from app.services import project_access
+
+    async def get_project(
+        db_arg, *, actor_id=None, project_id=None, populate_existing=False
+    ):
+        assert db_arg is db
+        return await get(Project, project_id)
+
+    monkeypatch.setattr(project_access, "get_workspace_project", get_project)
+    monkeypatch.setattr(preflight, "get_workspace_project", get_project, raising=False)
     monkeypatch.setattr(preflight, "_collect_registered", collect)
-    monkeypatch.setattr(preflight, "resolve_calibration_states", forbidden)
+    monkeypatch.setattr(preflight.AssetsSpatialGateway, "read_calibrations", forbidden)
     for name in ("verify_upload", "generate_download_url", "download_file"):
         monkeypatch.setattr(preflight.storage_service, name, forbidden, raising=False)
     for name in ("head_object", "get_object", "download_file"):
@@ -636,12 +650,9 @@ async def test_pure_nuscenes_uses_registered_collector_without_storage_io(world)
 
 
 @pytest.fixture
-async def registered_db(test_engine):
-    """The integration owner provides the bounded, isolated collector schema."""
-    from tests.test_lidar_export_inputs import input_db
-
-    async for db in input_db.__wrapped__(test_engine):
-        yield db
+async def registered_db(lidar_input_db):
+    """The integration owner provides the bounded, isolated collector database."""
+    return lidar_input_db
 
 
 @pytest.mark.parametrize(
@@ -686,8 +697,6 @@ async def test_registered_preflight_real_database_canonical_link_only(
 async def test_exact_frozen_worker_inputs_recheck_parent_rules_without_auxiliary_io(
     world, monkeypatch
 ):
-    from app.services.exporting import lidar_frozen
-
     parent, _member, _track = manual_members(world)
     world.view.annotations.remove(parent)
     world.snapshot.update(
@@ -696,7 +705,7 @@ async def test_exact_frozen_worker_inputs_recheck_parent_rules_without_auxiliary
         targets=["coco-multicamera", "nuscenes"],
         options={},
     )
-    monkeypatch.setattr(lidar_frozen, "FrozenLidar", lambda snapshot: world.view)
+    monkeypatch.setattr(preflight, "FrozenLidar", lambda snapshot: world.view)
     with pytest.raises(ContentError, match="multicamera_coco_parent_invalid"):
         await preflight.assert_frozen_lidar_ready(world.snapshot)
     assert world.calls == []

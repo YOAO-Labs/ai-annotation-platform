@@ -40,7 +40,7 @@ from yoao_labeling.task_maintenance_contract import (
     ReadSourceLessProjectBatches,
     ReadSourceLessProjectCounters,
 )
-from app.application.task_workflow_errors import TaskWorkflowError
+from app.services.task_workflow_errors import TaskWorkflowError
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.labeling_project_counter_data import (
@@ -555,9 +555,6 @@ class LabelingTaskService(LabelingTaskCreationPort):
     async def delete_source_less_task_children(
         self, task_id_values: list[uuid.UUID], *, project_id: uuid.UUID
     ) -> int:
-        from app.services.annotation_comment import AnnotationCommentService
-
-        await AnnotationCommentService(self.db).delete_for_tasks(task_id_values)
         data = await LabelingTaskMaintenanceService(self.db).command(
             DeleteSourceLessChildren(
                 schema=TASK_MAINTENANCE_PROTOCOL,

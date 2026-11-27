@@ -16,6 +16,7 @@ import tempfile
 import uuid
 
 from app.services import storage_migration_copy as core
+from app.services.storage_migration_checkpoint import materialize
 from app.services.storage_migration_inventory import PURPOSES, verify_inventory
 from app.services.storage_migration_references import Budget, Limits
 
@@ -263,7 +264,6 @@ def _build(values, window_id, window_revision):
         ROW_LIMIT,
     )
     from app.db.models.storage_migration_inventory import REPORT_LIMIT
-    from app.services.storage_migration_copies import materialize
 
     _require(
         _uuid(str(window_id))

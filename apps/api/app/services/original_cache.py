@@ -5,31 +5,30 @@ Policy configuration and the unified resolver own public access decisions.
 No source bytes, managed originals or training copies are ever deleted here.
 """
 
-from contextlib import contextmanager
-from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
 import threading
 import time
-from types import SimpleNamespace
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from botocore.config import Config
 from sqlalchemy import text
 
 from app.db.models.original_cache import OriginalCacheEntry as Entry
 from app.services import content_snapshot as snapshots
-from app.services import media_cache_storage as saved_storage
-from app.services import media_cache_accounting
 from app.services import key_removal_accounting as removal
-from app.services import storage_access, storage_registry_data
+from app.services import media_cache_accounting, storage_access, storage_registry_data
+from app.services import media_cache_storage as saved_storage
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as read_publications
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.prediction_inputs import settled_io
 from app.services.storage import StorageService
+from app.services.storage_identity import LEGACY_LOCATION_ID
 
 log = logging.getLogger(__name__)
 READ_SECONDS = 15
@@ -228,7 +227,7 @@ async def _legacy_target(db, record, *, require_enabled=True):
         await saved_storage.target_for(db, location, require_enabled=require_enabled),
         bucket=record.bucket,
     )
-    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.storage_identity import managed_storage_identity
 
     if (
         managed_storage_identity(target.endpoint_url, target.bucket)

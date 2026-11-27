@@ -122,16 +122,19 @@ image_bench 'image-bench rejects fixture mismatches$' mismatch
 
 `pnpm --filter web image:bench` 只在仓库 `test-results/image-bench/` 写 `kind: "plan"` 的 `manifest.json`，并不启动浏览器。成功的 Playwright 场景才在各自的 `apps/web/test-results/image-bench/` 输出目录保存 `kind: "measurement"` 的 `image-bench-measurement.json`。记录选择值和观测值、浏览器版本与 viewport/DPR、手势和 Long Tasks；无有效样本时最大值为 `null`。测量窗口只包含加载后的 5 次平移、4 次放大、4 次缩小和全选，不包含夹具准备、首次打开、FPS 或渲染延时。200 ms / 5 次是软预算，只报告是否达标；比较读数时另记录源码版本和设备，且只使用测试与清理均通过的结果。
 
-布局矩阵在图片/视频/点云 × 标注/审核六种上下文中都保留真实拖动、画布身份、上下文隔离、紧凑模式、保存与刷新恢复断言。功能集执行 14 次重排，`@stress` 执行完整 54 次；新增长循环必须放入压力集，并在功能集中保留覆盖关键状态转换的短流程。
+布局功能集在图片、视频、点云的标注与审核六种上下文中各做一次标签合并、一次面板浮动。每条都检查画布身份、紧凑模式切换、只写当前上下文的偏好，以及刷新后的实际布局。每种上下文连续重排 54 次的覆盖保留在 `@stress`。
 
 CI 调度规则由根目录 `scripts/plan-e2e-suites.mjs` 维护：
 
-- 普通 PR 使用核心 smoke 加受影响的 Mask、视频、点云等专项；共享依赖、未知路径等高影响变更保守扩大选集。白名单内的纯文档变更显式跳过应用 E2E；`E2E_SELECTION_MODE=legacy` 保留固定全量功能分片和专项的回退入口。
+- 只改已识别的独立 Vitest／pytest 用例时跳过浏览器，不跳过应用 CI。登录页改动跑核心 smoke；有明确归属的产品改动加跑对应功能用例，不能只跑登录冒烟。视频、Mask、点云按各自运行条件选片。共享依赖、测试夹具、空差异和未映射路径保留全量。
 - 主分支和 `E2E extended` 夜间运行（北京时间 03:00）使用全量选集。手动选择 `extended` 仅执行布局压力集；`full` 执行全量选集。
 - PR 路径读取失败会使计划 job 失败；`Frontend E2E` 汇总同时要求计划和所有已选套件成功，不会把漏跑当作通过。
 - 全量矩阵包含 32 个套件任务及 33 份必需报告；额外报告来自 `mask-native` 内的独立 `mask-worker`。默认 Chromium 分片中的条件跳过必须在专项逐项执行：视频写入由视频专项覆盖，原生 AI、工具栏及异步阶段由各自的专项覆盖。数量以当前 `--list` 和执行报告为准。
+- `e2e-selection-report` 分开记录建议选集 `gates.planned`、本次实际选集 `gates.effective` 和回退 `gates.rollback`。仓库变量 `E2E_SELECTION_MODE=legacy` 启用原固定门禁；它不等于当前的全量计划。独立 Chromium 时间轴检查随视频、布局和全量路径运行。
 
 默认 Chromium 功能回归和视频专项均按用例而不是按 spec 文件分片（分别为 16 片和 4 片）。每片仍只有一个 worker，串行执行并独占自己的数据库和存储。这样单个较大的测试文件不会挤占下一片、留下空 Job。改动分片时，核对每片非空，各片 `--list` 并集与未分片清单相同且不重叠，再运行实际浏览器。
+
+仅当同次运行已选择全部四个视频分片时，默认 Chromium 不再重复运行 `video-issue-context`、`video-issue-frame`、`video-original-playback`、`video-timeline-seek`。独立执行默认套件或回退到没有视频专项的门禁时不排除它们。严格 WebCodecs 解码和允许回退的浏览器行为仍分别验证。
 
 `seed` 只用于准备前置数据。核心创建用例必须验证真实 UI 操作、保存响应、API 读回和刷新恢复；不能在 UI 保存失败后调用 `seed.advanceTask` 等接口伪造成功。Canvas 指针坐标应依据当前媒体位置和尺寸计算，并确认没有被浮层遮挡。连续执行相互独立的边缘绘制时，通过真实 UI 收起前一个标注的浮窗，并检查拖拽起点命中画布。截图检查不能替代保存检查，存储状态检查也不能替代真实渲染检查。
 
@@ -423,6 +426,6 @@ e2e/
 ├── tests/             # 实际 spec
 │   ├── auth.spec.ts
 │   ├── annotation.spec.ts
-│   └── batch-flow.spec.ts
+│   └── employee-project-roles.spec.ts
 └── utils/             # 辅助函数
 ```

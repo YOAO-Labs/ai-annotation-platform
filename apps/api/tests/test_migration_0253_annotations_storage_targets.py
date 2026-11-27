@@ -12,7 +12,11 @@ from app.services.managed_s3_target import Target
 from tests.test_comment_attachment_storage_migration import create as comment
 from tests.test_guide_asset_storage_migration import create as guide
 from tests.test_raster_object_storage_migration import create as raster
-from tests.test_task_originals import migration, original_db as original_db
+from tests.test_task_originals import (
+    current_original_db as current_original_db,
+    migration,
+    original_db as original_db,
+)
 
 
 async def test_migration_roundtrip_preserves_legacy_family_addresses(original_db):
@@ -114,17 +118,20 @@ async def test_closed_schema_two_check_rejects_forged_comment_addresses(
 
 
 async def test_task_creation_schema_two_blocks_downgrade_before_owner_exists(
-    original_db,
+    current_original_db,
 ):
     from tests.test_task_originals import allocated
 
-    _, allocation = await allocated(original_db)
+    _, allocation = await allocated(current_original_db)
     assert allocation["configuration"]["original_ref"]["purpose"] == "annotations"
-    connection = await original_db.connection()
+    connection = await current_original_db.connection()
     async with connection.begin_nested() as savepoint:
         with pytest.raises(
             IntegrityError, match="Saved annotation-file responsibility"
         ):
             await connection.run_sync(lambda sync: migration(sync, "0253").downgrade())
         await savepoint.rollback()
-    assert await original_db.scalar(text("SELECT count(*) FROM task_originals")) == 0
+    assert (
+        await current_original_db.scalar(text("SELECT count(*) FROM task_originals"))
+        == 0
+    )

@@ -16,6 +16,7 @@ import os
 from types import SimpleNamespace
 import subprocess
 import sys
+from typing import Literal, NamedTuple
 import uuid
 
 from PIL import Image, ImageDraw
@@ -39,23 +40,67 @@ from tests.managed_original_client_support import Client
 from tests.test_prediction_inputs import input_storage_world
 
 
+class ManagedDatabaseIdentity(NamedTuple):
+    oid: int
+    marker: str
+
+
+async def _database_identity(db, name):
+    return (
+        await db.execute(
+            text(
+                "SELECT oid,shobj_description(oid,'pg_database') "
+                "FROM pg_database WHERE datname=:name"
+            ),
+            {"name": name},
+        )
+    ).one()
+
+
+async def _sealed_template_name(db, identity):
+    return (
+        await db.execute(
+            text(
+                "SELECT quote_ident(datname) FROM pg_database WHERE oid=:oid "
+                "AND shobj_description(oid,'pg_database')=:marker AND NOT datallowconn"
+            ),
+            {"oid": identity.oid, "marker": identity.marker},
+        )
+    ).scalar_one()
+
+
 @asynccontextmanager
-async def _owned_database(admin_engine, *, before_drop=None):
+async def _owned_database(
+    admin_engine,
+    *,
+    before_drop=None,
+    template: ManagedDatabaseIdentity | Literal["template0"] | None = None,
+):
     """Drop only the database identity created by this fixture invocation."""
     name = "aap_managed_" + uuid.uuid4().hex + "_test"
     marker = "managed-inference:" + uuid.uuid4().hex
     async with admin_engine.connect() as connection:
         db = await connection.execution_options(isolation_level="AUTOCOMMIT")
-        await db.execute(text(f'CREATE DATABASE "{name}"'))
+        create = f'CREATE DATABASE "{name}"'
+        if template == "template0":
+            create += " TEMPLATE template0"
+        elif template is not None:
+            source = await _sealed_template_name(db, template)
+            create += f" TEMPLATE {source}"
+        await db.execute(text(create))
         await db.execute(text(f"COMMENT ON DATABASE {name} IS '{marker}'"))
         oid = await db.scalar(
             text("SELECT oid FROM pg_database WHERE datname=:name"), {"name": name}
         )
+        identity = ManagedDatabaseIdentity(oid, marker)
     engine = create_async_engine(
         admin_engine.url.set(database=name), poolclass=NullPool
     )
     try:
-        yield engine
+        if isinstance(template, ManagedDatabaseIdentity):
+            async with admin_engine.connect() as db:
+                assert await _sealed_template_name(db, template) == source
+        yield engine, identity
     finally:
         primary = sys.exception()
         disposed = False
@@ -66,16 +111,8 @@ async def _owned_database(admin_engine, *, before_drop=None):
             disposed = True
             async with admin_engine.connect() as connection:
                 db = await connection.execution_options(isolation_level="AUTOCOMMIT")
-                observed = (
-                    await db.execute(
-                        text(
-                            "SELECT oid,shobj_description(oid,'pg_database') "
-                            "FROM pg_database WHERE datname=:name"
-                        ),
-                        {"name": name},
-                    )
-                ).one()
-                assert observed == (oid, marker), observed
+                observed = await _database_identity(db, name)
+                assert observed == identity, observed
                 clients = await db.scalar(
                     text(
                         "SELECT count(*) FROM pg_stat_activity WHERE datname=:name "
@@ -107,38 +144,147 @@ async def _owned_database(admin_engine, *, before_drop=None):
 
 
 @asynccontextmanager
-async def managed_database(test_db_url, *, before_drop=None):
-    """Use fresh migrations rather than cloning database-bound authorities."""
+async def _migrated_database(test_db_url, revision, *, template=None, before_drop=None):
     admin = create_async_engine(test_db_url, poolclass=NullPool)
     try:
-        async with _owned_database(admin, before_drop=before_drop) as engine:
+        async with _owned_database(
+            admin, template=template, before_drop=before_drop
+        ) as (engine, identity):
             environment = os.environ.copy()
             environment["AAP_MANAGED_DATABASE_URL"] = engine.url.render_as_string(
                 hide_password=False
             )
             code = (
                 "from alembic import command; from alembic.config import Config; "
-                "import os; c=Config('alembic.ini'); "
+                "import os, sys; c=Config('alembic.ini'); "
                 "c.set_main_option('sqlalchemy.url',os.environ['AAP_MANAGED_DATABASE_URL']); "
-                "command.upgrade(c,'head')"
+                "command.upgrade(c,sys.argv[1])"
             )
             result = await asyncio.to_thread(
                 subprocess.run,
-                [sys.executable, "-c", code],
+                [sys.executable, "-c", code, revision],
                 env=environment,
                 capture_output=True,
                 text=True,
                 timeout=180,
             )
             assert result.returncode == 0, result.stdout + result.stderr
+            yield admin, engine, identity
+    finally:
+        await admin.dispose()
+
+
+DATABASE_BOUND_SECRET_TABLES: tuple[str, ...] = (
+    "public.mask_gc_write_permit_secrets",
+    "yoao_assets_v1.embedded_media_claim_key",
+    "yoao_assets_v1.storage_fault_observation_key",
+    "yoao_inference_backend_endpoint_v1.endpoint_secret",
+    "yoao_inference_backend_probe_v1.probe_secret",
+    "yoao_inference_health_observation_v1.observation_secret",
+)
+DATABASE_BOUND_AUTHORITY_TABLES: tuple[str, ...] = (
+    "yoao_inference_routing_v1.authority_secret",
+    "yoao_jobs_v1.video_execution_authority",
+)
+DATABASE_BOUND_REBIND_TABLES: frozenset[str] = frozenset(
+    (*DATABASE_BOUND_SECRET_TABLES, *DATABASE_BOUND_AUTHORITY_TABLES)
+)
+
+
+async def _rebind_case_database(engine):
+    """Rotate singleton secrets and rebind database-scoped identity and grants."""
+    async with engine.begin() as db:
+        for table in DATABASE_BOUND_SECRET_TABLES:
+            result = await db.execute(
+                text(
+                    f"UPDATE {table} "
+                    "SET secret = public.gen_random_bytes(32) "
+                    "WHERE singleton"
+                )
+            )
+            assert result.rowcount == 1, (table, result.rowcount)
+        routing = await db.execute(
+            text(
+                "UPDATE yoao_inference_routing_v1.authority_secret "
+                "SET secret = public.gen_random_bytes(32), "
+                "    realm_database_oid = database.oid, "
+                "    realm_database_name = pg_catalog.current_database() "
+                "FROM pg_catalog.pg_database AS database "
+                "WHERE singleton "
+                "  AND database.datname = pg_catalog.current_database()"
+            )
+        )
+        assert routing.rowcount == 1, routing.rowcount
+        execution = await db.execute(
+            text(
+                "UPDATE yoao_jobs_v1.video_execution_authority "
+                "SET secret = public.gen_random_bytes(32), "
+                "    database_oid = database.oid, "
+                "    database_name = pg_catalog.current_database(), "
+                "    cluster_identifier = control.system_identifier "
+                "FROM pg_catalog.pg_database AS database "
+                "CROSS JOIN pg_catalog.pg_control_system() AS control "
+                "WHERE singleton "
+                "  AND database.datname = pg_catalog.current_database()"
+            )
+        )
+        assert execution.rowcount == 1, execution.rowcount
+        await db.exec_driver_sql(
+            """
+            DO $rebind$
+            DECLARE
+                v_owner pg_catalog.name;
+            BEGIN
+                SELECT owner.rolname INTO STRICT v_owner
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_roles AS owner ON owner.oid = function.proowner
+                WHERE function.oid = 'yoao_insights_v1.clear_project_task_views(uuid)'::pg_catalog.regprocedure;
+                EXECUTE pg_catalog.format(
+                    'GRANT TEMPORARY ON DATABASE %I TO %I',
+                    pg_catalog.current_database(),
+                    v_owner
+                );
+            END;
+            $rebind$;
+            """
+        )
+
+
+@asynccontextmanager
+async def migrated_case_database(
+    test_db_url, prefix: ManagedDatabaseIdentity, *, before_drop=None
+):
+    """Clone the sealed head template and rebind database-bound authorities."""
+    admin = create_async_engine(test_db_url, poolclass=NullPool)
+    try:
+        async with _owned_database(admin, template=prefix, before_drop=before_drop) as (
+            engine,
+            _,
+        ):
+            await _rebind_case_database(engine)
             yield engine
     finally:
         await admin.dispose()
 
 
+@asynccontextmanager
+async def managed_schema_prefix(test_db_url):
+    async with _migrated_database(test_db_url, "head", template="template0") as (
+        admin,
+        engine,
+        identity,
+    ):
+        name = engine.url.database
+        async with admin.begin() as db:
+            await db.exec_driver_sql(f'ALTER DATABASE "{name}" ALLOW_CONNECTIONS false')
+            observed = await _database_identity(db, name)
+            assert observed == identity, observed
+        yield identity
+
+
 @pytest.fixture
-async def input_world(test_engine, monkeypatch):
-    async with managed_database(test_engine.url) as engine:
+async def input_world(managed_database, monkeypatch):
+    async with managed_database() as engine:
         async with input_storage_world(engine, monkeypatch) as world:
             yield world
 

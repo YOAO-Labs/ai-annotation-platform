@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import managed_original_reclamation as observation
 from app.services import managed_original_reclaim_fence as fence
 from tests.test_managed_original_reclamation import (
@@ -57,7 +57,13 @@ async def test_group_observation_is_select_only_and_eligible_without_static_gate
     assert len(statements) == 2
     assert "set_config('statement_timeout', '30s', true)" in statements[0]
     assert "set_config('jit', 'off', true)" in statements[0]
-    assert statements[1].lstrip().startswith("WITH")
+    assert (
+        statements[1]
+        .lstrip()
+        .startswith(
+            "SELECT observation FROM yoao_assets_v1.observe_original_reclamation("
+        )
+    )
     assert result["blockers"] == []
     assert all(value == 0 for value in result["roots"].values())
     assert result["creation"] is None
@@ -427,7 +433,8 @@ async def test_saved_s3_reference_remains_a_training_root_after_alias_item_delet
     from sqlalchemy import delete, select
     from app.db.models.dataset import DatasetItem
     from app.db.models.dataset_source import DatasetScanEntry
-    from app.services.dataset_references import register_entry, reference_context
+    from app.application.dataset_reference_registration import register_entry
+    from app.services.dataset_references import reference_context
     from app.services.training_dataset_sources import capture_source_lineage
     from tests.test_s3_references import scan
 

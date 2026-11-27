@@ -5,6 +5,13 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 
+from app.services.exporting.lidar_frozen import _detached_item
+from app.services.exporting.packaging import (
+    _camera_name,
+    _lidar_frame_key,
+    _lidar_media_path,
+)
+
 
 def logical_sources(
     snapshot: dict, *, allow_missing_kitti_camera: bool = False
@@ -15,13 +22,6 @@ def logical_sources(
     KITTI camera, the frozen scope deliberately has no camera binding, so path
     planning must still validate the primary frames that the report uses.
     """
-    from app.services.exporting.lidar_frozen import _detached_item
-    from app.services.exporting.packaging import (
-        _camera_name,
-        _lidar_frame_key,
-        _lidar_media_path,
-    )
-
     targets = [
         target
         for target in snapshot["targets"]

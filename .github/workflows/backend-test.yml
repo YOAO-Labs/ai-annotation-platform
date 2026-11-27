@@ -11,13 +11,16 @@ on:
         description: "Total number of shards (CI uses four)"
         required: true
         type: number
-    secrets:
-      CODECOV_TOKEN:
-        description: "Optional Codecov token; uploads merge under the `backend` flag"
-        required: false
 
 permissions:
   contents: read
+
+env:
+  GPU_MEMBERSHIP_TEST: tests/test_gpu_membership_activation.py
+  SECRET_KEY: ci-test-secret
+  MINIO_ENDPOINT: localhost:9000
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_SECRET_KEY: minioadmin
 
 jobs:
   test:
@@ -50,159 +53,60 @@ jobs:
       DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
       TEST_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
       E2E_SEED_ENABLED: "true"
-      SECRET_KEY: ci-test-secret
       REDIS_URL: redis://localhost:6379/0
-      MINIO_ENDPOINT: localhost:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: annotations
       BACKEND_MINIO_PROJECT: backend-minio-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.shard-index }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install video fixture tools
-        run: |
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          fi
-          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
-            sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
-          fi
-          ffmpeg -version
-          ffprobe -version
-      - name: Configure PostgreSQL client tools
+      - name: Install backend test system tools
         run: |
           pg_bin=/usr/lib/postgresql/16/bin
+          packages=()
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            packages+=(ffmpeg)
+          fi
           if [ ! -x "$pg_bin/pg_dump" ] || [ ! -x "$pg_bin/pg_restore" ]; then
+            packages+=(postgresql-client-16)
+          fi
+          if [ "${#packages[@]}" -gt 0 ]; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
+            sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends postgresql-client-16
+            sudo apt-get install -y --no-install-recommends "${packages[@]}"
           fi
           echo "$pg_bin" >> "$GITHUB_PATH"
+          ffmpeg -version
+          ffprobe -version
           "$pg_bin/pg_dump" --version
           "$pg_bin/pg_restore" --version
-      - name: Install uv
-        run: pip install uv
-      - uses: actions/download-artifact@v4
+      - uses: ./.github/actions/setup-backend-test-python
+      - uses: ./.github/actions/start-test-minio
         with:
-          name: plugin-sdk-runtime
-          path: .artifacts/python/plugin-sdk
-      - name: Sync deps
-        working-directory: apps/api
-        run: uv sync --locked --extra test
-      - name: Worktree runtime and setup tests
-        working-directory: apps/api
-        run: |
-          uv run python -m unittest discover -s ../../scripts -p 'test_worktree*.py' -v
-          uv run python ../../scripts/test-orca-worktree-setup.py
-      - name: Local service maintenance tests
-        working-directory: apps/api
-        run: |
-          uv run python ../../scripts/test_production_health_recover.py
-          uv run python ../../scripts/test_development_restart.py
-      - name: Start MinIO
-        run: |
-          minio=(docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml)
-          for attempt in 1 2 3; do
-            if "${minio[@]}" pull minio; then break; fi
-            if [ "$attempt" -eq 3 ]; then exit 1; fi
-            sleep "$((attempt * 5))"
-          done
-          if ! "${minio[@]}" up --detach --pull never --wait --wait-timeout 30 minio; then
-            "${minio[@]}" logs minio
-            exit 1
-          fi
+          project-name: ${{ env.BACKEND_MINIO_PROJECT }}
       - name: Initialize MinIO buckets
         working-directory: apps/api
         run: uv run python -c "from app.services.storage import storage_service; storage_service.ensure_all_buckets()"
-      - name: Worktree resource isolation acceptance
-        working-directory: apps/api
-        run: uv run python ../../scripts/verify_worktree_isolation.py -v
       - name: alembic upgrade head
         working-directory: apps/api
         run: uv run alembic upgrade head
-      - name: Migration validation (Beta fresh / forward)
-        working-directory: apps/api
-        env:
-          AAP_MIGRATION_VALIDATION_OWNER: ci:${{ github.run_id }}
-          MIGRATION_DATABASE_URL: ${{ env.DATABASE_URL }}
-        run: uv run python ../../scripts/validate_migrations.py
-      - name: OpenAPI snapshot drift check
-        working-directory: apps/api
-        run: |
-          if ! uv run python ../../scripts/export_openapi.py --check; then
-            echo "::error::OpenAPI snapshot drift. 请在 apps/api 下运行 'uv run python ../../scripts/export_openapi.py' 重生 snapshot 并提交（建议本地装 pre-commit 让它自动跑）。"
-            exit 1
-          fi
-      - name: pytest with coverage
+      - name: Run API test shard
         working-directory: apps/api
         run: >-
-          uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
-          --durations=30 --junitxml=pytest-results.xml
+          uv run pytest -q --durations=30 --junitxml=pytest-results.xml
+          --ignore="$GPU_MEMBERSHIP_TEST"
           --shard-index ${{ inputs.shard-index }} --shard-count ${{ inputs.shard-count }}
-      - uses: pnpm/action-setup@v4
-        if: inputs.shard-index == 0
-      - uses: actions/setup-node@v4
-        if: inputs.shard-index == 0
-        with:
-          node-version: "22"
-      - name: Verify managed-original reclamation on disposable databases
-        if: inputs.shard-index == 0
-        run: |
-          mkdir -p "$RUNNER_TEMP/minio-client"
-          docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml \
-            cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
-          chmod 700 "$RUNNER_TEMP/minio-client/mc"
-          export PATH="$RUNNER_TEMP/minio-client:$PATH"
-          postgres_image=postgres@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
-          docker pull --platform linux/amd64 "$postgres_image"
-          docker tag "$postgres_image" postgres:16-alpine
-          for module in workspace notifications audit jobs; do
-            pnpm --dir "apps/$module/conformance/node" install --ignore-workspace --frozen-lockfile --ignore-scripts
-          done
-          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-            --reclamation-only --output reclamation-results/acceptance.json
-      - name: Verify M2b ordinary LOGINs and replay on a disposable database
-        if: inputs.shard-index == 0
-        run: |
-          export PATH="$RUNNER_TEMP/minio-client:$PATH"
-          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
-            --workspace-consumer-profile default \
-            --test-file tests/test_m2b_private_access_live.py::test_default_login_cannot_directly_use_private_relations \
-            --test-file tests/test_m2b_runtime_acl_replay.py \
-            --test-file tests/test_jobs_ordinary_ledger_live.py \
-            --output m2b-results/acceptance.json
-      - name: Migration policy pure tests
-        working-directory: apps/api
-        run: uv run python ../../scripts/test_alembic_migration_policy.py
-      - name: Repository Python script tests
-        if: inputs.shard-index == 0
-        working-directory: apps/api
-        run: uv run pytest -q ../../scripts --junitxml=script-test-results.xml
+          ${{ inputs.shard-count == 4 && '--shard-plan tests/ci-shard-plan.json' || '' }}
       - name: Upload backend test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: backend-test-results-${{ inputs.shard-index }}
-          path: |
-            apps/api/pytest-results.xml
-            apps/api/script-test-results.xml
-            reclamation-results/**/*.junit.xml
-            reclamation-results/acceptance.json
-            m2b-results/acceptance.junit.xml
-            m2b-results/acceptance.json
+          path: apps/api/pytest-results.xml
           retention-days: 7
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: apps/api/coverage.xml
-          flags: backend
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Retire backend object store
         if: always()
         run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes

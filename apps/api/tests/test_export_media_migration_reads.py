@@ -32,6 +32,7 @@ def record(schema=1, count=2):
     return SimpleNamespace(
         id=identifier,
         input_schema=schema,
+        fixture_run_id=None,
         storage_ref=ref,
         created_at=created,
         expires_at=created + timedelta(days=7),
@@ -294,6 +295,8 @@ class Harness:
             input_digest=self.saved.input_digest,
             project_id=self.saved.project_id,
             job_id=self.saved.job_id,
+            fixture_run_id=None,
+            expires_at=self.saved.expires_at,
         )
         self.output = SimpleNamespace(
             id=self.saved.zip_output_id,
@@ -341,6 +344,26 @@ class Harness:
         self.recheck = AsyncMock()
         self.invalidate = AsyncMock()
         monkeypatch.setattr(worker, "for_snapshot", lambda _data: self.adapter)
+        monkeypatch.setattr(
+            worker.delivery_data,
+            "find_cache",
+            AsyncMock(side_effect=lambda db, *_args, **_kwargs: db.artifact),
+        )
+        monkeypatch.setattr(
+            worker.delivery_data,
+            "zip_receipt",
+            AsyncMock(side_effect=lambda db, *_args, **_kwargs: db.output),
+        )
+        monkeypatch.setattr(
+            worker.delivery_data,
+            "media_delivery",
+            AsyncMock(side_effect=lambda db, *_args, **_kwargs: db.previous),
+        )
+        monkeypatch.setattr(
+            worker.jobs,
+            "get_job",
+            AsyncMock(side_effect=lambda db, *_args, **_kwargs: db.job),
+        )
         monkeypatch.setattr(worker.bundles, "snapshot", lambda _row: self.saved)
         monkeypatch.setattr(
             worker.bundles, "source_objects", lambda *_args: self.mapping

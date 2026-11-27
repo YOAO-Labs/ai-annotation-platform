@@ -171,6 +171,12 @@ class MaintenanceTests(unittest.TestCase):
                 resources = topology(root, load_identity(root, create=True), "test")
                 dispatch = "postgresql://dispatch:fixture@postgres/test"
                 publication = "postgresql://publication:fixture@postgres/test"
+                assets_env = {
+                    f"ASSETS_CELERY_{lane.upper()}_DATABASE_URL": (
+                        f"postgresql+asyncpg://assets_{lane}:fixture@postgres/test"
+                    )
+                    for lane in ("video", "image")
+                }
                 env = {
                     "DATABASE_URL": "runtime-fixture",
                     "MIGRATION_DATABASE_URL": "owner-fixture",
@@ -183,6 +189,7 @@ class MaintenanceTests(unittest.TestCase):
                 backend = Mock(resources=resources, code_root=ROOT)
                 backend.environment.return_value = env
                 backend.jobs_database_url.return_value = dispatch
+                backend.assets_worker_environment.return_value = assets_env
                 workers = [Mock(pid=101), Mock(pid=102), Mock(pid=103)]
                 beat = Mock(pid=104)
                 for worker in (*workers, beat):
@@ -273,6 +280,10 @@ class MaintenanceTests(unittest.TestCase):
                         self.assertEqual(runtime.run_processes(backend, options), 0)
                 self.assertEqual(popen.call_count, 2 if failure == "wrong_queue" else 5)
                 backend.jobs_database_url.assert_called_once_with("jobs-dispatch")
+                for key, url in assets_env.items():
+                    self.assertEqual(popen.call_args_list[0].kwargs["env"][key], url)
+                    for other in popen.call_args_list[1:]:
+                        self.assertFalse(other.kwargs["env"].get(key), key)
                 for index, expected_db in enumerate(
                     ("runtime-fixture", "owner-fixture")
                 ):
@@ -337,6 +348,8 @@ class MaintenanceTests(unittest.TestCase):
                     )
                     self.assertEqual(api_env["DATABASE_URL"], "runtime-fixture")
                     self.assertEqual(api_env["MIGRATION_DATABASE_URL"], "")
+                    for key in assets_env:
+                        self.assertFalse(api_env.get(key), key)
                     self.assertEqual(published[-1]["worker"], names[0])
                     self.assertEqual(published[-1]["maintenance_worker"], names[1])
                     self.assertEqual(published[-1]["jobs_recovery_worker"], names[2])

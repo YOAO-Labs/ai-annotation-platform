@@ -1,115 +1,45 @@
-"""Pure creation-option and real-thread draining regressions, without a database."""
-
 import asyncio
 from contextvars import ContextVar
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 import threading
 import uuid
 
 from billiard.exceptions import SoftTimeLimitExceeded
 import pytest
+from sqlalchemy import func, select
 
-from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
+from app.services import export_delivery_data as data
+from app.services import export_media_bundles as bundles
 from app.services import export_outputs as outputs
 from app.services import export_storage
-
-NOW = datetime(2026, 10, 24, 12, tzinfo=timezone.utc)
-ENDPOINT = "http://saved-export.test:9000"
-
-
-class CreationDB:
-    def __init__(self, bundle=None):
-        self.bundle = bundle
-        self.events, self.added = [], []
-        self.after_hash = None
-        self.on_flush = None
-
-    async def scalar(self, statement):
-        assert statement._for_update_arg.nowait
-        if self.after_hash is not None:
-            assert self.after_hash.is_set(), (
-                "business lock preceded physical hash completion"
-            )
-        self.events.append("lock")
-        return self.bundle
-
-    def add(self, row):
-        self.added.append(row)
-        self.events.append("add")
-
-    async def flush(self):
-        self.events.append("flush")
-        if self.on_flush:
-            self.on_flush()
-
-    async def commit(self):
-        self.events.append("commit")
+from tests.test_export_media_bundle_images import allocate as allocate_image
+from tests.test_export_media_bundles import allocated as allocate_lidar
+from tests.test_video_export_media_domain import allocate as allocate_video
 
 
-def bundle(*, schema=1, **changes):
-    created = NOW - timedelta(minutes=20)
-    row = ExportMediaBundle(
-        **{
-            "id": uuid.uuid4(),
-            "project_id": uuid.uuid4(),
-            "job_id": uuid.uuid4(),
-            "zip_output_id": uuid.uuid4(),
-            "state": "building",
-            "created_at": created,
-            "expires_at": created + timedelta(hours=168),
-            "lease_token": uuid.uuid4(),
-            "lease_expires_at": NOW + timedelta(seconds=3600),
-            "input_snapshot": {"schema": schema},
-            "input_schema": schema,
-            **changes,
-        }
-    )
-    saved = ref(
-        SimpleNamespace(
-            media="video" if row.input_schema == 4 else "image",
-            id=row.zip_output_id,
-            project_id=row.project_id,
-            job_id=row.job_id,
-        )
-    )
-    saved.pop("object_key")
-    saved["key_prefix"] = f"lidar-export-media/objects/{row.id}/"
-    row.storage_ref = saved
-    return row
-
-
-def ref(row):
-    return {
-        "schema": 1,
-        "purpose": "export",
-        "location_id": "4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7",
-        "config_revision": 1,
-        "binding_generation": 1,
-        "endpoint_url": ENDPOINT,
-        "bucket": "saved-export-zip",
-        "object_key": export_storage.key_for(
-            row.media, row.project_id, row.job_id, row.id
-        ),
-        "storage_identity": export_storage.managed_storage_identity(
-            ENDPOINT, "saved-export-zip"
-        ),
-    }
+async def bundle(db, *, schema=1, leased=True):
+    if schema == 4:
+        _, owner, _, _ = await allocate_video(db, tasks=0)
+    elif schema == 3:
+        _, owner, _, _ = await allocate_image(db, managed=0, references=0)
+    else:
+        _, owner, _, _ = await allocate_lidar(db, tasks=1, targets=("pointmask",))
+    if leased:
+        owner = await bundles.claim(db, owner.id)
+    await db.commit()
+    return owner
 
 
 @pytest.fixture
-def creation(monkeypatch, tmp_path):
-    clock = [NOW]
+async def creation(db_session, monkeypatch, tmp_path):
+    clock = [await db_session.scalar(select(func.clock_timestamp()))]
     monkeypatch.setattr(outputs, "now", lambda: clock[0])
-    monkeypatch.setattr(export_storage, "_runtime_endpoint", lambda: ENDPOINT)
-
-    async def allocate(db, row):
-        db.events.append("allocate")
-        return ref(row)
-
-    monkeypatch.setattr(export_storage, "allocate", allocate)
+    allocated_at = clock[0] - timedelta(minutes=20)
+    monkeypatch.setattr(bundles, "now", lambda: allocated_at)
     path = tmp_path / "candidate.zip"
     path.write_bytes(b"exact local zip bytes")
     args = dict(
@@ -121,7 +51,7 @@ def creation(monkeypatch, tmp_path):
         path=str(path),
         expected_size=path.stat().st_size,
     )
-    return args, clock
+    return db_session, args, clock
 
 
 def linked(args, owner, **changes):
@@ -135,23 +65,27 @@ def linked(args, owner, **changes):
 
 
 async def test_old_defaults_still_allocate_distinct_seven_day_candidates(creation):
-    args, _ = creation
-    db = CreationDB()
+    db, args, clock = creation
     first = await outputs.create(db, **args)
+    await db.rollback()
     second = await outputs.create(db, **args)
+    await db.rollback()
     assert first.id != second.id
-    assert first.created_at == NOW and first.expires_at == NOW + timedelta(days=7)
-    assert first.media_bundle_id is None
-    assert "lock" not in db.events and db.events.count("commit") == 2
+    for receipt in (first, second):
+        assert receipt.created_at == clock[0]
+        assert receipt.expires_at == clock[0] + timedelta(days=7)
+        assert receipt.media_bundle_id is None
+        saved = await data.zip_receipt(db, receipt.id)
+        assert saved.state == "pending" and outputs.same(saved, receipt)
 
 
 async def test_preallocated_id_and_shorter_deadline_are_saved_exactly(creation):
-    args, _ = creation
+    db, args, clock = creation
     identifier = uuid.uuid4()
-    created = NOW - timedelta(hours=1)
-    expires = NOW + timedelta(days=1)
+    created = clock[0] - timedelta(hours=1)
+    expires = clock[0] + timedelta(days=1)
     receipt = await outputs.create(
-        CreationDB(),
+        db,
         **args,
         output_id=identifier,
         created_at=created,
@@ -163,26 +97,28 @@ async def test_preallocated_id_and_shorter_deadline_are_saved_exactly(creation):
         expires,
     )
     assert receipt.storage_ref["object_key"].endswith(f"/{identifier}.zip")
+    assert outputs.same(await data.zip_receipt(db, identifier), receipt)
 
 
 async def test_bundle_supplies_its_preallocated_id_and_common_deadline(creation):
-    args, _ = creation
-    owner = bundle()
-    db = CreationDB(owner)
+    db, args, _ = creation
+    owner = await bundle(db)
     receipt = await outputs.create(db, **linked(args, owner))
     assert receipt.id == owner.zip_output_id and receipt.media_bundle_id == owner.id
     assert (
         receipt.created_at == owner.created_at
         and receipt.expires_at == owner.expires_at
     )
-    assert db.events == ["lock", "add", "flush", "commit"]
+    await db.rollback()
+    saved = await data.zip_receipt(db, owner.zip_output_id)
+    assert saved.state == "pending" and outputs.same(saved, receipt)
 
 
 async def test_explicit_matching_bundle_options_are_accepted(creation):
-    args, _ = creation
-    owner = bundle()
+    db, args, _ = creation
+    owner = await bundle(db)
     receipt = await outputs.create(
-        CreationDB(owner),
+        db,
         **linked(
             args,
             owner,
@@ -196,11 +132,9 @@ async def test_explicit_matching_bundle_options_are_accepted(creation):
 
 @pytest.mark.parametrize("schema,media", [(1, "image"), (3, "image"), (4, "video")])
 async def test_bundle_schema_selects_its_exact_zip_media(creation, schema, media):
-    args, _ = creation
-    owner = bundle(schema=schema)
-    receipt = await outputs.create(
-        CreationDB(owner), **linked(args, owner, media=media)
-    )
+    db, args, _ = creation
+    owner = await bundle(db, schema=schema)
+    receipt = await outputs.create(db, **linked(args, owner, media=media))
     assert receipt.media == media and receipt.media_bundle_id == owner.id
     assert receipt.id == owner.zip_output_id
     assert receipt.expires_at == owner.expires_at
@@ -209,20 +143,20 @@ async def test_bundle_schema_selects_its_exact_zip_media(creation, schema, media
 
 @pytest.mark.parametrize("schema,media", [(1, "video"), (3, "video"), (4, "image")])
 async def test_bundle_schema_rejects_cross_media_pair(creation, schema, media):
-    args, _ = creation
-    owner = bundle(schema=schema)
-    db = CreationDB(owner)
-    with pytest.raises(export_storage.ExportStorageError):
+    db, args, _ = creation
+    owner = await bundle(db, schema=schema)
+    with pytest.raises(export_storage.ExportStorageError) as caught:
         await outputs.create(db, **linked(args, owner, media=media))
-    assert db.events == ["lock"] and not db.added
+    assert caught.value.code == "export_output_changed"
+    assert await data.zip_receipt(db, owner.zip_output_id) is None
 
 
 @pytest.mark.parametrize(
     "changed", ["id", "project", "job", "created", "expires", "media"]
 )
 async def test_bundle_identity_and_common_times_cannot_be_redefined(creation, changed):
-    args, _ = creation
-    owner = bundle()
+    db, args, _ = creation
+    owner = await bundle(db)
     values = linked(args, owner)
     if changed == "id":
         values["output_id"] = uuid.uuid4()
@@ -236,10 +170,11 @@ async def test_bundle_identity_and_common_times_cannot_be_redefined(creation, ch
         values["expires_at"] = owner.expires_at - timedelta(seconds=1)
     else:
         values["media"] = "video"
-    db = CreationDB(owner)
-    with pytest.raises(export_storage.ExportStorageError):
+    with pytest.raises(export_storage.ExportStorageError) as caught:
         await outputs.create(db, **values)
-    assert db.events == ["lock"] and not db.added
+    assert caught.value.code == "export_output_changed"
+    identifier = values.get("output_id", owner.zip_output_id)
+    assert await data.zip_receipt(db, identifier) is None
 
 
 @pytest.mark.parametrize(
@@ -250,67 +185,101 @@ async def test_bundle_identity_and_common_times_cannot_be_redefined(creation, ch
         "ready",
         "retiring",
         "no_lease",
+        "lease_only_in_projection",
         "expired_lease",
         "published",
     ],
 )
-async def test_bundle_must_be_the_current_building_leased_owner(creation, changed):
-    args, _ = creation
-    owner = bundle()
+async def test_bundle_must_be_the_current_building_leased_owner(
+    creation, monkeypatch, changed
+):
+    db, args, clock = creation
+    leased = changed not in {"no_lease", "lease_only_in_projection"}
+    owner = await bundle(db, leased=leased)
     values = linked(args, owner)
-    if changed == "foreign":
-        owner.id = uuid.uuid4()
-    elif changed in {"ready", "retiring"}:
-        owner.state = changed
-    elif changed == "no_lease":
-        owner.lease_token = owner.lease_expires_at = None
+    if changed == "absent":
+        values["media_bundle_id"] = uuid.uuid4()
     elif changed == "expired_lease":
-        owner.lease_expires_at = NOW
-    elif changed == "published":
-        owner.published_at = NOW - timedelta(minutes=1)
-    db = CreationDB(None if changed == "absent" else owner)
-    with pytest.raises(export_storage.ExportStorageError):
+        clock[0] = owner.lease_expires_at
+    elif changed != "no_lease":
+        if changed == "foreign":
+            reported = replace(owner, id=uuid.uuid4())
+        elif changed == "published":
+            reported = replace(owner, published_at=clock[0])
+        elif changed == "lease_only_in_projection":
+            reported = replace(
+                owner,
+                lease_token=uuid.uuid4(),
+                lease_expires_at=clock[0] + timedelta(minutes=10),
+            )
+        else:
+            reported = replace(owner, state=changed)
+        monkeypatch.setattr(data, "media_fence", AsyncMock(return_value=reported))
+    with pytest.raises(export_storage.ExportStorageError) as caught:
         await outputs.create(db, **values)
-    assert db.events == ["lock"] and not db.added
+    assert caught.value.code == (
+        "export_storage_expired"
+        if changed == "expired_lease"
+        else "export_output_changed"
+    )
+    assert await data.zip_receipt(db, owner.zip_output_id) is None
 
 
 @pytest.mark.parametrize(
     "changed", ["naive", "future", "expired", "over_seven_days", "equal"]
 )
-async def test_custom_delivery_window_is_bounded_and_timezone_aware(creation, changed):
-    args, _ = creation
+async def test_custom_delivery_window_is_bounded_and_timezone_aware(
+    creation, monkeypatch, changed
+):
+    db, args, clock = creation
+    now = clock[0]
     options = {}
     if changed == "naive":
-        options["created_at"] = NOW.replace(tzinfo=None)
+        options["created_at"] = now.replace(tzinfo=None)
     elif changed == "future":
-        options["created_at"] = NOW + timedelta(seconds=1)
+        options["created_at"] = now + timedelta(seconds=1)
     elif changed == "expired":
         options.update(
-            created_at=NOW - timedelta(days=8), expires_at=NOW - timedelta(days=1)
+            created_at=now - timedelta(days=8), expires_at=now - timedelta(days=1)
         )
     elif changed == "over_seven_days":
-        options["expires_at"] = NOW + timedelta(days=8)
+        options["expires_at"] = now + timedelta(days=8)
     else:
-        options["expires_at"] = NOW
-    db = CreationDB()
-    with pytest.raises(export_storage.ExportStorageError):
-        await outputs.create(db, **args, **options)
-    assert not db.events
+        options["expires_at"] = now
+    allocate = AsyncMock(wraps=export_storage.allocate)
+    monkeypatch.setattr(export_storage, "allocate", allocate)
+    identifier = uuid.uuid4()
+    with pytest.raises(export_storage.ExportStorageError) as caught:
+        await outputs.create(db, **args, output_id=identifier, **options)
+    assert caught.value.code == (
+        "export_storage_expired"
+        if changed == "expired"
+        else "export_storage_invalid_receipt"
+    )
+    allocate.assert_not_awaited()
+    assert await data.zip_receipt(db, identifier) is None
 
 
-@pytest.mark.parametrize("delay", ["saved_owner", "flush"])
-async def test_time_is_rechecked_after_allocation_and_flush(
+@pytest.mark.parametrize("delay", ["saved_owner", "reservation"])
+async def test_lease_expiry_during_creation_prevents_commit(
     creation, monkeypatch, delay
 ):
-    args, clock = creation
-    owner = bundle()
-    db = CreationDB(owner)
+    db, args, clock = creation
+    owner = await bundle(db)
 
     def expire():
-        clock[0] = owner.lease_expires_at + timedelta(seconds=1)
+        clock[0] = owner.lease_expires_at
 
-    if delay == "flush":
-        db.on_flush = expire
+    if delay == "reservation":
+        reserve = data.reserve_zip
+
+        async def reserve_then_expire(db, row):
+            accepted = await reserve(db, row)
+            assert accepted
+            expire()
+            return accepted
+
+        monkeypatch.setattr(data, "reserve_zip", reserve_then_expire)
     else:
         resolve = export_storage.resolve_ref
 
@@ -322,20 +291,25 @@ async def test_time_is_rechecked_after_allocation_and_flush(
         monkeypatch.setattr(export_storage, "resolve_ref", saved_owner)
     with pytest.raises(export_storage.ExportStorageError) as caught:
         await outputs.create(db, **linked(args, owner))
-    assert caught.value.code == "export_storage_expired" and "commit" not in db.events
+    assert caught.value.code == "export_storage_expired"
+    if delay == "saved_owner":
+        assert await data.zip_receipt(db, owner.zip_output_id) is None
+    await db.rollback()
+    assert await data.zip_receipt(db, owner.zip_output_id) is None
 
 
 async def test_snapshot_compares_real_bundle_identity_and_preserves_old_simple_fakes(
     creation,
 ):
-    args, _ = creation
-    db = CreationDB()
+    db, args, _ = creation
     receipt = await outputs.create(db, **args)
-    row = db.added[0]
+    persisted = await data.zip_receipt(db, receipt.id)
+    assert outputs.same(persisted, receipt)
+    row = ExportOutput(**persisted._mapping)
     old_fake = SimpleNamespace(
         **{
-            name: getattr(receipt, name)
-            for name in outputs._FACTS
+            name: value
+            for name, value in persisted._mapping.items()
             if name != "media_bundle_id"
         }
     )
@@ -348,13 +322,11 @@ async def test_snapshot_compares_real_bundle_identity_and_preserves_old_simple_f
     assert not outputs.same(row, replace(saved, media_bundle_id=uuid.uuid4()))
     saved.storage_ref["bucket"] = "foreign"
     assert outputs.same(row, saved)
-    assert isinstance(row, ExportOutput)
 
 
 async def test_hash_finishes_before_any_bundle_row_lock(creation, monkeypatch):
-    args, _ = creation
-    owner = bundle()
-    db = CreationDB(owner)
+    db, args, _ = creation
+    owner = await bundle(db)
     started, released, finished = (
         threading.Event(),
         threading.Event(),
@@ -370,14 +342,23 @@ async def test_hash_finishes_before_any_bundle_row_lock(creation, monkeypatch):
         return result
 
     monkeypatch.setattr(export_storage, "file_receipt", hashing)
-    db.after_hash = finished
+    fence = data.media_fence
+
+    async def fence_after_hash(db, identifier, *, mode):
+        assert finished.is_set()
+        return await fence(db, identifier, mode=mode)
+
+    lock = AsyncMock(side_effect=fence_after_hash)
+    monkeypatch.setattr(data, "media_fence", lock)
     pending = asyncio.create_task(outputs.create(db, **linked(args, owner)))
     try:
         assert await asyncio.to_thread(started.wait, 3)
-        assert not db.events and not pending.done()
+        lock.assert_not_awaited()
+        assert not pending.done()
     finally:
         released.set()
-    receipt = await pending
+        receipt = await pending
+    lock.assert_awaited_with(db, owner.id, mode="update_nowait")
     assert finished.is_set() and receipt.media_bundle_id == owner.id
 
 
@@ -491,9 +472,16 @@ async def test_executor_submission_uncertainty_is_not_reported_settled(monkeypat
 async def test_bundle_candidate_uses_saved_owner_after_current_defaults_change(
     creation, monkeypatch
 ):
-    args, _ = creation
-    owner = bundle()
-    db = CreationDB(owner)
+    db, args, _ = creation
+    owner = await bundle(db)
+    expected = dict(owner.storage_ref)
+    prefix = expected.pop("key_prefix").removesuffix(
+        f"lidar-export-media/objects/{owner.id}/"
+    )
+    expected["object_key"] = (
+        f"{prefix}image/{owner.project_id}/{owner.job_id}/{owner.zip_output_id}.zip"
+    )
+    assert expected["bucket"] != "same-key-trap"
 
     async def forbidden(*args, **kwargs):
         pytest.fail("a preallocated bundle must not allocate against today's default")
@@ -503,12 +491,5 @@ async def test_bundle_candidate_uses_saved_owner_after_current_defaults_change(
         export_storage.storage_service, "export_bucket", "same-key-trap"
     )
     candidate = await outputs.create(db, **linked(args, owner))
-    assert (
-        candidate.storage_ref["bucket"]
-        == owner.storage_ref["bucket"]
-        == "saved-export-zip"
-    )
-    assert (
-        candidate.storage_ref["storage_identity"]
-        == owner.storage_ref["storage_identity"]
-    )
+    assert candidate.storage_ref == expected
+    assert (await data.zip_receipt(db, candidate.id)).storage_ref == expected

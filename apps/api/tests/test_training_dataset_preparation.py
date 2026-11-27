@@ -13,8 +13,9 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from starlette.requests import Request
 
+from datetime import datetime, timezone
 from app.api.v1 import training_datasets as api
-from app.core.security import create_access_token
+from app.core.security import create_access_token, decode_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import DatasetItem
@@ -282,12 +283,23 @@ async def test_disconnected_route_drains_decoder_without_creating_or_reading_nex
             return {"type": "http.disconnect"}
 
         token = create_access_token(subject=str(world.owner.id), role=world.owner.role)
+        payload = decode_access_token(token)
         request = Request(
             {
                 "type": "http",
                 "headers": [(b"authorization", f"Bearer {token}".encode())],
             },
             receive,
+        )
+        request.state.api_key_id = None
+        request.state.api_key_scopes = None
+        request.state.identity_principal = SimpleNamespace(
+            actor_id=world.owner.id,
+            credential_type="jwt",
+            credential_id=payload.get("jti"),
+            scopes=None,
+            expires_at=datetime.fromtimestamp(payload["exp"], timezone.utc),
+            generation=int(payload.get("gen", 0)),
         )
         monkeypatch.setattr(originals, "inspect_image", inspect_image)
         call = api.preflight if route == "preflight" else api.create_version
@@ -300,6 +312,11 @@ async def test_disconnected_route_drains_decoder_without_creating_or_reading_nex
                 preflight_digest=prepared.report["digest"],
             )
         )
+        call_kwargs = (
+            {}
+            if route == "preflight"
+            else {"dataset_dispatcher": SimpleNamespace(dispatch=AsyncMock())}
+        )
         pending = asyncio.create_task(
             call(
                 body=body,
@@ -307,6 +324,7 @@ async def test_disconnected_route_drains_decoder_without_creating_or_reading_nex
                 project=world.project,
                 user=world.owner,
                 db=db,
+                **call_kwargs,
             )
         )
         try:
@@ -377,6 +395,10 @@ async def test_exact_read_scopes_create_http_version_and_same_id_key_rotation_re
     key.key_hash = "same-id-new-secret"
     await db_session.flush()
     with pytest.raises(TrainingDatasetError) as failure:
-        await service.assert_dataset_authority(db_session, version)
+        await service.dataset_authority(
+            db_session,
+            version,
+            training_authority=service.bind_training_authority(db_session),
+        )
     assert failure.value.code == "api_key_revoked"
     assert source_headers.calls == io_before

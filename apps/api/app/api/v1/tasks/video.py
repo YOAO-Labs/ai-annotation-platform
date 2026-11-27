@@ -259,7 +259,6 @@ async def get_point_cloud_manifest(
         primary_item = items_by_id.get(primary_link.dataset_item_id)
         if primary_item is not None and primary_item.scene_id is not None:
             from yoao_assets_catalog.spatial_contract import GetSceneRequest
-            from app.services import scene_pose as scene_pose_svc
 
             scene = await gateway.get_scene(
                 GetSceneRequest(actor_id=None, scene_id=primary_item.scene_id)
@@ -277,10 +276,8 @@ async def get_point_cloud_manifest(
                 }
             )
             if primary_item.frame_index is not None:
-                ego_pose_out = await scene_pose_svc.get_frame_pose(
-                    db,
-                    scene_id=scene.scene_id,
-                    frame_index=primary_item.frame_index,
+                ego_pose_out = await gateway.read_frame_pose(
+                    scene.scene_id, primary_item.frame_index
                 )
 
     return TaskPointCloudManifestResponse(

@@ -38,6 +38,6 @@ Local qualification includes restricted PostgreSQL execution, real Source HTTP/S
 
 ## References
 
-- [Module deployment status](../../docs-site/dev/concepts/module-deployment.md)
+- [Module deployment status](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment)
 - [Transactional native capabilities](0092-transactional-module-data-capabilities.md)
-- [Independent Assets Source](../../docs-site/api/guides/assets-source.md)
+- [Independent Assets Source](https://yoao-labs.github.io/YOAO-Docs/api/guides/assets-source)

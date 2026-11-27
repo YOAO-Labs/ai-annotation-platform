@@ -16,12 +16,11 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
 from tests.factory import build_tool_bindings, create_user
-from tests.managed_image_inference_fixtures import managed_database
 
 
 @pytest.fixture
-async def worker_db(test_db_url):
-    async with managed_database(test_db_url) as engine:
+async def worker_db(managed_database):
+    async with managed_database() as engine:
         maker = async_sessionmaker(engine, expire_on_commit=False)
         async with maker() as db:
             try:

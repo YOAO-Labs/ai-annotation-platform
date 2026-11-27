@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
@@ -35,7 +36,11 @@ from yoao_inference_contract.backend_control import BackendControlSetupResult
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from app.services.reference_inference import validate_native_receipt
 from tests.inference_execution_test_ports import FakeModelExecutionPort
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_dataset_references import reference_world as reference_world
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
@@ -232,7 +237,9 @@ async def test_response_rechecks_original_authority_and_binding(
         elif change == "source":
             w.content[5].config_revision += 1
         elif change == "location":
-            w.content[4].config_revision += 1
+            await change_content_location(
+                db_session, w.content, name=f"{w.content[4].name}-renamed"
+            )
         elif change == "account":
             super_admin[0].is_active = False
         elif change == "ai_disabled":
@@ -256,36 +263,37 @@ async def test_response_rechecks_original_authority_and_binding(
 
 
 @pytest.mark.parametrize(
-    "entry,scopes,allowed",
+    "scopes,consumers",
     [
-        ("test", ["tasks:read"], True),
-        ("test", ["annotations:write"], False),
-        ("interactive", ["tasks:read"], False),
-        ("interactive", ["annotations:write"], False),
-        ("interactive", ["tasks:read", "annotations:write"], True),
+        (["tasks:read"], [("interactive", False), ("test", True)]),
+        (["annotations:write"], [("interactive", False), ("test", False)]),
+        (["tasks:read", "annotations:write"], [("interactive", True)]),
     ],
+    ids=["read", "write", "read-and-write"],
 )
 async def test_scopes_are_specific_to_consumer(
-    httpx_client, inference_world, super_admin, entry, scopes, allowed
+    httpx_client, inference_world, super_admin, scopes, consumers
 ):
     w = inference_world
     _, auth = await api_key(httpx_client, super_admin, scopes)
-    response = await call(httpx_client, w, auth, entry)
-    assert response.status_code == (200 if allowed else 403), response.text
-    assert bool(w.calls) == allowed
-    await assert_clean(w)
+    for entry, allowed in consumers:
+        calls_before = len(w.calls)
+        response = await call(httpx_client, w, auth, entry)
+        assert response.status_code == (200 if allowed else 403), (entry, response.text)
+        assert (len(w.calls) > calls_before) == allowed, entry
+        await assert_clean(w)
 
 
-@pytest.mark.parametrize("entry", ["interactive", "test"])
 async def test_completed_task_keeps_predict_test_read_semantics(
-    httpx_client, db_session, inference_world, super_admin, entry
+    httpx_client, db_session, inference_world, super_admin
 ):
     w = inference_world
     w.task.status = "completed"
     await db_session.commit()
-    response = await call(httpx_client, w, headers(super_admin), entry)
-    assert response.status_code == (200 if entry == "test" else 409), response.text
-    await assert_clean(w)
+    for entry, status in (("interactive", 409), ("test", 200)):
+        response = await call(httpx_client, w, headers(super_admin), entry)
+        assert response.status_code == status, (entry, response.text)
+        await assert_clean(w)
 
 
 @pytest.mark.parametrize("change", ["batch_status", "batch_assignee", "task_lock"])
@@ -455,50 +463,45 @@ async def test_native_mask_response_accept_and_logits_bind_original(
     await assert_clean(w)
 
 
-@pytest.mark.parametrize("tamper", ["absent", "item", "sha", "width"])
 async def test_native_accept_requires_signed_original_provenance(
-    httpx_client, db_session, inference_world, super_admin, accept_storage_mocks, tamper
+    httpx_client, db_session, inference_world, super_admin, accept_storage_mocks
 ):
     w = inference_world
     w.mask = True
     response = await call(httpx_client, w, headers(super_admin))
     assert response.status_code == 200, response.text
-    body = accept_body(response.json())
-    claims = verify_ai_mask_receipt(body["candidate"]["receipt"])
-    for reserved in ("v", "iat", "exp"):
-        claims.pop(reserved)
-    if tamper == "absent":
-        claims.pop("reference_input")
-    elif tamper == "item":
-        claims["reference_input"]["item_id"] = str(uuid.uuid4())
-    elif tamper == "sha":
-        claims["reference_input"]["sha256"] = "0" * 64
-    else:
-        claims["reference_input"]["width"] += 1
-    body["candidate"]["receipt"] = issue_ai_mask_receipt(claims)
-    response = await httpx_client.post(
-        f"/api/v1/tasks/{w.task_id}/ai-mask-candidates/accept",
-        json=body,
-        headers=headers(super_admin),
-    )
-    assert response.status_code == 409, response.text
-    assert (
-        await db_session.scalar(
-            select(Prediction.id).where(Prediction.task_id == w.task_id)
+    suggestion = response.json()
+    for tamper in ("absent", "item", "sha", "width"):
+        body = accept_body(suggestion)
+        claims = verify_ai_mask_receipt(body["candidate"]["receipt"])
+        for reserved in ("v", "iat", "exp"):
+            claims.pop(reserved)
+        if tamper == "absent":
+            claims.pop("reference_input")
+        elif tamper == "item":
+            claims["reference_input"]["item_id"] = str(uuid.uuid4())
+        elif tamper == "sha":
+            claims["reference_input"]["sha256"] = "0" * 64
+        else:
+            claims["reference_input"]["width"] += 1
+        body["candidate"]["receipt"] = issue_ai_mask_receipt(claims)
+        rejected = await httpx_client.post(
+            f"/api/v1/tasks/{w.task_id}/ai-mask-candidates/accept",
+            json=body,
+            headers=headers(super_admin),
         )
-        is None
-    )
-    assert accept_storage_mocks[0].await_count == 0
-    await assert_clean(w)
-
-
-async def test_native_receipt_rejects_forged_python_object(db_session, inference_world):
-    w = inference_world
-    from app.services.content_snapshot import ContentError
-
-    for proof in (True, {}, SimpleNamespace(issuer=object())):
-        with pytest.raises(ContentError, match="prediction_reference_receipt_invalid"):
-            await validate_native_receipt(db_session, w.task_id, w.project_id, proof)
+        assert rejected.status_code == 409, (tamper, rejected.text)
+        code = rejected.json()["detail"]["code"]
+        assert code == "prediction_requires_reference_provenance", tamper
+        assert (
+            await db_session.scalar(
+                select(Prediction.id).where(Prediction.task_id == w.task_id)
+            )
+            is None
+        ), tamper
+        assert accept_storage_mocks[0].await_count == 0, tamper
+        await assert_clean(w)
+        await db_session.rollback()
 
 
 async def test_native_replay_outlives_candidate_receipt(
@@ -538,41 +541,40 @@ async def test_native_replay_outlives_candidate_receipt(
     ), expired.text
 
 
-@pytest.mark.parametrize("origin", ["absent", "sha"])
 async def test_old_logits_cannot_seed_reference_image(
-    httpx_client, inference_world, super_admin, origin
+    httpx_client, inference_world, super_admin
 ):
     w = inference_world
     w.mask = w.logits = True
     response = await call(httpx_client, w, headers(super_admin))
     assert response.status_code == 200, response.text
-    claims = verify_ai_mask_session(response.json()["mask_input_next"])
-    raw = claims.pop("raw")
-    for key in ("v", "iat", "exp"):
-        claims.pop(key)
-    if origin == "absent":
-        claims.pop("reference_input")
-    else:
-        claims["reference_input"]["sha256"] = "0" * 64
-    token = issue_ai_mask_session(raw, claims)
-    response = await call(
-        httpx_client,
-        w,
-        headers(super_admin),
-        context={
-            "type": "point",
-            "points": [[0.4, 0.4]],
-            "labels": [1],
-            "output_geometry": "mask",
-            "mask_input": token,
-        },
-    )
-    assert (
-        response.status_code == 409
-        and response.json()["detail"]["reason"] == "mask_session_mismatch"
-    ), response.text
-    assert len(w.calls) == 1
-    await assert_clean(w)
+    original_token = response.json()["mask_input_next"]
+    for origin in ("absent", "sha"):
+        claims = verify_ai_mask_session(original_token)
+        raw = claims.pop("raw")
+        for key in ("v", "iat", "exp"):
+            claims.pop(key)
+        if origin == "absent":
+            claims.pop("reference_input")
+        else:
+            claims["reference_input"]["sha256"] = "0" * 64
+        token = issue_ai_mask_session(raw, claims)
+        response = await call(
+            httpx_client,
+            w,
+            headers(super_admin),
+            context={
+                "type": "point",
+                "points": [[0.4, 0.4]],
+                "labels": [1],
+                "output_geometry": "mask",
+                "mask_input": token,
+            },
+        )
+        assert response.status_code == 409, (origin, response.text)
+        assert response.json()["detail"]["reason"] == "mask_session_mismatch", origin
+        assert len(w.calls) == 1, origin
+        await assert_clean(w)
 
 
 async def test_setup_cannot_overtake_key_revocation(
@@ -614,11 +616,8 @@ async def test_busy_final_scope_is_bounded(httpx_client, inference_world, super_
     await assert_clean(w)
 
 
-@pytest.mark.parametrize(
-    "change", ["actor", "session", "transaction", "nested", "request", "mask"]
-)
 async def test_private_native_receipt_cannot_escape_its_write(
-    httpx_client, db_session, inference_world, super_admin, change
+    httpx_client, db_session, inference_world, super_admin
 ):
     from app.db.models.task import Task
     from app.db.models.user import User
@@ -644,38 +643,35 @@ async def test_private_native_receipt_cannot_escape_its_write(
         ),
         data,
     )
-    await validate_native_receipt(
-        db_session, w.task_id, w.project_id, proof, actor_id=actor_id, data=data
+    validate = partial(
+        validate_native_receipt,
+        task_id=w.task_id,
+        project_id=w.project_id,
+        receipt=proof,
     )
-    kwargs = {}
-    session = db_session
-    other = nested = None
-    if change == "actor":
-        kwargs["actor_id"] = uuid.uuid4()
-    elif change == "session":
-        other = session = w.inputs.factory()
-    elif change == "transaction":
-        await db_session.commit()
-    elif change == "nested":
-        nested = await db_session.begin_nested()
-    elif change == "request":
-        data.class_name = "different"
-        kwargs["data"] = data
-    else:
-        kwargs["result"] = [
-            {"geometry": {"type": "raster_mask", "mask": {"sha256": "0" * 64}}}
-        ]
-    try:
+    await validate(db_session, actor_id=actor_id, data=data)
+    for forged in (True, {}, SimpleNamespace(issuer=object())):
+        with pytest.raises(ContentError, match="prediction_reference_receipt_invalid"):
+            await validate(db_session, receipt=forged)
+    with pytest.raises(ContentError):
+        await validate(db_session, actor_id=uuid.uuid4())
+    changed_request = data.model_copy(update={"class_name": "different"})
+    with pytest.raises(ContentError):
+        await validate(db_session, data=changed_request)
+    wrong_mask = {"type": "raster_mask", "mask": {"sha256": "0" * 64}}
+    with pytest.raises(ContentError):
+        await validate(db_session, result=[{"geometry": wrong_mask}])
+    async with w.inputs.factory() as other:
         with pytest.raises(ContentError):
-            await validate_native_receipt(
-                session, w.task_id, w.project_id, proof, **kwargs
-            )
-    finally:
-        if nested:
-            await nested.rollback()
-        if other:
-            await other.close()
-        await db_session.rollback()
+            await validate(other)
+    with pytest.raises(ContentError):
+        async with db_session.begin_nested():
+            await validate(db_session)
+
+    await validate(db_session, actor_id=actor_id, data=data)
+    await db_session.commit()
+    with pytest.raises(ContentError):
+        await validate(db_session)
 
 
 async def test_inference_authorization_never_mutates_expired_edit_leases(

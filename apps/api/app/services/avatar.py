@@ -15,19 +15,18 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 import uuid
-
-import hashlib
 from contextlib import nullcontext
 from copy import copy
 
 from botocore.exceptions import ClientError
 
 from app.services import avatar_storage, storage_access
+from app.services.avatar_storage_target import _prove_absent, object_params, version_id
 from app.services.storage import storage_service
-from app.services.avatar_storage_target import object_params, version_id, _prove_absent
-from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.storage_identity import LEGACY_LOCATION_ID
 
 PRESET_PREFIX = "preset:"
 UPLOAD_PREFIX = "upload:"

@@ -33,7 +33,7 @@
 
 ### 文件与流程
 
-本轮超过8文件：`db/models/dataset_source.py`/模型注册、`alembic/versions/0196_dataset_scan_ledger.py`、`services/filesystem_storage.py`/`dataset_scans.py`/`storage_location.py`、`schemas/dataset_source.py`、`api/v1/dataset_sources.py`/router/async_jobs、worker/celery/signals、AsyncJob model/notify、Web asyncJobs/presentation/JobsBell/详情、对应测试、API快照/SDK清单、正式API/用户/开发文档、ADR0093、CHANGELOG及计划导航。
+本轮超过8文件：`db/models/dataset_source.py`/模型注册、`alembic/versions/0196_dataset_scan_ledger.py`、`services/filesystem_storage.py`/`dataset_scans.py`/`storage_location.py`、`schemas/dataset_source.py`、`api/v1/dataset_sources.py`/router/async_jobs、worker/celery/signals、AsyncJob model/notify、Web asyncJobs/presentation/JobsBell/详情、对应测试、API快照/SDK清单、正式API/用户/开发文档、ADR0192、CHANGELOG及计划导航。
 
 ```text
 超管 API -> Source / ScanRun -> 指定 Celery hostname
@@ -221,7 +221,7 @@
 - Landed changes: E04-A inventory-only DatasetSource, durable ScanRun/Entry ledger, bounded metadata enumeration, per-directory atomic checkpoints, explicit resume, generation/token/lease fencing, direct-worker routing and current-role checks. Included in the commit containing this outcome; no release milestone assigned.
 - Task center: existing job list/detail, cancellation and notifications support directory scan phases and cumulative counts without invented percentages. No new dataset creation UI or in-place sample ingestion is enabled.
 - User documentation: `docs-site/user-guide/datasets/index.md`. API documentation: `docs-site/api/guides/dataset-sources.md`, `docs-site/api/guides/async-jobs.md`, OpenAPI snapshot and SDK coverage manifest.
-- Developer documentation: `docs-site/dev/concepts/storage-connections.md`, `docs-site/dev/concepts/audit-and-notifications.md`, `docs-site/dev/how-to/debug-celery.md`, `DEV.md` and `README.md`. ADR: `docs/adr/archive/0093-resumable-directory-inventory.md`. CHANGELOG: Unreleased entry added.
+- Developer documentation: `docs-site/dev/concepts/storage-connections.md`, `docs-site/dev/concepts/audit-and-notifications.md`, `docs-site/dev/how-to/debug-celery.md`, `DEV.md` and `README.md`. ADR: `docs/adr/archive/0192-resumable-directory-inventory.md`. CHANGELOG: Unreleased entry added.
 - Verification: focused service/API/filesystem coverage and a real direct Celery worker passed. Final service/API and concurrent retention/resume/start/stale-signal regression: 10 passed, including re-reading the current Job association after Source serialization. Coverage includes atomic rollback, cancellation, expired leases, old workers/signals, directory changes, role/config revocation, budgets, source retention and no business sample creation. The directory handle check was narrowed to task-owned handles to avoid unrelated socket collection affecting its baseline. Compatibility suite: 93 passed; Web presentation/components: 34 passed; SDK OpenAPI contract: 4 passed. Local TypeScript, CSS token lint, documentation build, ADR/frontmatter/navigation and rendered-document link checks passed. Repository-wide link scanning still reports 23 existing links in unchanged ROADMAP/research files; no live browser or remote CI acceptance is claimed.
 - Migration: full fresh, reversible suffix, legacy-forward and dump/restore verification passed through 0196; populated ledgers reject downgrade. Validation databases were removed with no owned leftovers.
 - Cleanup: task-owned worker and temporary fixtures were stopped/removed; isolated test database, Redis and buckets were destroyed, and generated documentation/test outputs were removed. No backend image build, real business mount or shared development runtime change.
@@ -239,7 +239,7 @@
 
 最脆弱前提是完整枚举能证明文件不存在；设计不依赖该前提，只提供未见候选且不改变Asset可用状态。S3固定旧版本可读不代表当前key存在。取消/权限撤回/源离线沿用既有屏障；新差异表不依赖短期AsyncJob。回退关闭新差异入口，保留0201账本；有差异记录时拒绝schema降级，不改外部文件或旧业务身份。
 
-文件范围超过8个：`db/models/dataset_source.py`、`alembic/versions/0201_dataset_source_changes.py`、`services/dataset_source_changes.py`、`services/dataset_registration.py`、`schemas/dataset_source.py`、`api/v1/dataset_sources.py`、Web `api/datasetSources.ts`/`DirectoryRegistrationProgress.tsx`/新差异面板、对应回归与迁移测试、OpenAPI/SDK清单、README/CHANGELOG、用户导入指南、API来源指南、开发存储概念、ADR0100及本计划/路线进度。现有worker复用服务调用，不新建worker类型。
+文件范围超过8个：`db/models/dataset_source.py`、`alembic/versions/0201_dataset_source_changes.py`、`services/dataset_source_changes.py`、`services/dataset_registration.py`、`schemas/dataset_source.py`、`api/v1/dataset_sources.py`、Web `api/datasetSources.ts`/`DirectoryRegistrationProgress.tsx`/新差异面板、对应回归与迁移测试、OpenAPI/SDK清单、README/CHANGELOG、用户导入指南、API来源指南、开发存储概念、ADR0199及本计划/路线进度。现有worker复用服务调用，不新建worker类型。
 
 ```text
 Source + complete Scan -> A2 preflight / existing worker -> per-item SHA
@@ -262,7 +262,7 @@ Source + complete Scan -> A2 preflight / existing worker -> per-item SHA
 - Backend verification: 159 unique tests passed across the focused compatibility suite and follow-ups (FS/S3/SFTP, authorization, content, policies, registrations and migrations). Covered three unchanged rescans with stable task counts, accepted versus unaccepted baselines, same SHA/different observation, same size/mtime/different content, six categories, concurrent direct registration, cancellation/stale fence, repaired-error publication, post-confirm replacement rejection, frozen scope retries and retained annotations/tasks. The old 0196 migration test now includes the 0201 dependency. SDK OpenAPI contract: 4 passed.
 - Browser verification: isolated current-checkout API/Web and both host workers served 24 reference images. Unchanged rescan reported 0 added/24 unchanged and disabled confirmation. Mutated fixture reported added=1, unchanged=21, changed=1, not_seen=1, excluded=1, unreadable=1. Type filtering and 20+6 pagination passed. Additions-only confirmation grew the dataset from 24 to 25 with only fresh.png added; all 24 original IDs/content locators were preserved. Changed original read returned409. Source bytes/links stayed unchanged by platform operations, original copy bytes were0, and no browser exceptions were observed. Existing annotation/task preservation was verified through API/DB tests, not repeated Workbench UI acceptance.
 - Static checks: changed-file Ruff lint/format, TypeScript, ESLint, CSS token lint, OpenAPI check, docs build, ADR/frontmatter/navigation checks and git diff --check passed. CSS lint retains two existing warnings in unchanged TrainingComparisonResults.tsx. Independent read-only backend/frontend review found no remaining blockers. No remote CI or production deployment claimed.
-- Documentation: README, CHANGELOG Unreleased, user import guide, source API guide, developer storage concepts, ADR0100, route index, SDK coverage and roadmap/backlog progress updated in this commit.
+- Documentation: README, CHANGELOG Unreleased, user import guide, source API guide, developer storage concepts, ADR0199, route index, SDK coverage and roadmap/backlog progress updated in this commit.
 - Cleanup: isolated dev/test databases, Redis instances, buckets, temporary source/auth/browser fixtures and generated docs/test outputs removed. No backend image rebuild, shared configuration change, business mount mutation, push or release.
 - Remaining scope: this delivers B1 only. Periodic schedule/actor authority, accepting changed content as a new revision, explicit move resolution, delete decisions and ledger retention/compaction remain separate work. Not-seen is a candidate, never deletion proof; a complete scan is not an atomic snapshot or proof of current online content. Keep the E04 plan active until its remaining contracts are delivered.
 
@@ -278,7 +278,7 @@ Source + complete Scan -> A2 preflight / existing worker -> per-item SHA
 
 新增迁移0202：SourceSyncSchedule按source_id唯一，配置CAS修订、私有授权快照、公开状态/时间/错误和历史Run指针。GET/PUT `/dataset-sources/{id}/sync-schedule`；POST `/{id}/sync-schedule/continue`带expected_revision和scan_id，防止跳过错轮。旧来源没有计划，保持手动。保留计划/Run证据，只有空计划表可降级；应用回退停止新beat任务，已有业务记录不回退。
 
-文件超过8个：Source模型/0202迁移、新调度service/worker、原Registration后台入口、Celery include/routes/beat、Source schema/API、Web API/新计划面板/DirectoryReferencePanel、调度及迁移回归、OpenAPI/SDK清单/路由索引、README/CHANGELOG、用户导入/API/开发存储与部署说明、ADR0101和本计划/路线进度。无需重整现有任务中心。
+文件超过8个：Source模型/0202迁移、新调度service/worker、原Registration后台入口、Celery include/routes/beat、Source schema/API、Web API/新计划面板/DirectoryReferencePanel、调度及迁移回归、OpenAPI/SDK清单/路由索引、README/CHANGELOG、用户导入/API/开发存储与部署说明、ADR0200和本计划/路线进度。无需重整现有任务中心。
 
 ```text
 UI configure -> SourceSyncSchedule <- existing beat / bounded tick
@@ -321,7 +321,7 @@ UI configure -> SourceSyncSchedule <- existing beat / bounded tick
                            当前绑定推进；旧业务身份保留
 ```
 
-超过8文件：0203迁移、dataset_source模型及注册、schemas、dataset_source_revisions新服务、dataset_references/changes/lifecycle/policy/previews、dataset_sources路由、Web API/差异面板/样本标识、回归及迁移测试、OpenAPI/SDK覆盖声明、API/用户/开发文档、ADR0102、CHANGELOG、README和计划导航。
+超过8文件：0203迁移、dataset_source模型及注册、schemas、dataset_source_revisions新服务、dataset_references/changes/lifecycle/policy/previews、dataset_sources路由、Web API/差异面板/样本标识、回归及迁移测试、OpenAPI/SDK覆盖声明、API/用户/开发文档、ADR0201、CHANGELOG、README和计划导航。
 
 验证包括：选择性接纳、多项目空白任务、旧标注与引用不变、copy业务去重隔离、幂等/过期generation/前驱竞争/ABA、权限撤销与来源暂停/文件再次变更、历史媒体防旁路、后续无变重扫、旧候选列表、迁移空往返/真实已有绑定回填/有账本拒绝降级。运行相关后端回归、Web组件/类型/语义色检查、OpenAPI/SDK、文档与真实浏览器验收。回退关闭接纳入口、停止任务并保留账本与已接纳业务；不执行破坏性降级。测试资源和临时产物清理，人工验收dev服务与数据继续运行。
 
@@ -329,7 +329,7 @@ UI configure -> SourceSyncSchedule <- existing beat / bounded tick
 
 - Landed changes: explicit per-item acceptance of `changed/content_changed` in a completed preflight. New business Item/Asset and blank linked-project Tasks, immutable revision lineage, exact predecessor fencing, duplicate confirmation replay, and current-head advancement commit atomically. Managed-copy SHA dedup cannot inherit another business identity. Included in the commit containing this outcome; no release milestone assigned.
 - History: migration0203 backfills existing heads without fabricated actors/timestamps. Database guards protect revision facts and head/ledger agreement. Permanent Item/Asset IDs survive business deletion; historical ownership and lifecycle impact include every revision. Old Scan pages never fall back to a newer same-SHA identity after deletion. Management previews remain current-Asset derivatives.
-- User documentation: `docs-site/user-guide/datasets/import-images.md` and `index.md`; API: `docs-site/api/guides/dataset-sources.md`, OpenAPI snapshot and SDK coverage exclusions; developer concepts: `docs-site/dev/concepts/storage-connections.md`; decision: `docs/adr/0102-explicit-directory-content-revisions.md`; README and CHANGELOG Unreleased updated.
+- User documentation: `docs-site/user-guide/datasets/import-images.md` and `index.md`; API: `docs-site/api/guides/dataset-sources.md`, OpenAPI snapshot and SDK coverage exclusions; developer concepts: `docs-site/dev/concepts/storage-connections.md`; decision: `docs/adr/0201-explicit-directory-content-revisions.md`; README and CHANGELOG Unreleased updated.
 - Verification: 151 backend regression cases passed across incremental differences, periodic coordination, directory registration/policies/references, S3/SFTP and migration compatibility. Final 18 targeted cases passed, including independent concurrent confirmations, stale predecessors, ABA/deleted history, retained annotations, two changed paths with selective acceptance, blank Tasks in two projects, copy identity isolation, pinned S3 old/new versions, I/O actor/source/policy revocation and original API-key rotation/revocation at both read barriers. Migration coverage includes fresh upgrade, empty roundtrip, actual-head backfill, null provenance and populated rollback refusal. A final 46-case revision/reference/policy regression passed after adding historical-scan replay protection; two final S3 replay/concurrency cases passed on the final implementation. Web: 29 component cases passed; local TypeScript, ESLint, semantic CSS tokens and 4 SDK OpenAPI contract cases passed. Documentation build passed. No remote CI or release qualification is claimed.
 - Live acceptance: retained current-worktree dev stack at Web3100/API8100 with actual workers and beat. Browser confirmed candidate preview, explicit single-item confirmation, accepted-result priority and revision badge; opened the new task with the new image and zero annotations. Independent API assertions confirmed two Items/Tasks/revisions, the old annotation unchanged, old overwritten filesystem content rejected with409 and new content returned200. Browser error collection was empty.
 - Environment and cleanup: user-requested manual dev database, Redis, buckets, source fixtures and supervised services remain running; guide and restart helper are in ignored `.worktree/manual/`. Original three-image dataset remains usable; a separate revision demonstration is retained. Disposable test resources, task browser/auth entry and temporary test/build outputs are removed at completion. No backend image rebuild or shared configuration changes.
@@ -351,7 +351,7 @@ UI configure -> SourceSyncSchedule <- existing beat / bounded tick
                          原任务按最新明确接纳的观测严格读取
 ```
 
-超过8文件：dataset_source_revisions/references/changes、API路由与schema、Web API/差异面板/确认弹窗/登记进度、后端并发/权限/引用回归与Web测试、API快照/SDK声明/路由索引、用户/API/开发文档、ADR0103、README/CHANGELOG及计划进度。复用当前所有者和界面，不增加管理页。
+超过8文件：dataset_source_revisions/references/changes、API路由与schema、Web API/差异面板/确认弹窗/登记进度、后端并发/权限/引用回归与Web测试、API快照/SDK声明/路由索引、用户/API/开发文档、ADR0202、README/CHANGELOG及计划进度。复用当前所有者和界面，不增加管理页。
 
 验证：同字节重写前拒绝/确认后恢复原任务读取、Item/Asset/Task/标注及数量保持、多次重新核验、原Reference/回执不变、后续内容新修订不污染历史样本、托管复制不新增原图或丢失所有权、S3同字节新版本、SFTP观测兼容、普通登记不隐式恢复、错误类别/资格变更拒绝、过期generation/前驱与重复/并发、I/O文件变化/撤权/Key轮换及读取上下文变化。运行相关回归、API/SDK/Web/文档检查与真实浏览器确认，清理一次性test资源及产物；保留dev人工环境和演示数据。
 
@@ -385,7 +385,7 @@ POST `.../changes/{目标path_digest}/relocate` 固定 generation、旧前驱 ID
                       原Task按新定位读取，标注身份保留
 ```
 
-超过8文件：0204迁移、模型、revisions/references/changes及移动服务、schema/API、Web API/差异面板/移动确认、后端与迁移回归、API/SDK/用户/开发文档、ADR0104、CHANGELOG/README和计划进度。无新依赖、服务、环境配置或镜像构建。
+超过8文件：0204迁移、模型、revisions/references/changes及移动服务、schema/API、Web API/差异面板/移动确认、后端与迁移回归、API/SDK/用户/开发文档、ADR0203、CHANGELOG/README和计划进度。无新依赖、服务、环境配置或镜像构建。
 
 验收覆盖 A→B、A高修订→B低修订、A→B→A、原路径回归、同SHA多候选需明确选择、目标消费后不重复登记、双方CAS/并发幂等、两次I/O撤权/候选变化、最新定位失败不回退、预览清理与托管所有权、旧标注/任务/业务身份不变、迁移回填与回退屏障。实际浏览器移动前读图拒绝、目标预览与确认、原Task恢复且原框保留。保留人工dev，测试只用独立test资源；全Epic其余合同继续推进。
 
@@ -419,7 +419,7 @@ Base: `a8b6e0cca`. Add preview/apply for recursive/include_globs/exclude_globs o
 
 Extract shared selection helpers: filesystem/SFTP excluded directories prune descendants; S3 keeps exact flat-key fnmatch semantics, preserving slashes/encoding. New comparisons classify accepted paths outside new rules as excluded even when ancestor pruning omitted them. Existing business reads compare every locator/config key except these three explicit selection keys, preserving original root/qualification/content and before/after I/O fencing. No Item/Task/label deletion or new identity.
 
-Changes exceed eight files: shared rules helper, rule service, scan/S3/changes/reference callers, schema/API/Web rules panel, backend/Web regressions, generated API/SDK/routes, ADR0106 and user/developer/API/CHANGELOG/README/plan. No migration/dependency/image changes. Verify CAS after head moves, authority, active attempts, reader continuity and strict locator changes, old-preflight rejection, matching parity and actual browser preview/apply/new scan.
+Changes exceed eight files: shared rules helper, rule service, scan/S3/changes/reference callers, schema/API/Web rules panel, backend/Web regressions, generated API/SDK/routes, ADR0205 and user/developer/API/CHANGELOG/README/plan. No migration/dependency/image changes. Verify CAS after head moves, authority, active attempts, reader continuity and strict locator changes, old-preflight rejection, matching parity and actual browser preview/apply/new scan.
 
 ## Outcome — E04-B7
 
@@ -468,6 +468,6 @@ B8 audit found and reproduced a frozen-package cleanup bug independent of source
 
 Retention decisions are explicit: durable Scan/Registration/Change/Revision evidence has no automatic expiry or compaction; AsyncJob uses its existing independent retention. not_seen has no deletion countdown. Each source has one schedule and at most one active scan plus one active registration; there is no deployment-wide schedule cap. Coordination wakes at most100 due plans per tick, scans retain existing50000-entry/5000-directory/per-directory budgets, and history is paginated. Monitor ledger growth; compaction, physical deletion, cross-source moves, qualification replacement and calendar cron are not required E04 closure.
 
-Official documentation: `README.md`, `CHANGELOG.md` Unreleased, `docs-site/user-guide/datasets/import-images.md`, `docs-site/api/guides/{dataset-sources,storage-locations}.md`, generated routes/API snapshot and SDK coverage, `docs-site/dev/concepts/storage-connections.md`; architectural decisions ADR0093 and0095–0106 as relevant to prior slices. Roadmap and plan links are updated with archival.
+Official documentation: `README.md`, `CHANGELOG.md` Unreleased, `docs-site/user-guide/datasets/import-images.md`, `docs-site/api/guides/{dataset-sources,storage-locations}.md`, generated routes/API snapshot and SDK coverage, `docs-site/dev/concepts/storage-connections.md`; architectural decisions ADR0192 and 0194–0205 as relevant to prior slices. Roadmap and plan links are updated with archival.
 
 Disposable test database/Redis/buckets and task-owned temporary artifacts are cleaned; current-checkout dev API/Web, general/maintenance workers, beat and all manual fixtures are preserved. Manual Web3100/API8100 remain available. No backend image rebuild, shared configuration change, push, release or version assignment. Remaining required E04 work: none; other Epics retain their own plans and gates.

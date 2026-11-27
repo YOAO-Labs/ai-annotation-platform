@@ -10,7 +10,6 @@ import uuid
 from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, select
-from starlette.requests import Request
 
 from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
 from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
@@ -143,12 +142,9 @@ async def test_held_real_read_allows_unlink_but_prevents_physical_delete_until_c
             closed.set()
 
     objects.body_factory = Body
-    request = Request(
-        {
-            "type": "http",
-            "headers": [(b"authorization", ("Bearer " + project_admin[1]).encode())],
-        }
-    )
+    from tests.test_original_binary import request as auth_request
+
+    request = auth_request(project_admin[0], token=project_admin[1])
     task = asyncio.create_task(
         uploads.read(db_session, project_admin[0], request, project_id, value["key"])
     )

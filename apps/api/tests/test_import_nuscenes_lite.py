@@ -29,14 +29,17 @@ from sqlalchemy import select
 from app.config import settings
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.services import managed_original_creation as creation
+from app.services import managed_original_reader as reader
 from tests.managed_original_client_support import Client
 
 from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task_batch import TaskBatch
-from app.services import scene as scene_svc
+from app.services import labeling_scene
+from app.services.assets_spatial import SameSessionAssetsSpatialGateway
 from app.services.exporting.packaging import build_export_zip
+from yoao_assets_catalog.spatial_contract import CreateSceneRequest, ReadPosesRequest
 from app.services.exporting.lidar_preflight import preflight_lidar_export
 from app.services.storage import storage_service
 from app.workers.export import _nuscenes_scope_digest
@@ -53,6 +56,87 @@ from scripts.import_nuscenes_scene import (
 )
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+async def _restore_lite_actors(test_engine):
+    from sqlalchemy import bindparam, text
+
+    actors: list[uuid.UUID] = []
+    yield actors
+    if not actors:
+        return
+    actors_in = bindparam("actors", expanding=True)
+    async with test_engine.begin() as cleanup:
+        database = await cleanup.scalar(text("SELECT current_database()"))
+        if not isinstance(database, str) or not database.endswith("_test"):
+            raise RuntimeError("refusing cleanup outside disposable test database")
+        await cleanup.execute(
+            text(
+                "DELETE FROM storage_operations WHERE id IN ("
+                " SELECT operation_id FROM managed_original_creations"
+                " WHERE requested_by IN :actors AND operation_id IS NOT NULL)"
+            ).bindparams(actors_in),
+            {"actors": actors},
+        )
+        await cleanup.execute(
+            text(
+                "DELETE FROM dataset_auxiliary_originals WHERE creation_id IN ("
+                " SELECT id FROM managed_original_creations"
+                " WHERE requested_by IN :actors)"
+            ).bindparams(actors_in),
+            {"actors": actors},
+        )
+        await cleanup.execute(
+            text(
+                "ALTER TABLE managed_original_creations "
+                "DISABLE TRIGGER trg_managed_original_creation_history"
+            )
+        )
+        try:
+            await cleanup.execute(
+                text(
+                    "DELETE FROM managed_original_creations"
+                    " WHERE requested_by IN :actors"
+                ).bindparams(actors_in),
+                {"actors": actors},
+            )
+        finally:
+            await cleanup.execute(
+                text(
+                    "ALTER TABLE managed_original_creations "
+                    "ENABLE TRIGGER trg_managed_original_creation_history"
+                )
+            )
+        await cleanup.execute(
+            text("DELETE FROM users WHERE id IN :actors").bindparams(actors_in),
+            {"actors": actors},
+        )
+
+
+@pytest.fixture
+async def super_admin(test_engine, _restore_lite_actors):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.core.security import create_access_token
+    from app.db.enums import UserRole
+    from app.db.models.user import User
+
+    suffix = uuid.uuid4().hex[:10]
+    actor = User(
+        id=uuid.uuid4(),
+        name="nuscenes-lite-" + suffix,
+        email=f"nuscenes-lite-{suffix}@test.invalid",
+        password_hash="unused",
+        role=UserRole.SUPER_ADMIN,
+        is_active=True,
+    )
+    _restore_lite_actors.append(actor.id)
+    async with async_sessionmaker(test_engine, expire_on_commit=False)() as owner_db:
+        owner_db.add(actor)
+        await owner_db.commit()
+    token = create_access_token(subject=str(actor.id), role=UserRole.SUPER_ADMIN.value)
+    return actor, token
 
 
 async def test_derived_display_id_keeps_short_names_and_bounds_long_names():
@@ -219,6 +303,7 @@ async def db_session(db_session):
 @pytest.fixture(autouse=True)
 def controlled_transport(monkeypatch):
     monkeypatch.setattr(creation, "create_client", lambda **_: storage_service.client)
+    monkeypatch.setattr(reader, "create_client", lambda **_: storage_service.client)
 
 
 async def _frozen_test_delivery(db, project_id, client):
@@ -445,7 +530,9 @@ async def test_import_nuscenes_two_scenes(
     _write_fake_nuscenes(root, scenes=2, samples_per=3)
     _use_distinct_sensor_files(root)
 
-    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    monkeypatch.setattr(storage_service, "spatial_source_client", fake_client)
 
     result = await import_nuscenes(
         db_session,
@@ -570,10 +657,11 @@ async def test_import_nuscenes_two_scenes(
         assert [r.frame_index for r in lidar_rows] == [0, 1, 2]
         assert all(r.scene_id == scene.id for r in lidar_rows)
 
-    from app.services import scene_pose as scene_pose_svc
-
+    spatial = SameSessionAssetsSpatialGateway(db_session)
     for scene in scenes:
-        traj = await scene_pose_svc.get_trajectory(db_session, scene.id)
+        traj = await spatial.read_poses(
+            ReadPosesRequest(actor_id=user.id, scene_id=scene.id)
+        )
         assert [p.frame_index for p in traj] == [0, 1, 2]
         ts = [p.timestamp_us for p in traj]
         assert ts == sorted(ts) and len(set(ts)) == 3
@@ -599,8 +687,8 @@ async def test_import_nuscenes_two_scenes(
         )
     ).scalar_one()
 
-    neighbors = await scene_svc.get_neighbors_for_task(
-        db_session, task_id=last_task.id, k=1
+    neighbors = await labeling_scene.get_neighbors_for_task(
+        db_session, task=last_task, k=1
     )
     assert neighbors is not None
     assert neighbors.scene_total_frames == 3
@@ -776,13 +864,14 @@ async def test_backfill_frame_poses_restores_deleted_rows(
     from sqlalchemy import delete
 
     from app.db.models.scene_pose import SceneFramePose
-    from app.services import scene_pose as scene_pose_svc
     from scripts.backfill_frame_poses import backfill_frame_poses
 
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=3)
-    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    monkeypatch.setattr(storage_service, "spatial_source_client", fake_client)
 
     result = await import_nuscenes(
         db_session,
@@ -805,7 +894,10 @@ async def test_backfill_frame_poses_restores_deleted_rows(
             select(Scene).where(Scene.dataset_id == result["dataset_id"])
         )
     ).scalar_one()
-    traj = await scene_pose_svc.get_trajectory(db_session, scene.id)
+    spatial = SameSessionAssetsSpatialGateway(db_session)
+    traj = await spatial.read_poses(
+        ReadPosesRequest(actor_id=user.id, scene_id=scene.id)
+    )
     assert [p.frame_index for p in traj] == [0, 1, 2]
     assert [p.ego_translation[0] for p in traj] == [0.0, 2.0, 4.0]
 
@@ -813,7 +905,14 @@ async def test_backfill_frame_poses_restores_deleted_rows(
         db_session, dataset_ref="DS-NU-nu-lite-bf", nuscenes_root=root
     )
     assert report2 == [{"name": "scene-0000", "poses": 3}]
-    assert len(await scene_pose_svc.get_trajectory(db_session, scene.id)) == 3
+    assert (
+        len(
+            await spatial.read_poses(
+                ReadPosesRequest(actor_id=user.id, scene_id=scene.id)
+            )
+        )
+        == 3
+    )
 
 
 async def test_manifest_exposes_ego_pose(
@@ -825,7 +924,9 @@ async def test_manifest_exposes_ego_pose(
     user, token = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=2)
-    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    monkeypatch.setattr(storage_service, "spatial_source_client", fake_client)
     monkeypatch.setattr(
         storage_service,
         "generate_download_url",
@@ -873,7 +974,9 @@ async def test_import_nuscenes_bounds_long_derived_display_ids(
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=1)
-    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    monkeypatch.setattr(storage_service, "spatial_source_client", fake_client)
 
     dataset_name = "nu-ego-0061-v0143"
     result = await import_nuscenes(
@@ -971,14 +1074,22 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
     )
     db_session.add(dataset)
     await db_session.flush()
-    scene = await scene_svc.create_scene(
-        db_session,
-        dataset_id=dataset.id,
-        name="scene-0000",
-        source_format="nuscenes",
-        source_metadata={"frame": "ego"},
-        created_by=user.id,
+    created_scene = await SameSessionAssetsSpatialGateway(db_session).create_scene(
+        CreateSceneRequest(
+            operation_id=uuid.uuid4(),
+            dataset_id=dataset.id,
+            name="scene-0000",
+            source_format="nuscenes",
+            source_metadata={
+                "scene_token": "scene-token-0",
+                "first_sample_token": "sample-0-0",
+                "frame_count": 1,
+                "frame": "ego",
+            },
+            created_by=user.id,
+        )
     )
+    scene_id = created_scene.scene_id
     legacy = (
         b"# .PCD v0.7 - Point Cloud Data file format\n"
         b"VERSION 0.7\nFIELDS x y z\nSIZE 4 4 4\nTYPE F F F\nCOUNT 1 1 1\n"
@@ -999,7 +1110,7 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
         row = DatasetItem(
             id=uuid.uuid4(),
             dataset_id=dataset.id,
-            scene_id=scene.id,
+            scene_id=scene_id,
             frame_index=0,
             file_name=Path(path).name,
             file_path=path,
@@ -1029,6 +1140,8 @@ async def test_existing_ascii_scene_is_upgraded_in_place(
             "backfilled_camera_dimensions": 1,
         }
     ]
+    await db_session.refresh(item)
+    await db_session.refresh(dataset)
     assert item.id == old_id and item.file_path != old_key
     assert client.objects[(storage_service.datasets_bucket, old_key)]["data"] == legacy
     upgraded = client.objects[(storage_service.datasets_bucket, item.file_path)]["data"]
@@ -1105,7 +1218,10 @@ async def test_existing_scene_rejects_source_drift_before_object_writes(
     scene_rows = json.loads(scene_path.read_text(encoding="utf-8"))
     scene_rows[0]["token"] = "replacement-scene-token"
     scene_path.write_text(json.dumps(scene_rows), encoding="utf-8")
-    with pytest.raises(ValueError, match="existing scene source drift"):
+    with pytest.raises(
+        ValueError,
+        match="existing scene 'scene-0000' does not match the requested nuScenes source",
+    ):
         await import_nuscenes(
             db_session,
             nuscenes_root=root,
@@ -1187,7 +1303,9 @@ async def test_existing_scene_backfills_missing_camera_dimensions(
     user, _ = super_admin
     root = tmp_path / "nuscenes-mini"
     _write_fake_nuscenes(root, scenes=1, samples_per=2)
-    monkeypatch.setattr(storage_service, "client", _FakeS3Client())
+    fake_client = _FakeS3Client()
+    monkeypatch.setattr(storage_service, "client", fake_client)
+    monkeypatch.setattr(storage_service, "spatial_source_client", fake_client)
 
     first = await import_nuscenes(
         db_session,
@@ -1219,6 +1337,8 @@ async def test_existing_scene_backfills_missing_camera_dimensions(
         owner_id=user.id,
     )
 
+    for item in camera_items:
+        await db_session.refresh(item)
     assert [(item.width, item.height) for item in camera_items] == [(1, 1), (1, 1)]
     assert second["scenes"] == [
         {

@@ -15,7 +15,7 @@ from app.services import training_recipes as recipe_service
 from tests.test_training_parameters import configuration, new_v2
 from tests.test_training_runs import ready_dataset
 from tests.test_training_runs import training_config as training_config_fixture  # noqa: F401
-from tests.test_learning_policies import build_candidate, manifest
+from tests.test_learning_policies import build_candidate, ready_policy_parent
 from tests.test_learning_policies import frozen_source as frozen_source_fixture  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("training_config_fixture")
@@ -395,9 +395,7 @@ async def test_pinned_policy_keeps_generating_original_snapshot_after_update_and
     db_session, super_admin, httpx_client
 ):
     owner, token = super_admin
-    project, dataset = await ready_dataset(db_session, owner)
-    dataset.manifest = manifest()
-    await db_session.flush()
+    project, dataset = await ready_policy_parent(db_session, owner)
     recipe, path, source = await create_recipe(httpx_client, token, project)
     body = {
         "expected_revision": 0,

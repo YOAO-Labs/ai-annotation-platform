@@ -1,10 +1,10 @@
 """Pin, authorize and preserve observations without granting physical execution."""
 
-from datetime import datetime, timezone
 import hashlib
 import json
 import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -18,14 +18,15 @@ from app.schemas.managed_original_verification import (
     ManagedOriginalVerificationStart,
 )
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
+)
+from app.services import (
     storage_access,
     storage_maintenance,
     storage_registry_data,
 )
 from app.services.audit import AuditService
 from app.services.dataset_assets import (
-    LEGACY_LOCATION_ID,
     MAX_DIRECT_UPLOAD_BYTES,
     PURPOSE_BUCKET_ATTRIBUTES,
     validate_legacy_bindings,
@@ -40,8 +41,8 @@ from app.services.managed_original_lifecycle_data import (
     verification_facts,
     verification_for_job,
 )
-from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 KIND = "managed_original_verification"
 ACTIVE = {"pending", "running"}
@@ -105,6 +106,7 @@ async def probe_options(db, row):
     if row.anchor["location_id"] == str(LEGACY_LOCATION_ID):
         return {}
     from functools import partial
+
     from app.services import dataset_storage
 
     ref = row.configuration.get("saved_ref")

@@ -5,7 +5,7 @@ import uuid
 from fastapi import HTTPException
 
 from app.db.models.dataset_source import DatasetRegistrationRun as Registration
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import dataset_registration as registrations
 from app.services import dataset_registration_data as data
 from app.services import dataset_scan_data

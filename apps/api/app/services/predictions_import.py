@@ -48,8 +48,8 @@ from app.services.raster_mask_storage import (
     store_coco_rle,
     store_generated_mask_content,
     store_mask_reference_objects,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.labeling_core_read_relations import prediction_row
 from app.services.labeling_scene import read_spatial_item_facts
 from app.utils.raster_mask_rle import coco_rle_area

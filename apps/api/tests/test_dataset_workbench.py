@@ -6,11 +6,16 @@ import pytest
 
 from sqlalchemy import select
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.dataset_source import DatasetSource, DatasetSourcePreview
 from app.services.storage import storage_service
 from tests.factory import create_project, create_task
-from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_dataset_content import (
+    change_content_location,
+    content_world as content_world,
+    headers,
+)
 from tests.test_dataset_source_changes import (
     accept_all_files,
     picture,
@@ -131,6 +136,7 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
 ):
     db, world = db_session, content_world
     actor_id = world[2].id
+    dataset_id = world[3].id
     world[5].cache_policy = "preview"
     await db.commit()
     original = await accept_all_files(db, world)
@@ -146,7 +152,7 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
         (world[0] / "图片 空格.png").write_bytes(b"not an image")
         world = await rescan(db, world)
         await preflight(db, world)
-        base = f"/api/v1/datasets/{world[3].id}/items/{item_id}"
+        base = f"/api/v1/datasets/{dataset_id}/items/{item_id}"
         item = (await httpx_client.get(base, headers=headers(super_admin))).json()
         assert item["availability"]["state"] == "preview_only"
         assert item["availability"]["allowed_actions"] == [
@@ -202,9 +208,10 @@ async def test_location_filter_counts_unique_visible_datasets_and_revokes(
     db_session, content_world, super_admin, project_admin, httpx_client
 ):
     db, world = db_session, content_world
-    ds, loc = world[3:5]
+    ds = world[3]
     ds.created_by = project_admin[0].id
-    loc.config = {**loc.config, "scope": "global"}
+    world = await change_content_location(db, world, scope="global")
+    loc = world[4]
     db.add(
         DatasetSource(
             dataset_id=ds.id, location_id=loc.id, name="second", config=world[5].config
@@ -239,7 +246,7 @@ async def test_location_filter_counts_unique_visible_datasets_and_revokes(
         )
     ).json()
     assert summary["total"] == 2 and summary["dataset_count"] == 1
-    loc.config = {**loc.config, "scope": "restricted", "use_user_ids": []}
+    await change_content_location(db, world, scope="restricted", use_user_ids=[])
     await db.commit()
     assert (
         await httpx_client.get(url, headers=headers(project_admin))
@@ -477,7 +484,6 @@ async def test_shared_managed_item_filters_each_source_and_chooses_visible_previ
 async def test_revalidation_is_not_reversed_when_same_run_finishes_added_registration(
     db_session, content_world, super_admin, httpx_client
 ):
-    from app.services import dataset_source_revisions as revisions
     from tests.test_dataset_registration import begin_confirmed, drain
     from tests.test_dataset_source_revisions import candidate
 
@@ -491,7 +497,7 @@ async def test_revalidation_is_not_reversed_when_same_run_finishes_added_registr
     assert (await httpx_client.get(url, headers=auth)).json()["availability"][
         "state"
     ] == "changed"
-    await revisions.accept(
+    await accept_revision(
         db, run.id, change["path_digest"], payload, world[2], revalidate=True
     )
     assert (await httpx_client.get(url, headers=auth)).json()["availability"][
@@ -540,7 +546,7 @@ async def test_finishing_older_registration_does_not_override_newer_scan_evidenc
 async def test_concurrent_item_delete_during_page_serialization_does_not_fail(
     db_session, super_admin, httpx_client, monkeypatch, single
 ):
-    from app.services.dataset import DatasetService
+    from app.services import dataset_workbench
 
     db = db_session
     dataset = Dataset(
@@ -556,14 +562,14 @@ async def test_concurrent_item_delete_during_page_serialization_does_not_fail(
     db.add(item)
     await db.commit()
     dataset_id, item_id = dataset.id, item.id
-    original = DatasetService.list_items
+    original = dataset_workbench.list_items
 
-    async def deleted_between_reads(service, *args, **kwargs):
+    async def deleted_between_reads(session, *args, **kwargs):
         await db.delete(item)
         await db.flush()
-        return await original(service, *args, **kwargs)
+        return await original(session, *args, **kwargs)
 
-    monkeypatch.setattr(DatasetService, "list_items", deleted_between_reads)
+    monkeypatch.setattr(dataset_workbench, "list_items", deleted_between_reads)
     url = f"/api/v1/datasets/{dataset_id}/items" + (f"/{item_id}" if single else "")
     response = await httpx_client.get(url, headers=headers(super_admin))
     assert response.status_code == (404 if single else 200), response.text

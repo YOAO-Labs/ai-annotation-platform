@@ -1,9 +1,10 @@
-import { canvasBottomDivider, panelCommand } from "../fixtures/workbench-panel-actions";
+import { canvasBottomDivider } from "../fixtures/workbench-panel-actions";
 import type { APIRequestContext, APIResponse, Locator, Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 
 import { closeMaskSettings, openMaskSettings } from "../fixtures/mask-toolbar";
 import { expect, test as base, type SeedData } from "../fixtures/seed";
+import { layoutCommand } from "../helpers/workbench-layout";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const KINDS = ["bbox", "polygon", "polyline", "mask"] as const;
@@ -202,12 +203,11 @@ const test = base.extend<{ scopeCase: ScopeCase }>({
   },
 });
 
-async function open(page: Page, fixture: ScopeCase) {
+async function open(page: Page, fixture: ScopeCase, layout = "标准标注布局") {
   await page.goto(`/projects/${fixture.data.project_id}/annotate?task=${fixture.taskId}`);
   await expect(stage(page)).toBeVisible({ timeout: 25_000 });
   await expect(stage(page).locator(".konvajs-content > canvas").first()).toBeVisible();
-  await page.getByRole("button", { name: "布局", exact: true }).click();
-  await page.getByRole("button", { name: "标准标注布局", exact: true }).click();
+  await layoutCommand(page, layout);
   await expect(page.getByTestId("video-tool-scope")).toBeVisible();
 }
 
@@ -424,7 +424,6 @@ async function accessibleTools(page: Page) {
 }
 
 async function shortenCanvas(page: Page) {
-  await panelCommand(page, "讨论", "停靠到底部");
   const divider = await canvasBottomDivider(page);
   await page.mouse.move(divider.x, divider.y);
   await page.mouse.down();
@@ -1360,8 +1359,8 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
   });
 
   test("F2-5 短面板反复切范围保留工具可达性、当前项与菜单键盘行为", async ({ page, scopeCase }) => {
-    await open(page, scopeCase);
     await page.setViewportSize({ width: 1440, height: 768 });
+    await open(page, scopeCase, "审核协作布局");
     await shortenCanvas(page);
     const identity = await stage(page).elementHandle();
     const expected = new Map<Scope, string[]>();

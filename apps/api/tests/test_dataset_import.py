@@ -7,7 +7,7 @@ from yoao_assets_source.import_contract import ImportAcceptance, ImportContext
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.dataset import Dataset
 from app.db.models.storage_connection import StorageConnection
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.assets_import import DatasetImportCapabilities
 
 

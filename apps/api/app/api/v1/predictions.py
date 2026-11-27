@@ -310,7 +310,7 @@ async def import_predictions(
     不关联模型服务，也不会自动成为正式标注。
     """
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.predictions_import import (
         import_native_json,

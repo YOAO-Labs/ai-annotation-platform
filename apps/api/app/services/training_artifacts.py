@@ -11,6 +11,7 @@ from collections import OrderedDict
 from training_contract.observability import SUMMARY_BYTES
 
 from app.services.storage import storage_service as storage
+from app.services.training_run_storage import attempt_storage_owner
 
 MAX_REPORT_BYTES = 8 * 1024 * 1024
 PARSER_REVISION = 1
@@ -93,6 +94,46 @@ def read_json_artifact(
             _cache[key] = (copy.deepcopy(result), len(raw))
             _cache_bytes += len(raw)
     return result
+
+
+def verify_saved_artifact(key, spec, attempt_id, *, bucket, transport=None):
+    transport = storage if transport is None else transport
+    response = training_storage_io.get_object(transport, bucket, key)
+    try:
+        if response["ContentLength"] != spec["size_bytes"] or response.get(
+            "Metadata", {}
+        ).get("attempt-id") != str(attempt_id):
+            raise ValueError("Artifact size or identity mismatch")
+        digest = hashlib.sha256()
+        total = 0
+        for chunk in iter(lambda: response["Body"].read(1024 * 1024), b""):
+            digest.update(chunk)
+            total += len(chunk)
+            if total > spec["size_bytes"]:
+                raise ValueError("Artifact size exceeded")
+        if total != spec["size_bytes"] or digest.hexdigest() != spec["sha256"]:
+            raise ValueError("Artifact digest mismatch")
+    finally:
+        storage_access.close_registered(response["Body"])
+
+
+def verify_saved_summary(run, attempt, artifact, *, transport=None):
+    transport = storage if transport is None else transport
+    owner = attempt_storage_owner(run, attempt, artifact["key"])
+    if artifact["size_bytes"] > SUMMARY_BYTES:
+        raise ValueError("Observation artifact exceeds its bound")
+    response = training_storage_io.get_object(transport, owner.bucket, artifact["key"])
+    try:
+        body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
+    finally:
+        storage_access.close_registered(response["Body"])
+    if (
+        body.get("protocol") != 1
+        or body.get("run_id") != str(run.id)
+        or body.get("attempt_id") != str(attempt.id)
+        or body.get("config_digest") != run.config_digest
+    ):
+        raise ValueError("Observation artifact identity differs")
 
 
 def verify_artifact(key, spec, attempt_id):

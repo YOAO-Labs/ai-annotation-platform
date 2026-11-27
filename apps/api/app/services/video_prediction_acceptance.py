@@ -258,7 +258,7 @@ def _qualified(prediction, metadata):
 
 def requires_qualification(prediction, metadata=None):
     """Retain only the existing strict single-frame and external-import paths."""
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     extra = metadata.extra if metadata is not None else None
     if isinstance(extra, dict) and (
@@ -554,7 +554,7 @@ async def _selected(db, prediction, selection):
 
 
 async def _segment(db, task, actor, selection, prediction, indexes, *, lock=False):
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
     from app.services.video_collaboration import assert_video_annotation_write_scope
 
     identifier = (
@@ -779,7 +779,7 @@ def _generation_masks(evidence, facts):
 
 
 def _selected_value(prediction, indexes):
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     return [to_internal_shape(deepcopy(prediction.result[index])) for index in indexes]
 

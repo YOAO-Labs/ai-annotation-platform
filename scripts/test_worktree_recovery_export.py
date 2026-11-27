@@ -35,25 +35,23 @@ class RecoveryDB(FakeDB):
     def add(self, row):
         if row.id is None:
             row.id = uuid.uuid4()
-        super().add(row)
+        self.rows[row.id] = row
 
     async def get(self, model, identifier):
         result = self.rows.get(identifier)
         return result if isinstance(result, model) else None
 
     async def scalar(self, statement):
-        params = statement.compile().params
-        if "job_id_1" in params:
-            return next(
-                (
-                    row
-                    for row in self.rows.values()
-                    if isinstance(row, ExportMediaBundle)
-                    and row.job_id == params["job_id_1"]
-                ),
-                None,
-            )
-        return await super().scalar(statement)
+        assert statement.column_descriptions[0]["entity"] is ExportMediaBundle
+        job_id = statement.compile().params["job_id_1"]
+        return next(
+            (
+                row
+                for row in self.rows.values()
+                if isinstance(row, ExportMediaBundle) and row.job_id == job_id
+            ),
+            None,
+        )
 
     async def scalars(self, statement):
         model = statement.column_descriptions[0]["entity"]

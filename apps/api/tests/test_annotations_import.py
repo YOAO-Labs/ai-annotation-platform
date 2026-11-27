@@ -1167,7 +1167,10 @@ async def test_fixture_cleanup_requires_owned_import_completion(
 
     from app.config import settings
     from app.db.models.fixture_run import FixtureRun
-    from app.services import async_job, fixture_run_ownership as ownership
+    from app.services import (
+        jobs_lifecycle_data as async_job,
+        fixture_run_ownership as ownership,
+    )
 
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "e2e_seed_enabled", True)

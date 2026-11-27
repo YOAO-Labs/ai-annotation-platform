@@ -91,6 +91,9 @@ class DatasetSourceIngestOperation(Base):
     dataset_name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_temporal: Mapped[bool] = mapped_column(nullable=False)
     source_prefix: Mapped[str] = mapped_column(Text, nullable=False)
+    admission_authority: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB, nullable=True
+    )
     next_index: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     added: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     deduped: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")

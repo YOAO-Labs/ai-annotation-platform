@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import delete, event, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.project import Project
@@ -158,3 +158,7 @@ async def test_brief_read_never_commits_or_rolls_back_caller_edits(
                 )
         finally:
             event.remove(db.sync_session, "before_flush", flushed)
+            await db.rollback()
+    async with maker.begin() as cleanup:
+        await cleanup.execute(delete(Project).where(Project.id == project_id))
+        await cleanup.execute(delete(User).where(User.id == user_id))

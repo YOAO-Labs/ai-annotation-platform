@@ -1,24 +1,28 @@
 """Source-owned, measured WebP derivatives behind current manager authority."""
 
-import hashlib
 import asyncio
+import hashlib
 from dataclasses import dataclass, replace
-from types import SimpleNamespace
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
 from app.services import directory_policy as policy
-from app.services import storage_access, storage_fault_events, storage_location
+from app.services import (
+    original_sources,
+    storage_access,
+    storage_fault_events,
+    storage_location,
+)
 from app.services import storage_observation_rates as rates
 from app.services import thumbnail_outputs as outputs
-from app.services import original_sources
 from app.services.content_snapshot import ContentError, capture
 from app.services.dataset_content import key_authority, stored_content
-from app.services.storage_registry_data import get_location
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_location
 
 SPEC = "webp-256-exif-q80"
 
@@ -187,7 +191,7 @@ async def prepare(db, source, entry, snapshot):
                     prepared.baseline,
                     reuse=True,
                 )
-            from app.services.dataset_assets import LEGACY_LOCATION_ID
+            from app.services.storage_identity import LEGACY_LOCATION_ID
 
             if (
                 row.location_id == LEGACY_LOCATION_ID
@@ -377,7 +381,7 @@ async def generate(
             if row.thumbnail_output_id is not None:
                 await output_for_row(db, row)
             else:
-                from app.services.dataset_assets import LEGACY_LOCATION_ID
+                from app.services.storage_identity import LEGACY_LOCATION_ID
 
                 await storage_access.check(db, LEGACY_LOCATION_ID)
             row._fault_observation = observation
@@ -464,7 +468,7 @@ async def generate(
 
 async def preview_identity(db, source_id, path_digest, actor):
     from app.services.dataset_source_access import require_source
-    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.storage_identity import LEGACY_LOCATION_ID
 
     source = await require_source(db, source_id, actor)
     location = await get_location(db, source.location_id)
@@ -534,7 +538,7 @@ async def read_preview(db, source_id, path_digest, actor, api_key_id=None):
 
         snapshot = await capture(content, sha)
     else:
-        from app.services.dataset_assets import LEGACY_LOCATION_ID
+        from app.services.storage_identity import LEGACY_LOCATION_ID
 
         async with await storage_access.acquire(
             db, LEGACY_LOCATION_ID, "directory_preview_read"

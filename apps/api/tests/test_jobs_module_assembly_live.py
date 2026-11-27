@@ -263,7 +263,7 @@ async def _run():
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.data_management.actions import (
         lock_idempotency_key, find_idempotent_job, assert_idempotent_request_matches,
     )
@@ -618,6 +618,7 @@ def _assert_api_row_access_probe(
         "fixture_create_sqlstate": "42501",
         "caller_rollback": True,
     }
+    assert evidence["private_table_from"] == 0
     assert evidence["partial_refresh"] is True
     assert evidence["same_orm_identity"] is True
     return evidence

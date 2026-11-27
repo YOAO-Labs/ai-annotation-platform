@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api.v1 import projects as routes
+from yoao_workspace.configuration import ConfigurationManager
 from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
 from app.db.models.ml_backend_pool import MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -49,7 +49,7 @@ async def clone(client, actor, source_id, **extra):
 @pytest.mark.parametrize(
     "patch,status",
     [
-        ({"guide_assets": []}, 409),
+        ({"guide_assets": []}, 422),
         ({"guide_assets": [], "guide_assets_revision": 1}, 409),
         ({"guide_assets": None}, 422),
         ({"guide_assets_revision": 2}, 422),
@@ -177,16 +177,15 @@ async def test_copy_final_refresh_keeps_new_backend_binding(
     backend_source,
 ):
     identifier = project.id
-    backend = await _seed_backend(db_session, identifier)
+    backend, pool = await _seed_backend(db_session, identifier)
     backend_id = backend.id
-    pool = await MLBackendService(db_session)._pool_for_registry(backend_id)
     pool_id = pool.id
     if backend_source == "source":
         project.ml_backend_pool_id = pool_id
     await db_session.commit()
     await upload(httpx_client, project_admin, identifier)
     validate = AsyncMock(return_value=None)
-    monkeypatch.setattr(routes, "_validate_backend_modality", validate)
+    monkeypatch.setattr(ConfigurationManager, "_validate_backend_modality", validate)
     extra = {"ml_backend_id": str(backend_id)} if backend_source == "explicit" else {}
     result = await clone(httpx_client, project_admin, identifier, **extra)
     assert result.status_code == 200, result.text
@@ -199,7 +198,7 @@ async def test_copy_final_refresh_keeps_new_backend_binding(
 
 
 @pytest.mark.parametrize(
-    "change,status", [("body", 409), ("list", 409), ("owner", 404), ("actor", 403)]
+    "change,status", [("body", 409), ("list", 409), ("owner", 404), ("actor", 401)]
 )
 async def test_clone_rechecks_source_and_original_actor_after_remote_setup_before_publish(
     httpx_client,
@@ -208,22 +207,26 @@ async def test_clone_rechecks_source_and_original_actor_after_remote_setup_befor
     project,
     objects,
     db_session,
+    test_engine,
     monkeypatch,
     change,
     status,
 ):
     identifier, actor_id = project.id, project_admin[0].id
-    backend = await _seed_backend(db_session, identifier)
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
+    backend, pool = await _seed_backend(db_session, identifier)
     project.ml_backend_pool_id = pool.id
     await db_session.commit()
     await upload(httpx_client, project_admin, identifier)
-    before = await db_session.scalar(select(func.count()).select_from(Project))
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as observer:
+        before = await observer.scalar(select(func.count()).select_from(Project))
 
-    async def validate(*args):
-        assert (
-            await db_session.scalar(select(func.count()).select_from(Project)) == before
-        )
+    async def validate(*args, **kwargs):
+        async with maker() as observer:
+            assert (
+                await observer.scalar(select(func.count()).select_from(Project))
+                == before
+            )
         if change == "body":
             project.annotation_guide = "Changed during setup"
         elif change == "list":
@@ -237,7 +240,7 @@ async def test_clone_rechecks_source_and_original_actor_after_remote_setup_befor
             project_admin[0].is_active = False
         await db_session.flush()
 
-    monkeypatch.setattr(routes, "_validate_backend_modality", validate)
+    monkeypatch.setattr(ConfigurationManager, "_validate_backend_modality", validate)
     result = await clone(httpx_client, project_admin, identifier)
     assert result.status_code == status, result.text
     await db_session.rollback()
@@ -257,15 +260,17 @@ async def test_combined_guide_and_backend_patch_returns_busy_instead_of_waiting_
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     backend_id = pool_id = None
     async with maker() as catalog:
-        backend = await _seed_backend(catalog, project.id)
+        backend, pool = await _seed_backend(catalog, project.id)
         backend_id = backend.id
-        pool_id = (await MLBackendService(catalog)._pool_for_registry(backend_id)).id
+        pool_id = pool.id
         await catalog.commit()
     try:
         value = await upload(httpx_client, project_admin, project.id)
         identifier = project.id
         monkeypatch.setattr(
-            routes, "_validate_backend_modality", AsyncMock(return_value=None)
+            ConfigurationManager,
+            "_validate_backend_modality",
+            AsyncMock(return_value=None),
         )
         async with maker() as holder:
             await holder.scalar(

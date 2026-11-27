@@ -16,25 +16,29 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_jobs.lifecycle import JobsLifecycleManager
 
-from app.config import settings
 from app.db.models.storage_migration_inventory import REPORT_LIMIT
 from app.schemas.storage_migration_inventory import (
     StorageMigrationInventoryHistory,
     StorageMigrationInventoryItem,
     StorageMigrationInventoryRequest,
 )
-from app.services import async_job as jobs
-from app.services import storage_access, storage_maintenance, storage_registry_data
+from app.services import jobs_lifecycle_data as jobs
+from app.services import storage_access, storage_maintenance
 from app.services.audit import AuditService
-from app.services.dataset_assets import LEGACY_LOCATION_ID, PURPOSE_BUCKET_ATTRIBUTES
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import (
     JobsLifecyclePostgresData,
     job_lock_statement,
 )
-from app.services.storage import storage_service
+from app.services.storage_migration_guards import reject
 from app.services.storage_migration_inventory import PURPOSES, verify_inventory
-from app.services.storage_migration_observations import endpoint_identity
+from app.services.storage_migration_window_access import (
+    check_source,
+    owner as window_owner,
+    source_revision as window_source_revision,
+    source_scope as source_scope,
+)
 
 KIND = "storage_migration_inventory"
 ACTIVE = {"pending", "running"}
@@ -128,10 +132,6 @@ def now():
     return datetime.now(timezone.utc)
 
 
-def reject(code, status=409):
-    raise HTTPException(status, detail={"code": code})
-
-
 def digest(value):
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
@@ -152,41 +152,6 @@ async def attempt_authority(db, row, *, lock=False):
     if proof != row.authority.get("key_proof"):
         reject("inventory_authority_changed", 403)
     return actor
-
-
-async def source_scope(db, *, lock=False):
-    location = await storage_registry_data.get_location(
-        db, LEGACY_LOCATION_ID, lock="share" if lock else None
-    )
-    endpoint = (
-        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
-    )
-    if (
-        not location
-        or not location.enabled
-        or location.kind != "s3"
-        or location.connection_id is not None
-    ):
-        reject("inventory_source_unavailable")
-    configured = location.config.get("endpoint")
-    if isinstance(configured, str) and "://" not in configured:
-        configured = (
-            f"{'https' if location.config.get('use_ssl') else 'http'}://{configured}"
-        )
-    if endpoint_identity(configured) != endpoint_identity(
-        endpoint
-    ) or endpoint_identity(
-        storage_service.client.meta.endpoint_url
-    ) != endpoint_identity(endpoint):
-        reject("inventory_source_changed")
-    return {
-        "endpoint": endpoint,
-        "location_revision": location.config_revision,
-        "purpose_buckets": {
-            purpose: getattr(storage_service, attribute)
-            for purpose, attribute in PURPOSE_BUCKET_ATTRIBUTES.items()
-        },
-    }
 
 
 @overload
@@ -254,9 +219,7 @@ async def source_revision(db, source, window_id, window_revision, *, lock=False)
         if window_revision is not None:
             reject("inventory_context_changed")
         return await gate_revision(db, LEGACY_LOCATION_ID, lock=lock)
-    from app.services import storage_migration_windows as windows
-
-    return await windows.check_source(db, window_id, window_revision, source, lock=lock)
+    return await check_source(db, window_id, window_revision, source, lock=lock)
 
 
 async def gate_revision(db, location_id, *, lock=False):
@@ -319,10 +282,8 @@ async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
     source = await source_scope(db, lock=True)
     window_revision = None
     if body.window_id is not None:
-        from app.services import storage_migration_windows as windows
-
-        revision = await windows.source_revision(db, body.window_id, source, lock=True)
-        window = await windows.owner(db, body.window_id)
+        revision = await window_source_revision(db, body.window_id, source, lock=True)
+        window = await window_owner(db, body.window_id)
         window_revision = window.revision
     else:
         revision = await gate_revision(db, LEGACY_LOCATION_ID, lock=True)

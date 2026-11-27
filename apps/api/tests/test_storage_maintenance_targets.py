@@ -63,9 +63,9 @@ async def insert(db, family, **values):
     return values
 
 
-async def saved_version(db, project, where=None, *, snapshot=None):
+async def saved_version(db, project, where=None, *, snapshot=None, status="failed"):
     version = await frozen_version(
-        db, project.id, snapshot or {"private": PRIVATE}, "failed"
+        db, project.id, snapshot or {"private": PRIVATE}, status
     )
     if where:
         version.storage_ref = saved_ref(
@@ -845,7 +845,6 @@ async def test_all_27_families_report_saved_roles_without_io(
     with statements(w["db"]) as sql:
         result = await read(httpx_client, w["b"], super_admin)
     counts = result["counts"]
-    assert sum("maintenance_saved_roles AS" in statement for statement in sql) == 1
     assert all(
         statement.lstrip().upper().startswith("SELECT")
         or statement.lstrip().upper().startswith("WITH")

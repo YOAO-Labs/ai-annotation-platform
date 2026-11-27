@@ -227,13 +227,18 @@ function main() {
   const jsonMode = args.includes("--json");
   const includeHistorical = args.includes("--include-historical");
   const positional = args.filter((a) => !a.startsWith("--"));
-  const scanRoot = positional[0] ? resolve(REPO, positional[0]) : REPO;
+  const sources = (positional.length ? positional : ["."]).flatMap((arg) => {
+    const path = resolve(REPO, arg);
+    if (statSync(path).isDirectory()) return walk(path);
+    if (!path.endsWith(".md")) throw new Error(`Not a Markdown file: ${arg}`);
+    return [path];
+  });
 
-  const mdFiles = walk(scanRoot).filter((f) => {
+  const mdFiles = [...new Set(sources)].filter((f) => {
     if (includeHistorical) return true;
     return !isHistoricalSource(relative(REPO, f));
   });
-  const allFiles = collectAllFiles(REPO);
+  let allFiles;
 
   function existsAny(...paths) {
     return paths.some((p) => existsSync(p));
@@ -256,7 +261,7 @@ function main() {
         line,
         target,
         resolved: relative(REPO, abs),
-        suggestions: pickClosest(abs, allFiles),
+        suggestions: pickClosest(abs, (allFiles ??= collectAllFiles(REPO))),
       });
     }
   }

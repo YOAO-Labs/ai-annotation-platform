@@ -30,6 +30,8 @@ from yoao_inference.gpu.native import GPUAuthorityPoolData
 
 @pytest.fixture
 async def gpu_authority_data() -> AsyncIterator[GPUAuthorityPoolData]:
+    if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the owned module-data PostgreSQL verifier")
     dsn = (
         make_url(os.environ["AAP_MODULE_DATA_INFERENCE_GPU_URL"])
         .set(drivername="postgresql")

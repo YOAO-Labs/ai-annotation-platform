@@ -7,22 +7,31 @@ import uuid
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.storage_usage import StorageUsageMutation as Mutation
 from app.services import managed_original_creation as service
 from app.services import storage_usage_accounting as accounting
 from app.services.content_snapshot import ContentError
+from app.services.dataset_assets import ensure_legacy_bindings
 from tests.test_managed_original_creation import (
     allocation,
     client as _client,
     create,
-    creation_db as _creation_db,
     operations,
 )
 
-creation_db = _creation_db
 client = _client
+
+
+@pytest.fixture
+async def creation_db(managed_database):
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            yield db
 
 
 async def mutations(db):
@@ -158,7 +167,27 @@ async def test_creation_persistence_failures_preserve_actual_physical_evidence(
 async def test_caller_business_rollback_does_not_erase_confirmed_fact(
     creation_db, client
 ):
-    row = await allocation(creation_db)
+    from app.db.models.dataset import Dataset
+    from app.db.models.user import User
+
+    suffix = uuid.uuid4().hex[:12]
+    owner = User(
+        id=uuid.uuid4(),
+        email=f"owner-{suffix}@example.test",
+        name=f"owner-{suffix}",
+        password_hash="x",
+    )
+    creation_db.add(owner)
+    await creation_db.flush()
+    dataset = Dataset(
+        id=uuid.uuid4(),
+        display_id="DS-" + suffix,
+        name="accounting-" + suffix,
+        created_by=owner.id,
+    )
+    creation_db.add(dataset)
+    await creation_db.commit()
+    row = await allocation(creation_db, dataset_id=dataset.id)
     client.versioned = True
     pending = DatasetItem(
         dataset_id=row["dataset_id"],

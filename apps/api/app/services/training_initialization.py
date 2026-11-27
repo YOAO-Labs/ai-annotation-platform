@@ -137,7 +137,7 @@ async def source_pin(db, project_id, version_id):
     ]
     if len(weights) != 1 or len(metrics) != 1 or weights[0] != version.artifact:
         raise ValueError("初始化模型不再对应来源执行的唯一已验证权重")
-    from app.services.trained_models import owner_for_attempt
+    from app.services.trained_model_artifacts import owner_for_attempt
 
     owner = owner_for_attempt(run, attempt, weights[0], metrics[0])
     artifact = {
@@ -227,7 +227,7 @@ async def source_pin(db, project_id, version_id):
 
 async def source_storage_owner(db, pin):
     """Resolve the source model's retained owner independently of target output."""
-    from app.services.trained_models import owner_for_model
+    from app.services.trained_model_artifacts import owner_for_model
 
     try:
         version = await models.get_version(
@@ -259,7 +259,7 @@ async def source_storage_owner(db, pin):
 
 def verify_storage(pin, metrics, *, owner, full, transport=None):
     transport = storage if transport is None else transport
-    from app.services.training_runs import verify_artifact
+    from app.services.training_artifacts import verify_saved_artifact as verify_artifact
     from app.services.training_artifacts import read_json_artifact
 
     from app.services.training_run_storage import expect_attempt
@@ -304,7 +304,7 @@ def _verify_metrics(pin, metrics, report):
 
 async def read_storage(db, pin, metrics, *, owner, full):
     """Read separate retained weight/report objects under their own route permits."""
-    from app.services.training_runs import verify_artifact
+    from app.services.training_artifacts import verify_saved_artifact as verify_artifact
     from app.services.training_artifacts import read_json_artifact
     from app.services.training_run_storage import expect_attempt
 

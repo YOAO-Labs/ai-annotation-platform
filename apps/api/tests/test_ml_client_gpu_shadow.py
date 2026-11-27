@@ -98,6 +98,7 @@ class _EndpointData:
                 "vram_budget_mb": self.vram_budget_mb,
                 "eviction_priority": 0,
                 "extra_params": {"max_concurrency": 4},
+                **({"plugin_asset_approval": None} if purpose == "execution" else {}),
             }
         )
 

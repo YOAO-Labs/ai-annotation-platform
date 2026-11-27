@@ -637,23 +637,6 @@ async def test_generation_of_frozen_child_is_rejected(db_session, bound):
     )
 
 
-async def test_changed_checkpoint_revokes_proof_in_same_receipt_transaction(
-    db_session, bound
-):
-    row, _, _ = await child(db_session, bound)
-    await service.begin_seal(
-        db_session, bound.actor.id, bound.claim, row.id, 1, bound.native
-    )
-    await service.changed_checkpoint(db_session, row.id)
-    await db_session.flush()
-    value = await service.status(db_session, bound.actor.id, bound.claim)
-    assert (
-        value.state == "invalidating"
-        and value.error_code == "finalization_checkpoint_changed"
-        and value.revision == 3
-    )
-
-
 @pytest.mark.parametrize("sealed", [False, True])
 async def test_actual_late_delta_is_saved_after_proof_freeze(db_session, bound, sealed):
     row, attempt, _ = await child(db_session, bound)

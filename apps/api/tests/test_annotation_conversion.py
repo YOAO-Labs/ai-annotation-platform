@@ -26,6 +26,7 @@ from app.services.annotation_conversion import (
 )
 from app.services.raster_mask_storage import build_rle_reference
 from tests.media_owner_fixtures import media_owner as media_owner
+from tests.video_derivative_fixtures import owned_metadata
 
 
 pytestmark = pytest.mark.usefixtures("media_owner")
@@ -70,6 +71,7 @@ async def _seed_task(db, owner_id: uuid.UUID, *, media_owner=None, video: bool =
     if video:
         assert media_owner is not None
         await media_owner.seed_video_item(item, owner_id)
+        await owned_metadata(db, item)
     project = Project(
         display_id=f"P-CV-{suffix}",
         name=f"conversion-{suffix}",

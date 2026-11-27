@@ -47,8 +47,20 @@ def _raise_operation_failure(exc: AsyncJobOperationFailure) -> NoReturn:
     ) from exc
 
 
+def _request_api_key_context(
+    request: Request,
+) -> tuple[uuid.UUID | None, tuple[str, ...] | None]:
+    raw_key_id = getattr(request.state, "api_key_id", None)
+    raw_scopes = getattr(request.state, "api_key_scopes", None)
+    return (
+        uuid.UUID(str(raw_key_id)) if raw_key_id is not None else None,
+        tuple(raw_scopes) if raw_scopes is not None else None,
+    )
+
+
 @router.get("/async-jobs", response_model=AsyncJobListResponse)
 async def list_async_jobs(
+    request: Request,
     status: list[AsyncJobStatusParam] | None = Query(default=None),
     kind: list[str] | None = Query(default=None),
     project_id: uuid.UUID | None = Query(default=None),
@@ -62,25 +74,38 @@ async def list_async_jobs(
 
     顺序：created_at DESC。前端铃铛走 polling，默认拉最近 50 行。
     """
-    return await read_port.list_jobs(
-        actor_id=actor_id,
-        status=status,
-        kind=kind,
-        project_id=project_id,
-        search=search,
-        limit=limit,
-        offset=offset,
-    )
+    api_key_id, api_key_scopes = _request_api_key_context(request)
+    try:
+        return await read_port.list_jobs(
+            actor_id=actor_id,
+            status=status,
+            kind=kind,
+            project_id=project_id,
+            search=search,
+            limit=limit,
+            offset=offset,
+            api_key_id=api_key_id,
+            api_key_scopes=api_key_scopes,
+        )
+    except AsyncJobOperationFailure as exc:
+        _raise_operation_failure(exc)
 
 
 @router.get("/async-jobs/{job_id}", response_model=AsyncJobOut)
 async def get_async_job(
     job_id: uuid.UUID,
+    request: Request,
     actor_id: uuid.UUID = Depends(get_current_user_id),
     read_port: AsyncJobReadPort = Depends(get_async_job_read_port),
 ) -> AsyncJobOut:
+    api_key_id, api_key_scopes = _request_api_key_context(request)
     try:
-        result = await read_port.get_job(job_id=job_id, actor_id=actor_id)
+        result = await read_port.get_job(
+            job_id=job_id,
+            actor_id=actor_id,
+            api_key_id=api_key_id,
+            api_key_scopes=api_key_scopes,
+        )
     except AsyncJobOperationFailure as exc:
         _raise_operation_failure(exc)
     if result is None:

@@ -23,6 +23,7 @@ from app.db.models.export_media_bundle import (
     ExportMediaBundle as Bundle,
 )
 from app.db.models.export_output import ExportOutput
+from tests.export_migration_fixtures import create_export_artifacts, export_output_model
 
 
 def _migration(connection, revision="0234_export_media_bundles"):
@@ -48,13 +49,12 @@ async def owned_db(test_engine):
     )
     try:
         async with engine.begin() as connection:
-            await connection.execute(
-                text("CREATE TABLE export_artifacts (id uuid PRIMARY KEY)")
-            )
+            await connection.run_sync(create_export_artifacts)
             await connection.run_sync(
                 lambda sync: _migration(sync, "0224_export_output_storage").upgrade()
             )
             await connection.run_sync(lambda sync: _migration(sync).upgrade())
+            output_model = await connection.run_sync(export_output_model, schema)
             await connection.execute(
                 text(
                     "ALTER TABLE export_media_bundles "
@@ -63,6 +63,7 @@ async def owned_db(test_engine):
                 )
             )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            db.info["export_output_model"] = output_model
             yield db
     finally:
         await engine.dispose()
@@ -125,7 +126,8 @@ async def _zip(db, bundle=None, **changes):
     job_id = changes.get("job_id", bundle.job_id if bundle else uuid.uuid4())
     media = changes.get("media", "image")
     created = datetime.now(timezone.utc)
-    row = ExportOutput(
+    output_model = db.info.get("export_output_model", ExportOutput)
+    row = output_model(
         **{
             "id": identifier,
             "project_id": project_id,
@@ -192,17 +194,34 @@ async def _reject_update(db, row, **values):
             await _constraints(db)
 
 
-def test_models_and_frozen_migration_use_the_same_checks():
+async def test_models_and_frozen_migration_use_the_same_checks(test_engine):
     module = _migration(None)
     assert module.revision == "0234" and module.down_revision == "0233"
-    latest = _migration(None, "0248_export_location_bindings")
-    assert module._REF_CHECK.strip() == latest._OLD_1.strip()
-    assert latest._NEW_1.strip() == EXPORT_MEDIA_STORAGE_REF_CHECK.strip()
+    bindings = _migration(None, "0248_export_location_bindings")
+    assert module._REF_CHECK.strip() == bindings._OLD_1.strip()
     assert module._DOCUMENTS_CHECK.strip() == EXPORT_MEDIA_DOCUMENTS_CHECK.strip()
     assert not Bundle.__table__.foreign_keys
     foreign_key = next(iter(ExportOutput.__table__.c.media_bundle_id.foreign_keys))
     assert foreign_key.target_fullname == "export_media_bundles.id"
     assert foreign_key.ondelete == "RESTRICT"
+    async with test_engine.begin() as db:
+        await db.exec_driver_sql(
+            "CREATE TEMP TABLE model_export_media_ref (LIKE public.export_media_bundles, "
+            f"CONSTRAINT ck_export_media_storage_ref CHECK ({EXPORT_MEDIA_STORAGE_REF_CHECK})) "
+            "ON COMMIT DROP"
+        )
+        predicate = text(
+            "SELECT pg_get_expr(conbin, conrelid) FROM pg_constraint "
+            "WHERE conrelid = to_regclass(:relation) "
+            "AND conname = 'ck_export_media_storage_ref' AND convalidated"
+        )
+        installed = await db.execute(
+            predicate, {"relation": "public.export_media_bundles"}
+        )
+        model = await db.execute(
+            predicate, {"relation": "pg_temp.model_export_media_ref"}
+        )
+        assert installed.scalar_one() == model.scalar_one()
 
 
 async def test_owner_survives_absent_business_records_with_exact_expected_inventory(
@@ -224,20 +243,25 @@ async def test_empty_roundtrip_leaves_legacy_zip_owners_unassociated(owned_db):
 
     def roundtrip(sync):
         schema = sync.scalar(text("SELECT current_schema()"))
-        foreign_keys = inspect(sync).get_foreign_keys("export_outputs", schema=schema)
-        assert foreign_keys[0]["options"]["ondelete"] == "RESTRICT"
+        (foreign_key,) = inspect(sync).get_foreign_keys("export_outputs", schema=schema)
+        assert foreign_key["constrained_columns"] == ["media_bundle_id"]
+        assert foreign_key["referred_table"] == "export_media_bundles"
+        assert foreign_key["options"]["ondelete"] == "RESTRICT"
+        zip_row = text(
+            "SELECT to_jsonb(z) FROM export_outputs AS z WHERE id=:id"
+        ).bindparams(id=output.id)
+        saved_zip = sync.execute(zip_row).scalar_one()
+        assert "upload_proof" not in saved_zip
+        assert saved_zip["media_bundle_id"] is None
         _migration(sync).downgrade()
         assert not inspect(sync).has_table("export_media_bundles", schema=schema)
+        legacy_zip = sync.execute(zip_row).scalar_one()
+        assert "media_bundle_id" not in legacy_zip
+        assert {**legacy_zip, "media_bundle_id": None} == saved_zip
         _migration(sync).upgrade()
+        assert sync.execute(zip_row).scalar_one() == saved_zip
 
     await connection.run_sync(roundtrip)
-    assert (
-        await owned_db.scalar(
-            text("SELECT media_bundle_id FROM export_outputs WHERE id=:id"),
-            {"id": output.id},
-        )
-        is None
-    )
 
 
 async def test_downgrade_cannot_erase_even_unclaimed_responsibility(owned_db):
@@ -478,9 +502,7 @@ async def test_half_publication_cannot_commit(owned_db, only):
         async with owned_db.begin_nested():
             if only == "zip":
                 await owned_db.execute(
-                    update(ExportOutput)
-                    .where(ExportOutput.id == output.id)
-                    .values(state="ready")
+                    update(type(output)).filter_by(id=output.id).values(state="ready")
                 )
             else:
                 await owned_db.execute(

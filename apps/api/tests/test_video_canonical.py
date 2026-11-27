@@ -109,16 +109,9 @@ async def test_canonical_uses_older_accepted_run_when_newer_run_is_stale(monkeyp
         status="accepted",
     )
 
-    class Result:
-        def scalars(self):
-            return self
-
-        def all(self):
-            return [newest, accepted]
-
-    class Db:
-        async def execute(self, _statement):
-            return Result()
+    async def list_runs(_db, operation, *, task_id):
+        assert operation == "list_video_runs" and task_id == task.id
+        return {"rows": [newest, accepted]}
 
     async def refresh(_db, run):
         if run is newest:
@@ -126,8 +119,12 @@ async def test_canonical_uses_older_accepted_run_when_newer_run_is_stale(monkeyp
             return True
         return False
 
+    monkeypatch.setattr("app.services.video_canonical.spatial_quality_data", list_runs)
+    monkeypatch.setattr(
+        "app.services.video_canonical.quality_rows", lambda _model, rows: list(rows)
+    )
     monkeypatch.setattr("app.services.video_canonical.refresh_staleness", refresh)
 
     assert await accepted_boundary_runs(
-        Db(), task=task, segments=[left, right], scope=None
+        SimpleNamespace(), task=task, segments=[left, right], scope=None
     ) == [accepted]

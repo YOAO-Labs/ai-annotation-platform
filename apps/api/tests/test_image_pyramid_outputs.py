@@ -5,18 +5,14 @@ Provider I/O uses an in-memory provider. The normal disposable DB fixtures own
 migration execution; this module never starts a runtime or creates a database.
 """
 
-from copy import deepcopy
 import asyncio
-from datetime import timedelta
 import hashlib
-from types import SimpleNamespace
 import uuid
+from copy import deepcopy
+from datetime import timedelta
+from types import SimpleNamespace
 
-from botocore.config import Config
 import pytest
-from sqlalchemy import delete, update
-from sqlalchemy.exc import IntegrityError
-
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import (
@@ -39,6 +35,10 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from botocore.config import Config
+from sqlalchemy import delete, update
+from sqlalchemy.exc import IntegrityError
+
 from tests.test_image_pyramid_storage import Provider
 from tests.training_original_fixtures import image_bytes
 
@@ -458,7 +458,7 @@ async def test_stale_publish_and_fail_cannot_damage_a_new_lease(db_session, regi
     )
     await db_session.refresh(generation)
     output2_id = generation.output_id
-    assert await service.publish_generation(db_session, **old_publication) is False
+    assert await objects.publish_generation(db_session, **old_publication) is False
     await service.fail_generation(
         db_session,
         asset_id=asset.id,
@@ -479,7 +479,7 @@ async def test_publication_rejects_an_expired_current_lease(db_session, register
     publication = _publication(registered, asset, generation, output, token)
     generation.lease_expires_at = service.utcnow() - timedelta(seconds=1)
     await db_session.flush()
-    assert await service.publish_generation(db_session, **publication) is False
+    assert await objects.publish_generation(db_session, **publication) is False
     assert output.state == "building"
     assert asset.active_generation is None
     assert registered.item.thumbnail_path is None
@@ -566,7 +566,7 @@ async def test_publication_requires_complete_consistent_output_receipts(
         publication["width"] = 3
     try:
         async with db_session.begin_nested():
-            accepted = await service.publish_generation(db_session, **publication)
+            accepted = await objects.publish_generation(db_session, **publication)
     except (
         ContentError,
         physical.ImagePyramidStorageError,
@@ -587,7 +587,7 @@ async def test_valid_publication_sets_saved_output_and_thumbnail(
 ):
     asset, generation, token, output = await _leased(db_session, registered)
     publication = _publication(registered, asset, generation, output, token)
-    assert await service.publish_generation(db_session, **publication) is True
+    assert await objects.publish_generation(db_session, **publication) is True
     await db_session.refresh(asset)
     await db_session.refresh(generation)
     await db_session.refresh(output)

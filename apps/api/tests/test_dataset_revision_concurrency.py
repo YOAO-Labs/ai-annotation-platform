@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.user import User
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import StorageLocation
@@ -23,8 +24,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.audit_log import AuditLog
 from app.services import content_snapshot as snapshots
-from app.services import dataset_source_revisions as revisions
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from tests.test_dataset_content import content_world
 from tests.test_dataset_source_revisions import candidate
 
@@ -132,7 +132,7 @@ async def test_concurrent_confirmations_share_or_compete_for_one_revision(
         async def accept(other=False):
             async with maker() as db:
                 actor = await db.get(User, actor_id)
-                result = await revisions.accept(
+                result = await accept_revision(
                     db,
                     run_id,
                     other_digest if other else change["path_digest"],

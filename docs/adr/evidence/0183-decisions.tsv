@@ -556,7 +556,7 @@ id	source_at_e8a4f595	related_adr	constraint_and_reason
 0183-0555	apps/api/app/services/dataset_references.py:594,636-637	-	托管原件注册不跨目标存储 I/O 持有命名锁，因此发布时必须重新校验资格。若封存后已有另一注册胜出，保留本次独立的 Creation，由新尝试在 SQL 锁外复核胜出记录。
 0183-0556	apps/api/app/services/dataset_references.py:817-818	-	原始引用不可变；读取观测仅可用同一业务资产且已明确接受的凭据更新，否则更新观测就可能变相把既有引用绑定到另一资产。
 0183-0557	apps/api/app/services/dataset_references.py:1249-1250	-	引用资源事务不能提交调用方管理的 Connection 或外层事务。生产会话绑定 Engine，资源事务使用独立连接，否则提交引用资源可能提前提交调用方的其他修改。
-0183-0558	apps/api/app/services/dataset_scans.py:123-124,128-129	archive/0093-resumable-directory-inventory.md	扫描拿到 Source 锁后须重读 Run 与 Job 的关联，因为等待期间恢复操作可能已换掉尝试。随后先锁 Job 再锁 Run，旧终态 Job 也不例外，以免与先删 Job、再由外键清空 Run.async_job_id 的保留清理逆序。
+0183-0558	apps/api/app/services/dataset_scans.py:123-124,128-129	archive/0192-resumable-directory-inventory.md	扫描拿到 Source 锁后须重读 Run 与 Job 的关联，因为等待期间恢复操作可能已换掉尝试。随后先锁 Job 再锁 Run，旧终态 Job 也不例外，以免与先删 Job、再由外键清空 Run.async_job_id 的保留清理逆序。
 0183-0559	apps/api/app/services/dataset_source_access.py:25-26	-	授权查询改用文本 SQL 后，仅在 autoflush 开启时显式 flush；不补 flush 会读不到待写入的 ORM 变更，无条件 flush 又会破坏调用方的 no_autoflush 语义。
 0183-0560	apps/api/app/services/dataset_source_access.py:183-184	-	恢复流程替换 async_job_id 后，须用 Job payload 识别原先保留的尝试，不能再用已改写的字段判断归属。比较时使用字符串，避免畸形旧值在转换为 UUID 时中断恢复。
 0183-0561	apps/api/app/services/dataset_source_revisions.py:180;apps/api/app/services/dataset_source_sync.py:483	-	调度器、扫描和人工注册须通过同一个 Source 串行化修订选择。同步探测完成后还须在该边界内重新检查人工操作冲突，否则探测期间发生的人工选择会使先前的判断失效。
@@ -1075,8 +1075,8 @@ id	source_at_e8a4f595	related_adr	constraint_and_reason
 0183-1074	apps/api/app/services/ml_routing/policy.py:79-80,88-91	archive/0050-ml-backend-service-pools-and-request-routing.md	SWRR 同权时显式选择 UUID 十六进制字典序最小的实例；依赖 max 取首项会把决胜交给候选顺序，而确定性 UUID 让各进程对同一组候选作出相同选择。
 0183-1075	apps/api/app/services/point_cloud_quality/originals.py:488-489;apps/api/app/services/video_tracking/jobs.py:366-367	-	点云原件解析和追踪保存都先锁 Task，再锁下游行，避免与同任务写方形成反向锁序。点云解析沿用 Scene、Track、Annotation 的顺序，并由规范解析器额外锁定 Item、Asset、Location 和 Gate。
 0183-1076	apps/api/app/services/point_cloud_quality/service.py:848	-	PointCloudQualityIssue 的归属已写入后，用 set_committed_value 同步缓存中的 stale；普通 ORM 赋值会将其再次标为待写，导致 flush 多发一条 UPDATE。
-0183-1077	apps/api/app/services/source_readers/s3.py:269	0098-strict-external-s3-references.md	S3 LIST 只能证明对象键被列出，不能确认列出的是哪个版本；不能把列表条目当作对象版本身份的证据。
-0183-1078	apps/api/app/services/source_readers/s3.py:367,375-376	0098-strict-external-s3-references.md	连接器凭据仅能用于 owner 配置的精确端点，回环例外也只属于该端点。字面 IP 不查 DNS，但其他字面 IP 仍须经过连接器 IP 校验，不能借免解析绕过地址约束。
+0183-1077	apps/api/app/services/source_readers/s3.py:269	0197-strict-external-s3-references.md	S3 LIST 只能证明对象键被列出，不能确认列出的是哪个版本；不能把列表条目当作对象版本身份的证据。
+0183-1078	apps/api/app/services/source_readers/s3.py:367,375-376	0197-strict-external-s3-references.md	连接器凭据仅能用于 owner 配置的精确端点，回环例外也只属于该端点。字面 IP 不查 DNS，但其他字面 IP 仍须经过连接器 IP 校验，不能借免解析绕过地址约束。
 0183-1079	apps/api/app/services/video_tracking/backend_identity.py:79	-	旧版聚合追踪能力声明只表明后端支持该能力，不包含逐模型制品身份；拿它代替制品身份会把同一聚合声明下的不同制品当成同一个。
 0183-1080	apps/api/app/services/video_tracking/execution.py:64	-	验证执行者的 claim 前必须禁止 ORM 自动 flush；否则连校验查询都可能先冲刷待写变更，让已经失去执行权的执行者抢先写入。
 0183-1081	apps/api/app/services/video_tracking/execution.py:75	-	数据库异常可能附带私有 SQL 参数，执行层只抛出 storage_unavailable 并切断原异常链；仅替换顶层错误消息仍可能从异常链泄露参数。
@@ -1133,10 +1133,10 @@ id	source_at_e8a4f595	related_adr	constraint_and_reason
 0183-1132	apps/api/app/workers/cross_frame_job.py:402,409-412	-	跨帧任务即使只读 review 态源 Task，也须验证审核权限；写标注不能以审核员或查看者身份代替有效标注员或管理员权限，review 态还须验证冻结的贡献者证据。
 0183-1133	apps/api/app/workers/dataset_quality.py:69	-	dataset_quality 将持久化租约用作发件箱；派发失败不应使运行记录失去后续投递机会，Beat 会在租约过期后重试。
 0183-1134	apps/api/app/workers/dataset_registration.py:283	-	dataset_registration 重放文件前须先使崩溃或租约过期的旧分块失效；沿用旧代次会让已经失去有效租约的分块仍被当作本轮工作。
-0183-1135	apps/api/app/workers/dataset_scan.py:30-31	archive/0093-resumable-directory-inventory.md	dataset_scan 发布结果不明时不能假定消息未送达；原任务 ID 仍须受栅栏约束，由恢复流程原子替换，不能让可能已投递的旧任务和恢复任务同时有效。
-0183-1136	apps/api/app/workers/dataset_scan.py:181	archive/0093-resumable-directory-inventory.md	dataset_scan 收到排队消息时，不能把先前已获准排队当作当前仍有效的依据；否则迟到的消息可能重新激活已经删除或退役的契约。
-0183-1137	apps/api/app/workers/dataset_scan.py:193	archive/0093-resumable-directory-inventory.md	dataset_scan 回滚会使 ORM 属性过期，实际关闭证据也不例外；须重新加载回执再判定是否关闭，不能沿用回滚前读到的状态。
-0183-1138	apps/api/app/workers/dataset_scan.py:200	archive/0093-resumable-directory-inventory.md	dataset_scan 更新回执失败时，不能用回执写入错误替代 owner 的原始失败，也不能据此抹去回执已经持久化的状态。
+0183-1135	apps/api/app/workers/dataset_scan.py:30-31	archive/0192-resumable-directory-inventory.md	dataset_scan 发布结果不明时不能假定消息未送达；原任务 ID 仍须受栅栏约束，由恢复流程原子替换，不能让可能已投递的旧任务和恢复任务同时有效。
+0183-1136	apps/api/app/workers/dataset_scan.py:181	archive/0192-resumable-directory-inventory.md	dataset_scan 收到排队消息时，不能把先前已获准排队当作当前仍有效的依据；否则迟到的消息可能重新激活已经删除或退役的契约。
+0183-1137	apps/api/app/workers/dataset_scan.py:193	archive/0192-resumable-directory-inventory.md	dataset_scan 回滚会使 ORM 属性过期，实际关闭证据也不例外；须重新加载回执再判定是否关闭，不能沿用回滚前读到的状态。
+0183-1138	apps/api/app/workers/dataset_scan.py:200	archive/0192-resumable-directory-inventory.md	dataset_scan 更新回执失败时，不能用回执写入错误替代 owner 的原始失败，也不能据此抹去回执已经持久化的状态。
 0183-1139	apps/api/app/workers/export.py:257-258	-	导出进度更新须与完成操作串行化；否则迟到的重复投递可能在作业已经完成后把进度从 100% 写回更低的值。
 0183-1140	apps/api/app/workers/export.py:289-292,1182,1198-1199	-	导出命中缓存也须复核当前账号、成员资格和规范化任务范围；worker 参数与存档范围不符就拒绝交付。最终发布须与取消和授权撤销串行化，签发 URL 时还须复查有效期，因为共享行锁挡不住凭据在等锁时过期。
 0183-1141	apps/api/app/workers/export.py:352-353	-	导出通知须由调用方在事务提交后发布；提前发送会让 WebSocket 投递门禁读不到尚未提交的通知记录。

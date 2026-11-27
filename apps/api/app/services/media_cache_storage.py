@@ -1,20 +1,22 @@
 """Saved media-cache roots and current credentials; only allocation follows Binding."""
 
-from copy import deepcopy
-from dataclasses import dataclass, field, replace
 import hashlib
 import re
 import uuid
-from botocore.exceptions import ClientError
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 
+from botocore.exceptions import ClientError
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.thumbnail_output import media_cache_ref_check
 from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.export_storage import _endpoint as _parse_endpoint, _plain
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service as storage_service
+from app.services.storage_errors import MediaCacheStorageError
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
+from app.services.storage_identity import parse_endpoint as _parse_endpoint
+from app.services.storage_identity import plain as _plain
 from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 ref_check = media_cache_ref_check
@@ -44,12 +46,6 @@ _FIELDS = frozenset(
         "key_prefix",
     }
 )
-
-
-class MediaCacheStorageError(ValueError):
-    def __init__(self, code="media_cache_storage_identity_changed", status_code=409):
-        super().__init__("媒体缓存存储归属或目标能力无法核实")
-        self.code, self.status_code = code, status_code
 
 
 def _reject(code="media_cache_storage_identity_changed"):
@@ -296,8 +292,9 @@ async def target_for_ref(db, ref, *, require_enabled=True):
                 or ref["binding_generation"] != binding["binding_generation"]
             ):
                 _reject()
-            from app.services.saved_media_io import scoped_fixture_target
             from yoao_assets_media_runtime.fixture_native_outputs import load_target
+
+            from app.services.saved_media_io import scoped_fixture_target
 
             control_url = fixture_media_execution._control_url().render_as_string(
                 hide_password=False

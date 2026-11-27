@@ -31,6 +31,8 @@ Execution requests and results carry immutable JSON, exact task IDs, selected-in
 
 `execution_pipeline`, `execution_context`, `roi`, `secondary` and `tracker` compose the same model port. Assets supplies accepted inputs and crop publication. Jobs owns execution claims and dispatch. Labeling owns raw/prepared result journals and final candidate writes. Inference never commits those owners' state. Frame multistage prediction remains unsupported.
 
+If the caller stops dispatch before a child model runs, the whole task stops with that error. A stage's `on_failure` policy handles model failures; it cannot turn a dispatch veto into a partial prediction.
+
 ## Transactions and persistence
 
 Topology, project enablement, health writes and GPU caller administration use finite Native capabilities in the original caller unit of work. They preserve account/project authorization, lock order, flush boundaries, dirty-row handling, rollback and final commit ownership. They are not independent network transactions or generic SQL RPCs.

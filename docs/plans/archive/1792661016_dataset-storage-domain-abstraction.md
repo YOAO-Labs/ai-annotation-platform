@@ -66,7 +66,7 @@
 - 路径语义消费者：`apps/api/app/services/scene_inference.py`、`pointcloud_import.py`、`exporting/packaging.py`、`exporting/lidar_preflight.py`、`apps/api/app/workers/export.py`。
 - 回填命令：`apps/api/scripts/backfill_dataset_assets.py`，提供明确 dataset/all 目标、dry-run/apply/verify、有界 keyset、批次游标、逐批提交和只读校验；重跑从头扫描并跳过完整映射，游标可缩小续跑范围，不宣称持久任务调度。
 - 验证：新增 `apps/api/tests/test_dataset_assets.py`、`test_dataset_asset_backfill.py`、`test_migration_0194_dataset_asset_identity.py`；同步 `test_dataset_import.py`、`test_datasets_upload_zip.py`、`test_export_packaging.py` 的键断言；新增 `test_export_lidar.py` 的真实导出别名回归，复用 Scene、关联、金字塔与训练桥接回归。
-- 正式文档：`docs/adr/archive/0091-dataset-content-and-location-identity.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/datasets.md`、`README.md`、`CHANGELOG.md`，以及本系列草案导航与引用。API schema 不变，核对 OpenAPI 快照无需改动，不生成虚假 SDK 能力。
+- 正式文档：`docs/adr/archive/0210-dataset-content-and-location-identity.md`、`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`、`docs-site/user-guide/datasets/import-images.md`、`docs-site/api/guides/datasets.md`、`README.md`、`CHANGELOG.md`，以及本系列草案导航与引用。API schema 不变，核对 OpenAPI 快照无需改动，不生成虚假 SDK 能力。
 
 ```text
 上传/ZIP/连接器 -> 唯一托管键 -> 现有 StorageService -> datasets 桶
@@ -282,7 +282,7 @@ AssetLocation 的“副本”必须与所绑定 Asset 的完整内容字节一�
 - E01-A 已完成：Alembic 0194 增加兼容身份四表和固定扫描根；三种写入入口使用唯一托管键与 SHA-256，历史真实键及不可信 hash 保留。新样本单独保存逻辑路径，Scene、点云分帧、导出标签和媒体清单均消费它，扫描重名不覆盖下载文件。
 - 回填工具提供显式目标、数据库只读预览/校验、批次提交、游标续跑及幂等恢复；首次绑定与旧 Item 的锁顺序统一。历史回填不改 Item.updated_at、业务关系或冻结输入。短读候选不建立去重结论，S3 条件读取失败返回 409。
 - 实现提交：本 Outcome 所在提交（见 Git 历史）；发布里程碑尚未确定，不分配版本。
-- 正式用户文档：`docs-site/user-guide/datasets/import-images.md`；开发与运维：`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`；接口：`docs-site/api/guides/datasets.md`；决策：`docs/adr/archive/0091-dataset-content-and-location-identity.md`。README 导航和 CHANGELOG Unreleased 已更新。
+- 正式用户文档：`docs-site/user-guide/datasets/import-images.md`；开发与运维：`docs-site/dev/concepts/storage-connections.md`、`docs-site/dev/reference/storage-buckets.md`；接口：`docs-site/api/guides/datasets.md`；决策：`docs/adr/archive/0210-dataset-content-and-location-identity.md`。README 导航和 CHANGELOG Unreleased 已更新。
 - 本地验证：14 个相关测试文件 243 passed；另 3 个导出测试文件 49 passed（包含实际点云 ZIP 的重名逻辑路径回归）。后者与前者有重叠，不合并计数。7 条通知 AsyncMock 警告来自既有 worker 测试；新增双帧导出用例另暴露 2 条重复目录 ZIP 警告，仅为空目录条目，媒体清单路径互不重复。
 - 迁移验证：全新升级、可逆前缀往返、0174 屏障后的可逆后缀往返、向前升级及环境恢复均通过，无遗留临时数据库；已使用身份/绑定的降级被明确拒绝。OpenAPI 快照一致，Python Ruff、文档构建和文档结构检查通过。
 - 清理：本轮拥有的 dev/test 数据库、Redis 和存储桶在验证后销毁；pytest 临时文件、编译缓存及文档构建产物清理。未启动本 checkout 的 API/Celery，也未重启或迁移其他 checkout 的开发/生产环境。
@@ -332,9 +332,9 @@ README与升级指南同步权限裁剪、维护入口、JWT读取、旧任务�
 | AC08 | `dataset_assets.PURPOSE_BUCKET_ATTRIBUTES`固定九用途；测试验证配置漂移及缺失avatars绑定返回具体错误；正式职责表见`storage-buckets.md`。 |
 | AC09 | `517e68867`的真实旧应用受控只读演练七组检查通过：旧原件可读、三类HTTP修改各有权限拒绝、切回当前后两类原件可读，165表／342行保持，临时凭据及资源独立确认清理。 |
 
-故事对应关系：S01→AC02，S02→AC05，S03→AC03，S04→AC07／08，S05→AC01／04／06／09，S06→E03／E05已验证的内容变化、来源不可用和预览状态分离。工程交付分别落在调用方／九用途清单、已接受ADR0091／0092／0094、0194迁移与正式回填工具、统一解析与B1／B2、稳定键及ETag分离、业务回归与实际演练、已归档E03／E05契约和E02明确的未迁移限制；完成定义已满足。
+故事对应关系：S01→AC02，S02→AC05，S03→AC03，S04→AC07／08，S05→AC01／04／06／09，S06→E03／E05已验证的内容变化、来源不可用和预览状态分离。工程交付分别落在调用方／九用途清单、已接受ADR0190／0191／0193、0194迁移与正式回填工具、统一解析与B1／B2、稳定键及ETag分离、业务回归与实际演练、已归档E03／E05契约和E02明确的未迁移限制；完成定义已满足。
 
-实现交付见E01-A历史、`207e38843`与`517e68867`；本次为用户修订与证据收口，不分配发布版本。正式知识已进入[存储连接](../../../docs-site/dev/concepts/storage-connections.md)、[九用途职责](../../../docs-site/dev/reference/storage-buckets.md)、[用户导入说明](../../../docs-site/user-guide/datasets/import-images.md)、[升级指南](../../../docs-site/ops/upgrade-guide.md#数据集存储的受控只读应用回退)、README及CHANGELOG，身份决策见ADR0091／0092／0094。
+实现交付见E01-A历史、`207e38843`与`517e68867`；本次为用户修订与证据收口，不分配发布版本。正式知识已进入[存储连接](../../../docs-site/dev/concepts/storage-connections.md)、[九用途职责](../../../docs-site/dev/reference/storage-buckets.md)、[用户导入说明](../../../docs-site/user-guide/datasets/import-images.md)、[升级指南](../../../docs-site/ops/upgrade-guide.md#数据集存储的受控只读应用回退)、README及CHANGELOG，身份决策见ADR0190／0191／0193。
 
 保留限制：补算只建立当前字节基线，不能证明未知历史字节；旧Task详情因`FOR SHARE`在真正只读事务中不可用；本地演练不代表其他旧提交或生产环境的回退资格。实际用途迁移、生产部署和E06／E07目标仍由各自Epic约束，不成为E01新增前置。
 

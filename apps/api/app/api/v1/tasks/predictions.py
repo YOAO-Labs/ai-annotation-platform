@@ -41,8 +41,8 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     classify_raster_mask_content_error,
     load_coco_rle,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.video_tracks import resolve_track_at_frame
 from app.services.video_collaboration import (

@@ -545,7 +545,7 @@ async def test_managed_image_authority_runs_only_after_native_selection_start(
     from app.core.security import create_access_token
     from app.db.models.project import Project
     from app.db.models.user import User
-    from app.services import async_job as jobs, prediction_progress
+    from app.services import jobs_lifecycle_data as jobs, prediction_progress
     from app.services.content_snapshot import ContentError
     from app.services.dataset_assets import ensure_legacy_bindings
     from app.services.prediction_execution import create_snapshot

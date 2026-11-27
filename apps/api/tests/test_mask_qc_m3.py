@@ -231,9 +231,18 @@ async def test_neighbor_compare_excludes_the_current_held_keyframe(
     dataset.data_type = "video"
     dataset.is_temporal = True
     item.file_type = "video"
-    item.metadata_ = {"video": {"frame_count": 20}}
+    item.metadata_ = {
+        "video": {
+            "width": item.width or 4,
+            "height": item.height or 4,
+            "frame_count": 20,
+        }
+    }
     task.file_type = "video"
     await media_owner.seed_video_item(item, user.id)
+    from tests.video_derivative_fixtures import owned_metadata
+
+    await owned_metadata(db_session, item)
     annotation.version = 1
     annotation.geometry = {
         "type": "video_track_mask",
@@ -300,11 +309,14 @@ async def test_tracker_compare_requires_exact_job_revision_and_candidate_digest(
         file_type="video",
         width=4,
         height=4,
-        metadata_={"video": {"frame_count": 20}},
+        metadata_={"video": {"width": 4, "height": 4, "frame_count": 20}},
     )
     db_session.add(item)
     await db_session.flush()
     await media_owner.seed_video_item(item, user.id)
+    from tests.video_derivative_fixtures import owned_metadata
+
+    await owned_metadata(db_session, item)
     task.file_type = "video"
     task.dataset_item_id = item.id
     annotation.version = 1

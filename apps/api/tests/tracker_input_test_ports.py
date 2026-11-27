@@ -378,9 +378,84 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
         async def prepare(self, *, tracker_job_id, **_kwargs):
             job = await self._load(tracker_job_id)
             if self.declare_tracker_backend and job.model_key != "mock_bbox":
+                from sqlalchemy import select
+                from yoao_inference_contract.routing import RoutingScopeView
+                from app.config import settings
+                from app.db.models.ml_backend_pool import (
+                    MLBackendPoolMember,
+                    MLBackendServicePool,
+                )
                 from app.db.models.project import Project
                 from app.db.models.ml_backend_registry import ProjectMLBackendPool
+                from app.services.ml_routing.authority import RoutingAuthority
                 from tests.conftest import create_registry_with_pool
+
+                monkeypatch.setattr(settings, "ml_backend_router_mode", "off")
+
+                async def _acquire_route(
+                    _authority,
+                    *,
+                    pool_id=None,
+                    registry_id=None,
+                    project_id=None,
+                    mode="direct",
+                    owner="api",
+                    operation="backend_http",
+                    required_instance_id=None,
+                    **_kw,
+                ):
+                    instance_id = required_instance_id or registry_id
+                    resolved_pool_id = pool_id
+                    if instance_id is None and resolved_pool_id is not None:
+                        instance_id = await db_session.scalar(
+                            select(MLBackendPoolMember.registry_id)
+                            .where(MLBackendPoolMember.pool_id == resolved_pool_id)
+                            .limit(1)
+                        )
+                    if resolved_pool_id is None and instance_id is not None:
+                        resolved_pool_id = await db_session.scalar(
+                            select(MLBackendPoolMember.pool_id)
+                            .where(MLBackendPoolMember.registry_id == instance_id)
+                            .limit(1)
+                        )
+                    generation = 1
+                    if resolved_pool_id is not None:
+                        pool_gen = await db_session.scalar(
+                            select(MLBackendServicePool.routing_generation).where(
+                                MLBackendServicePool.id == resolved_pool_id
+                            )
+                        )
+                        if pool_gen is not None:
+                            generation = pool_gen
+                    return RoutingScopeView(
+                        id=uuid.uuid4(),
+                        pool_id=resolved_pool_id,
+                        registry_id=instance_id,
+                        project_id=project_id,
+                        mode=mode,
+                        owner=owner,
+                        operation=operation,
+                        generation=generation,
+                        config_revision=1,
+                        eligibility_revision=1,
+                        authority_epoch=uuid.uuid4(),
+                        state="reserved",
+                        closed=False,
+                        heartbeat_deadline_ms=9_999_999_999_999,
+                        capability="a" * 64,
+                    )
+
+                async def _close_route(_authority, _scope, _outcome="success"):
+                    return {"closed": True}
+
+                async def _snapshot_route(_authority, _registry_ids):
+                    return None
+
+                monkeypatch.setattr(RoutingAuthority, "acquire", _acquire_route)
+                monkeypatch.setattr(RoutingAuthority, "close", _close_route)
+                monkeypatch.setattr(
+                    RoutingAuthority, "runtime_snapshot", _snapshot_route
+                )
 
                 project = await db_session.get(Project, self.status.project_id)
                 if project.ml_backend_pool_id is None:

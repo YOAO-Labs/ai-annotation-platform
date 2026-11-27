@@ -10,7 +10,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.prediction_execution import prune_retained_snapshots
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app

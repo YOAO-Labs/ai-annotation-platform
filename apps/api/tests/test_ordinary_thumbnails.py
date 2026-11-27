@@ -45,12 +45,14 @@ from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 from app.services.workspace_e2e_fixtures import create_fixture_project
 from app.services import thumbnail_outputs
 from app.services import storage as storage_module
+from dataclasses import replace
+
+from app.services import managed_s3_target
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_s3_target import Target
-from app.services.source_readers.s3 import S3Access
+from app.services.source_readers.s3 import S3Access, ScopedS3Access
 from app.services.storage import storage_service
 from app.workers import media
-from tests.managed_image_inference_fixtures import managed_database
 from tests.managed_original_client_support import Client as OriginalClient, stage_client
 from tests.test_managed_original_reader import error
 
@@ -110,7 +112,7 @@ class Client:
 
 @asynccontextmanager
 async def native_world(
-    test_engine, monkeypatch, *, standalone=False, oversized=False, unsettled=False
+    managed_database, monkeypatch, *, standalone=False, oversized=False, unsettled=False
 ):
     """Use native public owners in one guarded, test-owned PostgreSQL database."""
     value = SimpleNamespace(
@@ -192,7 +194,7 @@ async def native_world(
                 text("SELECT job_id FROM asset_media_jobs LIMIT 1")
             )
 
-    async with managed_database(test_engine.url, before_drop=before_drop) as engine:
+    async with managed_database(before_drop=before_drop) as engine:
         value.engine = engine
         value.factory = async_sessionmaker(engine, expire_on_commit=False)
         loop = asyncio.get_running_loop()
@@ -253,6 +255,30 @@ async def native_world(
                 instance.close()
 
         monkeypatch.setattr(S3Access, "client", client)
+        monkeypatch.setattr(ScopedS3Access, "client", client)
+        original_target_for = managed_s3_target.target_for
+
+        async def local_target_for(db, location, **kwargs):
+            origin = await original_target_for(db, location, **kwargs)
+            if origin.is_registered:
+                return replace(
+                    origin,
+                    _access=ScopedS3Access(
+                        {"endpoint": origin.endpoint_url, "bucket": origin.bucket},
+                        {
+                            "endpoint": origin.endpoint_url,
+                            "access_key": "test",
+                            "secret_key": "test",
+                        },
+                        (),
+                    ),
+                )
+            return origin
+
+        monkeypatch.setattr(managed_s3_target, "target_for", local_target_for)
+        monkeypatch.setattr(
+            thumbnail_outputs.source, "registered", lambda target: False
+        )
 
         class OwnedStorage(storage_module.StorageService):
             def __init__(self, **kwargs):
@@ -299,15 +325,6 @@ async def native_world(
                 name="Ordinary thumbnails",
                 created_by=actor.id,
             )
-            item = DatasetItem(
-                id=uuid.uuid4(),
-                dataset_id=dataset.id,
-                file_name="saved.png",
-                file_path="pending",
-                file_type="image",
-                width=32,
-                height=16,
-            )
             connection = StorageConnection(
                 id=uuid.uuid4(),
                 name="B-" + uuid.uuid4().hex,
@@ -330,10 +347,6 @@ async def native_world(
                 config_revision=2,
                 connection_id=connection.id,
             )
-            db.add_all([dataset, connection])
-            await db.flush()
-            db.add_all([item, location])
-            await db.flush()
             target = Target(
                 location.id,
                 2,
@@ -343,7 +356,19 @@ async def native_world(
                 "公司/root/_aap_managed/datasets/",
                 purpose="datasets",
             )
-            item.file_path = target.key_prefix + "originals/" + uuid.uuid4().hex
+            item = DatasetItem(
+                id=uuid.uuid4(),
+                dataset_id=dataset.id,
+                file_name="saved.png",
+                file_path=target.key_prefix + "originals/" + uuid.uuid4().hex,
+                file_type="image",
+                width=32,
+                height=16,
+            )
+            db.add_all([dataset, connection])
+            await db.flush()
+            db.add_all([item, location])
+            await db.flush()
             asset = DatasetAsset(
                 id=uuid.uuid4(),
                 dataset_item_id=item.id,
@@ -465,10 +490,10 @@ async def native_world(
 
 
 @pytest.fixture
-async def world(test_engine, monkeypatch, request):
+async def world(managed_database, monkeypatch, request):
     mode = getattr(request, "param", "native")
     async with native_world(
-        test_engine,
+        managed_database,
         monkeypatch,
         standalone=mode == "standalone",
         oversized=mode == "oversized",

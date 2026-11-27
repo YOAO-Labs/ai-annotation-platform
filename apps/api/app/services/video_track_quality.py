@@ -20,8 +20,8 @@ from app.db.models.video_track_quality import (
     VideoTrackQualityRun,
 )
 from app.schemas.task import VideoMetadata
-from app.services import async_job as async_job_svc
-from app.services.async_job import create_job
+from app.services import jobs_lifecycle_data as async_job_svc
+from app.services.jobs_lifecycle_data import create_job
 from app.services.mask_formats.image_codecs import rasterize_normalized_polygon
 from app.services.mask_qc.service import canonical_digest
 from app.services.quality_job_dispatch import QualityJobDispatcher

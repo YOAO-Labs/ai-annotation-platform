@@ -221,7 +221,7 @@ async def _change(
 ):
     project = await db.get(Project, fixture["project"], populate_existing=True)
     actor = await db.get(User, fixture["admin"], populate_existing=True)
-    return await change_role(
+    result = await change_role(
         db,
         project_id=project.id,
         actor_id=actor.id,
@@ -233,6 +233,8 @@ async def _change(
         replacement_annotator_id=replacement_annotator_id,
         replacement_reviewer_id=replacement_reviewer_id,
     )
+    await db.commit()
+    return result
 
 
 async def test_same_version_race_and_busy_membership_rollback(test_engine):
@@ -625,6 +627,7 @@ async def test_delete_rejoin_rejects_stale_member_id(test_engine):
                 target_user_id=fixture["member_user"],
                 project_role="annotator",
             )
+            await session.commit()
             assert new_member.id != fixture["member_row"]
             assert new_member.version == 1
             new_member_id = new_member.id

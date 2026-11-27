@@ -398,13 +398,13 @@ CVAT 的 QA 体系是本次调研里最完整的之一：
 
 关键本地证据：
 
-- [`3d-box.md`](../../docs-site/user-guide/workbench/3d-box.md) 描述框体创建、gizmo、自动拟合与跨帧操作。
-- [`pointcloud-view.md`](../../docs-site/user-guide/workbench/pointcloud-view.md) 描述点云显示与视图能力。
-- [`pointcloud-projection.md`](../../docs-site/user-guide/workbench/pointcloud-projection.md) 描述标定投影、相机覆盖层和当前的 2D 建 3D 合同。
-- [`pointcloud-crossframe.md`](../../docs-site/user-guide/workbench/pointcloud-crossframe.md) 描述传播、ego 补偿与邻帧点云。
+- [`3d-box.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/3d-box) 描述框体创建、gizmo、自动拟合与跨帧操作。
+- [`pointcloud-view.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/pointcloud-view) 描述点云显示与视图能力。
+- [`pointcloud-projection.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/pointcloud-projection) 描述标定投影、相机覆盖层和当前的 2D 建 3D 合同。
+- [`pointcloud-crossframe.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/workbench/pointcloud-crossframe) 描述传播、ego 补偿与邻帧点云。
 - [`PointCloudScene.ts`](../../apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts) 明确将真正的 LOD 与 tiling 留作后续，当前路径是完整 PCD 解析后按步长抽样。
 - [`performanceTier.ts`](../../apps/web/src/pages/Workbench/state/performanceTier.ts) 把渲染点数分为 25 万、50 万和 100 万三个档位。
-- [`ai-preannotate.md`](../../docs-site/user-guide/projects/ai-preannotate.md) 当前明确不支持 LiDAR 预标注。
+- [`ai-preannotate.md`](https://yoao-labs.github.io/YOAO-Docs/user-guide/projects/ai-preannotate) 当前明确不支持 LiDAR 预标注。
 
 需要特别避免两个误判：
 

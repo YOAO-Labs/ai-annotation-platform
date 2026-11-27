@@ -79,7 +79,7 @@ async def legacy(
         }
         row.status = "succeeded"
         row.put_expires_at = training_previews.now() - timedelta(seconds=1)
-        for key, (raw, metadata) in objects.objects.items():
+        for (_bucket, key), (raw, metadata) in objects.objects.items():
             store.objects[key], store.metadata[key] = raw, metadata
         path = f"/api/v1/projects/{row.project_id}/training-previews/{row.id}"
     elif purpose == "sample-evaluation":

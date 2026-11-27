@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.services import export_delivery_data as data
 from app.services import (
     export_execution_context,
+    export_media_retirement,
     export_media_storage,
     export_storage,
     export_zip_accounting,
@@ -32,23 +33,14 @@ from app.services import (
 from app.services import (
     storage_migration_read_publications as read_publications,
 )
+from app.services.export_output_receipt import (
+    OutputSnapshot,
+    same as same,
+    snapshot as snapshot,
+)
 from app.services.original_read_plan import ReadRoute
 
 log = logging.getLogger(__name__)
-_FACTS = (
-    "id",
-    "project_id",
-    "job_id",
-    "media_bundle_id",
-    "media",
-    "format",
-    "file_count",
-    "sha256",
-    "size_bytes",
-    "storage_ref",
-    "created_at",
-    "expires_at",
-)
 
 
 def now():
@@ -57,53 +49,6 @@ def now():
 
 def reject(code="export_output_changed"):
     raise export_storage.ExportStorageError(code)
-
-
-@dataclass(frozen=True)
-class OutputSnapshot:
-    id: uuid.UUID
-    project_id: uuid.UUID
-    job_id: uuid.UUID
-    media: str
-    format: str
-    file_count: int
-    sha256: str
-    size_bytes: int
-    created_at: datetime
-    expires_at: datetime
-    _storage_ref: dict = field(repr=False)
-    media_bundle_id: uuid.UUID | None = None
-    fixture: bool = False
-    _upload_proof: dict | None = field(default=None, repr=False)
-
-    @property
-    def upload_proof(self):
-        return deepcopy(self._upload_proof)
-
-    @property
-    def storage_ref(self):
-        return deepcopy(self._storage_ref)
-
-
-def _fact(row, name):
-    return getattr(row, name, None) if name == "media_bundle_id" else getattr(row, name)
-
-
-def snapshot(row, *, fixture=False):
-    """Thread arguments contain immutable values, never an attached ORM record."""
-    export_storage.resolve(row)
-    facts = {name: deepcopy(_fact(row, name)) for name in _FACTS}
-    facts["_storage_ref"] = facts.pop("storage_ref")
-    return OutputSnapshot(
-        **facts,
-        fixture=fixture,
-        _upload_proof=deepcopy(getattr(row, "upload_proof", None)),
-    )
-
-
-def same(row, receipt):
-    current = snapshot(row)
-    return all(_fact(current, name) == _fact(receipt, name) for name in _FACTS)
 
 
 def object_key(receipt):
@@ -701,8 +646,6 @@ async def sign_cached(
 
 
 async def _cleanup_locked(db, identifier):
-    from app.services import export_media_retirement
-
     bundle_id = await data.zip_retirement_bundle(db, identifier)
     bundle = None
     if bundle_id is not None:
@@ -714,8 +657,6 @@ async def _cleanup_locked(db, identifier):
 
 
 async def _cleanup_one(db, identifier, counters):
-    from app.services import export_media_retirement
-
     row, bundle = await _cleanup_locked(db, identifier)
     if row is None:
         await db.commit()

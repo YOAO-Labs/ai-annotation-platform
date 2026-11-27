@@ -2,7 +2,10 @@
 
 import uuid
 
+from fastapi import HTTPException
+
 from app.services import training_dataset_storage as _shared
+from app.services.training_dataset_bridge import TrainingDatasetError
 
 Owner = _shared.Owner
 _PURPOSE = "training-run"
@@ -50,3 +53,45 @@ def expect_attempt(owner, attempt_id, key):
     if not key.startswith(prefix) or len(key) <= len(prefix):
         _shared._reject("training_storage_invalid_key")
     return key
+
+
+def storage_owner(run):
+    """Translate a pinned run locator at HTTP-oriented service boundaries."""
+    try:
+        return resolve(run)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+def attempt_storage_owner(run, attempt, key=None):
+    owner = storage_owner(run)
+    try:
+        if attempt is None or attempt.run_id != run.id:
+            raise TrainingDatasetError(
+                "training_storage_attempt_mismatch",
+                "产物不属于该训练执行",
+                status_code=409,
+            )
+        if key is not None:
+            expect_attempt(owner, attempt.id, key)
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+    return owner
+
+
+def artifact_key(owner, attempt_id, relative_name):
+    try:
+        key = owner.key(f"attempts/{attempt_id}/{relative_name}")
+        expect_attempt(owner, attempt_id, key)
+        return key
+    except TrainingDatasetError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None

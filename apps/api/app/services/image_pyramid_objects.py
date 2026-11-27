@@ -1,19 +1,22 @@
 """Independent pyramid outputs, durable admission and short publication guards."""
 
+from __future__ import annotations
+
+import asyncio
+import re
+import sys
+import uuid
 from contextlib import AsyncExitStack, ExitStack, asynccontextmanager, contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
-import asyncio
-import uuid
-import re
-import sys
 
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import settings
 from app.services import image_pyramid_data as data
+from app.services import image_pyramid_data as pyramid_data
 from app.services import image_pyramid_originals as originals
 from app.services import image_pyramid_storage as physical
 from app.services import key_removal_accounting as removal
@@ -21,6 +24,7 @@ from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
+from app.services.image_pyramid import PYRAMID_FORMAT, ImagePyramidError, load_owner
 from app.services.storage import storage_service
 
 
@@ -542,9 +546,10 @@ async def thumbnail_url(db, owner_kind, owner_id, path, *, actor_id):
     """A cache key alone never grants physical ownership to a common serializer."""
     if not path:
         return None
-    from app.services.image_pyramid import get_asset_for_owner, load_owner
     from fastapi import HTTPException
     from sqlalchemy.exc import DBAPIError
+
+    from app.services.image_pyramid import get_asset_for_owner, load_owner
 
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     try:
@@ -582,7 +587,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path, *, actor_id):
 
 async def retire_fixture(db, control, identifier):
     """Retire this saved pyramid output under its sealed fixture owner."""
-    from app.services.fixture_media_retirement import _retire_output
+    from app.services.fixture_media_output_retirement import _retire_output
 
     def retire(target, output, fixture):
         with physical.open_storage(
@@ -698,3 +703,71 @@ async def reconcile(db, storage):
         except (ContentError, physical.ImagePyramidStorageError):
             await db.rollback()
     return removed
+
+
+async def publish_generation(
+    db: AsyncSession,
+    *,
+    asset_id: uuid.UUID,
+    generation_number: int,
+    lease_token: uuid.UUID,
+    source_fingerprint: str,
+    width: int,
+    height: int,
+    max_level: int,
+    manifest_storage_key: str,
+    manifest_digest: str,
+    overview_storage_key: str,
+    overview_width: int,
+    overview_height: int,
+    overview_digest: str,
+    tile_count: int,
+    retained_bytes: int,
+    output_id: uuid.UUID,
+    inventory: dict,
+    gate_revision: int,
+) -> bool:
+    selected = await pyramid_data.lock_publication(
+        db, asset_id, generation_number, lease_token, output_id
+    )
+    if selected is None:
+        return False
+    asset, generation = selected
+
+    authority = await originals.delegated(db, generation.auth_ref)
+    await originals.check(db, authority, lock=True)
+    owner = await load_owner(
+        db,
+        "dataset_item" if asset.dataset_item_id else "task",
+        asset.dataset_item_id or asset.task_id,
+    )
+    if (
+        generation.original_ref != originals.receipt(owner.source)
+        or generation.original_ref != authority.original
+        or source_fingerprint != "sha256:" + owner.source.sha256
+    ):
+        raise ImagePyramidError("source_changed")
+    facts = {
+        "source_fingerprint": source_fingerprint,
+        "width": width,
+        "height": height,
+        "max_level": max_level,
+        "manifest_key": manifest_storage_key,
+        "manifest_digest": manifest_digest,
+        "overview_key": overview_storage_key,
+        "overview_width": overview_width,
+        "overview_height": overview_height,
+        "overview_digest": overview_digest,
+        "tile_count": tile_count,
+        "retained_bytes": retained_bytes,
+    }
+    return await publish(
+        db,
+        asset,
+        replace(generation, format=PYRAMID_FORMAT, **facts),
+        output_id,
+        lease_token,
+        facts,
+        inventory,
+        gate_revision,
+    )

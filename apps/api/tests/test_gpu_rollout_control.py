@@ -34,6 +34,14 @@ from yoao_inference.gpu.settings import GPUArbiterMode
 
 _RESOURCE = "node-rollout-control/GPU-a"
 
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
+
 
 @pytest.fixture
 async def gpu_authority_data() -> AsyncIterator[GPUAuthorityPoolData]:

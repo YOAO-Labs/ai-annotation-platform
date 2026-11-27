@@ -29,7 +29,13 @@ from tests.identity_e2e_support import (
 from tests.seed_owned_scenarios import A, B, _build_owned, _cleanup_owned
 from tests.test_trained_models import seed_source
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @pytest.mark.parametrize("kind", ["image", "video"])

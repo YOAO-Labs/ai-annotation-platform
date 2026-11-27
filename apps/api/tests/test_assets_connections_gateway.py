@@ -17,11 +17,10 @@ from yoao_assets_source.connections_contract import (
     ConnectionCursor,
     ConnectionMutation,
     ConnectionFailure,
-    CaptureConnectionRequest,
-    ConnectionCapture,
     ConnectionRecord,
     ConnectionProbeReceipt,
     CreateConnectionRequest,
+    DeleteConnectionRequest,
     NativeConnectionFacts,
     NativeConnectionRead,
     NativeConnectionsPage,
@@ -118,38 +117,6 @@ async def test_local_native_read_uses_exact_connection_owner_function():
 
 
 @pytest.mark.asyncio
-async def test_local_native_capture_uses_frozen_three_argument_signature():
-    actor_id, connection_id = uuid.uuid4(), uuid.uuid4()
-    now = datetime.now(UTC)
-    expected = ConnectionCapture(
-        actor_id=actor_id,
-        platform_role="project_admin",
-        connection_id=connection_id,
-        access="admin",
-        connection=_native_record(connection_id, actor_id, "archive", now),
-        secret_enc=None,
-        source_snapshot="b" * 64,
-    )
-    db = AsyncMock(spec=AsyncSession)
-    db.execute.return_value = SimpleNamespace(scalar_one=lambda: _wire(expected))
-
-    result = await AssetsConnectionsGateway(db).capture_storage_connection(
-        CaptureConnectionRequest(
-            actor_id=actor_id, connection_id=connection_id, access="admin"
-        )
-    )
-
-    assert result.source_snapshot == "b" * 64
-    statement, parameters = db.execute.await_args.args
-    assert "yoao_assets_v1.capture_storage_connection" in str(statement)
-    assert parameters == {
-        "actor_id": actor_id,
-        "connection_id": connection_id,
-        "access": "admin",
-    }
-
-
-@pytest.mark.asyncio
 async def test_connection_list_uses_complete_native_pages_even_with_source_host(
     monkeypatch,
 ):
@@ -223,7 +190,7 @@ async def test_native_connection_list_rejects_wrong_cursor_echo():
         await AssetsConnectionsGateway(db).list_connections(actor_id)
 
     assert failure.value.code == "invalid_response"
-    assert failure.value.detail == "Assets connection reply escaped request scope"
+    assert failure.value.detail == "Assets source returned an invalid response"
     db.commit.assert_not_awaited()
 
 
@@ -372,19 +339,17 @@ async def test_remote_inaccessible_connection_is_concealed_as_missing(monkeypatc
 @pytest.mark.asyncio
 async def test_local_mutation_budget_failure_rolls_back_before_commit(monkeypatch):
     actor_id, operation_id = uuid.uuid4(), uuid.uuid4()
-    created_at = datetime.now(UTC)
-    connection = _record(operation_id, actor_id, "archive", created_at)
     result = ConnectionMutation(
         operation_id=operation_id,
         actor_id=actor_id,
-        action="create",
+        action="delete",
         connection_id=operation_id,
-        connection=connection,
+        connection=None,
     )
 
     class Workflow:
         async def invoke(self, operation, request):
-            assert operation == "create"
+            assert operation == "delete"
             assert request.operation_id == operation_id
             return result
 
@@ -394,7 +359,7 @@ async def test_local_mutation_budget_failure_rolls_back_before_commit(monkeypatc
     gateway = AssetsConnectionsGateway(db)
     gateway._workflow = lambda: Workflow()
 
-    with pytest.raises(AssetsConnectionsGatewayError) as failure:
+    with pytest.raises(AssetsConnectionsGatewayError) as local_create_failure:
         await gateway.create_connection(
             CreateConnectionRequest(
                 operation_id=operation_id,
@@ -405,9 +370,19 @@ async def test_local_mutation_budget_failure_rolls_back_before_commit(monkeypatc
                 secret={"access_key": "AK", "secret_key": "SK"},
             )
         )
+    assert local_create_failure.value.code == "service_unavailable"
+
+    with pytest.raises(AssetsConnectionsGatewayError) as failure:
+        await gateway.delete_connection(
+            DeleteConnectionRequest(
+                operation_id=operation_id,
+                actor_id=actor_id,
+                connection_id=operation_id,
+            )
+        )
 
     assert failure.value.code == "invalid_response"
-    db.rollback.assert_awaited_once()
+    assert db.rollback.await_count == 1
     db.commit.assert_not_awaited()
 
 

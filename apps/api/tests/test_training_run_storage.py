@@ -44,19 +44,28 @@ def run():
 
 
 def binding_db(bucket):
+    location = {
+        "id": LEGACY_LOCATION_ID,
+        "name": "platform-minio",
+        "kind": "s3",
+        "config_revision": 1,
+        "enabled": True,
+        "connection_id": None,
+        "config": {
+            "endpoint": settings.minio_endpoint,
+            "use_ssl": settings.minio_use_ssl,
+        },
+    }
+    state = {"location": location}
+
+    async def execute(_statement, _params=None):
+        return SimpleNamespace(
+            mappings=lambda: SimpleNamespace(one_or_none=lambda: state["location"])
+        )
+
     return SimpleNamespace(
-        get=AsyncMock(
-            return_value=SimpleNamespace(
-                id=LEGACY_LOCATION_ID,
-                kind="s3",
-                config_revision=1,
-                enabled=True,
-                config={
-                    "endpoint": settings.minio_endpoint,
-                    "use_ssl": settings.minio_use_ssl,
-                },
-            )
-        ),
+        location_state=state,
+        execute=AsyncMock(side_effect=execute),
         scalar=AsyncMock(
             return_value=SimpleNamespace(
                 location_id=LEGACY_LOCATION_ID,
@@ -212,7 +221,8 @@ async def test_explicit_allocate_flushes_once_never_commits_and_existing_pin_byp
     db.commit = AsyncMock()
     bootstrap = AsyncMock(wraps=datasets.ensure_legacy_bindings)
     monkeypatch.setattr(datasets, "ensure_legacy_bindings", bootstrap)
-    ref = await service.allocate(db, run)
+    with db.no_autoflush:
+        ref = await service.allocate(db, run)
     assert ref == run.storage_ref and ref["purpose"] == "training-run"
     assert ref["origin"] == "new" and ref["evidence"] is None
     bootstrap.assert_awaited_once_with(db)
@@ -265,15 +275,18 @@ async def test_candidate_refuses_unproven_platform_identity(run, monkeypatch, ch
     run.storage_ref = None
     db = binding_db("persisted-bucket")
     if change == "missing-location":
-        db.get.return_value = None
+        db.location_state["location"] = None
     elif change == "missing-binding":
         db.scalar.return_value = None
     elif change == "disabled":
-        db.get.return_value.enabled = False
+        db.location_state["location"]["enabled"] = False
     elif change == "config":
-        db.get.return_value.config = {"endpoint": "another.invalid", "use_ssl": False}
+        db.location_state["location"]["config"] = {
+            "endpoint": "another.invalid",
+            "use_ssl": False,
+        }
     elif change == "revision":
-        db.get.return_value.config_revision = 2
+        db.location_state["location"]["config_revision"] = 2
     elif change == "generation":
         db.scalar.return_value.generation = 2
     elif change == "location":
@@ -309,7 +322,8 @@ async def test_failed_allocation_does_not_write_a_locator(
     monkeypatch.setattr(datasets, "ensure_legacy_bindings", bootstrap)
     monkeypatch.setattr(storage_service, "training_bucket", "another-bucket")
     with pytest.raises(TrainingDatasetError) as caught:
-        await service.allocate(db, run)
+        with db.no_autoflush:
+            await service.allocate(db, run)
     assert caught.value.code == "training_storage_binding_unproven"
     assert run.storage_ref is None
     db.flush.assert_not_awaited()

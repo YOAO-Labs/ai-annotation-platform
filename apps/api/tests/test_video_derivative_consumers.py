@@ -7,13 +7,14 @@ import uuid
 from fastapi import HTTPException, Request
 import pytest
 
+from app.services.dataset_item_display import list_items
 from app.api.v1 import storage
 from app.api.v1.tasks import _shared as shared
+from app.application.dataset_ingest import enqueue_media_for_items
 from app.cli.video import rebuild_timetable as cli
 from app.services import video_derivative_originals as originals
 from app.services import video_derivatives as derivatives
 from app.services.content_snapshot import ContentError
-from app.services.dataset import DatasetService
 from app.services.storage import storage_service
 from app.workers import media, media_derivatives
 
@@ -82,11 +83,18 @@ async def test_task_batch_clears_previous_poster_and_rejects_a_different_path(
         image_pyramid, "task_pyramid_assets", AsyncMock(return_value={})
     )
     dimensions = {value.id: (320, 240, PATH, None, None)}
-    await shared._attach_image_pyramids_batch(db, [value], dimensions)
+    actor_id = uuid.uuid4()
+    await shared._attach_image_pyramids_batch(
+        db, [value], dimensions, actor_id=actor_id
+    )
     assert value._video_derivative_thumbnail == (PATH, "owned-url")
-    await shared._attach_image_pyramids_batch(db, [value], dimensions)
+    await shared._attach_image_pyramids_batch(
+        db, [value], dimensions, actor_id=actor_id
+    )
     assert value._video_derivative_thumbnail is None
-    await shared._attach_image_pyramids_batch(db, [value], dimensions)
+    await shared._attach_image_pyramids_batch(
+        db, [value], dimensions, actor_id=actor_id
+    )
     assert value._video_derivative_thumbnail is None
     checked.assert_awaited_with(db, task_id=value.id)
 
@@ -98,26 +106,27 @@ async def test_task_batch_clears_previous_poster_and_rejects_a_different_path(
 async def test_dataset_list_never_guesses_a_video_thumbnail_bucket(
     monkeypatch, checked, expected
 ):
-    from app.services import dataset as dataset_service, directory_policy
+    from app.services import dataset_item_display as dataset_service, directory_policy
 
     value = SimpleNamespace(
         id=uuid.uuid4(),
         file_type="video",
         file_path="original.mp4",
         thumbnail_path=PATH,
+        directory_owned=False,
     )
-    count, rows = MagicMock(), MagicMock()
-    count.scalar.return_value = 1
-    rows.scalars.return_value.all.return_value = [value]
     db = SimpleNamespace(
-        execute=AsyncMock(side_effect=[count, rows]), commit=AsyncMock()
+        autoflush=False,
+        scalar=AsyncMock(return_value=1),
+        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [value])),
+        commit=AsyncMock(),
     )
     monkeypatch.setattr(dataset_service, "_item_dict", lambda _item: {})
     monkeypatch.setattr(directory_policy, "owns_media", AsyncMock(return_value=False))
     checked_mock = AsyncMock(return_value=checked)
     monkeypatch.setattr(derivatives, "thumbnail", checked_mock)
     denied = deny_current_storage(monkeypatch)
-    results, total = await DatasetService(db).list_items(uuid.uuid4())
+    results, total = await list_items(db, uuid.uuid4())
     assert total == 1
     assert results[0]["thumbnail_url"] == expected
     checked_mock.assert_awaited_once_with(db, item_id=value.id)
@@ -141,7 +150,7 @@ async def test_import_dispatch_uses_an_explicit_pinned_delegation_without_commit
     monkeypatch.setattr(originals, "system_authorization", encode)
     dispatch = MagicMock()
     monkeypatch.setattr(media.generate_video_metadata, "delay", dispatch)
-    await DatasetService(db).enqueue_media_for_items([item_id])
+    await enqueue_media_for_items(db, [item_id])
     originals.pin.assert_awaited_once_with(db, "dataset_item", item_id)
     encode.assert_called_once_with("dataset_item", item_id, source)
     dispatch.assert_called_once_with(str(item_id), delegation=delegation)
@@ -161,35 +170,33 @@ async def test_import_unknown_original_cannot_dispatch(monkeypatch):
     dispatch = MagicMock()
     monkeypatch.setattr(media.generate_video_metadata, "delay", dispatch)
     with pytest.raises(ContentError, match="content_unverified"):
-        await DatasetService(db).enqueue_media_for_items([uuid.uuid4()])
+        await enqueue_media_for_items(db, [uuid.uuid4()])
     dispatch.assert_not_called()
 
 
 async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatch):
-    from app.services import video_asset_retry_jobs
+    from contextlib import asynccontextmanager
 
-    value = SimpleNamespace(
-        id=uuid.uuid4(), file_type="video", video_building_output_id=None
-    )
-    authority, source, actor = object(), object(), SimpleNamespace(id=uuid.uuid4())
+    value = SimpleNamespace(id=uuid.uuid4(), file_type="video")
+    actor = SimpleNamespace(id=uuid.uuid4())
     request = Request({"type": "http", "method": "POST", "path": "/retry"})
-    output_id, events = uuid.uuid4(), []
+    job_id, events, calls = uuid.uuid4(), [], []
     db = SimpleNamespace(
-        get=AsyncMock(return_value=value),
         commit=AsyncMock(side_effect=lambda: events.append("commit")),
     )
-    monkeypatch.setattr(storage, "_assert_media_asset_manager", AsyncMock())
-    monkeypatch.setattr(
-        originals, "authorize_policy", AsyncMock(return_value=authority)
-    )
-    monkeypatch.setattr(originals, "check", AsyncMock(return_value=source))
-    prepare = AsyncMock(return_value=(SimpleNamespace(id=output_id), True))
-    monkeypatch.setattr(derivatives, "prepare", prepare)
-    job_id = uuid.uuid4()
-    observe = AsyncMock(return_value=SimpleNamespace(id=job_id))
-    monkeypatch.setattr(video_asset_retry_jobs, "observe", observe)
-    dispatch = MagicMock(side_effect=lambda _ids: events.append("dispatch"))
-    monkeypatch.setattr(derivatives, "dispatch", dispatch)
+
+    class FakeGateway:
+        async def call(self, operation, media_request):
+            events.append("gateway")
+            calls.append((operation, media_request))
+            return SimpleNamespace(work=SimpleNamespace(job_id=job_id))
+
+    @asynccontextmanager
+    async def gateway_factory(actual_db):
+        assert actual_db is db
+        yield FakeGateway()
+
+    monkeypatch.setattr(storage, "media_gateway", gateway_factory)
     result = await storage.retry_video_asset(
         storage.VideoAssetRetryRequest(asset_type="poster", dataset_item_id=value.id),
         request,
@@ -198,44 +205,36 @@ async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatc
     )
     assert result.status == "queued"
     assert result.job_id == job_id
-    observe.assert_awaited_once_with(db, prepare.return_value[0], actor.id, "poster")
-    originals.authorize_policy.assert_awaited_once_with(
-        db, "storage", value.id, actor, request
-    )
-    prepare.assert_awaited_once_with(
-        db, value.id, authority, "metadata", spec=None, force=True
-    )
-    dispatch.assert_called_once_with([output_id])
-    assert events == ["commit", "dispatch"]
+    assert len(calls) == 1
+    operation, media_request = calls[0]
+    assert operation == "retry_video_media"
+    assert media_request.actor_id == actor.id
+    assert media_request.spec.asset_type == "poster"
+    assert media_request.spec.dataset_item_id == value.id
+    assert events == ["gateway", "commit"]
 
 
 async def test_storage_frame_retry_prepares_metadata_first(monkeypatch):
+    from contextlib import asynccontextmanager
+    from yoao_assets_media.contract import MediaFailure
+
     value = SimpleNamespace(id=uuid.uuid4(), file_type="video")
-    authority, source, actor = object(), object(), object()
+    actor = SimpleNamespace(id=uuid.uuid4())
     request = Request({"type": "http", "method": "POST", "path": "/retry"})
-    events, output_id = [], uuid.uuid4()
-    db = SimpleNamespace(
-        get=AsyncMock(return_value=value),
-        scalar=AsyncMock(return_value=object()),
-        commit=AsyncMock(side_effect=lambda: events.append("commit")),
-    )
-    monkeypatch.setattr(storage, "_assert_media_asset_manager", AsyncMock())
-    monkeypatch.setattr(
-        originals, "authorize_policy", AsyncMock(return_value=authority)
-    )
-    monkeypatch.setattr(originals, "check", AsyncMock(return_value=source))
-    monkeypatch.setattr(
-        derivatives,
-        "metadata",
-        AsyncMock(side_effect=ContentError("video_metadata_unpinned")),
-    )
-    prepare = AsyncMock(return_value=(SimpleNamespace(id=output_id), True))
-    monkeypatch.setattr(derivatives, "prepare", prepare)
-    monkeypatch.setattr(
-        derivatives,
-        "dispatch",
-        MagicMock(side_effect=lambda _ids: events.append("dispatch")),
-    )
+    calls = []
+    db = SimpleNamespace(commit=AsyncMock())
+
+    class FakeGateway:
+        async def call(self, operation, media_request):
+            calls.append((operation, media_request))
+            raise MediaFailure("metadata_not_ready")
+
+    @asynccontextmanager
+    async def gateway_factory(actual_db):
+        assert actual_db is db
+        yield FakeGateway()
+
+    monkeypatch.setattr(storage, "media_gateway", gateway_factory)
     payload = storage.VideoAssetRetryRequest(
         asset_type="frame",
         dataset_item_id=value.id,
@@ -246,9 +245,11 @@ async def test_storage_frame_retry_prepares_metadata_first(monkeypatch):
     with pytest.raises(HTTPException) as failure:
         await storage.retry_video_asset(payload, request, db, actor)
     assert failure.value.status_code == 503
-    assert failure.value.detail == {"code": "video_metadata_preparing"}
-    prepare.assert_awaited_once_with(db, value.id, authority, "metadata")
-    assert events == ["commit", "dispatch"]
+    assert failure.value.detail == "Video metadata not ready"
+    assert len(calls) == 1
+    assert calls[0][0] == "retry_video_media"
+    assert calls[0][1].spec.frame_index == 2
+    db.commit.assert_not_awaited()
 
 
 @pytest.mark.parametrize("published", [True, False])
@@ -336,20 +337,28 @@ async def test_cli_dry_run_is_metadata_only_and_never_dispatches(monkeypatch):
 
 
 async def test_storage_project_denial_precedes_any_original_authorization(monkeypatch):
+    from contextlib import asynccontextmanager
+    from yoao_assets_media.contract import MediaFailure
+
     value, request, actor = (
         SimpleNamespace(id=uuid.uuid4(), file_type="video"),
         object(),
-        object(),
+        SimpleNamespace(id=uuid.uuid4()),
     )
-    db = SimpleNamespace(get=AsyncMock(return_value=value))
-    monkeypatch.setattr(
-        storage,
-        "_assert_media_asset_manager",
-        AsyncMock(side_effect=HTTPException(403, "manager required")),
-    )
-    authorize, dispatch = AsyncMock(), MagicMock()
+    db = SimpleNamespace(commit=AsyncMock())
+
+    class FakeGateway:
+        async def call(self, _operation, _media_request):
+            raise MediaFailure("permission_denied")
+
+    @asynccontextmanager
+    async def gateway_factory(actual_db):
+        assert actual_db is db
+        yield FakeGateway()
+
+    monkeypatch.setattr(storage, "media_gateway", gateway_factory)
+    authorize = AsyncMock()
     monkeypatch.setattr(originals, "authorize_policy", authorize)
-    monkeypatch.setattr(derivatives, "dispatch", dispatch)
     with pytest.raises(HTTPException) as failure:
         await storage.retry_video_asset(
             storage.VideoAssetRetryRequest(
@@ -361,15 +370,16 @@ async def test_storage_project_denial_precedes_any_original_authorization(monkey
         )
     assert failure.value.status_code == 403
     authorize.assert_not_awaited()
-    dispatch.assert_not_called()
+    db.commit.assert_not_awaited()
 
 
 async def test_fresh_video_seed_registers_only_actual_put_bytes_and_defers_dispatch(
     monkeypatch, tmp_path
 ):
     import hashlib
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.db.models.dataset import DatasetItem
-    from app.services import dataset as dataset_service, dataset_assets
+    from app.services import dataset_assets, workspace_seed_data
     from scripts import seed_video as seed
 
     payload = b"known bytes from this seed PUT"
@@ -394,6 +404,11 @@ async def test_fresh_video_seed_registers_only_actual_put_bytes_and_defers_dispa
 
     db.flush = AsyncMock(side_effect=flush)
     monkeypatch.setattr(
+        workspace_seed_data,
+        "create_media_seed_project",
+        AsyncMock(return_value=uuid.uuid4()),
+    )
+    monkeypatch.setattr(
         dataset_assets, "ensure_legacy_bindings", AsyncMock(return_value=binding)
     )
 
@@ -410,7 +425,9 @@ async def test_fresh_video_seed_registers_only_actual_put_bytes_and_defers_dispa
         lambda _path: {"width": 320, "height": 240, "fps": 30, "frame_count": 3},
     )
     monkeypatch.setattr(
-        dataset_service, "build_tasks_for_link", AsyncMock(return_value=1)
+        DatasetTaskCreationWorkflow,
+        "create_tasks_for_linked_dataset",
+        AsyncMock(return_value={"created": 1, "total": 1}),
     )
 
     async def register(actual_db, value, **kwargs):

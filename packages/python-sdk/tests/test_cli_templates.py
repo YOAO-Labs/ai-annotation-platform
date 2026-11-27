@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from uuid import uuid4
 
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import templates as templates_cli
@@ -31,10 +32,11 @@ def test_list_help_exposes_scope_and_repeatable_type_filter():
     result = runner.invoke(templates_cli.app, ["list", "--help"])
 
     assert result.exit_code == 0, result.output
-    assert "private" in result.output
-    assert "organization" in result.output
-    assert "public" in result.output
-    assert "--type-key" in result.output
+    output = Text.from_ansi(result.output).plain
+    assert "private" in output
+    assert "organization" in output
+    assert "public" in output
+    assert "--type-key" in output
 
 
 def test_create_reads_typed_request_from_stdin(monkeypatch):
@@ -77,7 +79,7 @@ def test_delete_json_refusal_does_not_open_client(monkeypatch):
     result = runner.invoke(templates_cli.app, ["delete", TEMPLATE_ID, "--json"])
 
     assert result.exit_code == 2
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
     assert client_requests == []
 
 

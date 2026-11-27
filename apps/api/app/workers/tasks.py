@@ -23,7 +23,7 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> bool:
         create_async_engine,
     )
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.jobs_lifecycle_data import job_lock_statement
 
@@ -165,6 +165,9 @@ def batch_predict(
             run_preannotation(
                 request,
                 execution_id=self.request.id,
+                worker_node_id=(
+                    f"worker:{self.request.hostname}" if self.request.hostname else None
+                ),
                 frame_dispatcher=frame_dispatcher,
             )
         )

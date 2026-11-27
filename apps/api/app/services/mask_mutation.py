@@ -77,9 +77,11 @@ from app.services.mask_mutation_contract import MaskMutationError as _MaskMutati
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
+    raster_mask_storage_contract_error,
+)
+from app.services.raster_mask_validation import (
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
-    raster_mask_storage_contract_error,
 )
 from app.services.labeling_write_scope import (
     capture_task_source_binding,
@@ -132,10 +134,16 @@ def _raise_mask_mutation_contract_error(exc: RasterMaskContractError) -> None:
         reason = "invalid_geometry"
     elif reason == "raster_mask_empty_foreground":
         reason = "empty_result"
+    extra = {
+        key: value
+        for key, value in exc.detail.items()
+        if key not in {"reason", "message"}
+    }
     raise _MaskMutationError(
         status_code=exc.status_code,
         reason=reason,
         message=str(exc.detail.get("message") or exc),
+        **extra,
     ) from exc
 
 
@@ -993,6 +1001,12 @@ class MaskMutationService:
             try:
                 rle = await load_coco_rle(reference)
                 height, width, counts = validate_coco_rle(rle)
+            except (
+                RasterMaskContractError,
+                RasterObjectStorageError,
+                ContentError,
+            ) as exc:
+                raise _mutation_storage_error(exc) from exc
             except Exception as exc:
                 raise _MaskMutationError(
                     status_code=422,
@@ -1424,17 +1438,6 @@ class MaskMutationService:
                 "mutation",
                 payload.model_dump(mode="json"),
             )
-        task = (
-            await self._lock_task(task_id)
-            if reference_repair_receipt is None
-            else await self._lock_task(
-                task_id,
-                reference_receipt=reference_repair_receipt,
-                payload=payload,
-                actor=actor,
-            )
-        )
-
         preflight_task = await get_core_row(
             self.db, task_row, task_id, populate_existing=True
         )

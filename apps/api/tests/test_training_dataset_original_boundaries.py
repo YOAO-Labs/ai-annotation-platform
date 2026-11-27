@@ -295,7 +295,7 @@ async def test_reference_close_cancellation_preserves_prior_unknown_output_owner
         raise storage_access.mark_unsettled(OSError("output close unknown"))
 
     monkeypatch.setattr(worker, "materialize_image", materialize)
-    monkeypatch.setattr(worker, "assert_dataset_authority", AsyncMock())
+    monkeypatch.setattr(worker, "require_authority", AsyncMock())
     monkeypatch.setattr(
         training_dataset_sources,
         "training_reference_snapshot",
@@ -386,25 +386,27 @@ async def test_guard_execution_locks_real_version_before_real_job(
 ):
     world, statements = execution_world, []
 
-    def observed(_connection, _cursor, statement, _parameters, _context, _many):
-        if "FOR UPDATE" in statement.upper():
-            statements.append(statement.lower())
+    def observed(_connection, _cursor, statement, parameters, _context, _many):
+        lower = statement.lower()
+        if "training_dataset_read" in lower or "read_job_for_update" in lower:
+            statements.append((lower, parameters))
 
     event.listen(test_engine.sync_engine, "before_cursor_execute", observed)
     try:
         assert (
             await worker.guard_execution(world.db, world.context, lock=True)
-            is world.version
-        )
+        ).id == world.version.id
     finally:
         event.remove(test_engine.sync_engine, "before_cursor_execute", observed)
     version_index = next(
         i
-        for i, statement in enumerate(statements)
-        if "training_dataset_versions" in statement
+        for i, (statement, parameters) in enumerate(statements)
+        if "training_dataset_read" in statement and True in (parameters or ())
     )
     job_index = next(
-        i for i, statement in enumerate(statements) if "async_jobs" in statement
+        i
+        for i, (statement, _parameters) in enumerate(statements)
+        if "read_job_for_update" in statement
     )
     assert version_index < job_index
 

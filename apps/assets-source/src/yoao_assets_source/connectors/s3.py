@@ -81,6 +81,7 @@ class S3CompatibleSource(SourceAdapter):
         self.bucket = bucket
         self.base_prefix = normalize_relpath(str(config.get("base_prefix") or ""))
         self._require_conditional_reads = require_conditional_reads
+        self._owns_client = client is None
         if client is None:
             import boto3
             from botocore.config import Config as BotoConfig
@@ -192,6 +193,11 @@ class S3CompatibleSource(SourceAdapter):
         return resp["Body"]
 
     def close(self) -> None:
+        if not self._owns_client:
+            return None
+        close = getattr(self.client, "close", None)
+        if callable(close):
+            close()
         return None
 
 

@@ -169,10 +169,10 @@ async def test_instances_uses_snapshot_without_live_probe(
     httpx_client, auth_headers, db_session, monkeypatch
 ):
     """health_meta.capabilities 快照命中时, 直接用快照, 不发 live /setup 探测。"""
-    from app.services import capability_instances as svc
+    from app.services.inference_backend_control import BackendControlService
 
     probe = AsyncMock()
-    monkeypatch.setattr(svc, "_probe_setup", probe)
+    monkeypatch.setattr(BackendControlService, "setup", probe)
 
     db_session.add(
         MLBackendRegistry(
@@ -220,7 +220,8 @@ async def test_instances_live_probe_when_snapshot_missing(
     覆盖老 backend: state=connected 但 health_meta.capabilities 为 NULL,
     应直接探测 backend.url 拿最新 models[], 而不是被 skip 掉。
     """
-    from app.services import capability_instances as svc
+    from types import SimpleNamespace
+    from app.services.inference_backend_control import BackendControlService
 
     fake_live_setup = {
         "name": "gsam2",
@@ -243,8 +244,8 @@ async def test_instances_live_probe_when_snapshot_missing(
             },
         ],
     }
-    probe = AsyncMock(return_value=fake_live_setup)
-    monkeypatch.setattr(svc, "_probe_setup", probe)
+    probe = AsyncMock(return_value=SimpleNamespace(setup=fake_live_setup))
+    monkeypatch.setattr(BackendControlService, "setup", probe)
 
     db_session.add(
         MLBackendRegistry(

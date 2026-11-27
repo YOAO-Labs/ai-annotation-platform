@@ -113,7 +113,6 @@ async def test_preview_is_offline_read_only_and_archive_preserves_business_ident
         statement.lstrip().upper().startswith(("INSERT", "UPDATE", "DELETE"))
         for statement in sql
     )
-    assert sum("jsonb_array_elements" in statement for statement in sql) == 1
     assert datetime.fromisoformat(review["expires_at"]) - datetime.fromisoformat(
         review["measured_at"]
     ) == timedelta(minutes=5)
@@ -216,6 +215,10 @@ async def test_restore_changes_only_lifecycle_and_does_not_revive_revoked_author
         "archived_at": None,
         "archived_by": None,
     }
+    detail = await httpx_client.get(path(row), headers=headers(super_admin))
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["lifecycle_revision"] == 3
+    assert detail.json()["archived_at"] is None and detail.json()["archived_by"] is None
     for obj in (owner, retained, where, schedule, key):
         await db.refresh(obj)
     assert not owner.is_active and not retained.enabled

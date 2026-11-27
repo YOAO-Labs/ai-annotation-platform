@@ -77,9 +77,9 @@ from app.services.raster_mask_storage import (
     load_coco_rle,
     store_coco_rle,
     store_generated_mask_content,
-    validate_mask_geometry_for_task,
     lock_raster_mask_references,
 )
+from app.services.raster_mask_storage import validate_task_mask_dimensions
 from app.services.mask_qc.service import load_mask_qc_issue
 from app.services.mask_qc.topology import rle_and, rle_replace_region, rle_xor
 from app.services.video_collaboration import segment_work_bounds_for_task
@@ -117,8 +117,10 @@ from app.services.video_tracking.recovery import (
     retire_terminal_tracker_execution,
 )
 from app.services.video_tracking.backend_identity import (
-    build_video_backend_compatibility,
+    VideoBackendIdentityError,
+    _selected_model,
     bind_video_normalization_policy,
+    build_video_backend_compatibility,
 )
 from app.services.mask_gc import read_mask_write_epochs
 from app.services.video_tracks import is_polygon_track
@@ -779,7 +781,8 @@ def apply_tracker_results(
     annotation.annotation_type = geometry["type"]
     if is_mask:
         annotation.tool_unit_id = "region"
-    annotation.version = int(annotation.version or 1) + 1
+    if not getattr(annotation, "_is_new", False):
+        annotation.version = int(annotation.version or 1) + 1
 
 
 def _partition_results_by_instance(
@@ -865,9 +868,11 @@ def _combo_seeds_from_discovery(
     return seeds
 
 
-def _bbox_of_geometry(geom: dict) -> tuple[float, float, float, float]:
+def _bbox_of_geometry(
+    geom: Mapping[str, object] | dict,
+) -> tuple[float, float, float, float]:
     """任意 geometry → 归一化 (x, y, w, h) 外接框; 取不到 → 零框。"""
-    if not isinstance(geom, dict):
+    if not isinstance(geom, Mapping):
         return (0.0, 0.0, 0.0, 0.0)
     if geom.get("type") == "polygon":
         pts = geom.get("points") or []
@@ -877,7 +882,9 @@ def _bbox_of_geometry(geom: dict) -> tuple[float, float, float, float]:
             return (0.0, 0.0, 0.0, 0.0)
         return (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
     if geom.get("type") == "mask":
-        bbox = geom.get("bbox") or {}
+        bbox = geom.get("bbox")
+        if not isinstance(bbox, Mapping):
+            bbox = {}
         return (
             float(bbox.get("x", 0.0)),
             float(bbox.get("y", 0.0)),
@@ -1623,9 +1630,14 @@ async def _lock_video_control_job_for_update(
     except VideoControlRejected as exc:
         if exc.status_code >= 500:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-        if exc.status_code == 404:
-            return None
         reason = exc.detail.get("reason") if isinstance(exc.detail, dict) else None
+        if exc.status_code == 404:
+            if reason == "task_not_visible":
+                raise TrackerJobStateConflict(
+                    "project authority changed before tracker write",
+                    reason="permission_changed",
+                ) from exc
+            return None
         raise TrackerJobStateConflict(
             "tracker job is unavailable", reason=reason or "tracker_job_busy"
         ) from exc
@@ -2313,7 +2325,7 @@ async def _decide_tracker_issue_region(
             "mask",
             override_manual_frames={frame_index} if override_manual else None,
         )
-        await validate_mask_geometry_for_task(
+        await validate_task_mask_dimensions(
             db,
             task,
             annotation.geometry or {},
@@ -2779,7 +2791,7 @@ async def decide_tracker_job(
             touched.append(annotation)
         try:
             for annotation in touched:
-                await validate_mask_geometry_for_task(
+                await validate_task_mask_dimensions(
                     db,
                     task,
                     annotation.geometry or {},
@@ -3007,7 +3019,7 @@ async def accept_tracker_job(
     )
     try:
         for src in source_map.values():
-            await validate_mask_geometry_for_task(
+            await validate_task_mask_dimensions(
                 db,
                 task,
                 src.geometry or {},
@@ -3016,7 +3028,7 @@ async def accept_tracker_job(
                 ),
             )
         for created_annotation in created:
-            await validate_mask_geometry_for_task(
+            await validate_task_mask_dimensions(
                 db,
                 task,
                 created_annotation.geometry or {},
@@ -3547,10 +3559,6 @@ async def _run_tracker_job_claimed(
             )
             from app.services.inference_topology_data import InferenceTopologyData
             from app.services.model_catalog import backend_reason, pool_has_plugin
-            from app.services.video_tracking.backend_identity import (
-                VideoBackendIdentityError,
-                _selected_model,
-            )
 
             approved_registry_ids = None
             if await pool_has_plugin(db, backend):

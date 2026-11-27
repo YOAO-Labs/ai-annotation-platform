@@ -4,10 +4,15 @@ import hashlib
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
+from app.services.dataset_item_display import list_items
 from app.db.models.dataset import DatasetItem
-from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+from app.db.models.dataset_asset import (
+    DatasetAsset,
+    DatasetAssetLocation,
+    StorageLocation,
+)
 from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 from app.schemas.dataset_source import SourceLifecycleChange
 from app.services import storage as storage_module
@@ -15,7 +20,8 @@ from app.services import directory_previews as previews
 from app.services import dataset_source_lifecycle as lifecycle
 from app.services import dataset_registration as registration
 from app.services.content_snapshot import ContentError
-from app.services.dataset_references import register_entry, reference_snapshot
+from app.application.dataset_reference_registration import register_entry
+from app.services.dataset_references import reference_snapshot
 from app.services.dataset_content import stored_content
 from app.services.storage import storage_service
 from tests.test_dataset_content import content_world as content_world
@@ -53,12 +59,19 @@ async def test_six_policies_and_source_outage(
     root, data, actor, dataset, location, source, scan, entry = content_world
     source.ownership_mode, source.cache_policy = ownership, cache
     if cache == "on_demand":
-        location.config = {
-            **location.config,
-            "cache_policy": "on_demand",
-            "original_cache_quota_bytes": len(data) * 2,
-        }
+        await db.execute(
+            update(StorageLocation)
+            .where(StorageLocation.id == location.id)
+            .values(
+                config={
+                    **location.config,
+                    "cache_policy": "on_demand",
+                    "original_cache_quota_bytes": len(data) * 2,
+                }
+            )
+        )
     await db.commit()
+    dataset_id = dataset.id
     run, task_id, fence = await start(db, content_world)
     await drain(db, run, task_id, fence)
     assert run.cache_policy == cache and run.ownership_mode == ownership
@@ -74,7 +87,13 @@ async def test_six_policies_and_source_outage(
     asset = await db.get(DatasetAsset, mapping.asset_id)
     assert asset.checksum_value == hashlib.sha256(data).hexdigest()
     assert item.thumbnail_path is None and item.blurhash is None
-    replicas = list(await db.scalars(select(DatasetAssetLocation)))
+    replicas = list(
+        await db.scalars(
+            select(DatasetAssetLocation).where(
+                DatasetAssetLocation.asset_id == asset.id
+            )
+        )
+    )
     assert len(replicas) == int(ownership == "managed_copy")
     assert run.counts["original_copy_bytes"] == (
         len(data) if ownership == "managed_copy" else 0
@@ -124,8 +143,16 @@ async def test_six_policies_and_source_outage(
         actor,
     )
     await db.commit()
+    await db.refresh(source)
     assert source.unregistered_at and not source.enabled
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+        )
+        == 1
+    )
     assert len(object_store) == int(ownership == "managed_copy") + int(cache != "none")
 
 
@@ -135,7 +162,11 @@ async def test_location_ceiling_and_lease_cancel(
     db = db_session
     _, _, actor, _, location, source, _, entry = content_world
     source.cache_policy = "preview"
-    location.config = {**location.config, "cache_policy": "none"}
+    await db.execute(
+        update(StorageLocation)
+        .where(StorageLocation.id == location.id)
+        .values(config={**location.config, "cache_policy": "none"})
+    )
     await db.commit()
     run, task_id, fence = await start(db, content_world)
     assert run.cache_policy == "none"
@@ -152,6 +183,7 @@ async def test_location_ceiling_and_lease_cancel(
         actor,
     )
     await db.commit()
+    await db.refresh(run)
     assert run.status == "cancelled" and run.lease_token is None
     with pytest.raises(registration.LostRegistrationLease):
         await registration.next_entry(db, run.id, task_id, fence)
@@ -183,7 +215,8 @@ async def test_preview_failure_does_not_undo_original(
     db_session, content_world, object_store, monkeypatch
 ):
     db = db_session
-    _, _, actor, _, _, source, scan, entry = content_world
+    _, _, actor, dataset, _, source, scan, entry = content_world
+    dataset_id = dataset.id
     source.cache_policy = "preview"
     await db.commit()
 
@@ -205,7 +238,14 @@ async def test_preview_failure_does_not_undo_original(
     row = await db.get(DatasetSourcePreview, (source.id, entry.path_digest))
     assert row.state == "failed" and row.size_bytes is None
     assert not object_store
-    assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 1
+    assert (
+        await db.scalar(
+            select(func.count())
+            .select_from(DatasetItem)
+            .where(DatasetItem.dataset_id == dataset_id)
+        )
+        == 1
+    )
 
 
 async def test_stale_impact_is_rejected_and_source_tree_is_untouched(
@@ -303,7 +343,9 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
                 DatasetSourcePreview.source_id == source_id
             )
         )
-        assert not await db.scalar(select(DatasetItem.id))
+        assert not await db.scalar(
+            select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
+        )
     else:
         from app.db.models.managed_original_creation import ManagedOriginalCreation
 
@@ -315,7 +357,9 @@ async def test_native_cancellation_waits_for_owned_put_before_cleanup(
         assert creation.status == "verified"
         assert len(object_store) == 1
         assert (creation.bucket, creation.object_key) in object_store
-        assert not await db.scalar(select(DatasetItem.id))
+        assert not await db.scalar(
+            select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
+        )
 
 
 async def test_missing_preview_regenerates_and_delete_retires_saved_owner(
@@ -337,6 +381,7 @@ async def test_missing_preview_regenerates_and_delete_retires_saved_owner(
         db, scan.id, entry.path_digest, actor, node_id="worker:content@test"
     )
     assert first["item_id"] == second["item_id"]
+    await db.refresh(row)
     assert row.state == "ready" and row.object_key != old_key and row.generation == 2
     object_store[(storage_service.media_cache_bucket, "other-owner.webp")] = b"preserve"
     output_id, bucket, key = row.thumbnail_output_id, row.bucket, row.object_key
@@ -359,9 +404,8 @@ async def test_missing_preview_regenerates_and_delete_retires_saved_owner(
 async def test_directory_media_never_uses_legacy_urls_or_pyramids(
     db_session, content_world, object_store
 ):
-    from app.services.dataset import DatasetService
     from app.services.image_pyramid import load_owner, ImagePyramidError
-    from app.services.directory_policy import legacy_media_column
+    from app.services.directory_policy import owns_media
 
     db = db_session
     _, _, actor, dataset, _, source, scan, entry = content_world
@@ -374,17 +418,9 @@ async def test_directory_media_never_uses_legacy_urls_or_pyramids(
     item.thumbnail_path = "thumbnails/stale.webp"
     item.blurhash = "stale"
     await db.commit()
-    rows, _ = await DatasetService(db).list_items(dataset.id)
+    rows, _ = await list_items(db, dataset.id)
     assert rows[0]["thumbnail_url"] is None and rows[0]["blurhash"] is None
-    row = (
-        await db.execute(
-            select(
-                legacy_media_column(DatasetItem.thumbnail_path),
-                legacy_media_column(DatasetItem.blurhash),
-            ).where(DatasetItem.id == item.id)
-        )
-    ).one()
-    assert row == (None, None)
+    assert await owns_media(db, item.id) is True
     with pytest.raises(ImagePyramidError, match="directory_cache_not_supported"):
         await load_owner(db, "dataset_item", item.id)
 

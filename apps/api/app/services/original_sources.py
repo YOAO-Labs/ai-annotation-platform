@@ -4,16 +4,14 @@ Callers own authorization, transaction boundaries and durable storage admission.
 The snapshots deliberately contain no ORM instances or mutable JSON values.
 """
 
-from contextlib import asynccontextmanager
+import re
+import uuid
 from dataclasses import dataclass, replace
 from datetime import datetime
 from functools import partial
-import re
 from urllib.parse import urlsplit
-import uuid
 
 from sqlalchemy import select
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -24,16 +22,18 @@ from app.services import (
     task_originals,
 )
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.labeling_core_read_relations import (
-    get_core_row,
-    lock_task_for_core_read,
+    execute_core_read,
     lock_task_dataset_item_links_for_core_read,
+    lock_task_for_core_read,
+    lock_task_source_facts_for_core_read,
     task_dataset_item_link_row,
     task_row,
 )
-from app.services.reference_keys import is_reference, reference_key
 from app.services.original_read_plan import PhysicalReadPlan, ReadRoute
+from app.services.original_read_transaction import _reads
+from app.services.reference_keys import is_reference, reference_key
+from app.services.storage_identity import LEGACY_LOCATION_ID
 
 _SHA = re.compile(r"[0-9a-f]{64}")
 
@@ -140,29 +140,6 @@ def media_permit_purpose(source, family):
     return f"media_{family}_{kind}_{source.content_id.hex}"
 
 
-@asynccontextmanager
-async def _reads(db, lock):
-    with db.no_autoflush:
-        if not lock:
-            yield
-            return
-        connection = await db.connection()
-        savepoint = await connection.begin_nested()
-        try:
-            yield
-        except BaseException as exc:
-            await savepoint.rollback()
-            if isinstance(exc, DBAPIError) and (
-                storage_access.unavailable(exc)
-                or getattr(exc.orig, "sqlstate", None) == "40001"
-                or getattr(exc.orig, "pgcode", None) == "40001"
-            ):
-                raise ContentError("storage_original_busy") from exc
-            raise
-        else:
-            await savepoint.commit()
-
-
 def _statement(statement, lock, *, nowait=True):
     if lock:
         statement = statement.with_for_update(read=True, nowait=nowait)
@@ -193,9 +170,28 @@ async def _relation(
     wait_for_task=False,
 ):
     if lock:
-        task = await lock_task_for_original_read(db, task_id, wait=wait_for_task)
+        task = await lock_task_source_facts_for_core_read(
+            db,
+            task_id,
+            lock_mode="share",
+            nowait=not wait_for_task,
+            bounded=wait_for_task,
+        )
     else:
-        task = await get_core_row(db, task_row, task_id, populate_existing=True)
+        task = (
+            await execute_core_read(
+                db,
+                select(
+                    task_row.id,
+                    task_row.project_id,
+                    task_row.batch_id,
+                    task_row.file_path,
+                    task_row.file_type,
+                    task_row.original_id,
+                    task_row.dataset_item_id,
+                ).where(task_row.id == task_id),
+            )
+        ).one_or_none()
     if task is None:
         raise ContentError("content_task_missing", 404)
     if lock:

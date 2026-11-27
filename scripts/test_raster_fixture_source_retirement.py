@@ -243,6 +243,7 @@ class RasterFixtureSourceRetirementTests(unittest.TestCase):
         backend = worktree_resources.LocalResources.__new__(
             worktree_resources.LocalResources
         )
+        backend.root = Path(self.owner.resources["root"])
         backend.resources = self.owner.resources
         prepared = worktree_resources._WorktreeDestroyPreparation(
             backend, self.owner, None
@@ -302,6 +303,7 @@ class RasterFixtureSourceRetirementTests(unittest.TestCase):
         backend = worktree_resources.LocalResources.__new__(
             worktree_resources.LocalResources
         )
+        backend.root = Path(self.owner.resources["root"])
         backend.resources = self.owner.resources
         prepared = worktree_resources._WorktreeDestroyPreparation(
             backend, self.owner, None

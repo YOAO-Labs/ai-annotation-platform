@@ -175,13 +175,24 @@ async def test_predict_frame_route_records_dual_id(
         instance_id=backend.id,
         pool_id=pool.id,
     )
+    from contextlib import asynccontextmanager
+    from unittest.mock import AsyncMock
+
+    @asynccontextmanager
+    async def fake_prediction_inputs(*_args, **_kwargs):
+        class _Inputs:
+            upload_frame = AsyncMock(return_value="http://storage.test/frame.jpg")
+            close = AsyncMock()
+
+        yield _Inputs()
+
     monkeypatch.setattr(
         "app.api.v1.ml_backends.model_execution_port",
         lambda *_args, **_kwargs: execution_port,
     )
     monkeypatch.setattr(
-        "app.api.v1.ml_backends.StorageService.upload_crop_bytes",
-        lambda *_args: "http://storage.test/frame.jpg",
+        "app.api.v1.ml_backends.prediction_inputs",
+        fake_prediction_inputs,
     )
 
     resp = await httpx_client.post(

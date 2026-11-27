@@ -20,6 +20,11 @@ async def test_consecutive_image_wakes_use_fresh_event_loop_connections(
 ):
     from app.config import settings
 
+    if not (
+        settings.assets_celery_image_database_url
+        or settings.assets_celery_image_database_url_file
+    ):
+        pytest.skip("requires ASSETS_CELERY_IMAGE_DATABASE_URL")
     monkeypatch.setattr(settings, "assets_media_url", "")
     assert make_url(settings.database_url).database == test_engine.url.database
     async with test_engine.connect() as connection:

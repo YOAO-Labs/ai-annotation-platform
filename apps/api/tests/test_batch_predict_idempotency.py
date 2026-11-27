@@ -149,7 +149,7 @@ async def test_unkeyed_bulk_returns_durable_job_before_dispatch(
 )
 async def test_unkeyed_execution_id_binding_uses_native_jobs_owner(test_engine):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from tests.factory import create_project, create_user
     from tests.test_jobs_lifecycle_native import _jobs_lifecycle_url
 

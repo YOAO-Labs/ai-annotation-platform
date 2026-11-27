@@ -14,15 +14,12 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.schemas._jsonb_types import SensorCalibration
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import (
     dataset_source_access as access,
-    pointcloud_import,
-    scene as scenes,
-    sensor_calibration,
     training_datasets,
 )
+from app.application.dataset_ingest import DatasetIngestWorkflow
 from app.services.dataset import DatasetService, build_tasks_for_link
 from tests.factory import create_batch, create_project, create_task
 from tests.test_dataset_lifecycle import apply, path, preview, world
@@ -205,9 +202,6 @@ async def test_archived_managed_browsing_and_private_view_crud_remain_available(
         "build_tasks",
         "scan",
         "ingest",
-        "create_scene",
-        "assign_scene",
-        "calibration",
     ),
 )
 async def test_direct_managed_writers_reject_archived_dataset(
@@ -215,12 +209,6 @@ async def test_direct_managed_writers_reject_archived_dataset(
 ):
     db = db_session
     row, item, project, *_ = await world(db, super_admin[0])
-    scene = Scene(
-        dataset_id=row.id,
-        display_id=f"SC-{uuid.uuid4().hex[:10]}",
-        name="retained scene",
-    )
-    db.add(scene)
     await db.commit()
     await transition(httpx_client, row, super_admin)
     before = await identities(db, row.id, project.id)
@@ -228,7 +216,12 @@ async def test_direct_managed_writers_reject_archived_dataset(
     svc = DatasetService(db)
     with pytest.raises(HTTPException) as error:
         if operation == "update":
-            await svc.update(row.id, "must not rename", "must not rewrite")
+            await svc.update(
+                row.id,
+                "must not rename",
+                "must not rewrite",
+                actor_id=super_admin[0].id,
+            )
         elif operation == "add_item":
             await svc.add_item(row.id, "new.png", "new.png", "image")
         elif operation == "delete":
@@ -244,64 +237,46 @@ async def test_direct_managed_writers_reject_archived_dataset(
         elif operation == "build_tasks":
             await build_tasks_for_link(db, dataset_id=row.id, project_id=project.id)
         elif operation == "scan":
-            await svc.scan_and_import(row.id)
-        elif operation == "ingest":
-            await svc.ingest_one(row.id, "new.png", io.BytesIO(b"never uploaded"))
-        elif operation == "create_scene":
-            await scenes.create_scene(db, dataset_id=row.id, name="new scene")
-        elif operation == "assign_scene":
-            await scenes.assign_items_to_scene(
-                db, scene_id=scene.id, items_in_order=[item]
-            )
+            await DatasetIngestWorkflow(db).scan_and_import(row.id)
         else:
-            await sensor_calibration.update_calibration(
-                db,
-                dataset_item_id=item.id,
-                calibration=SensorCalibration(
-                    extrinsic=[0.0] * 16, intrinsic=[0.0] * 9
-                ),
-                expected_revision=1,
-                expected_digest="0" * 64,
-                actor_id=super_admin[0].id,
+            await DatasetIngestWorkflow(db).ingest_one(
+                row.id, "new.png", io.BytesIO(b"never uploaded")
             )
     conflict(error)
     assert await identities(db, row.id, project.id) == before
-    retained = await db.get(DatasetItem, item.id, populate_existing=True)
-    assert retained.scene_id is None and retained.frame_index is None
-    assert "calibration" not in retained.metadata_
 
 
-@pytest.mark.parametrize("kind", ("create_tasks",))
-@pytest.mark.parametrize(
-    "legacy", (False, True), ids=("captured-ticket", "legacy-ticket")
-)
 async def test_queued_managed_workers_reject_old_lifecycle_after_restore(
-    db_session, super_admin, httpx_client, monkeypatch, kind, legacy
+    db_session, super_admin, httpx_client, monkeypatch
 ):
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+    from app.services.task_creation_contract import TaskCreationFailure
     from app.workers import create_tasks
 
     db = db_session
-    row, _, project, *_ = await world(db, super_admin[0])
-    ticket = await access.capture_dataset_write(db, row.id, super_admin[0], None)
-    payload = {
-        "dataset_id": str(row.id),
-        "project_id": str(project.id),
-        "connection_id": str(uuid.uuid4()),
-        "settings_snapshot": {
-            "dataset_import_max_files": 10,
-            "dataset_import_max_total_bytes": 1024,
-            "version": "archive-test",
-        },
-    }
-    if not legacy:
-        payload["directory_authority"] = ticket
-    job = AsyncJob(
-        kind=kind, user_id=super_admin[0].id, project_id=project.id, payload=payload
+    row, _, project, link, *_ = await world(db, super_admin[0])
+    operation_id = uuid.uuid4()
+    workflow = DatasetTaskCreationWorkflow(db)
+    created_job = await workflow.jobs.create(
+        operation_id=operation_id,
+        actor_id=super_admin[0].id,
+        dataset_id=row.id,
+        project_id=project.id,
+        association_id=link.id,
     )
-    db.add(job)
+    await workflow.labeling.accept_dataset_task_creation(
+        operation_id=operation_id,
+        actor_id=super_admin[0].id,
+        dataset_id=row.id,
+        project_id=project.id,
+        association_id=link.id,
+        job_id=created_job.job_id,
+        mode="generic",
+        chunk_size=5000,
+    )
     await db.commit()
     await archive_restore(httpx_client, row, super_admin)
-    dataset_id, project_id, job_id = row.id, project.id, job.id
+    dataset_id, project_id, job_id = row.id, project.id, created_job.job_id
     before = await identities(db, dataset_id, project_id)
     forbid_source_io(monkeypatch)
 
@@ -320,9 +295,9 @@ async def test_queued_managed_workers_reject_old_lifecycle_after_restore(
     )
     monkeypatch.setattr(worker, "async_sessionmaker", lambda *args, **kwargs: sessions)
     run = worker._run_create_tasks
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(TaskCreationFailure) as error:
         await run(job_id=str(job_id), celery_task_id="archive-old-ticket")
-    conflict(error, "dataset_lifecycle_changed")
+    assert error.value.code == "dataset_lifecycle_changed"
     finished = await db.get(AsyncJob, job_id, populate_existing=True)
     assert (
         finished.status == "failed"
@@ -335,22 +310,21 @@ async def test_fresh_managed_ticket_can_build_tasks_after_restore(
     db_session, super_admin, httpx_client
 ):
     db = db_session
-    row, _, project, *_ = await world(db, super_admin[0])
+    row = await dataset(db, super_admin[0])
+    project = await create_project(db, owner_id=super_admin[0].id)
     new_item = DatasetItem(
         dataset_id=row.id, file_name="waiting.png", file_path="waiting.png"
     )
     db.add(new_item)
     await db.commit()
     await archive_restore(httpx_client, row, super_admin)
-    ticket = await access.capture_dataset_write(db, row.id, super_admin[0], None)
-    result = await build_tasks_for_link(
-        db,
-        dataset_id=row.id,
-        project_id=project.id,
-        directory_authority=ticket,
-        chunk_size=1,
+    response = await httpx_client.post(
+        path(row) + "/link",
+        headers=headers(super_admin),
+        json={"project_id": str(project.id)},
     )
-    assert result == {"created": 1, "total": 1}
+    assert response.status_code == 200, response.text
+    assert response.json()["created_tasks"] == 1
     linked = await db.scalar(
         select(Task).where(
             Task.project_id == project.id, Task.dataset_item_id == new_item.id
@@ -362,26 +336,38 @@ async def test_fresh_managed_ticket_can_build_tasks_after_restore(
 async def test_pointcloud_old_ticket_cannot_infer_scene_or_create_frame_links(
     db_session, super_admin, httpx_client, monkeypatch
 ):
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+    from app.services.task_creation_contract import TaskCreationFailure
+
     db = db_session
     row = await _seed_dataset(db, super_admin[0].id)
     await _seed_scene(db, row, frames=["0001", "0002"], cameras=["front"])
     project = await create_project(db, owner_id=super_admin[0].id)
     project.data_type = "lidar"
-    db.add(ProjectDataset(dataset_id=row.id, project_id=project.id))
+    link = ProjectDataset(dataset_id=row.id, project_id=project.id)
+    db.add(link)
     await db.commit()
-    ticket = await access.capture_dataset_write(db, row.id, super_admin[0], None)
+    workflow = DatasetTaskCreationWorkflow(db)
+    operation = await workflow.labeling.accept_dataset_task_creation(
+        operation_id=uuid.uuid4(),
+        actor_id=super_admin[0].id,
+        dataset_id=row.id,
+        project_id=project.id,
+        association_id=link.id,
+        job_id=None,
+        mode="pointcloud",
+        chunk_size=1,
+    )
+    await db.commit()
     await archive_restore(httpx_client, row, super_admin)
     before = await identities(db, row.id, project.id)
     forbid_source_io(monkeypatch)
-    with pytest.raises(HTTPException) as error:
-        await pointcloud_import.build_pointcloud_tasks_for_link(
-            db,
-            dataset_id=row.id,
-            project_id=project.id,
-            directory_authority=ticket,
-            chunk_size=1,
+    with pytest.raises(TaskCreationFailure) as error:
+        await workflow.resume_creation(
+            operation.operation_id,
+            commit_calibration=False,
         )
-    conflict(error, "dataset_lifecycle_changed")
+    assert error.value.code == "dataset_lifecycle_changed"
     assert await identities(db, row.id, project.id) == before
     assert not before["scenes"] and not before["tasks"]
     assert all(
@@ -395,6 +381,9 @@ async def test_pointcloud_old_ticket_cannot_infer_scene_or_create_frame_links(
 async def test_pointcloud_committed_chunk_is_retained_but_old_ticket_stops_next_chunk(
     db_session, super_admin, httpx_client, monkeypatch
 ):
+    from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+    from app.services.task_creation_contract import TaskCreationFailure
+
     db = db_session
     row = await _seed_dataset(db, super_admin[0].id)
     await _seed_scene(db, row, frames=["0001", "0002"], cameras=["front"])
@@ -402,7 +391,6 @@ async def test_pointcloud_committed_chunk_is_retained_but_old_ticket_stops_next_
     project.data_type = "lidar"
     db.add(ProjectDataset(dataset_id=row.id, project_id=project.id))
     await db.commit()
-    ticket = await access.capture_dataset_write(db, row.id, super_admin[0], None)
     original_commit = db.commit
     changed = False
 
@@ -415,15 +403,16 @@ async def test_pointcloud_committed_chunk_is_retained_but_old_ticket_stops_next_
 
     monkeypatch.setattr(db, "commit", archive_at_chunk_boundary)
     forbid_source_io(monkeypatch)
-    with pytest.raises(HTTPException) as error:
-        await pointcloud_import.build_pointcloud_tasks_for_link(
-            db,
+    workflow = DatasetTaskCreationWorkflow(db)
+    with pytest.raises(TaskCreationFailure) as error:
+        await workflow.create_tasks_for_linked_dataset(
             dataset_id=row.id,
             project_id=project.id,
-            directory_authority=ticket,
+            actor_id=super_admin[0].id,
             chunk_size=1,
+            commit_calibration=False,
         )
-    conflict(error, "dataset_lifecycle_changed")
+    assert error.value.code == "dataset_lifecycle_changed"
     partial = list(await db.scalars(select(Task).where(Task.project_id == project.id)))
     assert changed and len(partial) == 1
     links = list(
@@ -434,13 +423,12 @@ async def test_pointcloud_committed_chunk_is_retained_but_old_ticket_stops_next_
         )
     )
     assert {link.role for link in links} == {"primary_lidar", "camera_front"}
-    fresh = await access.capture_dataset_write(db, row.id, super_admin[0], None)
-    result = await pointcloud_import.build_pointcloud_tasks_for_link(
-        db,
+    result = await workflow.create_tasks_for_linked_dataset(
         dataset_id=row.id,
         project_id=project.id,
-        directory_authority=fresh,
+        actor_id=super_admin[0].id,
         chunk_size=1,
+        commit_calibration=False,
     )
     assert result == {"created": 1, "total": 1}
     complete = set(
@@ -547,7 +535,7 @@ async def test_archived_excluded_or_unselected_rows_do_not_block_new_freeze(
 async def test_existing_frozen_version_remains_readable_after_dataset_archive(
     db_session, super_admin, httpx_client, source_headers, monkeypatch
 ):
-    from app.workers.training_dataset import assert_dataset_authority
+    from app.workers.training_dataset import require_authority
 
     db = db_session
     row, project, _, _ = await managed_training_world(
@@ -566,11 +554,15 @@ async def test_existing_frozen_version_remains_readable_after_dataset_archive(
     await db.commit()
     await transition(httpx_client, row, super_admin)
     forbid_source_io(monkeypatch)
-    await assert_dataset_authority(db, version)
+    source_headers.calls.clear()
+    await require_authority(db, version)
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/training-datasets/{version.id}",
         headers=headers(super_admin),
     )
     assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ready"
+    assert response.json()["snapshot_digest"] == report["digest"]
+    assert not source_headers.calls
     await db.refresh(version)
     assert version.status == "ready" and version.snapshot == snapshot

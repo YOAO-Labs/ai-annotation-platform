@@ -16,13 +16,16 @@ import uuid
 import zipfile
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
+from app.db.models.user import User
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services import export_media_storage as physical
 from app.services import (
     export_execution_context,
@@ -36,32 +39,24 @@ from app.services.exporting.lidar_frozen import FrozenLidar
 from app.services.exporting.reference_media import ExportCancelled
 from app.workers import export as legacy
 from app.workers import lidar_export as worker
-from tests.test_export_media_bundle_models import _migration
-from tests.test_lidar_export_inputs import input_db as input_db, setup
+from tests.test_lidar_export_inputs import setup
 
 
 @pytest.fixture
-async def worker_db(input_db):
-    db = input_db
-    await db.execute(
-        text("CREATE TABLE async_jobs (LIKE public.async_jobs INCLUDING ALL)")
-    )
-    await db.execute(
-        text(
-            "CREATE TABLE export_artifacts (LIKE public.export_artifacts INCLUDING ALL)"
-        )
-    )
-    await db.execute(text("ALTER TABLE export_artifacts DROP COLUMN output_id"))
-    connection = await db.connection()
-    await connection.run_sync(
-        lambda sync: _migration(sync, "0224_export_output_storage").upgrade()
-    )
-    await connection.run_sync(lambda sync: _migration(sync).upgrade())
-    await connection.run_sync(
-        lambda sync: _migration(sync, "0236_export_media_empty_raw").upgrade()
-    )
-    await db.commit()
-    return db
+async def worker_db(managed_database):
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await ensure_legacy_bindings(db)
+            owner = User(
+                id=uuid.uuid4(),
+                name="LiDAR worker owner",
+                email=f"lidar-worker-{uuid.uuid4().hex}@example.test",
+                password_hash="not-a-login",
+            )
+            db.add(owner)
+            await db.commit()
+            db.info["lidar_input_owner_id"] = owner.id
+            yield db
 
 
 class Harness:
@@ -157,7 +152,7 @@ class Harness:
             physical, "open_storage", lambda record: nullcontext(object())
         )
 
-        def verify_copy(client, record, relative):
+        def verify_copy(client, record, relative, **_kwargs):
             key = physical.resolve(record).prefix + relative
             if self.copies.get(key) != record.inventory["objects"][key]:
                 raise physical.ExportMediaStorageError(
@@ -494,14 +489,34 @@ async def test_matching_historical_job_without_contract_fails_with_actionable_co
 async def test_exact_snapshot_invalid_parent_is_rejected_before_claim_or_copy(
     worker_db, monkeypatch
 ):
+    from app.db.models.dataset import Scene
+    from app.db.models.scene_track import SceneTrack
     from tests.test_lidar_registered_preflight import calibration
     from tests.factory import build_tool_bindings
 
     db = worker_db
-    project, _, _, _, _, _, cameras, annotation = await setup(db)
+    project, dataset, _, _, _, _, cameras, annotation = await setup(db)
     project.tool_bindings = build_tool_bindings(["car"], unit="lidar_box_3d")
     camera = cameras[0][0]
     camera.metadata_ = {"calibration": calibration()}
+    orphan_scene = Scene(
+        id=uuid.uuid4(),
+        display_id="SC-" + uuid.uuid4().hex[:12],
+        dataset_id=dataset.id,
+        name="orphan-scene",
+    )
+    db.add(orphan_scene)
+    await db.flush()
+    orphan_track = SceneTrack(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        scene_id=orphan_scene.id,
+        class_name="car",
+        track_id="orphan",
+        retired_at=None,
+    )
+    db.add(orphan_track)
+    await db.flush()
     annotation.geometry = {"type": "bbox", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.3}
     annotation.tool_unit_id = "bbox"
     annotation.annotation_type = "bbox"
@@ -509,7 +524,7 @@ async def test_exact_snapshot_invalid_parent_is_rejected_before_claim_or_copy(
     annotation.sensor_role = "camera_front"
     annotation.sensor_dataset_item_id = camera.id
     annotation.sensor_visibility = "visible"
-    annotation.scene_track_id = uuid.uuid4()
+    annotation.scene_track_id = orphan_track.id
     annotation.track_id = "orphan"
     annotation.calibration_revision = 1
     annotation.calibration_digest = "c" * 64

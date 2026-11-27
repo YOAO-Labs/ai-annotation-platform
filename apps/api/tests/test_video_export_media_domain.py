@@ -9,7 +9,7 @@ from unittest.mock import Mock
 import uuid
 
 import pytest
-from sqlalchemy import inspect, select, update
+from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import load_only
 
@@ -426,24 +426,24 @@ async def test_database_video_projection_and_pair_publish_atomically(
     assert output.expires_at == owner.expires_at and owner.published_at is not None
 
 
+async def pending_video_row(**options):
+    fixture, receipt, _, _ = await allocate(**options)
+    return fixture.rows[receipt.id]
+
+
 @pytest.mark.parametrize("state", ["building", "deleted"])
 async def test_database_even_empty_video_owner_prevents_downgrade(video_db, state):
     db = video_db
-    _, receipt, _, _ = await allocate(db, tasks=0)
+    row = await pending_video_row(tasks=0)
+    db.add(row)
     await db.commit()
     if state == "deleted":
-        await db.execute(
-            update(Bundle)
-            .where(Bundle.id == receipt.id)
-            .values(
-                state="retiring",
-                retired_at=bundles.now(),
-            )
-        )
-        await db.execute(
-            update(Bundle).where(Bundle.id == receipt.id).values(state="deleted")
-        )
+        row.state, row.retired_at = "retiring", bundles.now()
+        await db.flush()
+        row.state = "deleted"
         await db.commit()
+    await db.refresh(row, ["state", "object_count"])
+    assert (row.state, row.object_count) == (state, 0)
     connection = await db.connection()
     with pytest.raises(RuntimeError, match="video media responsibility"):
         await connection.run_sync(
@@ -461,36 +461,34 @@ async def test_database_schema_four_cannot_raise_legacy_caps_or_restore_immutabl
         256 * 1024**2 + 1
     )
     legacy["size_bytes"] = 256 * 1024**2 + 1
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError) as budget:
         async with db.begin_nested():
             db.add(Bundle(**legacy))
             await db.flush()
-    _, receipt, _, _ = await allocate(db, tasks=1)
+    assert budget.value.orig.__cause__.constraint_name == "ck_export_media_inventory"
+    row = await pending_video_row(tasks=1)
+    db.add(row)
     await db.commit()
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError) as immutable:
         async with db.begin_nested():
-            await db.execute(
-                update(Bundle)
-                .where(Bundle.id == receipt.id)
-                .values(input_snapshot={"schema": 3})
-            )
+            row.input_snapshot = {"schema": 3}
+            await db.flush()
+    assert (
+        immutable.value.orig.__cause__.constraint_name
+        == "ck_export_media_facts_immutable"
+    )
     await db.rollback()
 
 
 @pytest.mark.parametrize("fault", ["object", "total", "count", "role", "probe", "zero"])
 async def test_database_schema_four_enforces_budgets_and_binding_shape(video_db, fault):
-    fake, receipt, _, _ = await allocate(tasks=4, repeat=False, size=5 * 1024**3)
-    pending = fake.rows[receipt.id]
-    values = {
-        column.name: deepcopy(getattr(pending, column.name))
-        for column in Bundle.__table__.columns
-    }
-    objects = values["inventory"]["objects"]
+    row = await pending_video_row(tasks=4, repeat=False, size=5 * 1024**3)
+    objects = row.inventory["objects"]
     first = next(iter(objects.values()))
     if fault == "object":
         first["size_bytes"] += 1
     elif fault == "total":
-        objects[physical.prefix_for(receipt.id) + str(uuid.uuid4()) + ".bin"] = {
+        objects[physical.prefix_for(row.id) + str(uuid.uuid4()) + ".bin"] = {
             "sha256": "a" * 64,
             "size_bytes": 1,
         }
@@ -498,7 +496,7 @@ async def test_database_schema_four_enforces_budgets_and_binding_shape(video_db,
         objects.clear()
         objects.update(
             {
-                physical.prefix_for(receipt.id) + str(uuid.uuid4()) + ".bin": {
+                physical.prefix_for(row.id) + str(uuid.uuid4()) + ".bin": {
                     "sha256": "a" * 64,
                     "size_bytes": 1,
                 }
@@ -506,16 +504,16 @@ async def test_database_schema_four_enforces_budgets_and_binding_shape(video_db,
             }
         )
     elif fault == "role":
-        values["input_snapshot"]["media"][0]["role"] = "image"
+        row.input_snapshot["media"][0]["role"] = "image"
     elif fault == "probe":
-        values["input_snapshot"]["probe_contract"] = True
+        row.input_snapshot["probe_contract"] = True
     else:
         first["size_bytes"] = 0
-    values["object_count"] = len(objects)
-    values["size_bytes"] = sum(entry["size_bytes"] for entry in objects.values())
+    row.object_count = len(objects)
+    row.size_bytes = sum(entry["size_bytes"] for entry in objects.values())
     with pytest.raises(IntegrityError):
         async with video_db.begin_nested():
-            video_db.add(Bundle(**values))
+            video_db.add(row)
             await video_db.flush()
 
 
@@ -538,38 +536,24 @@ async def test_database_schema_four_keeps_legacy_zero_byte_inventory_semantics(
 async def test_retirement_replacement_accepts_only_exact_exclusive_video_proof(
     fault, db_session, super_admin
 ):
-    owner = retirement_tests.owner()
-    replacement = SimpleNamespace(
-        id=uuid.uuid4(),
-        project_id=owner.project_id,
-        job_id=owner.job_id,
-        input_digest="c" * 64,
-        input_schema=4,
-    )
-    proof = {"schema": 4, "bundle_id": str(replacement.id), "input_digest": "c" * 64}
-    payload = {"video_media": proof}
-    if fault == "image":
-        payload = {"image_media": proof}
-    elif fault == "lidar":
-        payload = {"lidar_media": proof}
+    actor, _ = super_admin
+    owner, job, replacement = retirement_tests.replacement_claim("video_media", 4)
+    proof = job.payload["video_media"]
+    if fault in ("image", "lidar"):
+        job.payload = {f"{fault}_media": proof}
     elif fault == "both":
-        payload["image_media"] = proof
+        job.payload["image_media"] = proof
     elif fault == "boolean":
         proof["schema"] = True
     elif fault == "scalar":
         replacement.input_schema = 4.0
-    job = SimpleNamespace(
-        kind="export", status="running", project_id=owner.project_id, payload=payload
-    )
-    if fault == "scalar":
-        with pytest.raises(IntegrityError):
+        with pytest.raises(IntegrityError) as invalid_schema:
             await retirement_tests.store_policy(
-                db_session, super_admin, owner, job, replacement
+                db_session, actor, owner, job, replacement
             )
+        assert invalid_schema.value.orig.sqlstate == "23514"
         return
-    await retirement_tests.store_policy(
-        db_session, super_admin, owner, job, replacement
-    )
+    await retirement_tests.store_policy(db_session, actor, owner, job, replacement)
     assert await retirement.attempt_ended(db_session, owner) is (fault is None)
 
 

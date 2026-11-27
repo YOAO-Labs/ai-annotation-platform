@@ -162,6 +162,10 @@ async def test_video_write_replay_returns_existing_receipt_under_task_lock(monke
     async def prepare(*_args, **_kwargs):
         pytest.fail("duplicate result should return before payload preparation")
 
+    async def get_row(_db, _row_model, _row_id, *, populate_existing=False):
+        return task
+
+    monkeypatch.setattr(prediction_module, "get_core_row", get_row)
     monkeypatch.setattr(
         prediction_module, "preflight_mask_payload_for_write", preflight
     )
@@ -183,25 +187,43 @@ async def test_video_write_replay_returns_existing_receipt_under_task_lock(monke
 
 
 @pytest.mark.asyncio
-async def test_persist_stamps_typed_evidence_and_trusted_execution_job():
+async def test_persist_stamps_typed_evidence_and_trusted_execution_job(monkeypatch):
+    from yoao_labeling.prediction_record_contract import InsertPredictionResultData
+    from app.db.models.task import Task
+    from app.services import prediction as prediction_module
     from app.services.prediction import PredictionService
 
     evidence = _evidence()
     request = _request(evidence)
     rows = []
+    commands = []
 
     class Session:
         def add(self, row):
             rows.append(row)
 
         async def flush(self):
-            for row in rows:
-                if getattr(row, "created_at", None) is None:
-                    row.created_at = datetime.now(timezone.utc)
+            return None
 
-    task = SimpleNamespace(total_predictions=0)
+    async def fake_command(_db, command):
+        commands.append(command)
+        now = datetime.now(timezone.utc)
+        return InsertPredictionResultData(
+            operation="insert_result",
+            prediction_id=command.prediction_id,
+            created_at=now,
+            tool_unit_id=command.tool_unit_id,
+            total_predictions=1,
+            task_updated_at=now,
+        )
+
+    monkeypatch.setattr(prediction_module, "prediction_record_command", fake_command)
+    task = Task(
+        id=evidence.task_id, project_id=evidence.project_id, total_predictions=0
+    )
     await PredictionService(Session())._persist_prediction_result(request, task, [])
-    metadata = next(row for row in rows if row.__class__.__name__ == "PredictionMeta")
+    assert len(commands) == 1
+    metadata = commands[0]
     assert metadata.extra["accepted_video_input"] == evidence.model_dump(
         mode="json", by_alias=True
     )
@@ -404,6 +426,21 @@ async def test_video_retry_prepares_exact_retained_frame_before_retry_admission(
     async def gateway_factory(**_kwargs):
         yield Gateway()
 
+    from app.application import prediction_retry_inputs
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    async def get_row(_db, row_model, _row_id, *, populate_existing=False):
+        if row_model is prediction_retry_inputs.failed_prediction_row:
+            return failed
+        if row_model is prediction_retry_inputs.task_row:
+            return task
+        return None
+
+    async def registry_ref(_self, _registry_id):
+        return backend
+
+    monkeypatch.setattr(prediction_retry_inputs, "get_core_row", get_row)
+    monkeypatch.setattr(InferenceTopologyData, "registry_reference", registry_ref)
     monkeypatch.setattr(accepted_video_inputs, "video_input_gateway", gateway_factory)
 
     async with _prepare_retry_input(
@@ -487,8 +524,23 @@ async def test_video_retry_busy_frame_defers_before_model_execution(
         pytest.fail("a busy frame must defer before creating a retry job")
         yield None
 
+    from app.application import prediction_retry_inputs
+    from app.services.inference_topology_data import InferenceTopologyData
+
+    async def get_row(_db, row_model, _row_id, *, populate_existing=False):
+        if row_model is prediction_retry_inputs.failed_prediction_row:
+            return failed
+        if row_model is prediction_retry_inputs.task_row:
+            return task
+        return None
+
+    async def registry_ref(_self, _registry_id):
+        return backend
+
+    monkeypatch.setattr(prediction_retry_inputs, "get_core_row", get_row)
+    monkeypatch.setattr(InferenceTopologyData, "registry_reference", registry_ref)
     monkeypatch.setattr(accepted_video_inputs, "video_input_gateway", gateway_factory)
-    monkeypatch.setattr("app.services.async_job.track_job", unexpected_job)
+    monkeypatch.setattr("app.services.jobs_lifecycle_data.track_job", unexpected_job)
 
     code = "input_busy" if wait_at == "source" else "frame_busy"
     with pytest.raises(FrozenInputRetryDeferred, match=code):
@@ -502,7 +554,9 @@ async def test_video_retry_busy_frame_defers_before_model_execution(
 
 
 @pytest.mark.asyncio
-async def test_video_frame_retry_requires_typed_evidence():
+async def test_video_frame_retry_requires_typed_evidence(monkeypatch):
+    from app.application import prediction_retry_inputs
+    from app.services.inference_topology_data import InferenceTopologyData
     from app.workers.predictions_retry import _prepare_retry_input
 
     failed_id, task_id, project_id, backend_id = (uuid.uuid4() for _ in range(4))
@@ -523,14 +577,18 @@ async def test_video_frame_retry_requires_typed_evidence():
         async def __aexit__(self, *_args):
             return None
 
-        async def get(self, model, _identity):
-            if model.__name__ == "FailedPrediction":
-                return failed
-            if model.__name__ == "Task":
-                return task
-            if model.__name__ == "MLBackendRegistry":
-                return backend
-            return None
+    async def get_row(_db, row_model, _row_id, *, populate_existing=False):
+        if row_model is prediction_retry_inputs.failed_prediction_row:
+            return failed
+        if row_model is prediction_retry_inputs.task_row:
+            return task
+        return None
+
+    async def registry_ref(_self, _registry_id):
+        return backend
+
+    monkeypatch.setattr(prediction_retry_inputs, "get_core_row", get_row)
+    monkeypatch.setattr(InferenceTopologyData, "registry_reference", registry_ref)
 
     async with _prepare_retry_input(
         lambda: Session(), str(failed_id), actor_id=str(uuid.uuid4())

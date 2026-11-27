@@ -23,7 +23,7 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.db.models.project import Project
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services import (
     export_execution_context,
     export_outputs,

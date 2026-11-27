@@ -14,7 +14,10 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.fixture_run import FixtureRun
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services import async_job, fixture_run_ownership as ownership
+from app.services import (
+    jobs_lifecycle_data as async_job,
+    fixture_run_ownership as ownership,
+)
 from app.services.content_snapshot import ContentError
 from app.services.exporting import image_jobs
 from tests.export_worker_native_fixtures import setup, worker_db as worker_db

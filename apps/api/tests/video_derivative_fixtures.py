@@ -93,21 +93,6 @@ async def publish_result(db, output, authority, result, receipts, *, item=None):
 async def owned_metadata(
     db, item, *, video=None, frames=None, force=False, poster=None, playback=None
 ):
-    authority = await video_authority(db, item)
-    raw = dict(
-        video if video is not None else (item.metadata_ or {}).get("video") or {}
-    )
-    raw = {
-        "fps": 30,
-        "frame_count": 90,
-        "width": 640,
-        "height": 360,
-        "duration_ms": 3000,
-        "codec": "h264",
-        **raw,
-    }
-    poster = bool(raw.get("poster_frame_path")) if poster is None else poster
-    playback = bool(raw.get("playback_path")) if playback is None else playback
     if frames is None:
         rows = (
             await db.scalars(
@@ -129,6 +114,21 @@ async def owned_metadata(
             }
             for row in rows
         ]
+    authority = await video_authority(db, item)
+    raw = dict(
+        video if video is not None else (item.metadata_ or {}).get("video") or {}
+    )
+    raw = {
+        "fps": 30,
+        "frame_count": 90,
+        "width": 640,
+        "height": 360,
+        "duration_ms": 3000,
+        "codec": "h264",
+        **raw,
+    }
+    poster = bool(raw.get("poster_frame_path")) if poster is None else poster
+    playback = bool(raw.get("playback_path")) if playback is None else playback
     output, _ = await core.prepare(
         db, item.id, authority, "metadata", spec={"schema": 1}, force=force
     )
@@ -146,9 +146,12 @@ async def owned_metadata(
         payload["poster.webp"] = b"owned video poster"
     if playback:
         payload["playback.mp4"] = b"owned browser playback"
-    return await publish_result(
+    published = await publish_result(
         db, output, authority, result, inventory(output, result, payload), item=item
     )
+    item.media_materialized_generation = item.media_source_generation
+    await db.commit()
+    return published
 
 
 async def owned_output(

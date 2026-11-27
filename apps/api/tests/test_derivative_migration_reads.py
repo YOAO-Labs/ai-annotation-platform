@@ -307,8 +307,9 @@ async def test_access_closes_before_final_guard_and_retains_unknown_responsibili
     active, failures, guards = [], [], []
 
     @asynccontextmanager
-    async def admit(db, route, purpose):
+    async def admit(db, route, purpose, *, routes=None):
         assert purpose == owners.purpose(receipt.id)
+        assert routes == plan.routes
         active.append(True)
         try:
             yield SimpleNamespace(target=Target(provider))
@@ -391,17 +392,18 @@ async def test_video_outer_ready_check_uses_metadata_route_and_final_consumed_se
 ):
     storage, _, row, _, routes = saved("video")
     source, authority = SimpleNamespace(item_id=row.dataset_item_id), object()
-    item = SimpleNamespace(video_output_id=row.id)
+    item = SimpleNamespace(id=row.dataset_item_id, video_output_id=row.id)
     db = SimpleNamespace(info={})
     monkeypatch.setattr(derivatives.originals, "check", AsyncMock(return_value=source))
     monkeypatch.setattr(
         derivatives.originals, "receipt", lambda _source: row.original_ref
     )
     monkeypatch.setattr(derivatives.originals, "clock", Mock())
+    monkeypatch.setattr(derivatives, "item_row", AsyncMock(return_value=item))
+    monkeypatch.setattr(derivatives, "slot_for", AsyncMock(return_value=item))
     monkeypatch.setattr(
-        derivatives, "row", AsyncMock(side_effect=[item, row, item, row])
+        derivatives.objects, "read_attempt", AsyncMock(return_value=row)
     )
-    monkeypatch.setattr(derivatives, "_slot", AsyncMock(return_value=item))
     monkeypatch.setattr(
         reads,
         "resolve",
@@ -490,7 +492,7 @@ async def test_mixed_members_keep_separate_source_and_target_admission(
     )
 
     @contextmanager
-    def source_context():
+    def source_context(*_args, **_kwargs):
         yield source
 
     if family == "image":
@@ -512,8 +514,9 @@ async def test_mixed_members_keep_separate_source_and_target_admission(
         return source_admission()
 
     @asynccontextmanager
-    async def target_admission(db, route, purpose):
+    async def target_admission(db, route, purpose, **kwargs):
         assert route is routes[target_key] and purpose == owners.purpose(row.id)
+        assert kwargs["routes"] == plan.routes
         active.append("B")
         try:
             yield SimpleNamespace(target=Target(provider))

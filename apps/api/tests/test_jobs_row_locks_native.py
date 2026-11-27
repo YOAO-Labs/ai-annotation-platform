@@ -17,7 +17,7 @@ from yoao_jobs.lifecycle_contract import (
 )
 from yoao_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
 from app.db.models.async_job import AsyncJob
-from app.services import async_job as async_job_service
+from app.services import jobs_lifecycle_data as async_job_service
 from app.services.jobs_lifecycle_data import job_lock_statement
 from tests.test_jobs_list_query_native import _committed_identity_scope_world
 
@@ -35,6 +35,10 @@ def _sqlstate(error: BaseException) -> str | None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned Jobs owner role and disposable database",
+)
 async def test_row_lock_functions_have_fixed_definer_and_exact_row_abi(db_session):
     expected_columns = [
         f"{name}:{ASYNC_JOB_FUNCTION_ROW_TYPES[name]}" for name in ASYNC_JOB_ROW_COLUMNS

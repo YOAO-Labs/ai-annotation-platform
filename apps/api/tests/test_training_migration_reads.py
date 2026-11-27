@@ -22,6 +22,7 @@ def owner():
     return SimpleNamespace(
         ref=ref,
         bucket=ref["bucket"],
+        key_prefix="",
         contains=lambda key: key == "saved/object" or owners._reject(),
     )
 
@@ -143,8 +144,11 @@ async def test_route_failures_keep_safe_training_error(monkeypatch, stage):
 
 @pytest.mark.parametrize("resume", [False, True])
 async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, resume):
-    from app.services import training_runs
-    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.services import (
+        training_dataset_data,
+        training_run_data,
+        training_runs,
+    )
     from tests.test_training_run_storage_flow import owned
 
     world = owned.__wrapped__(monkeypatch)
@@ -165,13 +169,20 @@ async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, 
         calls.append((saved.ref, kwargs))
         return callback(io.storage_service)
 
-    async def get(model, identifier):
-        return world.dataset if model is TrainingDatasetVersion else parent
-
+    monkeypatch.setattr(
+        training_dataset_data,
+        "read_version_facts",
+        AsyncMock(return_value=world.dataset),
+    )
+    monkeypatch.setattr(
+        training_run_data,
+        "get_attempt",
+        AsyncMock(return_value=parent),
+    )
     monkeypatch.setattr(io, "read", read)
     before = deepcopy(world.run.config)
     result = await training_runs.assignment(
-        SimpleNamespace(get=get, commit=AsyncMock()),
+        SimpleNamespace(autoflush=False, commit=AsyncMock()),
         world.run,
         world.attempt,
         "lease",
@@ -200,7 +211,7 @@ async def test_assignment_routes_each_saved_input_with_its_content(monkeypatch, 
 
 async def test_initialization_keeps_weight_and_report_reads_separate(monkeypatch):
     from app.services import training_initialization as initialization
-    from app.services import training_artifacts, training_runs, training_run_storage
+    from app.services import training_artifacts, training_run_storage
     from app.services.training_dataset_bridge import content_digest
     from tests.test_training_run_storage_flow import owned, artifact
 
@@ -225,7 +236,9 @@ async def test_initialization_keeps_weight_and_report_reads_separate(monkeypatch
         return callback(io.storage_service)
 
     monkeypatch.setattr(io, "read", read)
-    monkeypatch.setattr(training_runs, "verify_artifact", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        training_artifacts, "verify_saved_artifact", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         training_artifacts, "read_json_artifact", lambda *args, **kwargs: report
     )
@@ -263,7 +276,7 @@ async def test_preview_image_reads_two_objects_and_owns_undelivered_file(monkeyp
         calls.append(kwargs)
         return callback(io.storage_service)
 
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
+    monkeypatch.setattr(api, "lock_project_manager", AsyncMock())
     monkeypatch.setattr(api, "load", AsyncMock(return_value=preview))
     monkeypatch.setattr(previews, "storage_owner", lambda value: saved)
     monkeypatch.setattr(
@@ -277,8 +290,8 @@ async def test_preview_image_reads_two_objects_and_owns_undelivered_file(monkeyp
         uuid.uuid4(),
         0,
         project=SimpleNamespace(id=uuid.uuid4()),
-        user=object(),
-        db=SimpleNamespace(commit=AsyncMock()),
+        user=SimpleNamespace(id=uuid.uuid4()),
+        db=SimpleNamespace(autoflush=False, commit=AsyncMock()),
     )
     try:
         assert [
@@ -308,7 +321,7 @@ async def test_mapped_active_learning_png_never_opens_original_write_target(
     saved.key = lambda relative: "saved/object"
     sample = {"ordinal": 0, "derived_sha256": "a" * 64}
     context = SimpleNamespace(proof=None, key=None)
-    db = SimpleNamespace(commit=AsyncMock())
+    db = SimpleNamespace(autoflush=False, commit=AsyncMock())
     monkeypatch.setattr(learning.owners, "resolve", lambda value: saved)
     monkeypatch.setattr(
         learning.originals, "delegated", AsyncMock(return_value=context)

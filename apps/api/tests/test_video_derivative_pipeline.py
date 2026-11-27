@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock
 import uuid
 from urllib.parse import urlsplit
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from PIL import Image
 import pytest
 from sqlalchemy import delete, select, text, update
@@ -41,6 +41,7 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.storage import storage_service
 from app.workers import media_derivatives as worker
+from tests.factory import admitted_request
 from tests.test_video_derivative_api import _inventory, _publish, world as world
 from tests.test_workspace_project_authority_locking import _api_url
 
@@ -475,12 +476,7 @@ async def test_real_task_video_manifest_item_fence(
         generation = await writer.get(Output, generation_id)
         assert generation.state == "ready", generation.error_code
         token = create_access_token(str(actor.id), actor.role)
-        request = Request(
-            {
-                "type": "http",
-                "headers": [(b"authorization", f"Bearer {token}".encode())],
-            }
-        )
+        request = admitted_request(actor, token=token)
         if change == "committed-rebind":
             ctx = await service.authorize_context(db, task, actor, request)
             await db.commit()
@@ -511,7 +507,8 @@ async def test_real_task_video_manifest_item_fence(
                     text(
                         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS activity "
                         "WHERE :writer = ANY(pg_catalog.pg_blocking_pids(activity.pid)) "
-                        "AND activity.query LIKE '%FROM dataset_items%FOR SHARE%')"
+                        "AND (activity.query LIKE '%FROM dataset_items%FOR SHARE%' "
+                        "OR activity.query LIKE '%yoao_assets_v1.%'))"
                     ),
                     {"writer": writer_pid},
                 ):
@@ -563,9 +560,7 @@ async def test_claimed_task_frame_finishes_after_short_item_writer(
     await worker.run_outputs([str(metadata_id)], propagate_failure=True)
 
     token = create_access_token(str(actor.id), actor.role)
-    request = Request(
-        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
-    )
+    request = admitted_request(actor, token=token)
     async with manifest_runtime() as db:
         authority = await originals.authorize(db, context.task_id, actor, request)
         metadata = await objects.read_attempt(
@@ -614,7 +609,8 @@ async def test_claimed_task_frame_finishes_after_short_item_writer(
                     text(
                         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS activity "
                         "WHERE :writer = ANY(pg_catalog.pg_blocking_pids(activity.pid)) "
-                        "AND activity.query LIKE '%FROM dataset_items%FOR SHARE%')"
+                        "AND (activity.query LIKE '%FROM dataset_items%FOR SHARE%' "
+                        "OR activity.query LIKE '%yoao_assets_v1.%'))"
                     ),
                     {"writer": writer_pid},
                 ):

@@ -67,8 +67,9 @@ async def test_run_finishes_after_original_callback_and_actual_permit(
         events.append("acquired")
 
     async def run(*args, **kwargs):
-        assert kwargs["accounting"] is rec
         await kwargs["on_acquired"](permit)
+        bound = args[3](args[4], lambda transport: transport)
+        assert bound.accounting is rec
         events.append("native_closed")
         permit._settled = settled
         if failure is not None:

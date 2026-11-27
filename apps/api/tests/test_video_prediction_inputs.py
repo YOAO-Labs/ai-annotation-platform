@@ -1,6 +1,7 @@
 """Whole-video input ownership on real SQL, with only provider transport controlled."""
 
 import asyncio
+from contextlib import AsyncExitStack
 from copy import deepcopy
 from datetime import timedelta
 import hashlib
@@ -13,18 +14,25 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import select, text, update
+import pytest_asyncio
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.prediction_input import PredictionInputLease as Lease
-from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
+from app.db.models.storage_usage import StorageUsageMutation
 from app.services import prediction_inputs as owner
 from app.services.content_snapshot import ContentError
 from app.services.exporting import video_probe
 from app.services.managed_original_reader import BinaryStage
 from tests.test_export_media_bundle_models import _migration
-from tests.test_prediction_input_owner import Storage, lease, snapshot
-from tests.test_prediction_input_owner import world as image_world  # noqa: F401
+from tests.test_prediction_input_owner import (
+    Storage,
+    lease,
+    make_owner_world,
+    owner_database,
+    snapshot,
+)
 
 
 class VideoStorage(Storage):
@@ -43,10 +51,68 @@ class VideoStorage(Storage):
         return super().put_object(**{**params, "Body": io.BytesIO(b"".join(chunks))})
 
 
+def _video_world(engine, monkeypatch):
+    state = make_owner_world(engine)
+    state.owner_ids = []
+    monkeypatch.setattr(owner, "make_storage", lambda: VideoStorage(state))
+    return state
+
+
 @pytest.fixture
-async def world(image_world, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(owner, "make_storage", lambda: VideoStorage(image_world))
-    return image_world
+async def isolated_world(managed_database, monkeypatch):
+    async with owner_database(managed_database) as engine:
+        yield _video_world(engine, monkeypatch)
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def video_databases():
+    async with AsyncExitStack() as owned:
+        yield owned, []
+
+
+@pytest_asyncio.fixture(loop_scope="module")
+async def world(video_databases, managed_database, monkeypatch):
+    """Reuse a private database only after the previous case's writes settled."""
+    owned, clean = video_databases
+    engine = (
+        clean.pop()
+        if clean
+        else await owned.enter_async_context(owner_database(managed_database))
+    )
+    state = _video_world(engine, monkeypatch)
+    legacy_gate = StorageMaintenanceGate.location_id == owner.LEGACY_LOCATION_ID
+    gate = select(StorageMaintenanceGate.__table__).where(legacy_gate)
+    async with engine.connect() as db:
+        original_gate = (await db.execute(gate)).one_or_none()
+    yield state
+    async with engine.begin() as db:
+        clients = await db.scalar(
+            text(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() "
+                "AND pid<>pg_backend_pid() AND backend_type IS DISTINCT FROM 'autovacuum worker'"
+            )
+        )
+        assert clients == 0, clients
+        case_leases = Lease.owner_id.in_(state.owner_ids)
+        await db.execute(
+            delete(StorageUsageMutation).where(
+                StorageUsageMutation.producer == "prediction_inputs",
+                StorageUsageMutation.owner_id.in_(select(Lease.id).where(case_leases)),
+            )
+        )
+        await db.execute(delete(Lease).where(case_leases))
+        if original_gate is None:
+            await db.execute(delete(StorageMaintenanceGate).where(legacy_gate))
+        else:
+            assert (await db.execute(gate)).one() == original_gate
+        assert not await db.scalar(
+            select(
+                select(Lease.id).exists()
+                | select(StorageOperation.id).exists()
+                | select(StorageUsageMutation.id).exists()
+            )
+        ), "Video input state remains in the private database"
+    clean.append(engine)
 
 
 def probe():
@@ -119,9 +185,11 @@ def real_video(tmp_path):
 
 
 async def create(world, kind="video_batch_predict", **kwargs):
+    owner_id = uuid.uuid4()
+    world.owner_ids.append(owner_id)
     return await owner.PredictionInputs.create(
         world.factory,
-        owner_id=uuid.uuid4(),
+        owner_id=owner_id,
         owner_kind=kind,
         task_id=uuid.uuid4(),
         **kwargs,
@@ -323,8 +391,9 @@ def test_video_cap_and_inventory_shape_never_enlarge_image_limits():
     "failure", ["disabled_versioning", "bad_readback", "unknown_close"]
 )
 async def test_video_storage_failure_retains_exact_responsibility(
-    world, real_video, failure
+    isolated_world, real_video, failure
 ):
+    world = isolated_world
     source, given = real_video
     inputs = await create(world)
     if failure == "disabled_versioning":
@@ -437,7 +506,10 @@ async def test_database_guards_video_budget_identity_and_receipts(world, change)
     await inputs.close()
 
 
-async def test_v3_deleted_tombstone_blocks_downgrade_and_clean_graph_roundtrips(world):
+async def test_v3_deleted_tombstone_blocks_downgrade_and_clean_graph_roundtrips(
+    isolated_world,
+):
+    world = isolated_world
     engine = world.factory.kw["bind"]
     async with engine.begin() as connection:
         await connection.run_sync(

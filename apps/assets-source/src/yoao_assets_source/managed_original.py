@@ -180,7 +180,14 @@ def _failure(exc: BaseException, code: str = "creation_io_failed") -> WriterErro
 
     if isinstance(exc, ClientError):
         error_code, _status = _error(exc)
-        if error_code in ("PreconditionFailed", "412", "NoSuchKey", "404", "NotFound"):
+        if error_code in (
+            "PreconditionFailed",
+            "412",
+            "NoSuchKey",
+            "NoSuchVersion",
+            "404",
+            "NotFound",
+        ):
             return WriterError("creation_source_changed")
     return WriterError(code)
 
@@ -448,6 +455,8 @@ def _require_conditions(client: Any, params: dict) -> None:
             and status in (None, 412)
         ):
             return
+        if code in ("NoSuchKey", "NoSuchVersion", "404", "NotFound"):
+            raise WriterError("creation_source_changed") from None
         raise WriterError("creation_conditions_unverified") from None
     else:
         body = response.get("Body") if isinstance(response, dict) else None

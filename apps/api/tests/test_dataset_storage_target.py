@@ -8,10 +8,14 @@ import pytest
 from app.services import dataset_storage_target as target_service
 from app.services.dataset_storage import DatasetStorageError
 from app.services.managed_s3_target import Target
+from app.services.source_readers.s3 import ScopedS3Access
 from tests.managed_original_provider_support import MemoryS3, error, response
 
 
-class ProbeS3(MemoryS3):
+class ProbeS3(MemoryS3, ScopedS3Access):
+    __setattr__ = object.__setattr__
+    __delattr__ = object.__delattr__
+
     def __init__(self, failure=None):
         super().__init__()
         self.failure, self.completes, self.closed = failure, 0, 0

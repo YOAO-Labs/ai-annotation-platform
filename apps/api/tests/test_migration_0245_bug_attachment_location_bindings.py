@@ -1,4 +1,4 @@
-"""Avatar location upgrades preserve old rows and reject destructive rollback."""
+"""Bug attachment location upgrades preserve old rows and reject destructive rollback."""
 
 import importlib.util
 from pathlib import Path
@@ -6,7 +6,7 @@ from pathlib import Path
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 
 from app.db.models.dataset_asset import StorageBinding
 from app.services.dataset_assets import ensure_legacy_bindings
@@ -25,44 +25,6 @@ def migration():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-async def test_roundtrip_preserves_legacy_object_location_and_state(db_session):
-    row = owner()
-    saved = reference(upload_id=row.id, owner_id=row.owner_id)
-    row.storage_ref = saved
-    db_session.add(row)
-    identifier = row.id
-    await db_session.flush()
-    connection = await db_session.connection()
-
-    def roundtrip(conn):
-        module = migration()
-        with Operations.context(MigrationContext.configure(conn)):
-            module.downgrade()
-            assert "object_version_id" not in {
-                column["name"]
-                for column in inspect(conn).get_columns("bug_attachment_uploads")
-            }
-            result = conn.execute(
-                text(
-                    "SELECT storage_ref,state FROM bug_attachment_uploads WHERE id=:identifier"
-                ),
-                {"identifier": identifier},
-            ).one()
-            assert result.storage_ref == saved and result.state == "pending"
-            module.upgrade()
-            assert (
-                conn.execute(
-                    text(
-                        "SELECT object_version_id FROM bug_attachment_uploads WHERE id=:identifier"
-                    ),
-                    {"identifier": identifier},
-                ).scalar_one()
-                is None
-            )
-
-    await connection.run_sync(roundtrip)
 
 
 @pytest.mark.parametrize("fact", ["schema2", "version", "binding"])

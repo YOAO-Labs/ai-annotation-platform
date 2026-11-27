@@ -282,6 +282,7 @@ async def test_batch_actor_scope_does_not_hydrate_user(monkeypatch):
     project = SimpleNamespace(id=project_id)
     batch_row = SimpleNamespace(id=batch_id)
     db = SimpleNamespace(
+        autoflush=False,
         execute=AsyncMock(
             side_effect=[
                 _Rows([project_id]),

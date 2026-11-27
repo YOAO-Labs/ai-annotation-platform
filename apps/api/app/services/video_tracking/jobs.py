@@ -14,7 +14,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.config import settings
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
+from app.services.async_job import ensure_video_tracker_summary
+from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData
 from app.services.jobs_dispatch import prepare_job_dispatch, publish_prepared_dispatch
 from app.services.project_access import get_workspace_project
 from app.db.models.annotation import Annotation
@@ -46,8 +48,8 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     load_coco_rle,
     lock_raster_mask_references,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_storage import validate_task_mask_dimensions
 from app.services.video_context import VideoContext, derive_step
 from app.services.video_tracking.adapters import registered_tracker_models
 from app.services.video_tracking import runner as _runner
@@ -449,9 +451,7 @@ async def save_video_mask_keyframe(
         ),
     }
     try:
-        await validate_mask_geometry_for_task(
-            db, task, next_geometry, video_context=ctx
-        )
+        await validate_task_mask_dimensions(db, task, next_geometry, video_context=ctx)
         await lock_raster_mask_references(
             db, next_geometry, task_id=task.id, require_raster_foreground=False
         )
@@ -814,8 +814,8 @@ async def prepare_tracker_dispatch(
         if project_id is not None
         else None
     )
-    summary = await async_job_svc.ensure_video_tracker_summary(
-        db,
+    summary = await ensure_video_tracker_summary(
+        JobsLifecyclePostgresData(db),
         tracker_job_id=row.id,
         kind="video_correction" if row.job_kind == "correction" else "video_tracker",
         user_id=row.created_by,

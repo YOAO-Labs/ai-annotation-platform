@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.services import managed_original_reclaim as service, storage_access
 from app.services import prediction_inputs as drained
+from app.services.storage_io_settlement import wait_for_settlement
 from app.services.async_job_notify import notify_job_terminal
 from app.workers._db import task_session
 from app.workers.celery_app import celery_app
@@ -131,7 +132,7 @@ async def execute(db, job_id, task_id):
         except BaseException as interrupted:
             stopping.set()
             try:
-                await drained._drain(pending)
+                await wait_for_settlement(pending)
             except BaseException as late:
                 drained._uncertainty(interrupted, late)
             raise

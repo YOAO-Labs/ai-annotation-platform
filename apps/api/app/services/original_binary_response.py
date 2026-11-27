@@ -9,6 +9,7 @@ from starlette.responses import StreamingResponse
 from app.services import managed_original_reader as reader
 from app.services.content_snapshot import ContentError
 from app.services.storage_access import mark_unsettled
+from app.services.storage_io_settlement import _drain
 
 DOWNLOAD_MAX_BYTES = 512 * 1024**2
 COPY_SECONDS = 120
@@ -27,22 +28,6 @@ async def capture_download(spec, **read_options):
         transport_timeout_seconds=min(COPY_SECONDS, 30),
         **read_options,
     )
-
-
-async def _drain(pending):
-    """Return the actual outcome without abandoning an executor operation."""
-    cancelled = False
-    while not pending.done():
-        try:
-            await asyncio.shield(pending)
-        except asyncio.CancelledError:
-            cancelled = True
-        except BaseException:
-            break
-    try:
-        return pending.result(), None, cancelled
-    except BaseException as exc:
-        return None, exc, cancelled
 
 
 def _response_error(exc):

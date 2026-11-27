@@ -25,6 +25,8 @@ from app.services.labeling_mask_edit import MaskOwnerCommandError, mask_revision
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
+)
+from app.services.raster_mask_validation import (
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
 )

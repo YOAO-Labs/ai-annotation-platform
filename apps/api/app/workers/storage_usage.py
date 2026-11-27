@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 
 from app.config import settings
-from app.services import async_job as jobs, storage_usage as svc
+from app.services import jobs_lifecycle_data as jobs, storage_usage as svc
 from app.services import storage_usage_categories as categories
 from app.services import storage_usage_accounting as accounting
 from app.services import storage_job_progress as progress

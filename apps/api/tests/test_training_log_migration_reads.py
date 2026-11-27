@@ -39,7 +39,7 @@ def world(monkeypatch):
     value.attempt.status = "failed"
     value.attempt.artifacts = {"train.log": artifact}
     value.project = SimpleNamespace(id=value.run.project_id)
-    value.user = SimpleNamespace()
+    value.user = SimpleNamespace(id=uuid.uuid4())
     value.db = SimpleNamespace(
         scalar=AsyncMock(return_value=value.run),
         get=AsyncMock(return_value=value.attempt),
@@ -114,7 +114,16 @@ def world(monkeypatch):
         AsyncMock(side_effect=AssertionError("stopped A must not open")),
     )
     value.authority = AsyncMock()
-    monkeypatch.setattr(api, "lock_owner", value.authority)
+    monkeypatch.setattr(api, "lock_project_manager", value.authority)
+
+    async def _get_run(db, *_args, **_kwargs):
+        return await db.scalar(None)
+
+    async def _get_attempt(db, attempt_id, **_kwargs):
+        return await db.get(None, attempt_id)
+
+    monkeypatch.setattr(api.data, "get_run", _get_run)
+    monkeypatch.setattr(api.data, "get_attempt", _get_attempt)
     return value
 
 

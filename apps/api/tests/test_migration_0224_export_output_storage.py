@@ -2,42 +2,20 @@
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
-import importlib.util
 import json
-from pathlib import Path
 import uuid
 
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 import pytest
-from sqlalchemy import MetaData, Table, inspect, text, update
+from sqlalchemy import inspect, null, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from sqlalchemy.orm import registry
 
 from app.config import settings
-from app.db.models.export_output import ExportOutput as CurrentExportOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
-
-
-class ExportOutput:
-    pass
-
-
-registry().map_imperatively(
-    ExportOutput,
-    Table(
-        "export_outputs",
-        MetaData(),
-        *(
-            column._copy()
-            for column in CurrentExportOutput.__table__.columns
-            if column.name != "media_bundle_id"
-        ),
-    ),
-)
+from tests.export_migration_fixtures import create_export_artifacts, export_output_model
+from tests.migration_helpers import bind, load
 
 
 CREATED = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -45,14 +23,7 @@ LEGACY_CACHE = uuid.UUID(int=98)
 
 
 def migration(connection):
-    path = Path(__file__).parents[1] / "alembic/versions/0224_export_output_storage.py"
-    spec = importlib.util.spec_from_file_location(
-        "export_storage_migration_" + uuid.uuid4().hex, path
-    )
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    module.op = Operations(MigrationContext.configure(connection))
-    return module
+    return bind(load("0224_export_output_storage.py"), connection)
 
 
 @pytest.fixture
@@ -66,15 +37,30 @@ async def owned_db(test_engine):
     )
     try:
         async with engine.begin() as connection:
-            await connection.execute(
-                text("CREATE TABLE export_artifacts (id uuid PRIMARY KEY)")
-            )
-            await connection.execute(
-                text("INSERT INTO export_artifacts (id) VALUES (:id)"),
-                {"id": LEGACY_CACHE},
-            )
+            await connection.run_sync(create_export_artifacts)
+            legacy_cache = (
+                await connection.execute(
+                    text(
+                        "WITH project AS ("
+                        "INSERT INTO projects (id) VALUES (gen_random_uuid()) RETURNING id) "
+                        "INSERT INTO export_artifacts (id, cache_key, project_id, format, object_key, "
+                        "file_count, size_bytes, created_at, expires_at) "
+                        "SELECT :id, repeat('a', 64), id, 'coco,indexed-png,yolo-det', "
+                        "'cache/legacy.zip', 2, 101, :created, :expires FROM project "
+                        "RETURNING to_jsonb(export_artifacts)"
+                    ),
+                    {
+                        "id": LEGACY_CACHE,
+                        "created": CREATED,
+                        "expires": CREATED + timedelta(days=7),
+                    },
+                )
+            ).scalar_one()
             await connection.run_sync(lambda sync: migration(sync).upgrade())
+            output_model = await connection.run_sync(export_output_model, schema)
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            db.info["export_output_model"] = output_model
+            db.info["legacy_cache"] = legacy_cache
             yield db
     finally:
         await engine.dispose()
@@ -117,7 +103,7 @@ async def create(db, **changes):
         values["storage_ref"] = reference(
             values["id"], values["project_id"], values["job_id"], values["media"]
         )
-    row = ExportOutput(**values)
+    row = db.info["export_output_model"](**values)
     db.add(row)
     await db.flush()
     return row
@@ -130,23 +116,33 @@ async def test_empty_roundtrip_preserves_legacy_cache_and_shared_guard(owned_db)
         module = migration(sync)
         assert module.down_revision == "0223"
         schema = sync.scalar(text("SELECT current_schema()"))
+        columns = inspect(sync).get_columns("export_outputs", schema=schema)
+        assert {"media_bundle_id", "upload_proof"}.isdisjoint(
+            c["name"] for c in columns
+        )
         assert inspect(sync).get_foreign_keys("export_outputs", schema=schema) == []
         foreign_keys = inspect(sync).get_foreign_keys("export_artifacts", schema=schema)
-        assert len(foreign_keys) == 1
-        assert foreign_keys[0]["referred_table"] == "export_outputs"
-        assert foreign_keys[0]["constrained_columns"] == ["output_id"]
-        assert foreign_keys[0]["options"]["ondelete"] == "RESTRICT"
+        assert {
+            (
+                tuple(fk["constrained_columns"]),
+                fk["referred_table"],
+                fk["options"]["ondelete"],
+            )
+            for fk in foreign_keys
+        } == {
+            (("project_id",), "projects", "CASCADE"),
+            (("output_id",), "export_outputs", "RESTRICT"),
+        }
         assert "ix_export_artifacts_output_id" in {
             item["name"]
             for item in inspect(sync).get_indexes("export_artifacts", schema=schema)
         }
-        assert (
-            sync.scalar(
-                text("SELECT output_id FROM export_artifacts WHERE id=:id"),
-                {"id": LEGACY_CACHE},
-            )
-            is None
-        )
+        cache = text(
+            "SELECT to_jsonb(c) FROM export_artifacts AS c WHERE id=:id"
+        ).bindparams(id=LEGACY_CACHE)
+        legacy_cache = owned_db.info["legacy_cache"]
+        unassociated = {**legacy_cache, "output_id": None}
+        assert sync.execute(cache).scalar_one() == unassociated
         shared_before = sync.scalar(
             text(
                 "SELECT pg_get_functiondef('public.guard_training_dataset_storage_ref()'::regprocedure)"
@@ -154,13 +150,7 @@ async def test_empty_roundtrip_preserves_legacy_cache_and_shared_guard(owned_db)
         )
         module.downgrade()
         assert not inspect(sync).has_table("export_outputs", schema=schema)
-        assert (
-            sync.scalar(
-                text("SELECT count(*) FROM export_artifacts WHERE id=:id"),
-                {"id": LEGACY_CACHE},
-            )
-            == 1
-        )
+        assert sync.execute(cache).scalar_one() == legacy_cache
         assert (
             sync.scalar(
                 text(
@@ -171,6 +161,7 @@ async def test_empty_roundtrip_preserves_legacy_cache_and_shared_guard(owned_db)
         )
         module.upgrade()
         assert inspect(sync).has_table("export_outputs", schema=schema)
+        assert sync.execute(cache).scalar_one() == unassociated
 
     await connection.run_sync(roundtrip)
     row = await create(owned_db)
@@ -214,9 +205,7 @@ async def test_all_identity_content_and_deadline_facts_are_immutable(owned_db, f
     ):
         async with owned_db.begin_nested():
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
-                .values({field: changed})
+                update(type(row)).filter_by(id=output_id).values({field: changed})
             )
 
 
@@ -233,14 +222,12 @@ async def test_saved_owner_refuses_ordinary_rewrite(owned_db, change):
     elif change == "endpoint":
         ref["endpoint_url"] = "https://other.invalid"
     else:
-        ref = None
+        ref = null()
     output_id = row.id
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
-                .values(storage_ref=ref)
+                update(type(row)).filter_by(id=output_id).values(storage_ref=ref)
             )
 
 
@@ -362,8 +349,8 @@ async def test_lifecycle_cannot_move_backwards(owned_db, initial, target):
     with pytest.raises(IntegrityError, match="state cannot move backwards"):
         async with owned_db.begin_nested():
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
+                update(type(row))
+                .filter_by(id=output_id)
                 .values(state=target, retired_at=None)
             )
 
@@ -374,8 +361,8 @@ async def test_retirement_fact_cannot_be_rewritten(owned_db):
     with pytest.raises(IntegrityError, match="retirement is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
+                update(type(row))
+                .filter_by(id=output_id)
                 .values(retired_at=CREATED + timedelta(seconds=1))
             )
 
@@ -392,17 +379,15 @@ async def test_controlled_restore_changes_only_bucket_and_identity(owned_db):
     }
     await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     await owned_db.execute(
-        update(ExportOutput)
-        .where(ExportOutput.id == output_id)
-        .values(storage_ref=mapped)
+        update(type(row)).filter_by(id=output_id).values(storage_ref=mapped)
     )
     await owned_db.refresh(row)
     assert row.storage_ref == mapped
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
+                update(type(row))
+                .filter_by(id=output_id)
                 .values(storage_ref={**mapped, "endpoint_url": "https://trap.invalid"})
             )
     for changes in ({"sha256": "b" * 64}, {"expires_at": CREATED + timedelta(days=6)}):
@@ -411,17 +396,13 @@ async def test_controlled_restore_changes_only_bucket_and_identity(owned_db):
         ):
             async with owned_db.begin_nested():
                 await owned_db.execute(
-                    update(ExportOutput)
-                    .where(ExportOutput.id == output_id)
-                    .values(**changes)
+                    update(type(row)).filter_by(id=output_id).values(**changes)
                 )
     await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='off'"))
     with pytest.raises(IntegrityError, match="ownership is immutable"):
         async with owned_db.begin_nested():
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
-                .values(storage_ref=original)
+                update(type(row)).filter_by(id=output_id).values(storage_ref=original)
             )
 
 
@@ -455,9 +436,7 @@ async def test_runtime_role_cannot_forge_restore_marker(owned_db):
             await owned_db.execute(text(f"SET LOCAL ROLE {quoted}"))
             await owned_db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
             await owned_db.execute(
-                update(ExportOutput)
-                .where(ExportOutput.id == output_id)
-                .values(storage_ref=mapped)
+                update(type(row)).filter_by(id=output_id).values(storage_ref=mapped)
             )
     assert await owned_db.scalar(text("SELECT current_user")) == current
 

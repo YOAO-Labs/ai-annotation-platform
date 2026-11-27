@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime
 from typing import Callable, TypeVar
+from uuid import UUID
 
 from fastapi import HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, PositiveInt, ValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +21,7 @@ from yoao_assets_catalog import (
     DatasetMutationResult,
     DatasetPage,
     DatasetResult,
+    DatasetSummary,
     GetDatasetRequest,
     ItemPage,
     ListDatasetsRequest,
@@ -119,6 +122,16 @@ def _decode_associations(payload: object, result_type: type[_RESULT]) -> _RESULT
         ) from exc
 
 
+class _DatasetDetail(DatasetSummary):
+    archived_at: datetime | None
+    archived_by: UUID | None
+    lifecycle_revision: PositiveInt
+
+
+class _DatasetDetailResult(DatasetResult):
+    dataset: _DatasetDetail
+
+
 class AssetsCatalogGateway:
     def __init__(self, db: AsyncSession):
         self.db = db
@@ -147,16 +160,16 @@ class AssetsCatalogGateway:
             raise self._invalid_scope()
         return reply
 
-    async def get(self, request: GetDatasetRequest) -> DatasetResult:
+    async def get(self, request: GetDatasetRequest) -> _DatasetDetailResult:
         _require_request_budget(request)
         reply = await self._call(
             """
-            SELECT yoao_assets_v1.get_catalog_dataset(
+            SELECT yoao_assets_v1.get_catalog_dataset_detail(
                 CAST(:actor_id AS uuid), CAST(:dataset_id AS uuid)
             )
             """,
             {"actor_id": request.actor_id, "dataset_id": request.dataset_id},
-            DatasetResult,
+            _DatasetDetailResult,
         )
         if reply.dataset.id != request.dataset_id:
             raise self._invalid_scope()

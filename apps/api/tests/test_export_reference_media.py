@@ -17,13 +17,13 @@ from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import insert, select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, create_async_engine
 
+from app.application.dataset_reference_registration import register_entry
 from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
-from app.db.models.dataset import DatasetItem
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -312,7 +312,22 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
         await worker._reauthorize_export_final_write(owned, job.id, None)
         await export_media_bundles.check_claim(owned, receipt)
 
-    delivery = await image_delivery.prepare(db_session, receipt, guard=guard)
+    class InlineExecution:
+        def __init__(self):
+            self.active_io = 0
+            self.lost = False
+
+        async def enter_io(self):
+            self.active_io += 1
+
+        async def settle_io(self):
+            self.active_io -= 1
+
+    token = worker.export_execution_context.bind(InlineExecution())
+    try:
+        delivery = await image_delivery.prepare(db_session, receipt, guard=guard)
+    finally:
+        worker.export_execution_context.reset(token)
     late_task = await create_task(db_session, project_id=project.id)
     path, _, _ = await build_export_zip(
         db_session,
@@ -975,34 +990,57 @@ async def test_large_frozen_selection_uses_bounded_sql_parameters(
     from app.services.exporting.service import ExportService
 
     _, project, task, content = reference_world
-    identities = [uuid.uuid4() for _ in range(33000)]
-    await db_session.execute(
-        insert(DatasetItem),
-        [
-            {
-                "id": identity,
-                "dataset_id": content[3].id,
-                "file_name": "bulk.png",
-                "file_path": f"bulk/{identity}.png",
-                "file_type": "image",
-            }
-            for identity in identities
-        ],
+    identities = list(
+        await db_session.scalars(
+            text(
+                """
+                WITH generated AS (
+                    SELECT public.gen_random_uuid() AS id
+                    FROM generate_series(1, 33000)
+                ),
+                inserted_items AS (
+                    INSERT INTO public.dataset_items (
+                        id, dataset_id, file_name, file_path, file_type, metadata
+                    )
+                    SELECT
+                        id,
+                        :dataset_id,
+                        'bulk.png',
+                        'bulk/' || id::text || '.png',
+                        'image',
+                        '{}'::jsonb
+                    FROM generated
+                ),
+                inserted_tasks AS (
+                    INSERT INTO public.tasks (
+                        id, project_id, display_id, file_name, file_path, file_type,
+                        tags, status, is_labeled, overlap, total_annotations,
+                        total_predictions, annotation_contributor_ids
+                    )
+                    SELECT
+                        id,
+                        :project_id,
+                        'bulk-' || left(replace(id::text, '-', ''), 20),
+                        'bulk.png',
+                        'bulk/' || id::text || '.png',
+                        'image',
+                        '[]'::jsonb,
+                        'pending',
+                        false,
+                        1,
+                        0,
+                        0,
+                        '[]'::jsonb
+                    FROM generated
+                    RETURNING id
+                )
+                SELECT id FROM inserted_tasks
+                """
+            ),
+            {"dataset_id": content[3].id, "project_id": project.id},
+        )
     )
-    await db_session.execute(
-        insert(Task),
-        [
-            {
-                "id": identity,
-                "project_id": project.id,
-                "display_id": f"bulk-{identity.hex[:20]}",
-                "file_name": "bulk.png",
-                "file_path": f"bulk/{identity}.png",
-                "file_type": "image",
-            }
-            for identity in identities
-        ],
-    )
+    assert len(identities) == 33000
     identities.append(task.id)
     assert (
         len(list(await db_session.scalars(task_query(project.id, task_ids=identities))))
@@ -1092,9 +1130,7 @@ async def test_remote_reference_exports_use_the_same_strict_media_contract(
         .order_by(DatasetScanEntry.path_digest)
         .limit(1)
     )
-    registered = await dataset_references.register_entry(
-        db_session, run.id, entry.path_digest, actor
-    )
+    registered = await register_entry(db_session, run.id, entry.path_digest, actor)
     project = await create_project(db_session, owner_id=actor.id)
     authority = await capture_dataset_write(db_session, dataset.id, actor, None)
     await DatasetService(db_session).link_project(

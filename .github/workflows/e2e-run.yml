@@ -103,7 +103,8 @@ jobs:
       MINIO_SECRET_KEY: minioadmin
       ENVIRONMENT: development
       UV_FROZEN: "1"
-      PLAYWRIGHT_CHROMIUM_CHANNEL: ${{ (startsWith(matrix.suite, 'default-') || startsWith(matrix.suite, 'video-pipeline-') || matrix.suite == 'mask-toolbar-native' || matrix.suite == 'ai-request-worker') && 'chrome' || '' }}
+      PLAYWRIGHT_CHROMIUM_CHANNEL: ${{ (matrix.chromiumSubset || startsWith(matrix.suite, 'default-') || startsWith(matrix.suite, 'video-pipeline-') || matrix.suite == 'mask-toolbar-native' || matrix.suite == 'ai-request-worker') && 'chrome' || '' }}
+      PLAYWRIGHT_DEDICATED_VIDEO: ${{ matrix.dedicatedVideo && '1' || '0' }}
       E2E_MINIO_PROJECT: e2e-minio-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
     steps:
       - name: Record prep start
@@ -134,6 +135,7 @@ jobs:
             if [ -f /etc/apt/apt-mirrors.txt ]; then
               printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
             fi
+            sudo rm -f /etc/apt/sources.list.d/microsoft*.list /etc/apt/sources.list.d/microsoft*.sources
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends "${packages[@]}"
           fi
@@ -202,7 +204,7 @@ jobs:
           pnpm exec playwright install --with-deps "${PLAYWRIGHT_CHROMIUM_CHANNEL:-chromium}"
           if [ "$PLAYWRIGHT_CHROMIUM_CHANNEL" = chrome ]; then
             google-chrome --version
-            if [[ "${{ matrix.suite }}" == default-* ]]; then
+            if [[ "${{ matrix.suite }}" == default-* || "${{ matrix.suite }}" == layout-short ]]; then
               pnpm exec playwright install chromium
             fi
           fi

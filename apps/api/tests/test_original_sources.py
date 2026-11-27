@@ -6,6 +6,7 @@ import hashlib
 import uuid
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -26,16 +27,31 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.reference_keys import reference_key
 from app.services.storage import storage_service
 from tests.test_task_originals import (
+    current_original_session,
     original_client as original_client,
-    original_db as original_db,
     verified,
 )
 
 
-async def dataset_rows(db, *, file_type="image", bucket="saved-original-bucket"):
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def source_database(managed_database):
+    async with managed_database() as engine:
+        yield engine
+
+
+@pytest.fixture
+async def original_db(source_database):
+    async with current_original_session(source_database) as db:
+        yield db
+
+
+async def dataset_rows(
+    db, *, file_type="image", bucket="saved-original-bucket", verified=True
+):
+    fixture = db.info.get("original_fixture")
     item = DatasetItem(
         id=uuid.uuid4(),
-        dataset_id=uuid.uuid4(),
+        dataset_id=fixture.dataset_id if fixture else uuid.uuid4(),
         file_name="original.bin",
         file_path="originals/" + uuid.uuid4().hex,
         file_type=file_type,
@@ -50,9 +66,9 @@ async def dataset_rows(db, *, file_type="image", bucket="saved-original-bucket")
         id=uuid.uuid4(),
         dataset_item_id=item.id,
         media_type=file_type,
-        verification_state="verified",
-        checksum_algorithm="sha256",
-        checksum_value=hashlib.sha256(b"saved").hexdigest(),
+        verification_state="verified" if verified else "unverified",
+        checksum_algorithm="sha256" if verified else None,
+        checksum_value=hashlib.sha256(b"saved").hexdigest() if verified else None,
         size_bytes=5,
     )
     db.add(asset)
@@ -69,7 +85,7 @@ async def dataset_rows(db, *, file_type="image", bucket="saved-original-bucket")
     )
     task = Task(
         id=uuid.uuid4(),
-        project_id=uuid.uuid4(),
+        project_id=fixture.project_id if fixture else uuid.uuid4(),
         display_id="src-" + uuid.uuid4().hex[:20],
         file_name=item.file_name,
         file_path=item.file_path,
@@ -141,7 +157,9 @@ async def test_task_original_saved_receipt_and_media_survive_current_bucket_chan
     db = original_db
     task, allocation, created = await verified(db, original_client)
     task.file_type = file_type
-    await task_originals.publish(db, task, allocation, created)
+    await task_originals.publish(
+        db, task, allocation, created, actor_id=db.info["original_fixture"].actor_id
+    )
     await db.commit()
     calls = list(original_client.calls)
     monkeypatch.setattr(storage_service, "bucket", "wrong-current-annotations")
@@ -177,7 +195,8 @@ async def test_direct_and_primary_same_or_primary_only_are_exact_frozen_relation
         task.dataset_item_id = None
         await db.flush()
     primary = await add_link(db, task.id, item.id)
-    camera = await add_link(db, task.id, uuid.uuid4(), role="camera_front")
+    camera_item, _, _, _ = await dataset_rows(db)
+    camera = await add_link(db, task.id, camera_item.id, role="camera_front")
     relation = await sources.resolve_task_relation(db, task.id, lock=True)
     assert relation.item_id == relation.primary_item_id == item.id
     assert relation.direct_item_id == (item.id if direct else None)
@@ -196,7 +215,7 @@ async def test_direct_and_primary_same_or_primary_only_are_exact_frozen_relation
 async def test_different_primary_never_silently_selects_direct_item(original_db):
     db = original_db
     _, _, _, task = await dataset_rows(db)
-    await add_link(db, task.id, uuid.uuid4())
+    await add_link(db, task.id, db.info["original_fixture"].item_id)
     for function in (sources.resolve_task_relation, sources.resolve_task):
         with pytest.raises(ContentError) as error:
             await function(db, task.id, lock=True)
@@ -208,11 +227,11 @@ async def test_different_primary_never_silently_selects_direct_item(original_db)
 @pytest.mark.parametrize("camera", [False, True])
 async def test_no_owner_and_camera_only_are_not_original_relations(original_db, camera):
     db = original_db
-    _, _, _, task = await dataset_rows(db)
+    item, _, _, task = await dataset_rows(db)
     task.dataset_item_id = None
     await db.flush()
     if camera:
-        await add_link(db, task.id, uuid.uuid4(), role="camera_front")
+        await add_link(db, task.id, item.id, role="camera_front")
     with pytest.raises(ContentError) as error:
         await sources.resolve_task(db, task.id)
     assert error.value.code == "no_readable_original" and error.value.status == 409
@@ -328,14 +347,11 @@ async def test_task_item_asset_and_saved_locator_must_match(original_db, change)
 
 async def test_unverified_legacy_hash_is_never_adopted(original_db):
     db = original_db
-    item, asset, _, task = await dataset_rows(db)
-    asset.verification_state = "unverified"
-    asset.checksum_algorithm = None
-    asset.checksum_value = None
-    await db.flush()
+    item, asset, _, task = await dataset_rows(db, verified=False)
     with pytest.raises(ContentError) as error:
         await sources.resolve_task(db, task.id)
     assert error.value.code == "content_unverified"
+    await db.refresh(asset)
     assert item.content_hash is not None and asset.checksum_value is None
 
 
@@ -347,7 +363,7 @@ async def test_reference_source_defers_location_and_gate_to_reference_contract(
     await db.delete(replica)
     item.file_path = reference_key(item.id, asset.checksum_value)
     task.file_path = item.file_path
-    db.add(
+    await db.merge(
         StorageMaintenanceGate(
             location_id=LEGACY_LOCATION_ID, state="stopped", revision=3
         )
@@ -366,14 +382,17 @@ async def test_managed_source_observes_maintenance_without_committing(
 ):
     db = original_db
     item, _, _, _ = await dataset_rows(db)
-    db.add(
+    await db.merge(
         StorageMaintenanceGate(location_id=LEGACY_LOCATION_ID, state=state, revision=4)
     )
     await db.flush()
     with pytest.raises(ContentError) as error:
         await sources.resolve_item(db, item.id, lock=True)
     assert error.value.code == "storage_maintenance"
-    assert await db.scalar(select(1)) == 1
+    await db.refresh(item)
+    item_id = item.id
+    await db.rollback()
+    assert await db.get(DatasetItem, item_id) is None
 
 
 async def test_resolver_neither_commits_nor_flushes_pending_writes(
@@ -384,7 +403,7 @@ async def test_resolver_neither_commits_nor_flushes_pending_writes(
     task_id, item_id = task.id, item.id
     await db.commit()
     pending = DatasetItem(
-        id=uuid.uuid4(), dataset_id=uuid.uuid4(), file_name="invalid-pending"
+        id=uuid.uuid4(), dataset_id=item.dataset_id, file_name="invalid-pending"
     )
     db.add(pending)
 
@@ -412,7 +431,7 @@ async def test_nowait_conflict_recovers_savepoint_and_preserves_caller_work(
     db = original_db
     item, asset, replica, task = await dataset_rows(db)
     link = await add_link(db, task.id, item.id)
-    db.add(
+    await db.merge(
         StorageMaintenanceGate(
             location_id=LEGACY_LOCATION_ID, state="active", revision=1
         )
@@ -436,11 +455,12 @@ async def test_nowait_conflict_recovers_savepoint_and_preserves_caller_work(
         ),
     }
     pending = DatasetItem(
-        id=uuid.uuid4(), dataset_id=uuid.uuid4(), file_name="not-flushed"
+        id=uuid.uuid4(), dataset_id=item.dataset_id, file_name="not-flushed"
     )
     db.add(pending)
     async with async_sessionmaker(db.bind, expire_on_commit=False)() as blocker:
-        await blocker.scalar(statements[target].with_for_update(nowait=True))
+        locked = await blocker.scalar(statements[target].with_for_update(nowait=True))
+        assert locked is not None
         try:
             with pytest.raises(ContentError) as error:
                 await sources.resolve_task(db, task_id, lock=True)
@@ -550,6 +570,6 @@ async def test_camera_keeps_primary_conflict_and_all_link_snapshot_checks(origin
     neighbor.sensor_name = "changed-neighbor"
     await db.flush()
     assert await sources.resolve_task_link(db, task.id, selected.id) != before
-    await add_link(db, task.id, uuid.uuid4())
+    await add_link(db, task.id, db.info["original_fixture"].item_id)
     with pytest.raises(ContentError, match="original_relation_conflict"):
         await sources.resolve_task_link(db, task.id, selected.id, lock=True)

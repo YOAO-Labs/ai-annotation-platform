@@ -5,11 +5,12 @@ from contextlib import contextmanager
 from botocore.exceptions import ClientError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.services import storage_access, training_dataset_storage as owners
+from app.services import storage_access
 from app.services import storage_migration_artifact_reads as artifact_reads
+from app.services import training_dataset_storage as owners
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService, storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.training_dataset_bridge import TrainingDatasetError
 from app.services.training_saved_io import TrainingSavedIO
 

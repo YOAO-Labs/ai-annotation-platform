@@ -453,7 +453,9 @@ async def test_reuse_does_not_treat_publication_control_failure_as_damaged_cache
         policy_revision=1,
     )
     location = SimpleNamespace(config_revision=1)
-    db = SimpleNamespace(get=AsyncMock(side_effect=[location, preview]))
+    db = SimpleNamespace()
+    monkeypatch.setattr(previews, "get_location", AsyncMock(return_value=location))
+    monkeypatch.setattr(previews, "preview_for_path", AsyncMock(return_value=preview))
     monkeypatch.setattr(previews.policy, "effective_cache_policy", lambda *a: "preview")
     monkeypatch.setattr(previews.policy, "permits_preview", lambda *a: True)
     monkeypatch.setattr(

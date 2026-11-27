@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi import HTTPException
 
-from app.services.ml_backend import MLBackendService
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services.trained_models import enabled_backend
 
 
@@ -16,10 +16,22 @@ from app.services.trained_models import enabled_backend
 async def test_missing_controlled_auth_explains_where_to_configure(
     monkeypatch, method, token
 ):
-    backend = SimpleNamespace(auth_method=method, auth_token=token)
+    backend = SimpleNamespace(
+        auth_method=method,
+        credential_configured=bool(token and len(token) >= 32),
+        extra_params={},
+    )
     db = AsyncMock()
-    db.get.return_value = backend
-    monkeypatch.setattr(MLBackendService, "is_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        InferenceTopologyData,
+        "lock_plugin_registry",
+        AsyncMock(return_value=backend),
+    )
+    monkeypatch.setattr(
+        InferenceTopologyData,
+        "project_assoc_for_registry",
+        AsyncMock(return_value=SimpleNamespace(enabled=True)),
+    )
 
     with pytest.raises(HTTPException) as error:
         await enabled_backend(db, uuid.uuid4(), uuid.uuid4())
@@ -32,9 +44,21 @@ async def test_missing_controlled_auth_explains_where_to_configure(
 
 @pytest.mark.parametrize("method", ["token", "managed:yolo"])
 async def test_configured_controlled_auth_keeps_backend_usable(monkeypatch, method):
-    backend = SimpleNamespace(auth_method=method, auth_token="a" * 64)
+    backend = SimpleNamespace(
+        auth_method=method,
+        credential_configured=True,
+        extra_params={},
+    )
     db = AsyncMock()
-    db.get.return_value = backend
-    monkeypatch.setattr(MLBackendService, "is_enabled", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        InferenceTopologyData,
+        "lock_plugin_registry",
+        AsyncMock(return_value=backend),
+    )
+    monkeypatch.setattr(
+        InferenceTopologyData,
+        "project_assoc_for_registry",
+        AsyncMock(return_value=SimpleNamespace(enabled=True)),
+    )
 
     assert await enabled_backend(db, uuid.uuid4(), uuid.uuid4()) is backend

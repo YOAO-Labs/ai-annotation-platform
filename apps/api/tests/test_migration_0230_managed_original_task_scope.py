@@ -1,4 +1,4 @@
-"""Scope migration contracts in a disposable, independently committed schema."""
+"""Revision 0230 adds task scope without changing historical dataset receipts."""
 
 import importlib.util
 from pathlib import Path
@@ -7,13 +7,19 @@ import uuid
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import delete, inspect, insert, text, update
+import pytest_asyncio
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.services import managed_original_creation as service
 from app.services.dataset_assets import ensure_legacy_bindings
+from tests.test_migration_0219_managed_original_creations import (
+    CREATION_COLUMNS_0219,
+    allocation_values,
+    creation_table,
+    historical_creation_database,
+)
 
 
 def migration(connection, revision="0230"):
@@ -102,85 +108,96 @@ async def allocation(db, **fields):
     )
 
 
-async def test_dataset_history_is_unchanged_and_downgrade_preserves_it(
-    legacy_creation_db,
-):
-    engine = service.storage_access.engine(legacy_creation_db)
-    identifier, dataset_id = uuid.uuid4(), uuid.uuid4()
-    async with engine.begin() as connection:
-        await connection.execute(
-            text("""
-                INSERT INTO managed_original_creations
-                    (id,dataset_id,location_id,storage_identity,bucket,object_key,
-                     logical_path,origin,max_bytes,timeout_seconds,content_type,
-                     authority,configuration,input_fingerprint,maintenance_revision,
-                     status,completed_at,error_code)
-                VALUES (:id,:dataset,:location,:identity,'historical','old/key',
-                    'old.bin','zip',10,60,'application/octet-stream',
-                    '{}'::jsonb,'{}'::jsonb,:identity,1,'failed',now(),'old_failure')
-            """),
-            {
-                "id": identifier,
-                "dataset": dataset_id,
-                "location": uuid.uuid4(),
-                "identity": "a" * 64,
-            },
-        )
-        before = (
-            (await connection.execute(text("SELECT * FROM managed_original_creations")))
-            .mappings()
-            .one()
-        )
+def task_values():
+    values = allocation_values()
+    identifier, task_id = values["id"], uuid.uuid4()
+    return values | {
+        "owner_kind": "task",
+        "dataset_id": None,
+        "project_id": uuid.uuid4(),
+        "task_id": task_id,
+        "origin": "direct",
+        "object_key": f"__aap_task_originals__/{task_id}/{identifier}/payload",
+        "staging_bucket": "staging",
+        "authority": {"source": "task"},
+        "staging_key": f"__aap_upload_staging__/{identifier}/payload",
+    }
+
+
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def task_history(test_db_url):
+    async with historical_creation_database(test_db_url, "0230") as engine:
+        async with engine.begin() as db:
+            creations = await db.run_sync(creation_table)
+            await db.execute(creations.insert(), allocation_values())
+            result = await db.execute(
+                creations.insert().returning(creations), task_values()
+            )
+            row = result.mappings().one()
+        yield engine, creations, row
+
+
+@pytest.fixture
+async def scope_db(task_history):
+    engine, creations, row = task_history
+    async with engine.connect() as db:
+        yield db, creations, row
+
+
+async def test_dataset_history_is_unchanged_and_downgrade_preserves_it(test_db_url):
+    async with (
+        historical_creation_database(test_db_url, "0229") as engine,
+        engine.begin() as connection,
+    ):
         await connection.run_sync(lambda sync: migration(sync).upgrade())
-        after = (
-            (await connection.execute(text("SELECT * FROM managed_original_creations")))
-            .mappings()
-            .one()
-        )
-        assert dict(before) == {key: after[key] for key in before}
-        assert after["owner_kind"] == "dataset"
-        assert after["project_id"] is after["task_id"] is None
         await connection.run_sync(lambda sync: migration(sync).downgrade())
-        restored = (
-            (await connection.execute(text("SELECT * FROM managed_original_creations")))
-            .mappings()
-            .one()
+        creations = await connection.run_sync(creation_table)
+        await connection.execute(
+            creations.insert().values(
+                **allocation_values(),
+                status="failed",
+                completed_at=func.now(),
+                error_code="old_failure",
+            )
         )
-        assert dict(restored) == dict(before)
+        receipt = text("SELECT to_jsonb(c) FROM public.managed_original_creations c")
+        before = (await connection.execute(receipt)).scalar_one()
+        await connection.run_sync(lambda sync: migration(sync).upgrade())
+        assert (await connection.execute(receipt)).scalar_one() == before | {
+            "owner_kind": "dataset",
+            "project_id": None,
+            "task_id": None,
+        }
+        await connection.run_sync(lambda sync: migration(sync).downgrade())
+        assert (await connection.execute(receipt)).scalar_one() == before
         await connection.run_sync(lambda sync: migration(sync).upgrade())
 
 
-async def test_columns_constraints_and_history_guards_are_additive(task_creation_db):
-    engine = service.storage_access.engine(task_creation_db)
-    async with engine.connect() as connection:
+async def test_columns_constraints_and_history_guards_are_additive(scope_db):
+    db, creations, _ = scope_db
+    assert set(creations.c.keys()) == CREATION_COLUMNS_0219 | {
+        "owner_kind",
+        "project_id",
+        "task_id",
+    }
 
-        def check(sync):
-            schema = sync.scalar(text("SELECT current_schema()"))
-            inspector = inspect(sync)
-            assert {
-                value["name"]
-                for value in inspector.get_columns(
-                    "managed_original_creations", schema=schema
-                )
-            } == set(Creation.__table__.columns.keys())
-            assert not inspector.get_foreign_keys(
-                "managed_original_creations", schema=schema
-            )
-            triggers = set(
-                sync.scalars(
-                    text("""
+    def check(sync):
+        assert not inspect(sync).get_foreign_keys(
+            "managed_original_creations", schema="public"
+        )
+        triggers = sync.scalars(
+            text("""
                 SELECT tgname FROM pg_trigger
-                WHERE tgrelid='managed_original_creations'::regclass AND NOT tgisinternal
+                WHERE tgrelid='public.managed_original_creations'::regclass AND NOT tgisinternal
             """)
-                )
-            )
-            assert triggers == {
-                "trg_managed_original_creation_history",
-                "trg_managed_original_creation_scope",
-            }
-            assert migration(sync).down_revision == "0229"
+        )
+        assert set(triggers) == {
+            "trg_managed_original_creation_history",
+            "trg_managed_original_creation_scope",
+        }
+        assert migration(sync).down_revision == "0229"
 
-        await connection.run_sync(check)
+    await db.run_sync(check)
 
 
 @pytest.mark.parametrize(
@@ -197,19 +214,16 @@ async def test_columns_constraints_and_history_guards_are_additive(task_creation
         {"object_key": "__aap_task_originals__/wrong/task/payload"},
     ],
 )
-async def test_task_scope_rejects_invalid_insert_facts(task_creation_db, changes):
-    db = task_creation_db
-    values = await allocation(db)
-    identifier = uuid.uuid4()
-    values.update(
-        id=identifier,
-        object_key=f"{service.TASK_ORIGINAL_PREFIX}/{values['task_id']}/{identifier}/payload",
-        staging_key=f"{service.STAGING_PREFIX}/{identifier}/payload",
+async def test_task_scope_rejects_invalid_insert_facts(scope_db, changes):
+    db, creations, _ = scope_db
+    violation = (
+        "not-null constraint"
+        if changes == {"owner_kind": None}
+        else "ck_managed_creation_scope"
     )
-    values.update(changes)
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError, match=violation):
         async with db.begin_nested():
-            await db.execute(insert(Creation).values(**values))
+            await db.execute(creations.insert(), task_values() | changes)
 
 
 @pytest.mark.parametrize(
@@ -221,16 +235,15 @@ async def test_task_scope_rejects_invalid_insert_facts(task_creation_db, changes
         {"owner_kind": "task"},
     ],
 )
-async def test_dataset_scope_still_requires_only_dataset(task_creation_db, changes):
-    db = task_creation_db
-    values = await service.allocate(
-        db, dataset_id=uuid.uuid4(), logical_path="a.bin", origin="zip", max_bytes=10
+async def test_dataset_scope_still_requires_only_dataset(scope_db, changes):
+    db, creations, _ = scope_db
+    owner_kind = await db.scalar(
+        creations.insert().returning(creations.c.owner_kind), allocation_values()
     )
-    values.update(id=uuid.uuid4(), object_key="another/" + uuid.uuid4().hex)
-    values.update(changes)
-    with pytest.raises(IntegrityError):
+    assert owner_kind == "dataset"
+    with pytest.raises(IntegrityError, match="ck_managed_creation_scope"):
         async with db.begin_nested():
-            await db.execute(insert(Creation).values(**values))
+            await db.execute(creations.insert(), allocation_values() | changes)
 
 
 @pytest.mark.parametrize(
@@ -242,26 +255,25 @@ async def test_dataset_scope_still_requires_only_dataset(task_creation_db, chang
         ("dataset_id", uuid.uuid4()),
     ],
 )
-async def test_scope_is_immutable_from_initial_allocation(
-    task_creation_db, field, value
-):
-    db = task_creation_db
-    row = await allocation(db)
+async def test_scope_is_immutable_from_initial_allocation(scope_db, field, value):
+    db, creations, row = scope_db
+    target = creations.c.id == row["id"]
     with pytest.raises(IntegrityError, match="immutable"):
         async with db.begin_nested():
-            await db.execute(
-                update(Creation).where(Creation.id == row["id"]).values({field: value})
-            )
+            await db.execute(creations.update().where(target).values({field: value}))
+    assert (await db.execute(select(creations).where(target))).mappings().one() == row
 
 
-async def test_task_history_prevents_delete_or_destructive_downgrade(task_creation_db):
-    db = task_creation_db
-    row = await allocation(db)
-    with pytest.raises(IntegrityError, match="history is immutable"):
-        async with db.begin_nested():
-            await db.execute(delete(Creation).where(Creation.id == row["id"]))
-    await db.rollback()
-    async with service.storage_access.engine(db).begin() as connection:
+async def test_task_history_prevents_delete_or_destructive_downgrade(task_history):
+    engine, creations, row = task_history
+    target = creations.c.id == row["id"]
+    history = select(creations).order_by(creations.c.id)
+    async with engine.connect() as db:
+        before = (await db.execute(history)).mappings().all()
+        with pytest.raises(IntegrityError, match="history is immutable"):
+            await db.execute(creations.delete().where(target))
+    async with engine.begin() as db:
         with pytest.raises(RuntimeError, match="Task creation facts"):
-            await connection.run_sync(lambda sync: migration(sync).downgrade())
-    assert (await service._read(db, row["id"]))["owner_kind"] == "task"
+            await db.run_sync(lambda sync: migration(sync).downgrade())
+    async with engine.connect() as db:
+        assert (await db.execute(history)).mappings().all() == before

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import re
 from typing import Annotated, Any, Literal, TypeVar
 from uuid import UUID
 
@@ -140,9 +141,13 @@ class ManifestMember(Value):
     file_path: Annotated[StrictStr, Field(max_length=1024)]
     file_type: Literal["image"]
     source: ImageSource | None
-    state: Literal["unprepared", "preparing", "ready", "failed"]
+    state: Literal["unprepared", "preparing", "ready", "reference", "failed"]
     input: InputRecord | None
     error: ErrorCode | None
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.state in {"ready", "reference", "failed"}
 
     @model_validator(mode="after")
     def coherent_member(self):
@@ -186,6 +191,19 @@ class ManifestMember(Value):
                 or self.error is not None
             ):
                 raise ValueError("ready outcome requires measured original bytes")
+        elif self.state == "reference":
+            locator, _, sha256 = self.file_path.rpartition("/")
+            if (
+                self.dataset_item_id is None
+                or locator != f"__aap_reference__/{self.dataset_item_id}"
+                or not re.fullmatch(r"[0-9a-f]{64}", sha256)
+                or self.source is not None
+                or self.input is not None
+                or self.error is not None
+            ):
+                raise ValueError(
+                    "reference member requires only its bound Item locator"
+                )
         elif self.error is None:
             raise ValueError("failed member requires a fixed error code")
         return self
@@ -217,10 +235,7 @@ class ManifestPage(Value):
             if member.ordinal != index or index > count:
                 raise ValueError("manifest page is unordered or incomplete")
             _require_member_scope(self.manifest, member)
-            if self.manifest.status == "sealed" and member.state not in {
-                "ready",
-                "failed",
-            }:
+            if self.manifest.status == "sealed" and not member.is_terminal:
                 raise ValueError("sealed manifest contains unfinished preparation")
         end = self.cursor + len(self.members)
         expected_cursor = end if end < count else None

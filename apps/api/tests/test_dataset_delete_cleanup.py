@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -25,9 +25,14 @@ async def test_dataset_delete_defers_storage_cleanup_until_database_commit(
     delete_prefix = MagicMock()
     monkeypatch.setattr(storage_service, "delete_object", delete_object)
     monkeypatch.setattr(storage_service, "delete_prefix", delete_prefix)
-    monkeypatch.setattr(
-        db, "flush", AsyncMock(side_effect=RuntimeError("foreign key rejection"))
-    )
+    real_flush = db.flush
+
+    async def fail_after_delete(*args, **kwargs):
+        if dataset in db.deleted:
+            raise RuntimeError("foreign key rejection")
+        return await real_flush(*args, **kwargs)
+
+    monkeypatch.setattr(db, "flush", fail_after_delete)
 
     with pytest.raises(RuntimeError, match="foreign key rejection"):
         await DatasetService(db).delete(dataset.id)

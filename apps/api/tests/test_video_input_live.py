@@ -292,6 +292,14 @@ def _video_bytes(tmp_path):
 async def test_real_video_input_control_worker_versions_and_independent_node_peer(
     test_engine, tmp_path, native_signer, committed_batch_job_id
 ):
+    await exercise_video_input_lifecycle(
+        test_engine, tmp_path, native_signer, committed_batch_job_id, _cleanup_process
+    )
+
+
+async def exercise_video_input_lifecycle(
+    test_engine, tmp_path, native_signer, committed_batch_job_id, cleanup_worker
+):
     async with _video_runtime(test_engine, tmp_path) as runtime:
         body = await asyncio.to_thread(_video_bytes, tmp_path)
         key = f"video-input-qualification/{uuid4()}.mp4"
@@ -473,13 +481,53 @@ async def test_real_video_input_control_worker_versions_and_independent_node_pee
                     **request.model_dump(), plan_digest=record.plan.plan_digest
                 )
             )
-        await _prove_video_cleanup_process(
-            runtime, test_engine, tmp_path, request, record.plan, frame, native_signer
+        await _prove_video_cleanup(
+            runtime,
+            test_engine,
+            tmp_path,
+            request,
+            record.plan,
+            frame,
+            native_signer,
+            cleanup_worker,
         )
 
 
-async def _prove_video_cleanup_process(
-    runtime, test_engine, tmp_path, request, plan, frame, native_signer
+@asynccontextmanager
+async def _cleanup_process(cleanup_url, environment, tmp_path):
+    log = tmp_path / "video-input-cleanup.log"
+    process, stream = _start_process(
+        [sys.executable, "-m", "yoao_assets_cleanup"],
+        {
+            **environment,
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+            "PATH": os.environ.get("PATH", ""),
+            "TMPDIR": str(tmp_path),
+            "PYTHONPATH": os.pathsep.join(
+                (
+                    str(ROOT / "apps/assets-cleanup/src"),
+                    str(ROOT / "apps/assets-media/src"),
+                )
+            ),
+            "ASSET_CLEANUP_DATABASE_URL": _runtime_database_url(cleanup_url),
+            "ASSET_CLEANUP_HEALTH_HOST": "127.0.0.1",
+            "ASSET_CLEANUP_HEALTH_PORT": str(_free_loopback_port()),
+        },
+        log,
+    )
+
+    def assert_running():
+        assert process.poll() is None, _process_log(log)
+
+    with stream:
+        try:
+            yield assert_running
+        finally:
+            await asyncio.to_thread(_stop_process, process)
+
+
+async def _prove_video_cleanup(
+    runtime, test_engine, tmp_path, request, plan, frame, native_signer, cleanup_worker
 ):
     cleanup_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "yoao_asset_cleanup_client", test_engine
@@ -537,13 +585,6 @@ async def _prove_video_cleanup_process(
             {"ids": [row[0] for row in rows]},
         )
     environment = {
-        "LANG": os.environ.get("LANG", "C.UTF-8"),
-        "PATH": os.environ.get("PATH", ""),
-        "TMPDIR": str(tmp_path),
-        "PYTHONPATH": os.pathsep.join(
-            (str(ROOT / "apps/assets-cleanup/src"), str(ROOT / "apps/assets-media/src"))
-        ),
-        "ASSET_CLEANUP_DATABASE_URL": _runtime_database_url(cleanup_url),
         "ASSET_CLEANUP_S3_ENDPOINT": runtime.endpoint,
         "ASSET_CLEANUP_S3_REGION": "us-east-1",
         "ASSET_CLEANUP_BUCKET": runtime.buckets["MINIO_MEDIA_CACHE_BUCKET"],
@@ -557,17 +598,9 @@ async def _prove_video_cleanup_process(
         "ASSET_CLEANUP_NATIVE_STORAGE_URL": native_signer.url,
         "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": native_signer.cleanup_token,
         "ASSET_CLEANUP_POLL_SECONDS": "0.1",
-        "ASSET_CLEANUP_HEALTH_HOST": "127.0.0.1",
-        "ASSET_CLEANUP_HEALTH_PORT": str(_free_loopback_port()),
     }
-    log = tmp_path / "video-input-cleanup.log"
-    process, stream = _start_process(
-        [sys.executable, "-m", "yoao_assets_cleanup"], environment, log
-    )
-    runtime.processes.append(process)
-    runtime.streams.append(stream)
 
-    async def wait_ack(previous=None):
+    async def wait_ack(assert_running, previous=None):
         from time import monotonic
 
         deadline = monotonic() + 25
@@ -589,31 +622,32 @@ async def _prove_video_cleanup_process(
                     row[0] == frame_prefix and row[1] != previous for row in current
                 ):
                     return {row[0]: row[1] for row in current}
-            assert process.poll() is None, _process_log(log)
+            assert_running()
             await asyncio.sleep(0.1)
         pytest.fail("video cleanup did not acknowledge its exact attempt prefixes")
 
-    first_ack = await wait_ack()
-    assert not runtime.owner.list_object_versions(
-        Bucket=inputs_bucket, Prefix=frame_prefix
-    ).get("Versions")
-    uploads = runtime.owner.list_multipart_uploads(Bucket=inputs_bucket).get(
-        "Uploads", []
-    )
-    assert any(row["UploadId"] == foreign["UploadId"] for row in uploads)
-    assert not any(row["UploadId"] == multipart["UploadId"] for row in uploads)
-    runtime.owner.put_object(
-        Bucket=inputs_bucket, Key=frame.blob.key, Body=b"late writer version"
-    )
-    async with runtime.sessions.begin() as owner:
-        await owner.execute(
-            text(
-                "UPDATE public.asset_accepted_input_garbage SET not_before=pg_catalog.clock_timestamp()-interval '1 second' "
-                "WHERE prefix=:prefix"
-            ),
-            {"prefix": frame_prefix},
+    async with cleanup_worker(cleanup_url, environment, tmp_path) as assert_running:
+        first_ack = await wait_ack(assert_running)
+        assert not runtime.owner.list_object_versions(
+            Bucket=inputs_bucket, Prefix=frame_prefix
+        ).get("Versions")
+        uploads = runtime.owner.list_multipart_uploads(Bucket=inputs_bucket).get(
+            "Uploads", []
         )
-    await wait_ack(first_ack[frame_prefix])
+        assert any(row["UploadId"] == foreign["UploadId"] for row in uploads)
+        assert not any(row["UploadId"] == multipart["UploadId"] for row in uploads)
+        runtime.owner.put_object(
+            Bucket=inputs_bucket, Key=frame.blob.key, Body=b"late writer version"
+        )
+        async with runtime.sessions.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE public.asset_accepted_input_garbage SET not_before=pg_catalog.clock_timestamp()-interval '1 second' "
+                    "WHERE prefix=:prefix"
+                ),
+                {"prefix": frame_prefix},
+            )
+        await wait_ack(assert_running, first_ack[frame_prefix])
     assert not runtime.owner.list_object_versions(
         Bucket=inputs_bucket, Prefix=frame_prefix
     ).get("Versions")
@@ -630,7 +664,6 @@ async def _prove_video_cleanup_process(
                 ordinal=1,
             )
         )
-    await asyncio.to_thread(_stop_process, process)
     runtime.owner.abort_multipart_upload(
         Bucket=inputs_bucket, Key=foreign_key, UploadId=foreign["UploadId"]
     )

@@ -15,7 +15,12 @@ from app.db.models.trained_model import (
     ProjectModelSelection,
     TrainedModelVersion,
 )
-from app.services import async_job, prediction_execution, trained_models
+from app.services import (
+    jobs_lifecycle_data as async_job,
+    learning_registry_usage,
+    prediction_execution,
+    trained_models,
+)
 from app.services.inference_topology_data import InferenceTopologyData
 from tests.test_trained_models import (
     controlled_artifacts,  # noqa: F401
@@ -162,7 +167,7 @@ async def test_retirement_blocks_live_release_secondary_stage_and_retry(
     db_session.add(legacy_failure)
     await db_session.flush()
     await InferenceTopologyData(db_session).lock_plugin_registry(backend.id)
-    usage = await trained_models.registry_usage(db_session, backend.id)
+    usage = await learning_registry_usage.registry_usage(db_session, backend.id)
     assert usage.active_releases == 0 and usage.frozen_executions == 3
     with pytest.raises(HTTPException) as error:
         await trained_models.retire_deployment(

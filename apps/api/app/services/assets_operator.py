@@ -13,7 +13,6 @@ from sqlalchemy import event, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-
 from yoao_assets_source.managed_original_contract import (
     ManagedOriginalFailureEvidence,
     ManagedOriginalOperation,
@@ -580,8 +579,8 @@ class AssetsOperatorGateway:
 
     def _material_client(self, material):
         from app.config import settings
-        from app.services.dataset_assets import LEGACY_LOCATION_ID
         from app.services.storage import storage_service
+        from app.services.storage_identity import LEGACY_LOCATION_ID
 
         expected_endpoint = (
             f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
@@ -606,8 +605,8 @@ class AssetsOperatorGateway:
 
         from app.services import managed_original_writer as writer
         from app.services import saved_media_io
-        from app.services.dataset_assets import LEGACY_LOCATION_ID
         from app.services.prediction_inputs import settled_io
+        from app.services.storage_identity import LEGACY_LOCATION_ID
 
         bucket = await self._material_attr(material, "bucket")
         key = await self._material_attr(material, "object_key")
@@ -860,8 +859,8 @@ class AssetsOperatorGateway:
     ) -> None:
         from app.services import managed_original_writer as writer
         from app.services import saved_media_io, storage_access
-        from app.services.dataset_assets import LEGACY_LOCATION_ID
         from app.services.prediction_inputs import settled_io
+        from app.services.storage_identity import LEGACY_LOCATION_ID
 
         bucket = await self._material_attr(material, "bucket")
         key = await self._material_attr(material, "object_key")
@@ -1072,7 +1071,6 @@ class AssetsOperatorGateway:
     ):
         """Allocate or reuse a verified raw-lidar/map auxiliary original."""
         import hashlib
-
         from types import SimpleNamespace
 
         sha256 = hashlib.sha256(data).hexdigest()

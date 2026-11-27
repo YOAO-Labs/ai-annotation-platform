@@ -10,6 +10,13 @@ class ExistingRegistry:
     def __init__(self, extra):
         self.row = SimpleNamespace(id=uuid4(), extra_params=extra)
 
+    async def registry_auth_snapshot(self, registry_id):
+        return {
+            "url": "http://backend",
+            "auth_method": "none",
+            "auth_revision": 1,
+        }
+
     async def get_registry(self, registry_id):
         return self.row
 

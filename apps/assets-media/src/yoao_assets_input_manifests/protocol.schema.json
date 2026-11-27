@@ -733,7 +733,7 @@
           ]
         },
         "state": {
-          "enum": ["unprepared", "preparing", "ready", "failed"],
+          "enum": ["unprepared", "preparing", "ready", "reference", "failed"],
           "title": "State",
           "type": "string"
         },

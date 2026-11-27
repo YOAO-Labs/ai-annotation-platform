@@ -28,13 +28,18 @@ from app.services import (
 from app.services.content_snapshot import ContentError
 from app.workers import dataset_source_sync as sync_worker
 from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_storage_connection_updates import (
+    _in_process_connections_peer as _in_process_connections_peer,
+)
 
 OLD = {"access_key": "old-access", "secret_key": "old-secret"}
 CONFIG = {"endpoint": "http://8.8.8.8:9000", "bucket": "data"}
 
 
 @pytest.fixture
-async def connection(httpx_client, super_admin, monkeypatch):
+async def connection(
+    httpx_client, super_admin, monkeypatch, _in_process_connections_peer
+):
     """Create the owner connection through the published API only."""
     from cryptography.fernet import Fernet
 
@@ -240,9 +245,33 @@ async def test_cancelled_location_io_retains_receipt_until_thread_closes(
         )
     else:
 
+        async def command(
+            db,
+            action,
+            request,
+            *,
+            maintenance_revision=None,
+            node_id=None,
+            timeout=None,
+            **_kwargs,
+        ):
+            return await storage_access.run(
+                db,
+                location_id,
+                action,
+                blocking,
+                expected_revision=maintenance_revision,
+                node_id=node_id,
+                timeout=timeout,
+            )
+
         async def configuration(*_args):
             return SimpleNamespace(
-                probe=blocking, browse_directory=blocking, list_page=blocking
+                anchor={"kind": kind},
+                command=command,
+                probe=blocking,
+                browse_directory=blocking,
+                list_page=blocking,
             )
 
         monkeypatch.setattr(
@@ -293,6 +322,7 @@ async def test_persisted_connection_test_and_copy_enqueue_reject_maintenance(
     connection_id, _ = connection
     location_id = locations.connector_location_id(uuid.UUID(connection_id))
     await gate(db_session, location_id, "stopped", 3)
+    await db_session.commit()
     paths = [
         (f"/api/v1/storage-connections/{connection_id}/test", None),
         (
@@ -307,8 +337,8 @@ async def test_persisted_connection_test_and_copy_enqueue_reject_maintenance(
         assert response.status_code == 409, response.text
         detail = response.json()["detail"]
         assert (
-            detail["code"] == "storage_maintenance"
-            or detail["reason"] == "storage_maintenance"
+            detail.get("code") == "storage_maintenance"
+            or detail.get("reason") == "storage_maintenance"
         )
 
 

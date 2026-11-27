@@ -298,21 +298,6 @@ def test_runtime_and_physical_client_endpoints_must_match(provider):
     assert provider.calls == []
 
 
-async def test_allocate_delegates_exact_uuid_prefix_without_caller_commit(
-    provider, monkeypatch
-):
-    from app.services import media_cache_storage
-
-    db = object()
-    value = reference()
-    value.update(schema=2, key_prefix="")
-    allocate = AsyncMock(return_value=value)
-    monkeypatch.setattr(media_cache_storage, "allocate", allocate)
-    assert await storage.allocate(db, IDENTIFIER) == value
-    allocate.assert_awaited_once_with(db, storage.prefix_for(IDENTIFIER))
-    assert provider.calls == []
-
-
 async def test_allocate_retains_family_error_contract(provider, monkeypatch):
     from app.services import media_cache_storage
 

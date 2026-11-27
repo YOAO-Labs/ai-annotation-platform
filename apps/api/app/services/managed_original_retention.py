@@ -1,8 +1,8 @@
 """Review assertion policies and operator-declared requirements, never object I/O."""
 
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
@@ -16,9 +16,12 @@ from app.schemas.managed_original_retention import (
 )
 from app.services import storage_access, storage_maintenance
 from app.services.audit import AuditService
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_lifecycle_data import retirement_anchor
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID
+from app.services.storage_identity import (
+    group_lock_identity as group_lock_identity,
+)
 
 AUDIENCE = "managed-original-retention-change"
 PREVIEW_TTL = timedelta(minutes=5)
@@ -50,12 +53,6 @@ def configured_identity():
         storage_service.datasets_bucket,
         settings.minio_endpoint,
         settings.minio_use_ssl,
-    )
-
-
-def group_lock_identity(bucket, object_key):
-    return json.dumps(
-        ["managed-original-retention", bucket, object_key], separators=(",", ":")
     )
 
 

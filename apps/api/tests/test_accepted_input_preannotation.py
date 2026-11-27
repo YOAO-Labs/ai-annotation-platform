@@ -18,7 +18,7 @@ from app.application.preannotation_execution import (
     _prepare_accepted_input_manifest,
 )
 from app.services.labeling_prediction_contract import ApplyPredictionResultError
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 
 
 @pytest.fixture(autouse=True)

@@ -14,7 +14,7 @@ from fastapi import HTTPException
 import numpy as np
 import pytest
 
-from app.services import sample_evaluation_originals as bounded
+from app.services import bounded_thread as bounded
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.managed_original_reader import BinaryStage

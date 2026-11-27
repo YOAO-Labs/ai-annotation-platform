@@ -250,7 +250,11 @@ async def test_large_segment_completed_receipt_recovers_through_read_and_seal(
     from app.services.sample_evaluation_masks import normalize_predictions
 
     frozen = normalize_predictions(
-        recovered["response"]["results"][0], [0], width=512, height=512
+        recovered["response"]["results"][0],
+        [0],
+        width=512,
+        height=512,
+        runtime_qualification=SEGMENTATION_RUNTIME,
     )
     assert frozen[0]["area_pixels"] == 512 * 512 // 2
     assert (
@@ -370,7 +374,7 @@ async def test_controlled_route_forwards_only_qualified_context_and_byte_budget(
     operation = FrozenModelOperation(
         request_id=uuid.uuid4(),
         operation="batch_predict",
-        task_inputs=({"id": "sample"},),
+        task_inputs=({"id": "sample", "file_path": "sample.jpg"},),
         context={
             "model_id": "trained:" + ref["model_version_id"],
             "frozen_model_ref": ref,

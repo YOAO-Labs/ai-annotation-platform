@@ -224,3 +224,73 @@ async def create_membership(
     db.add(member)
     await db.flush()
     return member
+
+
+def admitted_request(
+    actor,
+    *,
+    token: str | None = None,
+    key_id: uuid.UUID | str | None = None,
+    scopes: list[str] | tuple[str, ...] | None = None,
+    scope: dict[str, Any] | None = None,
+):
+    """Build an HTTP Request carrying an admitted Identity Principal."""
+    from datetime import timedelta
+
+    from starlette.requests import Request
+    from yoao_identity.contract import Principal
+
+    from app.core.security import create_access_token, decode_access_token
+
+    role = getattr(actor.role, "value", actor.role)
+    resolved_token = token or create_access_token(
+        str(actor.id), role, timedelta(minutes=10)
+    )
+    name = getattr(actor, "name", "Test Actor")
+    email = getattr(actor, "email", "actor@example.test")
+    is_active = bool(getattr(actor, "is_active", True))
+    if key_id is not None:
+        principal = Principal(
+            actor_id=actor.id,
+            name=name,
+            email=email,
+            role=role,
+            is_active=is_active,
+            credential_type="api_key",
+            credential_id=(
+                key_id if isinstance(key_id, uuid.UUID) else uuid.UUID(str(key_id))
+            ),
+            generation=None,
+            scopes=list(scopes or ()),
+            expires_at=None,
+        )
+    else:
+        claims = decode_access_token(resolved_token)
+        jti = claims.get("jti")
+        principal = Principal(
+            actor_id=actor.id,
+            name=name,
+            email=email,
+            role=role,
+            is_active=is_active,
+            credential_type="jwt",
+            credential_id=uuid.UUID(jti) if jti else uuid.uuid4(),
+            generation=claims.get("gen", 0),
+            scopes=None,
+            expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc),
+        )
+    asgi_scope: dict[str, Any] = {
+        "type": "http",
+        "headers": [(b"authorization", ("Bearer " + resolved_token).encode())],
+    }
+    if scope:
+        asgi_scope.update(scope)
+        headers = list(asgi_scope.get("headers") or [])
+        if not any(k.lower() == b"authorization" for k, _ in headers):
+            headers.append((b"authorization", ("Bearer " + resolved_token).encode()))
+        asgi_scope["headers"] = headers
+    value = Request(asgi_scope)
+    value.state.identity_principal = principal
+    value.state.api_key_id = str(key_id) if key_id is not None else None
+    value.state.api_key_scopes = list(scopes) if scopes is not None else None
+    return value

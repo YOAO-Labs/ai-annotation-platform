@@ -12,9 +12,10 @@ import pytest
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
+from app.application.dataset_reference_registration import register_entry
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.api_key import ApiKey
-from app.db.models.dataset_asset import DatasetAsset
+from app.db.models.dataset_asset import DatasetAsset, StorageLocation
 from app.db.models.dataset_reference_replica import DatasetReferenceReplica as Replica
 from app.db.models.dataset_source import DatasetScanEntry
 from app.db.models.site_agent import AgentCredential
@@ -71,7 +72,7 @@ async def another_copy(db, world, name, data=None):
             DatasetScanEntry.kind == "file",
         )
     )
-    registered = await references.register_entry(
+    registered = await register_entry(
         db, other[6].id, entry.path_digest, actor, node_id="worker:content@test"
     )
     return (*other[:7], entry), registered
@@ -182,6 +183,18 @@ async def test_same_sha_is_not_authority_and_publication_preserves_both_identiti
         await capture(db_session, w)
 
 
+async def _patch_location_config(db, location, **changes):
+    current = await db.scalar(
+        select(StorageLocation.config).where(StorageLocation.id == location.id)
+    )
+    merged = {**(current or {}), **changes}
+    await db.execute(
+        update(StorageLocation)
+        .where(StorageLocation.id == location.id)
+        .values(config=merged)
+    )
+
+
 async def test_candidates_and_links_have_current_scope_and_total_before_pagination(
     db_session, replica_world, project_admin
 ):
@@ -189,12 +202,15 @@ async def test_candidates_and_links_have_current_scope_and_total_before_paginati
     third, registered = await another_copy(db_session, w.original, "replica-third")
     w.original[3].created_by = project_admin[0].id
     for world in [w.original, third]:
-        world[4].config = {
-            **world[4].config,
-            "scope": "restricted",
-            "use_user_ids": [str(project_admin[0].id)],
-        }
-    w.other[4].config = {**w.other[4].config, "scope": "restricted", "use_user_ids": []}
+        await _patch_location_config(
+            db_session,
+            world[4],
+            scope="restricted",
+            use_user_ids=[str(project_admin[0].id)],
+        )
+    await _patch_location_config(
+        db_session, w.other[4], scope="restricted", use_user_ids=[]
+    )
     await db_session.commit()
     page = await replicas.candidates(db_session, w.item_id, w.actor, limit=1, offset=1)
     assert page["total"] == 2 and len(page["items"]) == 1
@@ -368,7 +384,7 @@ def opened(data):
 
 async def make_agent(db, world):
     agent, credential, site = await attach_agent(db, world[4], world[2])
-    world[4].config = {**world[4].config, "agent_anchor": world[6].snapshot["anchor"]}
+    await _patch_location_config(db, world[4], agent_anchor=world[6].snapshot["anchor"])
     await db.commit()
     return agent, credential, site
 
@@ -459,9 +475,9 @@ async def test_retention_obeys_both_original_and_candidate_policies(
     w = replica_world
     await publish(db_session, w)
     for world in [w.original, w.other]:
-        world[4].config = {**world[4].config, "cache_policy": "on_demand"}
+        await _patch_location_config(db_session, world[4], cache_policy="on_demand")
         world[5].cache_policy = "on_demand"
-    w.other[4].config = {**w.other[4].config, "cache_policy": location_policy}
+    await _patch_location_config(db_session, w.other[4], cache_policy=location_policy)
     w.other[5].cache_policy = candidate_policy
     await db_session.commit()
     retained_contexts = []
@@ -559,18 +575,16 @@ async def test_direct_manager_losing_candidate_scope_cannot_publish_captured_byt
     actor = project_admin[0]
     w.original[3].created_by = actor.id
     for world in [w.original, w.other]:
-        world[4].config = {
-            **world[4].config,
-            "scope": "restricted",
-            "use_user_ids": [str(actor.id)],
-        }
+        await _patch_location_config(
+            db_session, world[4], scope="restricted", use_user_ids=[str(actor.id)]
+        )
     await db_session.commit()
     actual, captured = snapshots.capture_from_location, []
 
     async def revoked(*args, **kwargs):
         snapshot = await actual(*args, **kwargs)
         captured.append(snapshot)
-        w.other[4].config = {**w.other[4].config, "use_user_ids": []}
+        await _patch_location_config(db_session, w.other[4], use_user_ids=[])
         await db_session.commit()
         return snapshot
 
@@ -590,7 +604,7 @@ async def test_original_cache_precedes_unreachable_or_revoked_physical_candidate
     _, credential, _ = await make_agent(db_session, w.other)
     original_agent.last_seen = None
     credential.revoked_at = datetime.now(timezone.utc)
-    w.original[4].config = {**w.original[4].config, "cache_policy": "on_demand"}
+    await _patch_location_config(db_session, w.original[4], cache_policy="on_demand")
     w.original[5].cache_policy = "on_demand"
     await db_session.commit()
     reads = []

@@ -11,6 +11,7 @@ import uuid
 
 from app.services import export_storage
 from app.services.content_snapshot import ContentError
+from app.services.exporting import lidar_inputs, lidar_media_paths, packaging
 
 _PROOF_FIELDS = {"schema", "bundle_id", "input_digest"}
 _OWNER_FIELDS = {
@@ -64,12 +65,10 @@ def _same_json(left, right):
 
 
 def _targets(targets):
-    from app.services.exporting.packaging import clean_export_targets
-
     if type(targets) is not list or any(type(target) is not str for target in targets):
         _reject()
     try:
-        cleaned = clean_export_targets(targets, "lidar")
+        cleaned = packaging.clean_export_targets(targets, "lidar")
     except ValueError:
         _reject()
     if cleaned != targets:
@@ -89,12 +88,9 @@ def _selected(payload, opts, task_ids=None):
 
 async def capture_job(db, job, project, *, batch_id, targets, opts):
     """Flush a new Bundle and private proof with its Job, without committing."""
-    from app.services.exporting import lidar_inputs
-
     if not lidar_inputs.uses_contract(project, targets):
         return None
     from app.services import export_media_bundles, export_media_storage
-    from app.services.exporting import lidar_media_paths
 
     project_id = _uuid(project.id)
     saved_batch_id = _uuid(batch_id, nullable=True)

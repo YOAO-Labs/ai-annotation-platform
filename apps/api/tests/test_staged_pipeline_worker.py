@@ -20,8 +20,10 @@ from yoao_inference.execution_pipeline import (
     stage_totals_snapshot,
 )
 from yoao_inference_contract.execution import (
+    DispatchBoundary,
     ExecutionProvenance,
     FrozenModelOperation,
+    ModelExecutionDispatch,
     ModelExecutionObservation,
     ModelOperationResult,
     ModelTaskResult,
@@ -67,7 +69,35 @@ class _FakeExecutionPort:
     def __init__(self, client):
         self.client = client
 
-    async def execute(self, request: FrozenModelOperation) -> ModelOperationResult:
+    async def execute(
+        self,
+        request: FrozenModelOperation,
+        *,
+        before_dispatch: DispatchBoundary | None = None,
+    ) -> ModelOperationResult:
+        instance_id = (
+            request.required_instance_id
+            or request.endpoint_registry_id
+            or request.requested_registry_id
+            or uuid.UUID(int=1)
+        )
+        route = dict(
+            requested_registry_id=request.requested_registry_id,
+            requested_pool_id=request.requested_pool_id,
+            registry_id=instance_id,
+            pool_id=request.selected_pool_id,
+            instance_id=instance_id,
+            route_scope_id=uuid.UUID(int=2),
+            attempt_id=request.request_id,
+            topology_generation=request.topology_generation,
+            member_id=request.selected_member_id,
+        )
+        if before_dispatch is not None:
+            await before_dispatch(
+                ModelExecutionDispatch(
+                    request_id=request.request_id, operation=request.operation, **route
+                )
+            )
         inputs = [thaw_json(item) for item in request.task_inputs]
         context = None if request.context is None else thaw_json(request.context)
         raw_results = await self.client.predict(inputs, context=context)
@@ -86,27 +116,11 @@ class _FakeExecutionPort:
             )
             for raw in raw_results
         )
-        instance_id = (
-            request.required_instance_id
-            or request.endpoint_registry_id
-            or request.requested_registry_id
-            or uuid.UUID(int=1)
-        )
         return ModelOperationResult(
             request_id=request.request_id,
             operation=request.operation,
             results=results,
-            provenance=ExecutionProvenance(
-                requested_registry_id=request.requested_registry_id,
-                requested_pool_id=request.requested_pool_id,
-                registry_id=instance_id,
-                pool_id=request.selected_pool_id,
-                instance_id=instance_id,
-                route_scope_id=uuid.UUID(int=2),
-                attempt_id=request.request_id,
-                topology_generation=request.topology_generation,
-                member_id=request.selected_member_id,
-            ),
+            provenance=ExecutionProvenance(**route),
             observation=ModelExecutionObservation(
                 backend_id=str(instance_id),
                 operation="predict",
@@ -816,7 +830,7 @@ async def test_drop_box_on_one_sibling_keeps_other_sibling_boxes(monkeypatch):
     )
     surviving = results[0].result
     assert len(surviving) == 1
-    assert surviving[0]["value"]["rectanglelabels"] == ["car"]
+    assert list(surviving[0]["value"]["rectanglelabels"]) == ["car"]
     assert surviving[0]["attributes"] == {"color": "blue"}
     assert stats[2]["failed"] == 1
 
@@ -1155,5 +1169,5 @@ async def test_depth_three_drop_box_does_not_delete_root(monkeypatch):
     )
     out = results[0].result
     assert len(out) == 2
-    assert out[0]["value"]["rectanglelabels"] == ["person"]
+    assert list(out[0]["value"]["rectanglelabels"]) == ["person"]
     assert stats[2]["failed"] == 1

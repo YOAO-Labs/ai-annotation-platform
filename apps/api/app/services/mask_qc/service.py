@@ -20,12 +20,12 @@ from app.db.models.video_tracker_job import VideoTrackerJob
 from yoao_workspace.mask_configuration_values import MaskQCConfig
 from app.schemas.mask_qc import MaskQCRunRequest
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services.async_job import create_job
+from app.services.jobs_lifecycle_data import create_job
 from app.services.jobs_dispatch import (
     prepare_job_dispatch,
     publish_prepared_dispatch,
 )
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest

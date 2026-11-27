@@ -15,7 +15,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
 from app.services.dataset import DatasetService
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.services.dataset_assets import register_item_asset, find_verified_content
 from app.services.reference_access import reject_reference_scope
 from app.services.reference_keys import is_reference
@@ -278,12 +278,13 @@ async def test_write_checks_content_after_task_lock(
     db_session, httpx_client, annotator, reference_world, monkeypatch
 ):
     _, _, task, world = reference_world
-    original_scalar = db_session.scalar
     changed = False
     advisory_acquired = False
+    from app.api.v1 import reference_task_guard
     from app.services.task_lock import TaskLockService
 
     original_scope_lock = TaskLockService._lock_task_scope
+    original_task_lock = reference_task_guard.lock_task_for_core_read
 
     async def tracked_scope_lock(service, task_id):
         nonlocal advisory_acquired
@@ -292,19 +293,17 @@ async def test_write_checks_content_after_task_lock(
 
     monkeypatch.setattr(TaskLockService, "_lock_task_scope", tracked_scope_lock)
 
-    async def lock_after_external_change(statement, *args, **kwargs):
+    async def lock_after_external_change(db, task_id, *args, **kwargs):
         nonlocal changed
-        if (
-            not changed
-            and getattr(statement, "_for_update_arg", None) is not None
-            and str(statement).startswith("SELECT tasks.")
-        ):
+        if not changed and task_id == task.id:
             assert advisory_acquired
             changed = True
             (world[0] / "图片 空格.png").write_bytes(b"replaced while waiting for lock")
-        return await original_scalar(statement, *args, **kwargs)
+        return await original_task_lock(db, task_id, *args, **kwargs)
 
-    monkeypatch.setattr(db_session, "scalar", lock_after_external_change)
+    monkeypatch.setattr(
+        reference_task_guard, "lock_task_for_core_read", lock_after_external_change
+    )
     result = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/annotations",
         headers=headers(annotator),

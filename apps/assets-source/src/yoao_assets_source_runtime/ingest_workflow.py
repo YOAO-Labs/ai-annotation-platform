@@ -659,6 +659,12 @@ class IngestWorkflow:
         total_items = first_page.total_items
         if total_items == 0:
             raise IngestFailure("invalid_response")
+        if command.authority.directory_protected and not is_temporal:
+            return (
+                snapshot,
+                None,
+                ["目录图片数据集保留原地引用，不自动创建 Scene。"],
+            )
         if scene_count or assigned_count:
             portable = await run_in_thread(
                 plan_scenes,

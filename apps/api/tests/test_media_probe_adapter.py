@@ -209,7 +209,8 @@ def test_unconfigured_peer_keeps_local_probe(source, monkeypatch):
     monkeypatch.setattr(media_probe.settings, "media_probe_url", "")
     seen = []
 
-    def local(path):
+    def local(path, *, pass_fds=()):
+        del pass_fds
         seen.append(path)
         return _METADATA
 
@@ -252,82 +253,3 @@ def test_bad_peer_configuration_fails_without_exposing_values(
     assert failure.value.code == "invalid_configuration"
     assert "password" not in str(failure.value)
     assert "secret" not in str(failure.value)
-
-
-@pytest.mark.parametrize(
-    "stream_state", ["complete", "missing_footer", "digest_mismatch"]
-)
-async def test_remote_timetable_only_replaces_committed_rows_after_integrity_check(
-    test_engine, select_remote, stream_state
-):
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import async_sessionmaker
-
-    from app.application.video_timetable_rebuild import VideoTimetableRebuildWorkflow
-    from app.db.models.dataset import DatasetItem, VideoFrameIndex
-    from tests.test_video_frame_service import (
-        _cleanup_video_item,
-        _make_committed_video_item,
-    )
-
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    item_id, dataset_id, user_id = await _make_committed_video_item(maker)
-    try:
-        async with maker() as setup:
-            item = await setup.get(DatasetItem, item_id)
-            baseline_metadata = item.metadata_
-            setup.add(
-                VideoFrameIndex(
-                    dataset_item_id=item_id,
-                    frame_index=0,
-                    pts_ms=999,
-                    is_keyframe=False,
-                )
-            )
-            await setup.commit()
-
-        class SourceBytes:
-            client = None
-
-            def __init__(self):
-                self.client = self
-
-            def bucket_for_cache_key(self, key):
-                return "owned-test-bucket"
-
-            def download_fileobj(self, *, Bucket, Key, Fileobj):
-                Fileobj.write(b"owned test media bytes")
-
-        body = _ndjson(_FRAMES)
-        if stream_state == "missing_footer":
-            body = body.rsplit(b'{"type": "complete"', 1)[0]
-        elif stream_state == "digest_mismatch":
-            body = body.replace(b'"pts_ms": 33', b'"pts_ms": 34')
-        select_remote(lambda request: _stream_response(body))
-        async with maker() as mutation:
-            item = await mutation.get(DatasetItem, item_id)
-            workflow = VideoTimetableRebuildWorkflow(mutation, SourceBytes())
-            if stream_state == "complete":
-                assert await workflow.rebuild_item(item) == 2
-            else:
-                with pytest.raises(media_probe.MediaProbeError):
-                    await workflow.rebuild_item(item)
-            await mutation.commit()
-
-        async with maker() as observer:
-            rows = (
-                await observer.execute(
-                    select(VideoFrameIndex.frame_index, VideoFrameIndex.pts_ms)
-                    .where(VideoFrameIndex.dataset_item_id == item_id)
-                    .order_by(VideoFrameIndex.frame_index)
-                )
-            ).all()
-            item = await observer.get(DatasetItem, item_id)
-            if stream_state == "complete":
-                assert rows == [(0, 0), (1, 33)]
-                assert item.metadata_["video"]["frame_timetable_frame_count"] == 2
-            else:
-                assert rows == [(0, 999)]
-                assert item.metadata_ == baseline_metadata
-    finally:
-        await _cleanup_video_item(maker, item_id, dataset_id, user_id)

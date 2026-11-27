@@ -497,18 +497,18 @@ class ComposeMailTests(unittest.TestCase):
                         "-Q jobs.recovery --concurrency=1 --prefetch-multiplier=1",
                     ],
                 )
-                self.assertEqual(
-                    recovery["environment"],
-                    {
-                        "ALEMBIC_AUTO_UPGRADE": "false",
-                        "CELERY_BROKER_URL": "",
-                        "JOBS_DISPATCH_DATABASE_URL": "",
-                        "JOBS_DISPATCH_DATABASE_URL_FILE": "",
-                        "JOBS_PUBLICATION_DATABASE_URL": "",
-                        "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
-                        "REDIS_URL": beat["environment"]["REDIS_URL"],
-                    },
-                )
+                expected_env = {
+                    "ALEMBIC_AUTO_UPGRADE": "false",
+                    "CELERY_BROKER_URL": "",
+                    "JOBS_DISPATCH_DATABASE_URL": "",
+                    "JOBS_DISPATCH_DATABASE_URL_FILE": "",
+                    "JOBS_PUBLICATION_DATABASE_URL": "",
+                    "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
+                    "REDIS_URL": beat["environment"]["REDIS_URL"],
+                }
+                if not lan:
+                    expected_env["OPENBLAS_NUM_THREADS"] = "1"
+                self.assertEqual(recovery["environment"], expected_env)
                 self.assert_read_only_bind(recovery, JOBS_DISPATCH_FILE, "/dev/null")
                 self.assert_read_only_bind(recovery, JOBS_PUBLICATION_FILE, "/dev/null")
                 if lan:

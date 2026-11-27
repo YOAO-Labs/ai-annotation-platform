@@ -21,6 +21,9 @@ class _FakeSession:
         self.commits = 0
         self.committed_execution_ids = []
 
+    async def flush(self):
+        return None
+
     async def commit(self):
         self.commits += 1
         self.committed_execution_ids.append(self.job.celery_task_id)
@@ -31,9 +34,28 @@ class _FakeSession:
 
 
 def _install_queue(monkeypatch, dispatch_job):
+    from app.services import jobs_dispatch
+
     module = ModuleType("app.services.jobs_queue")
     module.dispatch_job = dispatch_job
     monkeypatch.setitem(sys.modules, "app.services.jobs_queue", module)
+
+    async def prepare_job_dispatch(
+        db, *, job_id, task_name, args, execution_id=None, **_kwargs
+    ):
+        return (job_id, task_name, execution_id, args)
+
+    async def publish_prepared_dispatch(_db, _lease, *, publish):
+        return await publish()
+
+    async def get_job(db, job_id, *, populate_existing=False):
+        return await db.get(AsyncJob, job_id, populate_existing=populate_existing)
+
+    monkeypatch.setattr(jobs_dispatch, "prepare_job_dispatch", prepare_job_dispatch)
+    monkeypatch.setattr(
+        jobs_dispatch, "publish_prepared_dispatch", publish_prepared_dispatch
+    )
+    monkeypatch.setattr(cross_frame_jobs.async_job_svc, "get_job", get_job)
 
 
 @pytest.mark.asyncio
@@ -172,6 +194,10 @@ async def test_worker_rejects_terminal_job_before_running_or_domain_work(
         marked_running.append(True)
         raise AssertionError("terminal job must be rejected before mark_running")
 
+    async def get_job(session, job_id, *, populate_existing=False):
+        return await session.get(AsyncJob, job_id, populate_existing=populate_existing)
+
+    monkeypatch.setattr(cross_frame_job.async_job_svc, "get_job", get_job)
     monkeypatch.setattr(cross_frame_job.async_job_svc, "mark_running", mark_running)
 
     await cross_frame_job.execute_cross_frame_job(

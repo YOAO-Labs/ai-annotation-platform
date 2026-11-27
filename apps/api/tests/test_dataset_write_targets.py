@@ -14,11 +14,14 @@ from app.config import settings
 from app.core.crypto import encrypt_secret
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
+    DatasetAsset,
     DatasetAssetLocation,
     StorageBinding,
     StorageLocation,
 )
+from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.storage_connection import StorageConnection
+from app.db.models.user import User
 from app.services import dataset_storage, managed_original_creation as creation
 from app.services.dataset_assets import register_item_asset, LEGACY_LOCATION_ID
 from app.services.dataset_storage_keys import managed_dataset_key
@@ -38,6 +41,7 @@ async def switch(db, monkeypatch, client, *, base="company"):
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
     )
+    owner_id = await db.scalar(select(User.id).limit(1))
     connection = StorageConnection(
         id=uuid.uuid4(),
         name="new dataset writes",
@@ -50,7 +54,7 @@ async def switch(db, monkeypatch, client, *, base="company"):
             "use_ssl": False,
         },
         secret_enc=encrypt_secret({"access_key": "private", "secret_key": "private"}),
-        created_by=uuid.uuid4(),
+        created_by=owner_id,
     )
     db.add(connection)
     await db.flush()
@@ -62,6 +66,136 @@ async def switch(db, monkeypatch, client, *, base="company"):
     )
     await db.commit()
     timeouts = []
+    by_id: dict[str, dict] = {}
+    original_allocate = creation.allocate
+    original_allocate_auxiliary = creation.allocate_auxiliary
+
+    async def tracked_allocate(*args, **kwargs):
+        row = await original_allocate(*args, **kwargs)
+        by_id[str(row["id"])] = row
+        return row
+
+    async def tracked_allocate_auxiliary(*args, **kwargs):
+        row = await original_allocate_auxiliary(*args, **kwargs)
+        by_id[str(row["id"])] = row
+        return row
+
+    monkeypatch.setattr(creation, "allocate", tracked_allocate)
+    monkeypatch.setattr(creation, "allocate_auxiliary", tracked_allocate_auxiliary)
+
+    from yoao_assets_source import managed_original as writer
+    from yoao_assets_source.saved_io import SavedIOError
+
+    prepared_by_id = {}
+    receipt_by_id = {}
+
+    def _to_saved_io_error(exc: writer.WriterError) -> SavedIOError:
+        status = (
+            413
+            if exc.code == "creation_byte_budget_exceeded"
+            else 503
+            if exc.outcome == "unknown"
+            else 409
+        )
+        return SavedIOError(
+            exc.code,
+            status_code=status,
+            unsettled=exc.outcome == "unknown",
+            storage_code="PreconditionFailed" if exc.outcome == "conflict" else None,
+        )
+
+    class FakeSavedIOClient:
+        def __init__(self, timeout):
+            timeouts.append(timeout)
+
+        def upload(self, family, action, payload, body, *, length):
+            import io
+
+            assert family == "media" and action == "creation-stream"
+            row = by_id[payload["id"]]
+            raw = body.read() if hasattr(body, "read") else bytes(body)
+            assert len(raw) == length
+            try:
+                prepared = writer.prepare_stream(
+                    client,
+                    row["bucket"],
+                    row["object_key"],
+                    io.BytesIO(raw),
+                    content_type=row["content_type"],
+                    max_bytes=row["max_bytes"],
+                    timeout_seconds=row["timeout_seconds"],
+                )
+            except writer.WriterError as exc:
+                raise _to_saved_io_error(exc) from None
+            prepared_by_id[payload["id"]] = prepared
+            return {
+                "sha256": prepared.sha256,
+                "md5": prepared.md5,
+                "size_bytes": prepared.size_bytes,
+            }
+
+        def command(self, family, action, payload):
+            import base64
+
+            assert family == "media"
+            row = by_id[payload["id"]]
+            try:
+                if action == "creation-complete":
+                    receipt = writer.complete(
+                        client,
+                        row["bucket"],
+                        row["object_key"],
+                        prepared_by_id[payload["id"]],
+                        content_type=row["content_type"],
+                    )
+                    receipt_by_id[payload["id"]] = receipt
+                    return receipt.evidence()
+                if action == "creation-verify":
+                    prepared = prepared_by_id[payload["id"]]
+                    receipt = receipt_by_id[payload["id"]]
+                    verified = writer.verify(
+                        client,
+                        row["bucket"],
+                        row["object_key"],
+                        receipt,
+                        sha256=prepared.sha256,
+                        size_bytes=prepared.size_bytes,
+                        max_bytes=row["max_bytes"],
+                        timeout_seconds=row["timeout_seconds"],
+                    )
+                    current = False
+                    if receipt.version_id is not None:
+                        meta = client.head_object(
+                            Bucket=row["bucket"], Key=row["object_key"]
+                        )
+                        current = (
+                            meta.get("ETag") == receipt.etag
+                            and meta.get("VersionId") == receipt.version_id
+                            and meta.get("ContentLength") == prepared.size_bytes
+                        )
+                    return {
+                        **verified.evidence(),
+                        "head": base64.b64encode(verified.head_bytes).decode("ascii"),
+                        "current_head_matches": current,
+                    }
+                if action == "creation-abort":
+                    prepared = prepared_by_id.get(payload["id"])
+                    if prepared is not None:
+                        writer.abort_prepared(
+                            client, row["bucket"], row["object_key"], prepared
+                        )
+                    return {}
+            except writer.WriterError as exc:
+                raise _to_saved_io_error(exc) from None
+            raise AssertionError(f"unexpected saved_media_io action: {action}")
+
+    from app.services import saved_media_io
+
+    monkeypatch.setattr(
+        saved_media_io,
+        "saved_io_client",
+        lambda access, *, timeout=None: FakeSavedIOClient(timeout),
+    )
 
     @contextmanager
     def transport(self, *, read_timeout=None):
@@ -80,7 +214,7 @@ async def test_first_allocation_bootstraps_independently_without_business_commit
     await db.execute(delete(StorageLocation))
     await db.commit()
     pending = DatasetItem(
-        dataset_id=uuid.uuid4(),
+        dataset_id=db.info["dataset_id"],
         file_name="pending",
         file_path="pending",
         file_type="image",
@@ -215,7 +349,7 @@ async def test_historical_schema_one_full_fingerprint_survives_datasets_switch(
     historical["configuration"].pop("original_ref")
     historical["configuration"]["schema"] = 1
     historical["input_fingerprint"] = creation._digest(historical["configuration"])
-    await db.execute(insert(creation.Creation).values(**historical))
+    await db.execute(insert(ManagedOriginalCreation).values(**historical))
     await db.commit()
     await switch(db, monkeypatch, client)
     result = await create(db, historical)
@@ -266,7 +400,23 @@ async def test_nullable_migration_roundtrip_preserves_legacy_current_address(
     auxiliary_db,
 ):
     db = auxiliary_db
-    identifier = uuid.uuid4()
+    item = DatasetItem(
+        dataset_id=db.info["dataset_id"],
+        file_name="legacy.png",
+        file_path="legacy/name.png",
+        file_type="image",
+    )
+    db.add(item)
+    await db.flush()
+    asset = DatasetAsset(
+        id=uuid.uuid4(),
+        dataset_item_id=item.id,
+        media_type="image",
+        verification_state="unverified",
+    )
+    db.add(asset)
+    await db.flush()
+    identifier = asset.id
     await db.execute(
         insert(DatasetAssetLocation).values(
             asset_id=identifier,
@@ -344,9 +494,28 @@ async def test_saved_current_owner_classifies_only_its_recorded_endpoint(
     target = await target_for(db, location)
     key = target.key_prefix + "restored-owner"
     ref = dataset_storage.make_ref(target, 2, key)
+    item = DatasetItem(
+        dataset_id=db.info["dataset_id"],
+        file_name="restored-owner.bin",
+        file_path=key,
+        file_type="image",
+    )
+    db.add(item)
+    await db.flush()
+    asset = DatasetAsset(
+        id=uuid.uuid4(),
+        dataset_item_id=item.id,
+        media_type="image",
+        size_bytes=7,
+        checksum_algorithm="sha256",
+        checksum_value="a" * 64,
+        verification_state="verified",
+    )
+    db.add(asset)
+    await db.flush()
     await db.execute(
         insert(DatasetAssetLocation).values(
-            asset_id=uuid.uuid4(),
+            asset_id=asset.id,
             location_id=location.id,
             bucket=target.bucket,
             object_key=key,

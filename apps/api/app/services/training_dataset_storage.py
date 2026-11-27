@@ -8,23 +8,23 @@ candidate discovery here does not bootstrap or claim content verification.
 
 from __future__ import annotations
 
-from copy import deepcopy
-from dataclasses import dataclass, field, replace
 import json
 import re
-from urllib.parse import urlsplit
 import uuid
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
+from urllib.parse import urlsplit
 
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.reference_keys import is_reference
 from app.services.storage import storage_service
-from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.services.storage_registry_data import get_binding, get_connection, get_location
+from app.services.training_dataset_bridge import TrainingDatasetError
 
 _FIELDS = frozenset(
     {

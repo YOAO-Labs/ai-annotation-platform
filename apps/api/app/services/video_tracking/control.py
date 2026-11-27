@@ -72,10 +72,11 @@ async def video_control_command(db: AsyncSession, request: VideoControlCommand):
     )
 
     async def execute(payload: str):
-        return await db.scalar(
-            text(statement),
-            {"request": payload},
-        )
+        async with db.begin_nested():
+            return await db.scalar(
+                text(statement),
+                {"request": payload},
+            )
 
     try:
         return await VideoControlDataClient(execute).command(request)

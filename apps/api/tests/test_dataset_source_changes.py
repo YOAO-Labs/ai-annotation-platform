@@ -15,7 +15,7 @@ from app.services import dataset_source_changes as changes
 from app.services import dataset_registration as registration
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_registration import drain, start
 from tests.test_dataset_references import reference_world as reference_world

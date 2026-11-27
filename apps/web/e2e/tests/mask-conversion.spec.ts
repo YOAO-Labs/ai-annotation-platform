@@ -213,11 +213,20 @@ test.describe("annotation conversion center", () => {
     const sourceRow = page.getByTestId(`box-list-item-${source.id}`);
     await sourceRow.click({ force: true });
     await page.locator('button[aria-label="转 Mask"]:visible').last().click();
-    let dialog = page.getByRole("dialog", { name: "标注转换中心" });
+    const dialog = page.getByRole("dialog", { name: "标注转换中心" });
+    async function previewReport() {
+      const response = waitForApiWrite(
+        page,
+        "POST",
+        `/tasks/${taskId}/annotation-conversions:dry-run`,
+      );
+      await dialog.getByRole("button", { name: "生成预览" }).click();
+      await json(await response);
+      return dialog.getByLabel("转换预览报告");
+    }
     await dialog.getByLabel("转换范围").click();
     await page.getByRole("option", { name: "全部可见关键帧" }).click();
-    await dialog.getByRole("button", { name: "生成预览" }).click();
-    const report = dialog.getByLabel("转换预览报告");
+    const report = await previewReport();
     await expect(report).toContainText("全部可见关键帧");
     await expect(report).toContainText("帧 0, 10");
     await expect(report.getByText("物化帧").locator("..")).toContainText("0");
@@ -246,10 +255,8 @@ test.describe("annotation conversion center", () => {
       await expect(page.getByText(new RegExp(`F ${frame} /`))).toBeVisible({ timeout: 10_000 });
     }
     await page.locator('button[aria-label="转 Mask"]:visible').last().click();
-    dialog = page.getByRole("dialog", { name: "标注转换中心" });
     await dialog.getByLabel("允许物化 held / 插值帧").click();
-    await dialog.getByRole("button", { name: "生成预览" }).click();
-    const heldReport = dialog.getByLabel("转换预览报告");
+    const heldReport = await previewReport();
     await expect(heldReport).toContainText("当前帧");
     await expect(heldReport).toContainText("帧 5");
     await expect(heldReport.getByText("物化帧").locator("..")).toContainText("1");

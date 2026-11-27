@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.async_job import AsyncJob
 from app.services.project_access import get_workspace_project
 from app.schemas.mask_format import MaskFormatPlan
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest

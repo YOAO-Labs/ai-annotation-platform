@@ -23,7 +23,7 @@ from yoao_workspace_contract.read_relations import (
 )
 from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
 from app.db.models.project import Project
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.annotation_comment import validate_mentions
 from app.services.notification import NotificationService
 from app.services.workspace_read_relations import (
     project_counter_facts,
@@ -333,8 +333,8 @@ async def test_restricted_delivery_and_mentions_keep_distinct_policies(test_engi
             assert await NotificationService(db)._allowed_delivery_indices(
                 rows, scopes
             ) == {0, 1}
-            await AnnotationCommentService(db).validate_mentions(
-                world["project_id"], [world["owner_id"], world["member_id"]]
+            await validate_mentions(
+                db, world["project_id"], [world["owner_id"], world["member_id"]]
             )
             async with owner.begin() as change:
                 await change.execute(
@@ -351,7 +351,7 @@ async def test_restricted_delivery_and_mentions_keep_distinct_policies(test_engi
                 await NotificationService(db)._allowed_delivery_indices(rows, scopes)
                 == set()
             )
-            await AnnotationCommentService(db).validate_mentions(
-                world["project_id"], [world["owner_id"], world["member_id"]]
+            await validate_mentions(
+                db, world["project_id"], [world["owner_id"], world["member_id"]]
             )
             await db.rollback()

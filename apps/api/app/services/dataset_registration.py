@@ -6,7 +6,7 @@ import uuid
 from fastapi import HTTPException
 
 from app.db.models.async_job import AsyncJob
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import dataset_registration_data as data
 from app.services import dataset_scans as scans
 from app.services import dataset_source_changes as changes
@@ -15,6 +15,7 @@ from app.services import reference_storage, storage_access
 from app.services import storage_location as locations
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset_content import key_authority
+from app.services.dataset_source_access import _actor_id
 from app.services.jobs_lifecycle_data import job_lock_statement
 
 KIND = "dataset_registration"
@@ -76,7 +77,7 @@ async def validate(db, location, source, run):
 
 
 async def request_authority(db, actor, api_key_id, proof, source=None):
-    actor = await scans.require_actor(db, actor.id, source)
+    actor = await scans.require_actor(db, _actor_id(actor), source)
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     return actor
@@ -502,6 +503,7 @@ async def confirm(
     from app.services.content_snapshot import ContentError
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
+    actor_id = _actor_id(actor)
     preflight_version = None
     source = None
 
@@ -564,7 +566,7 @@ async def confirm(
             location,
             node_id,
             None,
-            actor_id=actor.id,
+            actor_id=actor_id,
             api_key_id=api_key_id,
             key_proof=key_proof,
             source_request={"source_id": str(source.id), "run_id": str(scan_id)}
@@ -610,7 +612,7 @@ async def confirm(
                     location,
                     source,
                     node_id,
-                    actor_id=actor.id,
+                    actor_id=actor_id,
                     api_key_id=api_key_id,
                     key_proof=key_proof,
                 )

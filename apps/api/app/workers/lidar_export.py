@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import export_delivery_data as delivery_data
 from app.services import export_execution_context
 from app.services import export_media_bundles as bundles

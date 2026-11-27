@@ -10,7 +10,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.project import Project
 from app.db.models.task import Task
-from app.services.annotation_comment import AnnotationCommentService
+from app.services.labeling_discussion_data import AnnotationCommentData
 from tests.factory import build_tool_bindings
 
 pytestmark = pytest.mark.asyncio
@@ -122,7 +122,7 @@ async def test_expired_comment_selection_uses_strict_cutoff_and_clears_one_row(
     db_session.add_all([with_key, empty, malformed, active, at_cutoff, too_new])
     await db_session.flush()
 
-    service = AnnotationCommentService(db_session)
+    service = AnnotationCommentData(db_session)
     selected = await service.select_expired_attachment_comments(now=now)
     assert {comment.id for comment in selected} == {
         with_key.id,
@@ -163,7 +163,7 @@ async def test_comment_selection_caps_all_expired_rows_at_500(db_session, super_
     db_session.add_all(rows)
     await db_session.flush()
 
-    selected = await AnnotationCommentService(
+    selected = await AnnotationCommentData(
         db_session
     ).select_expired_attachment_comments(now=now)
     assert len(selected) == 500

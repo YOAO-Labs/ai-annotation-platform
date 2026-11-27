@@ -99,7 +99,7 @@ runtime exposes only authenticated `POST /v1/pipelines/execute`, `/query` and
 `/status`; it is not a public user API or a model-serving/Celery inference
 process. The optional local Compose service binds
 the host port to loopback and runs as UID 10008 with one CPU and a 256 MiB memory
-limit. Its exact configuration is documented in the [Inference runtime guide](../../docs-site/api/guides/inference-runtime.md).
+limit. Its exact configuration is documented in the [Inference runtime guide](https://yoao-labs.github.io/YOAO-Docs/api/guides/inference-runtime).
 
 Mutation success distinguishes `caller_pending` from `committed`. After a
 borrowed command returns `caller_pending`, the public API commits, then reads a
@@ -192,4 +192,4 @@ does not provide a named-pipeline implementation.
 - Portable owner and private runtime: `apps/inference/src/aap_inference/`.
 - Native schema: `apps/api/alembic/sql/0271_inference_pipelines.sql`.
 - Dedicated LOGIN grants: `infra/docker/inference-pipelines-grants.sql`.
-- Current deployment example: [Inference runtime guide](../../docs-site/api/guides/inference-runtime.md).
+- Current deployment example: [Inference runtime guide](https://yoao-labs.github.io/YOAO-Docs/api/guides/inference-runtime).

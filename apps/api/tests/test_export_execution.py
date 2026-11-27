@@ -20,7 +20,7 @@ from app.workers.export import (
 async def test_invalidated_execution_never_probes_or_recovers():
     connection = SimpleNamespace(invalidated=True)
     db = SimpleNamespace(scalar=AsyncMock(return_value=101))
-    execution = _ExportExecution(db, connection)
+    execution = _ExportExecution(db, connection, SimpleNamespace())
     with pytest.raises(ExportExecutionLost):
         await execution.assert_owned()
     connection.invalidated = False
@@ -32,7 +32,9 @@ async def test_invalidated_execution_never_probes_or_recovers():
 @pytest.mark.asyncio
 async def test_replaced_backend_cannot_regain_execution_rights():
     db = SimpleNamespace(scalar=AsyncMock(side_effect=[101, True, 202]))
-    execution = _ExportExecution(db, SimpleNamespace(invalidated=False))
+    execution = _ExportExecution(
+        db, SimpleNamespace(invalidated=False), SimpleNamespace()
+    )
     await execution.acquire(f"job:{uuid.uuid4()}")
     with pytest.raises(ExportExecutionLost, match="replaced"):
         await execution.assert_owned()
@@ -44,7 +46,9 @@ async def test_replaced_backend_cannot_regain_execution_rights():
 @pytest.mark.asyncio
 async def test_busy_execution_remains_retryable():
     db = SimpleNamespace(scalar=AsyncMock(side_effect=[101, False]))
-    execution = _ExportExecution(db, SimpleNamespace(invalidated=False))
+    execution = _ExportExecution(
+        db, SimpleNamespace(invalidated=False), SimpleNamespace()
+    )
     with pytest.raises(ExportBuildInProgress):
         await execution.acquire(f"job:{uuid.uuid4()}")
     assert execution.lost is False
@@ -64,7 +68,9 @@ async def test_disconnect_during_ownership_query_is_retryable(fail_during_lock):
         connection.invalidated = True
         raise ConnectionError("connection lost")
 
-    execution = _ExportExecution(SimpleNamespace(scalar=scalar), connection)
+    execution = _ExportExecution(
+        SimpleNamespace(scalar=scalar), connection, SimpleNamespace()
+    )
     with pytest.raises(ExportExecutionLost):
         await execution.acquire(f"job:{uuid.uuid4()}")
     assert execution.lost is True
@@ -73,7 +79,9 @@ async def test_disconnect_during_ownership_query_is_retryable(fail_during_lock):
 @pytest.mark.asyncio
 async def test_non_connection_query_error_is_preserved():
     db = SimpleNamespace(scalar=AsyncMock(side_effect=ValueError("bad query")))
-    execution = _ExportExecution(db, SimpleNamespace(invalidated=False))
+    execution = _ExportExecution(
+        db, SimpleNamespace(invalidated=False), SimpleNamespace()
+    )
     with pytest.raises(ValueError, match="bad query"):
         await execution.assert_owned()
     assert execution.lost is False

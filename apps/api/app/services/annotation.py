@@ -68,6 +68,8 @@ from yoao_inference_contract.execution import thaw_json
 from app.services.raster_mask_storage import (
     _VerifiedMaskContent,
     RasterMaskContractError,
+)
+from app.services.raster_mask_validation import (
     prepare_mask_geometry_for_annotation_write,
     prepare_mask_payload_for_write,
     preflight_mask_payload_for_write,
@@ -241,7 +243,7 @@ class AnnotationService:
         )
         if loaded is None:
             return
-        from app.services.labeling_scene_read import read_scene_data
+        from app.services.labeling_scene import read_scene_data
 
         with self.db.no_autoflush:
             data = await read_scene_data(
@@ -268,7 +270,7 @@ class AnnotationService:
         }
         if not loaded:
             return
-        from app.services.labeling_scene_read import read_scene_data
+        from app.services.labeling_scene import read_scene_data
 
         with self.db.no_autoflush:
             data = await read_scene_data(

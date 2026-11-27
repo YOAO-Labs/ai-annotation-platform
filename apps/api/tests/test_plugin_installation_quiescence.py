@@ -273,7 +273,7 @@ async def test_revision_change_during_drain_never_authorizes_stop(
 async def test_retirement_rejects_active_learning_dependencies(
     httpx_client, super_admin, monkeypatch
 ):
-    from app.services import trained_models
+    from app.services import learning_registry_usage
     from app.services.trained_model_reference_contract import RegistryLearningUsage
 
     path, headers, _, revision = await prepared_launch(
@@ -283,7 +283,7 @@ async def test_retirement_rejects_active_learning_dependencies(
     async def active_usage(db, registry_id):
         return RegistryLearningUsage(active_releases=1, frozen_executions=2)
 
-    monkeypatch.setattr(trained_models, "registry_usage", active_usage)
+    monkeypatch.setattr(learning_registry_usage, "registry_usage", active_usage)
     response = await httpx_client.post(
         path + "/retire", headers=headers, json={"expected_revision": revision}
     )
@@ -297,7 +297,7 @@ async def test_retirement_rejects_active_learning_dependencies(
 async def test_cancel_prepared_checks_usage_and_revision(
     httpx_client, super_admin, monkeypatch, db_session
 ):
-    from app.services import trained_models
+    from app.services import learning_registry_usage
     from app.services.trained_model_reference_contract import RegistryLearningUsage
 
     _, token = super_admin
@@ -310,7 +310,7 @@ async def test_cancel_prepared_checks_usage_and_revision(
     async def active_usage(db, registry_id):
         return RegistryLearningUsage(active_releases=1, frozen_executions=1)
 
-    monkeypatch.setattr(trained_models, "registry_usage", active_usage)
+    monkeypatch.setattr(learning_registry_usage, "registry_usage", active_usage)
     blocked = await httpx_client.post(
         path + "/cancel-prepared", headers=headers, json={"expected_revision": 1}
     )
@@ -320,7 +320,7 @@ async def test_cancel_prepared_checks_usage_and_revision(
     async def no_usage(db, registry_id):
         return RegistryLearningUsage(active_releases=0, frozen_executions=0)
 
-    monkeypatch.setattr(trained_models, "registry_usage", no_usage)
+    monkeypatch.setattr(learning_registry_usage, "registry_usage", no_usage)
     stale = await httpx_client.post(
         path + "/cancel-prepared", headers=headers, json={"expected_revision": 2}
     )

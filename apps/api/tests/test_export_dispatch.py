@@ -9,7 +9,7 @@ from fastapi import Request
 from app.api.v1 import batches, data_manager, projects
 from app.db.models.async_job import AsyncJob
 from app.schemas.data_manager_actions import DataManagerTaskExportRequest
-from app.services import async_job as async_job_service
+from app.services import jobs_lifecycle_data as async_job_service
 from app.services import jobs_queue
 from app.services import jobs_dispatch
 from app.services.audit import AuditService
@@ -98,7 +98,39 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
     async def publish_dispatch(_db, lease, *, publish):
         return await publish()
 
+    async def create_export_job(
+        _db,
+        project,
+        *,
+        actor_id,
+        payload,
+        **_kwargs,
+    ):
+        created = await create_job(
+            _db,
+            kind="export",
+            user_id=actor_id,
+            project_id=project.id,
+            payload=payload,
+        )
+        return created, None
+
+    async def no_authority(*_args, **_kwargs):
+        return None
+
     monkeypatch.setattr(async_job_service, "create_job", create_job)
+    monkeypatch.setattr(
+        "app.services.exporting.media_jobs.create_export_job",
+        create_export_job,
+    )
+    monkeypatch.setattr(
+        "app.services.exporting.output_authority.capture",
+        no_authority,
+    )
+    monkeypatch.setattr(
+        "app.services.exporting.reference_media.capture_export_authority",
+        no_authority,
+    )
     monkeypatch.setattr(AuditService, "log", staticmethod(audit))
     monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch)
     monkeypatch.setattr(data_manager, "dispatch_job", dispatch)

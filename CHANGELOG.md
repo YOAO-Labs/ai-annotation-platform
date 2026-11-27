@@ -100,6 +100,44 @@
 
 ### Fixed
 
+- 新增前向 SQL 迁移 `bo0519` 收口 7 项数据库行为与生命周期缺陷：`yoao_labeling_v1.mask_qc_command` 与 `mask_repair_command` 改为整行投影（`SELECT <alias>.*`）装入 `%ROWTYPE` 变量，修复追踪候选对比与修复范围记录按列错位触发类型报错的问题；`yoao_inference_topology_v1.patch_registry_plugin_legacy` 拆分运行拓扑字段与认证字段，允许受管 GPU 模型服务轮换认证方式或令牌（仍重置连接状态与健康证据）而不误触发退役阻断；`yoao_inference_gpu_v1.gpu_authority_step` 在 `rollout_block` 中拒绝修改已阻塞或非切换中的状态；`yoao_assets_v1.observe_original_reclamation` 修正 SHA-256 正则量词笔误（`^[0-9a-f]{64}$`）；`yoao_assets_v1._native_pyramid_retirement_target_valid` 兼容 schema-1 历史金字塔输出退役目标；`yoao_labeling_v1.{accept,read,prepare,advance}_dataset_task_creation` 通过 `yoao_assets_v1.read_dataset_source_authority` 捕获并持续核验数据集归档状态与 `lifecycle_revision`（同步在 `bo0519` 与 `infra/docker/module-data-grants.sql` 补齐 `labeling_owner` 执行授权），确保数据集归档／恢复后旧建题操作在准备、点云场景推导与后续分块推进前均失败关闭（`dataset_archived`／`dataset_lifecycle_changed`）。
+- 修复 11 项后端与模块运行时生产缺陷：`comment_attachment_authority.py` 避免在 `55P03` 中止事务上执行 `set_config` 掩盖 `409 content_busy`；`assets-source` 的 `managed_original.py` 将暂存对象 `NoSuchVersion` 映射为 `409 creation_source_changed`；`dataset_storage_keys.py` 识别规范 `dataset-sources/<dataset>/<item>/<publication>/<path>` 相对路径；`model_lineage.py` 对缺失 `ordinal` 使用安全默认值 `0`；`audit_archive_partitions.py` 以 `SAVEPOINT` 隔离 `ensure_month` 防止领域异常污染外层事务；`bug_attachment_uploads.py` 解包 `BaseExceptionGroup` 保留原始 HTTP 错误码；`scripts/validate_gpu_arbitration.py` 向 `BackendTransport` 补齐必需参数；`secondary_inference.py` 在旧原件未归属检查前先校验 `require_legacy_task_path`；`yoao_inference.execution_pipeline.py` 在重复取消时以 `asyncio.shield` 排空在途推理请求后再收尾；`api/v1/batches.py` 导出批次传入与审计快照一致的 `opts` 字典；视频预测导入、Mask 编辑和标注转换可从当前 Assets 媒体摘要或与原视频绑定的解析产物读取有效帧数和尺寸。
+- 修复前向 SQL 迁移 `bo0518` 收口的 3 项数据库行为缺陷：`yoao_labeling_v1.task_edit_lock_command` 按 `COLLATE "C"` 排序校验锁定键，避免 UTF-8 区域排序误拒 `batch_final_write_available`；`yoao_learning_v1.training_create_run` 与 `training_gpu_queue` 改用 `clock_timestamp()` 与 `(created_at, id)` 队列序并跳过已锁定行，保障同事务创建的训练任务仍严格 FIFO；新增 `yoao_jobs_v1.async_job_list_page_v2`／`async_job_list_total_v2` 允许具备 `datasets:read`／`*` 权限的数据集管理员在作业列表查看其可见的 4 类无项目数据集作业，同时保持普通成员与受限密钥不可见。
+- 修复预测成本统计接口（`GET /api/v1/dashboard/admin/prediction-cost-stats`）查询参数 `range` 遮蔽 Python 内置 `range()` 触发 500 错误的问题，并限制项目批预标 `retryable_request_context` 负载不超过 8 KiB。
+- 修复视频与图片批预标及持久化失败重试中的多项边界缺陷：预标任务缺失视频权限时失败关闭返回 409 `prediction_video_requires_new_request`，冻结视频范围计数变化或 `overwrite` 清理延迟至单题终态写入事务，区分单题归属 403 与项目级撤销以确保记录 `FailedPrediction`；失败重试保留 `follow_target_queue` 与结构化 409 冲突详情、在终态写入前拒绝 `partial_prediction_ids`，并在推理与回写阶段复用同一临时输入对象租约。
+- 修复数据集连接器导入与直传完成（`import-from-connection`／`upload-complete`）缺失存储维护门禁与目录写权限回滚复核的问题，修复目录图片数据集 ZIP 导入误自动创建 Scene 而未返回提示的问题，并修复目录引用读路径、头像删除与已保存视图的锁释放、identity-map 驱逐与 `SAVEPOINT` 事务隔离问题。
+- 修复训练数据构建 worker（`workers/training_dataset.py`）在 `materialize_sample` 与 `_build_dataset_contents` 中局部 `source` 变量遮蔽输出存储通道的问题，修复在线训练初始化脚本漏传 `db` 且未跳过未固定 `storage_ref` 历史版本的问题，并修复超参研究评估读取与栅格 Mask 存储漏传 `db`、`match_evidence` 漏传 `annotation_row` 的问题。
+- 修复多相机标注转移命令（`labeling_annotation_transfer.py`）在领域冲突拒绝时未通过 `SAVEPOINT` 隔离导致外层 PostgreSQL 事务中止（`InFailedSQLTransactionError`）的问题，以及 `sample_evaluation_masks` 与 `controlled_segmentation` 回退分支对缺失 `runtime_qualification` 或非法 `end2end`／`nms` 组合未失败关闭的问题。
+- 修复 `media_probe` 带 `pass_fds` 的 `ffprobe` 调用绕过受控进程执行器 `media_process.run_process` 的问题。
+- 修复交互式单帧推理接口（`POST /api/v1/ml-backends/{id}/interactive-annotating-frame`）将输入归属类型误写为 `interactive_frame_predict`（应为 `frame_interactive`）导致触发数据库约束 500 错误的问题。
+- 修复点云数据集坐标轴探测接口（`POST /api/v1/datasets/{id}/sniff-axis-convention`）直接将跨包 Pydantic 模型实例传给 API 响应模型导致返回 500 `ValidationError` 的问题。
+- 修复栅格 Mask 提交（`mask-mutations:commit`）在 S3 RLE 预检读取前提前持有任务 `FOR UPDATE` 行锁的问题，恢复先完成对象存储读取、再在短事务内锁定任务行并提交的锁顺序。
+- 修复普通图片缩略图生成在进入输出写入前未先释放原图读取许可的问题，避免输出写入失败或并发来源竞争时遗留未关闭存储操作记录或触发清理异常组。
+- 修复 Mask 质检版本对比（`mask-compare`）解析 PostgreSQL 无限保留期时间戳（`'infinity'`／`'-infinity'`）时触发 500 `ValueError` 的问题。
+- 修复数据集来源访问、预检登记、目录引用、审计日志写入与存储迁移副本序列化在事务回滚／提交后读取已过期 ORM 对象触发 `MissingGreenlet` 的问题，以及目录引用迁址与缺陷附件原生 SQL 更新后 SQLAlchemy 会话 identity-map 缓存陈旧行的问题。
+- 修复 6 个标注域原生 SQL 适配层（追踪控制、标注单条／批量、栅格 Mask 编辑、讨论与质检数据）在领域校验失败时中止外层事务（`InFailedSQLTransactionError`）的问题，统一以 `SAVEPOINT`（`begin_nested()`）隔离单次 SQL 能力调用。
+- 修复 `scripts/import_nuscenes_scene.py` 原地升级旧版 nuScenes 场景时无法从 `storage_relative_path` 推导相机通道以及在写入场景源元数据前过早绑定辅助地图场景导致 `source_changed` 失败的问题。
+- 修复普通数据库运行账号下项目格式列表接口（`GET /api/v1/projects/{id}/mask-formats`）因缺少 `yoao_labeling_v1.format_adapter_plugins` 属主移交与 5 项公开能力 `EXECUTE` 授权而返回 500 的问题，同时保持 `_format_adapter_public_projection` 私有辅助函数不可公开调用。
+- 修复 `GET /api/v1/async-jobs` 与 `GET /api/v1/async-jobs/{id}` 遗漏当前请求 API 密钥作用域与实时权限校验的问题（访问平台存储维护作业须实时具备 `*` 权限，访问数据集作业须具备 `datasets:read` 权限）；同步新增前向迁移 `bo0517` 及作用域查询能力 `async_job_list_page_scoped`／`async_job_list_total_scoped`，恢复超级管理员按类型查询 6 类平台存储维护作业列表的能力，非超管与受限密钥继续不可见。
+- 修复多目标视频追踪跨窗口关联计算边界框交并比时仅识别 `dict` 而不识别只读 `MappingProxyType` 几何对象的问题，恢复跨窗口目标重关联与新实例编号分配。
+- 修复原件来源解析在任务关系查询阶段整行回填 `Task` ORM 导致加载大体积 `tags` 字段并覆盖调用方内存态对象的问题，改为仅投影来源归属所需的 7 个标量列。
+- 修复 `assets-source` 的 S3 连接器适配器在 `close()` 时未关闭自建 `boto3` 客户端的问题，确保物理存储维护门禁关闭时及时释放底层连接池。
+- 修复持久化失败预测重试在目录引用图原生分割场景下漏调用 `qualify_native_results` 签发 `background_native_reference_receipt` 导致重试失败（`reference_prediction_geometry_not_supported`）的问题。
+- 修复后台原生引用分割预测在核验私有资格回执前提前将 Mask 对象写入对象存储的问题，确保无效、过期、已取消或跨事务回执在任何对象写入前即被拒绝。
+- 修复原图读取校验在已过期 API 密钥下未立即拒绝的问题，恢复返回 403 `api_key_authority_revoked`。
+- 修复导出打包计算样本相对路径时误读 SQLAlchemy ORM 类级 `MetaData` 对象而触发 `AttributeError` 的问题。
+- 修复任务序列化未加载已核验来源引用时回退当前存储桶签发缩略图链接的问题，仅消费已核验的派生与金字塔缩略图结果。
+- 修复审核仪表盘视频批次封面回退旧派生路径的问题，恢复通过媒体网关统一读取视频海报。
+- 修复栅格 Mask 像素编辑在对象存储返回可重试冲突或暂时不可用（409／503）时误降级为 422 几何错误并丢失 `retryable` 提示的问题。
+- 修复失败预测重试（单条与批量）未保留已认证主体凭据而返回 403 `prediction_authority_revoked` 的问题；重试仍继续执行原有的账号、密钥和范围复核。
+- 修复点云导出预检读取 SQLAlchemy ORM 样本元数据时误取类级 `MetaData` 对象导致标定读取异常的问题。
+- 批量预标注和工作台预测支持已登记、未复制到平台存储的目录引用图。模型读取经过校验的图像快照；任务来源绑定失效或权限撤销时，不会覆盖已有预测。
+- 批量图片预标注会保留输入清单记录的失败原因。缺失原图不再误报为任务来源不匹配，不会调用模型或覆盖该任务原有的预测。
+- 多阶段预测在子阶段调度被拒时会终止整项任务，不再把已有的父阶段结果误报为部分成功。模型本身出错时仍沿用配置的失败策略。
+- 批量预标注在模型返回前收到取消请求时会结束任务并保留已有预测，不会因结果租约被拒而反复重试。取消后重新投递时，尚未开始的任务计入跳过数。
+- 就绪训练数据版本可用于增强预览。预览沿用同一冻结版本的验证集摘要和样本；尚未通过预览验证的模型不会被当作 YOLO11 执行。
+- 数据集详情接口在归档后返回归档时间、归档人和当前生命周期修订号。恢复后归档信息为空，修订号不再误报为初始值。
+- 视频工作台播放分片时，单帧 AI 会短暂等待读取结束再保存候选，不再因此误报「任务忙」或需要重新推理。其他编辑者占用任务时仍拒绝写入。
 - 修复 `training-supervisor` 在训练器插件尝试被取消或失败时未将已原子提交的检查点（`checkpoint.json` 与 `checkpoint-NNNN.pt`）纳入上传清单的问题，使 `POST /resume` 可在完整校验非符号链接、路径边界与 SHA-256 后从最近检查点安全续训。
 - 修复受控自训模型安装与试跑核验中按特定框架特判缺失 `inference_runtime` 及旧回退分支漏检 `runtime_qualification` 漂移的问题，统一改为按模型产物格式与实际运行资格字典精确校验；同步补齐实例分割训练预检的显式配置要求与原生增强预览边界拒绝非检测任务的校验。
 - 已有预测月分区的开发库可以原地升级，不会因分区月份与新装环境不同被拒绝；触发器定义异常仍会阻止迁移。日常 worker 可沿用原有 S3 端点和浏览器下载地址，不必改写存储记录。

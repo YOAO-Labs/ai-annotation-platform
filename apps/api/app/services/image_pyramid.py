@@ -4,21 +4,21 @@ import hashlib
 import json
 import math
 import uuid
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.services import image_pyramid_data as pyramid_data
-from app.services.image_pyramid_data import AssetFacts, GenerationFacts
 from app.db.models.task import Task
-from app.services.storage import StorageService, storage_service
+from app.schemas.image_pyramid import ImagePyramidSummary
+from app.services import image_pyramid_data as pyramid_data
 from app.services import image_pyramid_originals as originals
 from app.services import media_item_reads
 from app.services.content_snapshot import ContentError
-from app.schemas.image_pyramid import ImagePyramidSummary
+from app.services.image_pyramid_data import AssetFacts, GenerationFacts
+from app.services.storage import StorageService, storage_service
 
 PYRAMID_SCHEMA = "aap-image-pyramid/v1"
 PYRAMID_TILE_SIZE = 512
@@ -303,7 +303,8 @@ async def acquire_generation_lease(
 ) -> uuid.UUID | None:
     if not await pyramid_data.lock_claim(db, asset_id, generation_number):
         return None
-    from app.services import image_pyramid_storage as physical, storage_access
+    from app.services import image_pyramid_storage as physical
+    from app.services import storage_access
 
     identifier, token = uuid.uuid4(), uuid.uuid4()
     reference = await physical.allocate(db, identifier)
@@ -319,75 +320,6 @@ async def acquire_generation_lease(
     ):
         return None
     return token
-
-
-async def publish_generation(
-    db: AsyncSession,
-    *,
-    asset_id: uuid.UUID,
-    generation_number: int,
-    lease_token: uuid.UUID,
-    source_fingerprint: str,
-    width: int,
-    height: int,
-    max_level: int,
-    manifest_storage_key: str,
-    manifest_digest: str,
-    overview_storage_key: str,
-    overview_width: int,
-    overview_height: int,
-    overview_digest: str,
-    tile_count: int,
-    retained_bytes: int,
-    output_id: uuid.UUID,
-    inventory: dict,
-    gate_revision: int,
-) -> bool:
-    selected = await pyramid_data.lock_publication(
-        db, asset_id, generation_number, lease_token, output_id
-    )
-    if selected is None:
-        return False
-    asset, generation = selected
-    from app.services import image_pyramid_objects as objects
-
-    authority = await originals.delegated(db, generation.auth_ref)
-    await originals.check(db, authority, lock=True)
-    owner = await load_owner(
-        db,
-        "dataset_item" if asset.dataset_item_id else "task",
-        asset.dataset_item_id or asset.task_id,
-    )
-    if (
-        generation.original_ref != originals.receipt(owner.source)
-        or generation.original_ref != authority.original
-        or source_fingerprint != "sha256:" + owner.source.sha256
-    ):
-        raise ImagePyramidError("source_changed")
-    facts = {
-        "source_fingerprint": source_fingerprint,
-        "width": width,
-        "height": height,
-        "max_level": max_level,
-        "manifest_key": manifest_storage_key,
-        "manifest_digest": manifest_digest,
-        "overview_key": overview_storage_key,
-        "overview_width": overview_width,
-        "overview_height": overview_height,
-        "overview_digest": overview_digest,
-        "tile_count": tile_count,
-        "retained_bytes": retained_bytes,
-    }
-    return await objects.publish(
-        db,
-        asset,
-        replace(generation, format=PYRAMID_FORMAT, **facts),
-        output_id,
-        lease_token,
-        facts,
-        inventory,
-        gate_revision,
-    )
 
 
 async def fail_generation(
@@ -406,8 +338,8 @@ async def task_pyramid_assets(
 ) -> dict[uuid.UUID, tuple[AssetFacts, GenerationFacts | None]]:
     if not tasks:
         return {}
-    from app.services.original_sources import resolve_task_relation
     from app.services.content_snapshot import ContentError
+    from app.services.original_sources import resolve_task_relation
 
     owners = {}
     for task in tasks:
@@ -517,8 +449,9 @@ async def owner_generation_read(
     `yoao_assets_images.contract.ImageFailure` instead of guessing, so callers
     must never translate a refusal into source drift.
     """
-    from app.services.assets_images import image_gateway
     from yoao_assets_images.contract import ReadImageGenerationRequest
+
+    from app.services.assets_images import image_gateway
 
     request = ReadImageGenerationRequest(
         actor_id=actor_id,
@@ -547,8 +480,9 @@ async def owner_generation_reference(
     permit, verifies the manifest/overview receipts and publishes finite URLs.
     The API never resolves target credentials or signs saved members itself.
     """
-    from app.services.assets_images import image_gateway
     from yoao_assets_images.transport import ImageGenerationReferenceRequest
+
+    from app.services.assets_images import image_gateway
 
     request = ImageGenerationReferenceRequest(
         actor_id=actor_id,
@@ -574,8 +508,9 @@ async def owner_asset_references(
     profile_version: str | None = None,
 ):
     """Read exact saved Native tiles through one owner-scoped read permit."""
-    from app.services.assets_images import image_gateway
     from yoao_assets_images.transport import ImageAssetReferencesRequest
+
+    from app.services.assets_images import image_gateway
 
     request = ImageAssetReferencesRequest(
         actor_id=actor_id,

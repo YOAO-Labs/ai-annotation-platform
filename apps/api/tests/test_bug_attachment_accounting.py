@@ -116,13 +116,11 @@ def provider(monkeypatch):
     shared = SimpleNamespace(
         meta=SimpleNamespace(endpoint_url=endpoint(), config=client.meta.config)
     )
-    monkeypatch.setattr(
-        physical,
-        "storage_service",
-        SimpleNamespace(
-            client=shared, bug_reports_bucket=settings.minio_bug_reports_bucket
-        ),
+    service = SimpleNamespace(
+        client=shared, bug_reports_bucket=settings.minio_bug_reports_bucket
     )
+    monkeypatch.setattr(physical, "storage_service", service)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     configs = []
 
     def create(**kwargs):
@@ -417,15 +415,22 @@ async def test_actual_upload_owner_preserves_facts_and_original_drain(
     monkeypatch.setattr(uploads, "reauthorize", authorize)
     if failure == "ready_commit":
         original_commit = caller.db.commit
+        original_native = uploads._native
+        published_ready = False
+
+        async def track_publish(db, statement, params):
+            nonlocal published_ready
+            result = await original_native(db, statement, params)
+            if statement is uploads._PUBLISH and result:
+                published_ready = True
+            return result
 
         async def commit():
-            if any(
-                isinstance(row, BugAttachmentUpload) and row.state == "ready"
-                for row in caller.db.dirty
-            ):
+            if published_ready:
                 raise OSError("ready commit failed")
             return await original_commit()
 
+        monkeypatch.setattr(uploads, "_native", track_publish)
         monkeypatch.setattr(caller.db, "commit", commit)
     if failure in {"settle", "body_and_settle"}:
 
@@ -488,6 +493,7 @@ async def test_real_minio_production_upload_and_single_duplicate_condition(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
     )
     monkeypatch.setattr(physical, "storage_service", service)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     if schema == 2:
         original = physical.allocate
 

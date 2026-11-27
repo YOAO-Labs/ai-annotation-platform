@@ -45,10 +45,10 @@ async def test_list_datasets_filters_by_derived_has_scenes(
     scene_items, _ = await svc.list(has_scenes=True)
     plain_items, _ = await svc.list(has_scenes=False)
 
-    assert scene_ds.id in {item["id"] for item in scene_items}
-    assert plain.id not in {item["id"] for item in scene_items}
-    assert plain.id in {item["id"] for item in plain_items}
-    assert scene_ds.id not in {item["id"] for item in plain_items}
+    assert str(scene_ds.id) in {item["id"] for item in scene_items}
+    assert str(plain.id) not in {item["id"] for item in scene_items}
+    assert str(plain.id) in {item["id"] for item in plain_items}
+    assert str(scene_ds.id) not in {item["id"] for item in plain_items}
     assert all(item["has_scenes"] is True for item in scene_items)
     assert all(item["has_scenes"] is False for item in plain_items)
 
@@ -87,11 +87,11 @@ async def test_list_datasets_data_type_filter_uses_media_kind(
     pc_ids = {item["id"] for item in pc_items}
     image_ids = {item["id"] for item in image_items}
 
-    assert pc_ds.id in lidar_ids
-    assert pc_ds.id in pc_ids
-    assert pc_ds.id not in image_ids
-    assert img_ds.id not in lidar_ids
-    assert img_ds.id in image_ids
+    assert str(pc_ds.id) in lidar_ids
+    assert str(pc_ds.id) in pc_ids
+    assert str(pc_ds.id) not in image_ids
+    assert str(img_ds.id) not in lidar_ids
+    assert str(img_ds.id) in image_ids
 
 
 @pytest.mark.asyncio

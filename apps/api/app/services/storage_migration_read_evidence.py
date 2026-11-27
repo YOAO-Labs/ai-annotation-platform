@@ -3,7 +3,9 @@
 import hashlib
 import tempfile
 
+from app.db.models.storage_migration_copy import BASELINE_LIMIT
 from app.services import storage_migration_copy as core
+from app.services.storage_migration_checkpoint import materialize
 from app.services.storage_migration_finalization_evidence import (
     FinalizationEvidenceError,
     build_final_evidence,
@@ -31,8 +33,6 @@ def build_read_mapping(values, *, window_id, window_revision):
         values, window_id=window_id, window_revision=window_revision
     )
     try:
-        from app.services.storage_migration_copies import BASELINE_LIMIT, materialize
-
         with tempfile.TemporaryDirectory(prefix="read-mapping-") as directory:
             path = materialize(directory, values)
             with core.Checkpoint(

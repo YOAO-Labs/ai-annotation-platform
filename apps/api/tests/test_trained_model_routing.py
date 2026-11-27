@@ -1,5 +1,6 @@
 """Controlled routing never selects another physical model instance."""
 
+import os
 import uuid
 from datetime import UTC, datetime
 
@@ -21,6 +22,10 @@ from tests.test_ml_routing_router import (  # noqa: F401
 )
 
 
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data PostgreSQL verifier",
+)
 @pytest.mark.parametrize(
     "mode", [RouterMode.OFF, RouterMode.OBSERVE, RouterMode.ENFORCE]
 )
@@ -80,6 +85,10 @@ async def test_exact_target_is_never_replaced_by_another_pool_member(
         assert await enforcing.cancel(in_flight.lease)
 
 
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data PostgreSQL verifier",
+)
 @pytest.mark.parametrize("mode", [RouterMode.OFF, RouterMode.OBSERVE])
 async def test_target_filter_does_not_create_a_fake_singleton_fingerprint_exemption(
     routing_admission, mode

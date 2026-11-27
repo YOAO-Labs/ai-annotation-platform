@@ -2,13 +2,11 @@
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
 import pytest
 from sqlalchemy.exc import IntegrityError
 from app.db.models.audit_archive_output import AuditArchiveOutput
-from app.db.models.dataset_asset import StorageLocation
 from app.services import (
     audit_archive_storage as storage,
     audit_archive_storage_target as targets,
@@ -86,7 +84,7 @@ async def test_schema2_rejects_noncanonical_physical_facts(db_session, field, va
 
 
 async def test_current_credentials_keep_saved_address_after_rotation(monkeypatch):
-    from tests.test_avatar_storage_target import connection_target
+    from tests.test_avatar_storage_target import connection_target, origin_db
     from app.services import connector_guard
 
     ref = external_reference()
@@ -97,17 +95,16 @@ async def test_current_credentials_keep_saved_address_after_rotation(monkeypatch
     connection.config.update(
         endpoint=ref["endpoint_url"], bucket=ref["bucket"], base_prefix="team/图片/"
     )
-    connection.secret_enc = b"rotated-encrypted-secret"
 
-    async def get(model, _identifier, **_kwargs):
-        return location if model is StorageLocation else connection
-
-    db = SimpleNamespace(get=AsyncMock(side_effect=get))
+    db = origin_db(connection, location)
     monkeypatch.setattr(connector_guard, "get_allowlist", AsyncMock(return_value=[]))
     row = record(storage_ref=ref)
     target = await storage.io_target(db, row)
     assert (
-        target._access.secret_enc == b"rotated-encrypted-secret"
+        target.is_registered
+        and target._access is None
+        and target.connection_revision == 100
+        and target.config_revision == 99
         and row.storage_ref == ref
     )
 
@@ -149,13 +146,24 @@ def test_archive_probe_uses_saved_namespace_and_archive_error():
 
 
 def test_external_write_and_read_use_only_the_saved_target():
+    from contextlib import contextmanager
     import io
     from tests.test_audit_archive_storage import Client, audit_row
     from app.services.managed_s3_target import Target
+    from app.services.source_readers.s3 import ScopedS3Access
 
     row, raw = archive([audit_row()])
     row.storage_ref = external_reference()
     client = Client(raw)
+
+    class Access(ScopedS3Access):
+        def __init__(self):
+            pass
+
+        @contextmanager
+        def client(self, **options):
+            yield client
+
     target = Target(
         uuid.UUID(row.storage_ref["location_id"]),
         3,
@@ -164,7 +172,7 @@ def test_external_write_and_read_use_only_the_saved_target():
         row.storage_ref["bucket"],
         "team/图片/_aap_managed/audit-archive/",
         purpose="audit-archive",
-        _legacy_client=client,
+        _access=Access(),
     )
     storage.write(row, io.BytesIO(raw), target=target)
     page = storage.read(row, target=target)

@@ -1,11 +1,11 @@
 """Explicit observation and reviewed publication of legacy managed content."""
 
-from dataclasses import dataclass
 import hashlib
 import json
 import re
 import time
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
@@ -17,18 +17,19 @@ from app.db.models.dataset_asset import (
     StorageLocation,
 )
 from app.db.models.dataset_source import DatasetReference
-from app.services import managed_original_reader as reader, storage_access
+from app.services import managed_original_reader as reader
+from app.services import storage_access
 from app.services.audit import AuditService
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import (
-    LEGACY_LOCATION_ID,
     MAX_DIRECT_UPLOAD_BYTES,
-    register_item_asset,
     legacy_dataset_binding,
+    register_item_asset,
     validate_legacy_bindings,
 )
 from app.services.reference_keys import is_reference
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID
 
 _SHA = re.compile(r"[a-f0-9]{64}")
 TIMEOUT_SECONDS = 60

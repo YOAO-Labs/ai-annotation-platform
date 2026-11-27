@@ -5,7 +5,6 @@ from dataclasses import dataclass
 import math
 import uuid
 
-from fastapi import HTTPException
 
 from app.services import controlled_segmentation, trained_models
 from app.services.content_snapshot import ContentError
@@ -15,11 +14,9 @@ from app.services.learning_models_data import lock_prediction_reference
 from app.services.prediction_execution import execution_summary, load_snapshot
 from app.services.project_access import get_workspace_project
 from app.services.raster_mask_storage import (
-    RasterMaskContractError,
     assert_raster_mask_write_enabled,
     collect_mask_geometries,
-    prepare_mask_payload_for_write,
-    validate_mask_geometry_for_task,
+    validate_task_mask_dimensions,
 )
 from app.services.training_dataset_bridge import content_digest
 
@@ -43,11 +40,22 @@ _STABLE_EXTRA = (
 )
 
 
+def require_reference_vectors(shapes):
+    from app.services.prediction_shapes import to_internal_shape
+
+    for shape in shapes:
+        geometry = to_internal_shape(deepcopy(shape)).get("geometry")
+        if not isinstance(geometry, dict) or geometry.get("type") not in _VECTOR_TYPES:
+            raise ContentError("reference_prediction_geometry_not_supported")
+
+
 def has_native_payload(write):
     return (
         (write.get("token_meta") or {}).get("mask_objects") is not None
         or bool(collect_mask_geometries(write["result"]))
-        or any(shape.get("type") == "brushlabels" for shape in write["result"])
+        or any(
+            shape.get("type") in {"brushlabels", "mask"} for shape in write["result"]
+        )
     )
 
 
@@ -203,7 +211,7 @@ def _lineage_validator(task_id, payload, extra, result_index, root):
 
 def _validate_payload(task_id, dimensions, payload, extra, result, meta, result_index):
     """Check the final enriched representation; native classes were mapped at transport."""
-    from app.services.prediction import to_internal_shape
+    from app.services.prediction_shapes import to_internal_shape
 
     root, ref = _root(payload)
     trained_models.validate_result_runtime(meta, ref)
@@ -322,9 +330,15 @@ async def _lock_model(db, project_id, ref, selected):
 
 async def qualify_results(owner, task, anchor, writes):
     """Preflight the complete group before any result can materialize an object."""
-    if anchor is None or not any(has_native_payload(write) for write in writes):
+    if anchor is None:
         return [None] * len(writes)
-    from app.services.prediction_references import validate_receipt
+    native = [has_native_payload(write) for write in writes]
+    for write, is_native in zip(writes, native, strict=True):
+        if not is_native:
+            require_reference_vectors(write["result"])
+    if not any(native):
+        return [None] * len(writes)
+    from app.services.reference_prediction_receipt import validate_receipt
 
     evidence = await validate_receipt(owner.db, task.id, task.project_id, anchor)
     payload, digest = await load_snapshot(
@@ -339,7 +353,7 @@ async def qualify_results(owner, task, anchor, writes):
     ref = owner.bindings[task.id]["reference"]
     qualified = []
     for index, write in enumerate(writes):
-        if not has_native_payload(write):
+        if not native[index]:
             qualified.append(None)
             continue
         extra, meta = write.get("pipeline_extra") or {}, write.get("token_meta") or {}
@@ -369,7 +383,7 @@ async def qualify_results(owner, task, anchor, writes):
             raise ContentError("reference_native_model_invalid")
         controlled_segmentation.validate_portable_masks(write["result"], meta)
         for geometry in collect_mask_geometries(write["result"]):
-            await validate_mask_geometry_for_task(owner.db, task, geometry)
+            await validate_task_mask_dimensions(owner.db, task, geometry)
         await _lock_model(owner.db, task.project_id, model, selected)
         qualified.append(
             _NativeReceipt(
@@ -396,7 +410,9 @@ async def qualify_results(owner, task, anchor, writes):
 
 
 async def validate_receipt(db, task_id, project_id, receipt, write):
-    from app.services.prediction_references import validate_receipt as validate_anchor
+    from app.services.reference_prediction_receipt import (
+        validate_receipt as validate_anchor,
+    )
 
     if (
         type(receipt) is not _NativeReceipt
@@ -433,14 +449,14 @@ def persisted_qualification(prediction, extra, qualification):
     return {**qualification, "candidate_digest": _candidate_digest(prediction, extra)}
 
 
-async def qualify_candidate(db, task, binding, prediction, metadata, *, final=False):
+def qualify_candidate(task, binding, prediction, metadata):
     try:
-        await _qualify_candidate(db, task, binding, prediction, metadata, final=final)
+        _qualify_candidate(task, binding, prediction, metadata)
     except (ValueError, KeyError, TypeError, StopIteration, IndexError) as exc:
         raise ContentError("reference_native_candidate_invalid") from exc
 
 
-async def _qualify_candidate(db, task, binding, prediction, metadata, *, final=False):
+def _qualify_candidate(task, binding, prediction, metadata):
     extra = metadata.extra or {}
     proof = extra.get(PROOF_KEY)
     if (
@@ -502,8 +518,3 @@ async def _qualify_candidate(db, task, binding, prediction, metadata, *, final=F
         or extra["reference_input"].get("execution_digest") != execution.get("digest")
     ):
         raise ContentError("reference_native_candidate_invalid")
-    if final:
-        try:
-            await prepare_mask_payload_for_write(db, task, prediction.result)
-        except RasterMaskContractError as exc:
-            raise HTTPException(exc.status_code, detail=exc.detail) from None

@@ -684,57 +684,60 @@ async def test_missing_scope_nonready_input_fails_closed_and_gc_skips(db_session
 
 
 async def test_tracker_input_retention_lock_contention_fails_closed_and_gc_skips(
-    test_engine,
+    managed_database,
 ):
-    owner = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner.begin() as db:
-        fixture = await _seed_tracker_input(db)
-        now = await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
-        fixture["job"].status = "completed"
-        fixture["job"].started_at = now
-        fixture["job"].completed_at = now
-    async with owner() as locker, owner() as caller:
-        await locker.execute(
-            text("SELECT id FROM public.video_tracker_jobs WHERE id=:id FOR UPDATE"),
-            {"id": fixture["job_id"]},
-        )
-        retention_raw = await asyncio.wait_for(
-            caller.scalar(
-                text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
-                {"id": fixture["input_id"]},
-            ),
-            5,
-        )
-        retention = (
-            json.loads(retention_raw)
-            if isinstance(retention_raw, str)
-            else retention_raw
-        )
-        sweep = await asyncio.wait_for(
-            _tracker_native_call(
-                caller,
-                "sweep_video_tracker_inputs",
-                tracker_input_execution.SweepVideoInputsRequest(limit=10),
-            ),
-            5,
-        )
-        assert retention == {
-            "schema": "aap-labeling-video-tracker-inputs/v1",
-            "ok": False,
-            "error": {"code": "invalid_response"},
-        }
-        assert sweep.expired == 0
-        assert (
-            await caller.scalar(
+    async with managed_database() as engine:
+        owner = async_sessionmaker(engine, expire_on_commit=False)
+        async with owner.begin() as db:
+            fixture = await _seed_tracker_input(db)
+            now = await db.scalar(text("SELECT pg_catalog.clock_timestamp()"))
+            fixture["job"].status = "completed"
+            fixture["job"].started_at = now
+            fixture["job"].completed_at = now
+        async with owner() as locker, owner() as caller:
+            await locker.execute(
                 text(
-                    "SELECT status FROM public.asset_accepted_video_inputs WHERE input_id=:id"
+                    "SELECT id FROM public.video_tracker_jobs WHERE id=:id FOR UPDATE"
                 ),
-                {"id": fixture["input_id"]},
+                {"id": fixture["job_id"]},
             )
-            == "ready"
-        )
-        await caller.rollback()
-        await locker.rollback()
+            retention_raw = await asyncio.wait_for(
+                caller.scalar(
+                    text("SELECT yoao_labeling_v1.video_tracker_input_referenced(:id)"),
+                    {"id": fixture["input_id"]},
+                ),
+                5,
+            )
+            retention = (
+                json.loads(retention_raw)
+                if isinstance(retention_raw, str)
+                else retention_raw
+            )
+            sweep = await asyncio.wait_for(
+                _tracker_native_call(
+                    caller,
+                    "sweep_video_tracker_inputs",
+                    tracker_input_execution.SweepVideoInputsRequest(limit=10),
+                ),
+                5,
+            )
+            assert retention == {
+                "schema": "aap-labeling-video-tracker-inputs/v1",
+                "ok": False,
+                "error": {"code": "invalid_response"},
+            }
+            assert sweep.expired == 0
+            assert (
+                await caller.scalar(
+                    text(
+                        "SELECT status FROM public.asset_accepted_video_inputs WHERE input_id=:id"
+                    ),
+                    {"id": fixture["input_id"]},
+                )
+                == "ready"
+            )
+            await caller.rollback()
+            await locker.rollback()
 
 
 class _NativeVideoGarbageDatabase:
@@ -1259,141 +1262,148 @@ async def test_unrelated_current_job_is_not_in_deletion_scope(db_session, kind):
 @pytest.mark.parametrize("kind", ["project", "unlink"])
 @pytest.mark.parametrize("locked", ["task", "job", "execution", "journal"])
 async def test_guard_lock_contention_is_busy_and_preserves_the_graph(
-    test_engine, kind, locked
+    managed_database, kind, locked
 ):
-    owner = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner.begin() as db:
-        fixture = await _seed_unretired(db)
-    table, column, identity = {
-        "task": ("public.tasks", "id", fixture["task_id"]),
-        "job": ("public.video_tracker_jobs", "id", fixture["job_id"]),
-        "execution": ("yoao_jobs_v1.video_executions", "job_id", fixture["job_id"]),
-        "journal": (
-            "yoao_jobs_v1.video_execution_journals",
-            "job_id",
-            fixture["job_id"],
-        ),
-    }[locked]
-    async with owner() as locker, owner() as caller:
-        await locker.execute(
-            text(f"SELECT {column} FROM {table} WHERE {column}=:id FOR UPDATE"),
-            {"id": identity},
-        )
-        operation = uuid.uuid4()
-        try:
-            reply = await asyncio.wait_for(
-                _delete(caller, kind, fixture, operation_id=operation), 5
+    async with managed_database() as engine:
+        owner = async_sessionmaker(engine, expire_on_commit=False)
+        async with owner.begin() as db:
+            fixture = await _seed_unretired(db)
+        table, column, identity = {
+            "task": ("public.tasks", "id", fixture["task_id"]),
+            "job": ("public.video_tracker_jobs", "id", fixture["job_id"]),
+            "execution": ("yoao_jobs_v1.video_executions", "job_id", fixture["job_id"]),
+            "journal": (
+                "yoao_jobs_v1.video_execution_journals",
+                "job_id",
+                fixture["job_id"],
+            ),
+        }[locked]
+        async with owner() as locker, owner() as caller:
+            await locker.execute(
+                text(f"SELECT {column} FROM {table} WHERE {column}=:id FOR UPDATE"),
+                {"id": identity},
             )
-            assert reply == {
-                "schema": _blocked(kind)["schema"],
-                "ok": False,
-                "error": {"code": "project_busy"},
-            }
-            await _assert_task_job_present(caller, fixture)
-            await _no_deletion_receipts(caller, operation)
-        finally:
-            await caller.rollback()
-            await locker.rollback()
+            operation = uuid.uuid4()
+            try:
+                reply = await asyncio.wait_for(
+                    _delete(caller, kind, fixture, operation_id=operation), 5
+                )
+                assert reply == {
+                    "schema": _blocked(kind)["schema"],
+                    "ok": False,
+                    "error": {"code": "project_busy"},
+                }
+                await _assert_task_job_present(caller, fixture)
+                await _no_deletion_receipts(caller, operation)
+            finally:
+                await caller.rollback()
+                await locker.rollback()
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])
 @pytest.mark.parametrize("finish", ["commit", "rollback"])
 async def test_fk_admission_waits_for_deletion_and_cannot_escape_the_fence(
-    test_engine, kind, finish
+    managed_database, kind, finish
 ):
-    owner = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner.begin() as db:
-        fixture = await _seed_unretired(db, bound=False)
-        await _retire(db, fixture)
-        item = await db.scalar(
-            text("SELECT dataset_item_id FROM tasks WHERE id=:id"),
-            {"id": fixture["task_id"]},
-        )
-    ready = asyncio.Event()
-    state = {}
+    async with managed_database() as engine:
+        owner = async_sessionmaker(engine, expire_on_commit=False)
+        async with owner.begin() as db:
+            fixture = await _seed_unretired(db, bound=False)
+            await _retire(db, fixture)
+            item = await db.scalar(
+                text("SELECT dataset_item_id FROM tasks WHERE id=:id"),
+                {"id": fixture["task_id"]},
+            )
+        ready = asyncio.Event()
+        state = {}
 
-    async def admit():
-        async with owner() as db:
-            state["pid"] = await db.scalar(text("SELECT pg_backend_pid()"))
-            ready.set()
-            db.add(
-                VideoTrackerJob(
-                    task_id=fixture["task_id"],
-                    dataset_item_id=item,
-                    created_by=fixture["actor_id"],
-                    status="queued",
-                    model_key="mock_bbox",
-                    direction="forward",
-                    from_frame=0,
-                    to_frame=1,
-                    prompt={},
-                    event_channel="delete-fence-test",
+        async def admit():
+            async with owner() as db:
+                state["pid"] = await db.scalar(text("SELECT pg_backend_pid()"))
+                ready.set()
+                db.add(
+                    VideoTrackerJob(
+                        task_id=fixture["task_id"],
+                        dataset_item_id=item,
+                        created_by=fixture["actor_id"],
+                        status="queued",
+                        model_key="mock_bbox",
+                        direction="forward",
+                        from_frame=0,
+                        to_frame=1,
+                        prompt={},
+                        event_channel="delete-fence-test",
+                    )
                 )
-            )
-            try:
-                await db.commit()
-                return "committed"
-            except DBAPIError as exc:
-                await db.rollback()
-                return exc.orig.sqlstate
+                try:
+                    await db.commit()
+                    return "committed"
+                except DBAPIError as exc:
+                    await db.rollback()
+                    return exc.orig.sqlstate
 
-    async with owner() as deleting:
-        assert (await _delete(deleting, kind, fixture))["ok"] is True
-        pending = asyncio.create_task(admit())
-        try:
-            await asyncio.wait_for(ready.wait(), 5)
-            async with owner() as inspect:
-                async with asyncio.timeout(5):
-                    while not await inspect.scalar(
-                        text(
-                            "SELECT wait_event_type='Lock' FROM pg_stat_activity WHERE pid=:pid"
-                        ),
-                        {"pid": state["pid"]},
-                    ):
-                        assert not pending.done()
-                        await asyncio.sleep(0.01)
-            if finish == "commit":
-                await deleting.commit()
-            else:
+        async with owner() as deleting:
+            assert (await _delete(deleting, kind, fixture))["ok"] is True
+            pending = asyncio.create_task(admit())
+            try:
+                await asyncio.wait_for(ready.wait(), 5)
+                async with owner() as inspect:
+                    async with asyncio.timeout(5):
+                        while not await inspect.scalar(
+                            text(
+                                "SELECT wait_event_type='Lock' FROM pg_stat_activity WHERE pid=:pid"
+                            ),
+                            {"pid": state["pid"]},
+                        ):
+                            assert not pending.done()
+                            await asyncio.sleep(0.01)
+                if finish == "commit":
+                    await deleting.commit()
+                else:
+                    await deleting.rollback()
+                assert await asyncio.wait_for(pending, 5) == (
+                    "23503" if finish == "commit" else "committed"
+                )
+            finally:
                 await deleting.rollback()
-            assert await asyncio.wait_for(pending, 5) == (
-                "23503" if finish == "commit" else "committed"
-            )
-        finally:
-            await deleting.rollback()
-            if not pending.done():
-                pending.cancel()
-                await asyncio.gather(pending, return_exceptions=True)
+                if not pending.done():
+                    pending.cancel()
+                    await asyncio.gather(pending, return_exceptions=True)
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])
 @pytest.mark.parametrize("finish", ["commit", "rollback"])
 async def test_existing_queued_claim_is_fenced_until_deletion_finishes(
-    test_engine, kind, finish
+    managed_database, kind, finish
 ):
-    owner = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner.begin() as db:
-        fixture = await _seed_unretired(db, claimed=False, status="queued")
-    async with owner() as deleting, owner() as claimant:
-        assert (await _delete(deleting, kind, fixture))["ok"] is True
-        command = {
-            "job_id": str(fixture["job_id"]),
-            "worker_id": str(uuid.uuid4()),
-            "lease_seconds": 30,
-        }
-        first = await _step(claimant, "claim", command)
-        assert first["status"] == "rejected" and first["reason"] == "execution_busy"
-        await claimant.rollback()
-        if finish == "commit":
-            await deleting.commit()
-        else:
-            await deleting.rollback()
-        second = await _step(claimant, "claim", command)
-        if finish == "commit":
-            assert second["status"] == "rejected" and second["reason"] == "job_missing"
-        else:
-            assert second["status"] == "ok" and second["execution"]["generation"] == 1
-        await claimant.rollback()
+    async with managed_database() as engine:
+        owner = async_sessionmaker(engine, expire_on_commit=False)
+        async with owner.begin() as db:
+            fixture = await _seed_unretired(db, claimed=False, status="queued")
+        async with owner() as deleting, owner() as claimant:
+            assert (await _delete(deleting, kind, fixture))["ok"] is True
+            command = {
+                "job_id": str(fixture["job_id"]),
+                "worker_id": str(uuid.uuid4()),
+                "lease_seconds": 30,
+            }
+            first = await _step(claimant, "claim", command)
+            assert first["status"] == "rejected" and first["reason"] == "execution_busy"
+            await claimant.rollback()
+            if finish == "commit":
+                await deleting.commit()
+            else:
+                await deleting.rollback()
+            second = await _step(claimant, "claim", command)
+            if finish == "commit":
+                assert (
+                    second["status"] == "rejected" and second["reason"] == "job_missing"
+                )
+            else:
+                assert (
+                    second["status"] == "ok" and second["execution"]["generation"] == 1
+                )
+            await claimant.rollback()
 
 
 @pytest.mark.parametrize("kind", ["project", "unlink"])
@@ -1415,6 +1425,10 @@ async def test_proven_retired_orphan_execution_allows_deletion(db_session, kind)
     )
 
 
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data verifier and function owner grants",
+)
 async def test_guard_functions_have_exact_owners_and_only_internal_execution(
     test_engine,
 ):
@@ -1588,63 +1602,69 @@ async def test_stale_never_started_clearance_cannot_override_execution(
     await _assert_task_job_present(db_session, fixture)
 
 
-async def test_downgrade_refuses_to_drop_committed_clearance_evidence(test_engine):
+async def test_downgrade_refuses_to_drop_committed_clearance_evidence(
+    managed_database,
+):
     import importlib.util
 
     from alembic.migration import MigrationContext
     from alembic.operations import Operations
 
-    owner = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner.begin() as db:
-        fixture = await _seed_unretired(db, claimed=False, status="queued")
-        assert (await _delete(db, "unlink", fixture))["ok"] is True
-    path = (
-        Path(__file__).parents[1] / "alembic/versions/0300_video_deletion_retirement.py"
-    )
-    spec = importlib.util.spec_from_file_location(
-        "owned_video_deletion_downgrade", path
-    )
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-
-    frozen_execute = migration._execute
-
-    def execute_current(statement):
-        frozen_execute(current_namespace(statement))
-
-    def downgrade(connection):
-        with Operations.context(MigrationContext.configure(connection)):
-            migration._execute = execute_current
-            try:
-                migration.downgrade()
-            finally:
-                migration._execute = frozen_execute
-
-    with pytest.raises(DBAPIError) as rejected:
-        async with test_engine.begin() as connection:
-            await connection.run_sync(downgrade)
-    assert rejected.value.orig.sqlstate == "55000"
-    async with owner() as db:
-        assert (
-            await db.scalar(
-                text(
-                    "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:id"
-                ),
-                {"id": fixture["job_id"]},
-            )
-            == 1
+    async with managed_database() as engine:
+        owner = async_sessionmaker(engine, expire_on_commit=False)
+        async with owner.begin() as db:
+            fixture = await _seed_unretired(db, claimed=False, status="queued")
+            assert (await _delete(db, "unlink", fixture))["ok"] is True
+        path = (
+            Path(__file__).parents[1]
+            / "alembic/versions/0300_video_deletion_retirement.py"
         )
-        assert (
-            await db.scalar(
-                text(
-                    "SELECT to_regprocedure('yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)') IS NOT NULL"
+        spec = importlib.util.spec_from_file_location(
+            "owned_video_deletion_downgrade", path
+        )
+        migration = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(migration)
+
+        frozen_execute = migration._execute
+
+        def execute_current(statement):
+            frozen_execute(current_namespace(statement))
+
+        def downgrade(connection):
+            with Operations.context(MigrationContext.configure(connection)):
+                migration._execute = execute_current
+                try:
+                    migration.downgrade()
+                finally:
+                    migration._execute = frozen_execute
+
+        with pytest.raises(DBAPIError) as rejected:
+            async with engine.begin() as connection:
+                await connection.run_sync(downgrade)
+        assert rejected.value.orig.sqlstate == "55000"
+        async with owner() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT count(*) FROM yoao_jobs_v1.video_deletion_clearances WHERE job_id=:id"
+                    ),
+                    {"id": fixture["job_id"]},
                 )
+                == 1
             )
-            is True
-        )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT to_regprocedure('yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)') IS NOT NULL"
+                    )
+                )
+                is True
+            )
 
 
 def _function_url(test_engine, kind):
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the owned module-data verifier and function owner grants")
     key = (
         "WORKSPACE_PROJECT_DELETION"
         if kind == "project"
@@ -1682,10 +1702,10 @@ async def test_portable_function_only_client_preserves_retirement_failure(
     )
     from yoao_workspace.project_deletion_postgres import ProjectDeletionPostgresData
 
+    _, url = _function_url(test_engine, kind)
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
     async with owner.begin() as db:
         fixture = await _seed_unretired(db)
-    _, url = _function_url(test_engine, kind)
     connection = await asyncpg.connect(url, timeout=5, command_timeout=10)
     operation = uuid.uuid4()
     common = {
@@ -1724,10 +1744,10 @@ async def test_portable_function_only_client_preserves_retirement_failure(
 async def test_node_function_only_caller_can_commit_rejection_without_partial_deletion(
     test_engine, kind
 ):
+    role, url = _function_url(test_engine, kind)
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
     async with owner.begin() as db:
         fixture = await _seed_unretired(db)
-    role, url = _function_url(test_engine, kind)
     operation = uuid.uuid4()
     command = {
         name: str(fixture[name]) for name in ("actor_id", "project_id", "dataset_id")

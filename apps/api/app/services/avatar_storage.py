@@ -7,18 +7,19 @@ Credentials are captured from the registered location; legacy refs are not guess
 
 from __future__ import annotations
 
+import re
+import uuid
 from copy import deepcopy
 from dataclasses import dataclass, field
-import re
 from urllib.parse import urlsplit
-import uuid
 
 from app.config import settings
 from app.services import storage_registry_data as registry
 from app.services.avatar_image import MAX_AVATAR_FILE_BYTES
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
+from app.services.storage_errors import AvatarStorageError
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 _FIELDS = frozenset(
     {
@@ -35,25 +36,6 @@ _FIELDS = frozenset(
 )
 _TOKEN = re.compile(r"[0-9a-f]{32}")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
-
-
-_MESSAGES = {
-    "avatar_storage_unpinned": "头像尚未保存存储归属，请重新上传",
-    "avatar_storage_invalid_key": "头像对象键与上传记录不匹配",
-    "avatar_storage_invalid_receipt": "头像内容回执不完整或不合法",
-    "avatar_storage_binding_unproven": "头像存储绑定尚未登记或无法核实",
-}
-
-
-class AvatarStorageError(ValueError):
-    def __init__(self, code, message=None, *, status_code=409):
-        super().__init__(
-            message
-            if message is not None
-            else _MESSAGES.get(code, "头像存储身份与当前端点不匹配")
-        )
-        self.code = code
-        self.status_code = status_code
 
 
 def _reject(code="avatar_storage_identity_changed"):

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from types import SimpleNamespace
 import uuid
 
 import pytest
@@ -13,9 +14,12 @@ class _NoAutoflush:
         self.database = database
 
     def __enter__(self):
+        self.previous = self.database.autoflush
+        self.database.autoflush = False
         self.database.no_autoflush_count += 1
 
     def __exit__(self, *_args):
+        self.database.autoflush = self.previous
         return False
 
 
@@ -44,6 +48,7 @@ class _Database:
         self.annotation_rows = []
         self.scene_track_rows = []
         self.no_autoflush_count = 0
+        self.autoflush = True
 
     @property
     def no_autoflush(self):
@@ -53,7 +58,9 @@ class _Database:
         columns = list(statement.selected_columns)
         table = columns[0].table.name
         source = (
-            self.annotation_rows if table == "annotations" else self.scene_track_rows
+            self.annotation_rows
+            if table in {"annotations", "annotation_rows"}
+            else self.scene_track_rows
         )
         fields = [column.key for column in columns]
         return _Result([{field: row[field] for field in fields} for row in source])
@@ -83,7 +90,9 @@ def _annotation(annotation_id, task_id, project_id, updated_at, attributes, **fi
 
 
 @pytest.mark.asyncio
-async def test_native_cache_refresh_only_commits_owner_fields_and_skips_autoflush():
+async def test_native_cache_refresh_only_commits_owner_fields_and_skips_autoflush(
+    monkeypatch,
+):
     task_id, scene_track_id = uuid.uuid4(), uuid.uuid4()
     annotation_id, camera_id, child_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     other_id = uuid.uuid4()
@@ -143,6 +152,22 @@ async def test_native_cache_refresh_only_commits_owner_fields_and_skips_autoflus
 
     await service._refresh_deleted_annotation_cache(
         main, deleted_camera_members=1, deleted_children=1
+    )
+
+    async def fake_read_scene_data(db, operation, **_kwargs):
+        assert db is database and db.autoflush is False
+        if operation == "load_scene_track_cache":
+            return SimpleNamespace(track_cache=database.scene_track_rows[0])
+        if operation == "load_scene_camera_cache":
+            return SimpleNamespace(
+                camera_members=[
+                    SimpleNamespace(**row) for row in database.annotation_rows
+                ]
+            )
+        raise AssertionError(operation)
+
+    monkeypatch.setattr(
+        "app.services.labeling_scene.read_scene_data", fake_read_scene_data
     )
     database.scene_track_rows = [
         {

@@ -35,9 +35,11 @@ async def test_0257_root_roundtrip_retains_existing_plan(db_session, super_admin
     connection = await db_session.connection()
     await connection.run_sync(lambda sync: migration(sync).downgrade())
     await connection.run_sync(lambda sync: migration(sync).upgrade())
-    await db_session.refresh(row)
+    stored = await db_session.get(Copy, row.id)
+    assert stored is not None
     assert (
-        row.generation == 1 and row.parent_copy_id is row.parent_evidence_sha256 is None
+        stored.generation == 1
+        and stored.parent_copy_id is stored.parent_evidence_sha256 is None
     )
     foreign_keys = await connection.run_sync(
         lambda sync: inspect(sync).get_foreign_keys("storage_migration_copies")

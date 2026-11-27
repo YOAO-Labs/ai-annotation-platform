@@ -54,6 +54,11 @@ async def test_storage_failures_preserve_typed_writer_contract(
         result.scalar_one.return_value = True
         db = SimpleNamespace(execute=AsyncMock(return_value=result))
         monkeypatch.setattr(
+            raster_mask_storage,
+            "begin_mask_content_write",
+            AsyncMock(return_value={reference["object_key"]: 1}),
+        )
+        monkeypatch.setattr(
             raster_mask_storage, "load_coco_rle", AsyncMock(return_value=rle)
         )
         monkeypatch.setattr(

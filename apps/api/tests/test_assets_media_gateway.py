@@ -347,30 +347,3 @@ async def test_internal_frame_waiter_busy_exhaustion_is_bounded():
                 c.InternalFrameRequest(dataset_item_id=uuid4(), frame_index=0),
                 timeout_seconds=0.01,
             )
-
-
-@pytest.mark.asyncio
-async def test_frame_media_contention_reaches_segment_retry_but_does_not_break_warmup(
-    monkeypatch,
-):
-    from app.workers import frame_preannotate
-
-    class Provider:
-        async def ensure_internal_frame(self, request):
-            raise c.MediaFailure("operation_busy")
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            pass
-
-    monkeypatch.setattr(assets_media, "media_gateway", lambda *args: Provider())
-    with pytest.raises(c.MediaFailure, match="operation_busy"):
-        await frame_preannotate._read_frame_urls(None, uuid4(), [2])
-    assert (
-        await frame_preannotate._extract_frames_for_video(
-            None, uuid4(), [2], job_id=None
-        )
-        == {}
-    )

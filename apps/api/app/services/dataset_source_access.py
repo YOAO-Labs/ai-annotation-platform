@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import inspect as sa_inspect, select, text
 
 from app.db.enums import UserRole
 from app.db.models.dataset_source import (
@@ -73,8 +73,6 @@ async def capture_dataset_write(db, dataset_id, actor, key_id, *, allow_missing=
     lifecycle = {"dataset_lifecycle_revision": dataset.lifecycle_revision}
     if not await has_directory_source(db, dataset_id):
         return lifecycle
-    from app.services.dataset_content import key_authority
-
     actor = await assert_dataset_manage(db, dataset_id, actor)
     return {
         **lifecycle,
@@ -98,7 +96,6 @@ async def validate_dataset_write(
     if not authority or "actor_id" not in authority:
         raise HTTPException(403, detail={"code": "access_revoked"})
     import uuid
-    from app.services.dataset_content import key_authority
 
     actor = await require_manager(db, uuid.UUID(authority["actor_id"]))
     await assert_dataset_manage(db, dataset_id, actor)
@@ -117,6 +114,28 @@ async def validate_dataset_write(
             raise HTTPException(403, detail={"code": "access_revoked"})
 
 
+def _actor_id(actor):
+    try:
+        state = sa_inspect(actor)
+    except Exception:
+        return actor.id
+    identity = getattr(state, "identity", None)
+    if identity:
+        return identity[0]
+    return actor.id
+
+
+async def key_authority(db, actor, key_id, scope):
+    if key_id is None:
+        return None
+    facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
+        _actor_id(actor), UUID(str(key_id))
+    )
+    if facts is None or ("*" not in facts.scopes and scope not in facts.scopes):
+        raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
+    return facts.revision
+
+
 async def require_manager(db, actor_id):
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active or actor.role not in MANAGERS:
@@ -125,7 +144,7 @@ async def require_manager(db, actor_id):
 
 
 async def assert_dataset_manage(db, dataset_id, actor):
-    actor = await require_manager(db, actor.id)
+    actor = await require_manager(db, _actor_id(actor))
     dataset = await _dataset_authority(db, dataset_id)
     if dataset is None or (
         actor.role != UserRole.SUPER_ADMIN and dataset.created_by != actor.id
@@ -135,7 +154,7 @@ async def assert_dataset_manage(db, dataset_id, actor):
 
 
 async def require_source(db, source_id, actor):
-    actor = await require_manager(db, actor.id)
+    actor = await require_manager(db, _actor_id(actor))
     sources = visible_sources(actor.id, source_id=source_id)
     source = (await db.execute(select(sources))).one_or_none()
     if source is None:

@@ -197,7 +197,7 @@ class JobsFramePreannotationDispatcher:
         """Freeze the canvas with the parent's running/preparation transaction."""
         from yoao_jobs.queue_contract import encode_canvas_request
 
-        from app.services import async_job as async_job_svc
+        from app.services import jobs_lifecycle_data as async_job_svc
         from app.services.jobs_dispatch import jobs_dispatch_data
 
         if (
@@ -491,7 +491,7 @@ def _defer_frame_segment(
 
 async def _fail_frame_job_in_session(db, job_id: str, project_id: str, error: str):
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
     await db.rollback()
@@ -520,7 +520,7 @@ async def _fail_legacy_frame_job(job_id: str, error: str) -> None:
         create_async_engine,
     )
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
 
     try:
         parsed_job_id = uuid.UUID(job_id)
@@ -570,7 +570,7 @@ async def _run_segment(
         thaw_json,
     )
     from app.services.labeling_core_read_relations import get_core_row, task_row
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.inference_model_execution import model_execution_port
     from app.services.ml_backend import MLBackendService
     from app.services.prediction import PredictionService, to_video_bbox_result
@@ -1569,7 +1569,7 @@ async def _write_job_progress(
 async def _job_cancelled(db, job_id: str) -> bool:
     """Stop queued segments when their job is missing, terminal or cancelling."""
     from app.db.models.async_job import AsyncJobStatus
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
 
     job = await async_job_svc.get_job(db, uuid.UUID(job_id))
     if job is None:
@@ -1701,7 +1701,7 @@ def _load_frame_receipts(job, segment_ids: list[str]) -> dict[str, dict] | None:
 
 
 async def _mark_unknown_frame_job(db, job) -> None:
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
     log.warning("Frame job %s has expired legacy segment receipts", job.id)
@@ -1716,7 +1716,7 @@ async def _finalize(*, project_id: str, job_id: str) -> None:
 async def _settle_frame_receipts(
     db, job, segment_ids: list[str], receipts: dict[str, dict], done: int, total: int
 ) -> str:
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from yoao_inference.gpu.contracts import summarize_gpu_arbiter_failures
 
     if len(receipts) < len(segment_ids):

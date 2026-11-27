@@ -13,6 +13,7 @@ import uuid
 
 from botocore.exceptions import ClientError
 from botocore.config import Config
+from botocore.hooks import HierarchicalEmitter
 import pytest
 from sqlalchemy import delete, select
 
@@ -42,6 +43,9 @@ class ExportObjects:
             meta=SimpleNamespace(endpoint_url=f"{scheme}://{settings.minio_endpoint}"),
             head_object=self.head,
             get_object=self.get,
+            get_bucket_versioning=lambda **params: {
+                "ResponseMetadata": {"HTTPStatusCode": 200}
+            },
         )
         self.export_bucket = settings.minio_export_bucket
         self.objects, self.reads, self.puts, self.deleted, self.bodies = (
@@ -64,6 +68,7 @@ class ExportObjects:
         except KeyError:
             raise ClientError({"Error": {"Code": "NoSuchKey"}}, "HeadObject") from None
         return {
+            "ResponseMetadata": {"HTTPStatusCode": 200},
             "ContentLength": len(data),
             "ETag": '"' + hashlib.sha256(data).hexdigest() + '"',
         }
@@ -101,22 +106,59 @@ class ExportObjects:
 def export_objects(monkeypatch):
     objects = ExportObjects()
     monkeypatch.setattr(export_storage, "storage_service", objects)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", objects)
     from app.services import storage as module
 
     objects.client.meta.config = Config(retries={"max_attempts": 3})
 
     def owned(**kwargs):
         assert kwargs["client_config"] is objects.client.meta.config
+        events = HierarchicalEmitter()
+
+        def upload_file(path, bucket, key, ExtraArgs):
+            model = SimpleNamespace(name="PutObject")
+            events.emit(
+                "before-parameter-build.s3.PutObject",
+                params={"Bucket": bucket, "Key": key},
+                model=model,
+            )
+            events.emit("before-send.s3.PutObject")
+            objects.upload_file(
+                path, key, bucket=bucket, content_type=ExtraArgs["ContentType"]
+            )
+            metadata = objects.head(Bucket=bucket, Key=key)
+            events.emit(
+                "after-call.s3.PutObject",
+                model=model,
+                http_response=SimpleNamespace(status_code=200),
+                parsed={
+                    "ResponseMetadata": {"HTTPStatusCode": 200},
+                    "ETag": metadata["ETag"],
+                },
+            )
+
         return SimpleNamespace(
             client=SimpleNamespace(
+                meta=SimpleNamespace(
+                    endpoint_url=objects.client.meta.endpoint_url,
+                    config=objects.client.meta.config,
+                    events=events,
+                ),
                 head_object=objects.head,
                 get_object=objects.get,
+                get_bucket_versioning=lambda **params: {
+                    "ResponseMetadata": {"HTTPStatusCode": 200}
+                },
+                list_object_versions=lambda **params: {
+                    "ResponseMetadata": {"HTTPStatusCode": 200},
+                    "IsTruncated": False,
+                    "Versions": [],
+                    "DeleteMarkers": [],
+                },
                 delete_object=lambda **params: objects.delete_object(
                     params["Key"], bucket=params["Bucket"]
                 ),
-                upload_file=lambda path, bucket, key, ExtraArgs: objects.upload_file(
-                    path, key, bucket=bucket, content_type=ExtraArgs["ContentType"]
-                ),
+                upload_file=upload_file,
                 close=lambda: None,
             )
         )
@@ -138,10 +180,14 @@ async def seed_output(
     job_id=None,
     state="ready",
     expired=False,
+    expires_in: timedelta | None = None,
     data=b"independently owned export bytes",
     stored=True,
 ):
-    created = datetime.now(timezone.utc) - timedelta(days=8 if expired else 1)
+    if expires_in is not None:
+        created = datetime.now(timezone.utc) - timedelta(days=7) + expires_in
+    else:
+        created = datetime.now(timezone.utc) - timedelta(days=8 if expired else 1)
     row = ExportOutput(
         id=uuid.uuid4(),
         project_id=project_id or uuid.uuid4(),
@@ -748,16 +794,21 @@ async def test_cleanup_winning_before_read_admission_refuses_the_physical_get(
     export_objects,
     monkeypatch,
 ):
-    row = await seed_output(db_session, export_objects, project_id=export_project.id)
+    row = await seed_output(
+        db_session,
+        export_objects,
+        project_id=export_project.id,
+        expires_in=timedelta(milliseconds=250),
+    )
     artifact = await seed_index(db_session, row)
     deadline = row.expires_at
     original = storage_access.run
 
     async def raced(db, location, purpose, call, *args, **kwargs):
         if purpose.startswith("export_read_"):
-            monkeypatch.setattr(
-                export_outputs, "now", lambda: deadline + timedelta(seconds=1)
-            )
+            remaining = (deadline - datetime.now(timezone.utc)).total_seconds()
+            if remaining > 0:
+                await asyncio.sleep(remaining + 0.05)
             assert (await export_outputs.cleanup(db))["outputs_deleted"] == 1
         return await original(db, location, purpose, call, *args, **kwargs)
 
@@ -886,37 +937,95 @@ async def test_worker_unknown_final_commit_never_deletes_candidate(
     delete.assert_not_called()
 
 
+@pytest.fixture(autouse=True)
+async def _committed_cleanup(test_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    callbacks = []
+    yield callbacks
+    if callbacks:
+        maker = async_sessionmaker(test_engine, expire_on_commit=False)
+        async with maker() as db:
+            for callback in reversed(callbacks):
+                await callback(db)
+            await db.commit()
+
+
 @pytest.mark.parametrize("path", ["fresh", "cached"])
 async def test_key_natural_expiry_during_final_lock_wait_refuses_signing(
-    db_session, export_project, export_objects, annotator, monkeypatch, path
+    test_engine,
+    _committed_cleanup,
+    db_session,
+    export_project,
+    export_objects,
+    monkeypatch,
+    path,
 ):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.db.models.api_key import ApiKey
+    from app.db.models.project_member import ProjectMember
+    from app.db.models.user import User
     from app.core.security import hash_password
     from app.services.exporting import output_authority
+    from app.services.identity_gateway import get_identity_gateway
     from app.workers.export import _sign_export_output
     from starlette.requests import Request
 
-    actor = annotator[0]
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = uuid.uuid4()
+    key_id = uuid.uuid4()
     token = "ak_" + uuid.uuid4().hex
     current = datetime.now(timezone.utc)
-    key = ApiKey(
-        user_id=actor.id,
-        name="expiry-fixture",
-        key_prefix=token[:12],
-        key_hash=hash_password(token),
-        scopes=["*"],
-        expires_at=current + timedelta(hours=1),
+    expires_at = current + timedelta(seconds=2)
+    async with maker() as committed:
+        actor = User(
+            id=actor_id,
+            name=f"exp-{actor_id.hex[:8]}",
+            email=f"exp-{actor_id.hex[:8]}@test.local",
+            password_hash=hash_password("Test1234!"),
+            role="employee",
+            is_active=True,
+        )
+        key = ApiKey(
+            id=key_id,
+            user_id=actor_id,
+            name="expiry-fixture",
+            key_prefix=token[:12],
+            key_hash=hash_password(token),
+            scopes=["*"],
+            expires_at=expires_at,
+        )
+        committed.add(actor)
+        await committed.flush()
+        committed.add(key)
+        await committed.commit()
+
+    async def cleanup(db):
+        await db.execute(delete(ApiKey).where(ApiKey.id == key_id))
+        await db.execute(delete(User).where(User.id == actor_id))
+
+    _committed_cleanup.append(cleanup)
+    db_session.add(
+        ProjectMember(
+            project_id=export_project.id,
+            user_id=actor_id,
+            role="reviewer",
+        )
     )
-    db_session.add(key)
     await db_session.flush()
+    principal = await get_identity_gateway().authenticate(token, db=db_session)
     request = Request(
-        {"type": "http", "headers": [(b"authorization", ("Bearer " + token).encode())]}
+        {
+            "type": "http",
+            "headers": [(b"authorization", ("Bearer " + token).encode())],
+        }
     )
-    request.state.api_key_id = key.id
+    request.state.api_key_id = key_id
     request.state.api_key_scopes = ["*"]
+    request.state.identity_principal = principal
     proof = await output_authority.capture(db_session, export_project, actor, request)
     job = SimpleNamespace(
-        user_id=actor.id,
+        user_id=actor_id,
         project_id=export_project.id,
         payload={"output_authority": proof},
     )
@@ -925,10 +1034,10 @@ async def test_key_natural_expiry_during_final_lock_wait_refuses_signing(
     index = await seed_index(db_session, row)
     hit = await cache.lookup(db_session, index.cache_key)
 
-    class Later:
-        @staticmethod
-        def now(_timezone):
-            return current + timedelta(hours=2)
+    async def wait_for_expiry():
+        remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
+        if remaining > 0:
+            await asyncio.sleep(remaining + 0.05)
 
     async def final_validation():
         await output_authority.validate(db_session, job, lock=True)
@@ -938,7 +1047,7 @@ async def test_key_natural_expiry_during_final_lock_wait_refuses_signing(
 
         async def waiting_check(*args, **kwargs):
             result = await original(*args, **kwargs)
-            monkeypatch.setattr(output_authority, "datetime", Later)
+            await wait_for_expiry()
             return result
 
         monkeypatch.setattr(storage_access, "check", waiting_check)
@@ -951,7 +1060,7 @@ async def test_key_natural_expiry_during_final_lock_wait_refuses_signing(
                 before_sign=final_validation,
             )
     else:
-        monkeypatch.setattr(output_authority, "datetime", Later)
+        await wait_for_expiry()
         with pytest.raises(output_authority.ExportOutputAuthorityError):
             await _sign_export_output(db_session, job, hit.output, "export.zip")
     assert not export_objects.signatures

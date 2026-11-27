@@ -18,7 +18,6 @@ from training_contract.observability import (
     REDACTION_REVISION,
     SAMPLE_LIMIT,
     STATE_BYTES,
-    SUMMARY_BYTES,
     RedactedLines,
     encoded,
     redact_text,
@@ -27,6 +26,7 @@ from training_contract.observability import (
 from app.config import settings
 from app.services import training_observation_data as data
 from app.services import training_run_data as run_data
+from app.services.training_run_storage import artifact_key, attempt_storage_owner
 from app.services import training_runs as training
 from app.services.storage import storage_service as storage
 from app.services.training_dataset_bridge import content_digest
@@ -204,8 +204,8 @@ async def cleanup(db):
 def read_redacted_log(run, attempt, name, artifact, *, transport=None):
     """Verify one saved log completely before returning bounded redacted bytes."""
     transport = storage if transport is None else transport
-    owner = training.attempt_storage_owner(run, attempt, artifact["key"])
-    expected = training.artifact_key(owner, attempt.id, name)
+    owner = attempt_storage_owner(run, attempt, artifact["key"])
+    expected = artifact_key(owner, attempt.id, name)
     if (
         artifact["key"] != expected
         or artifact.get("role") != "log"
@@ -263,12 +263,10 @@ def read_redacted_log(run, attempt, name, artifact, *, transport=None):
 
 def redacted_log(run, attempt, name, artifact, *, transport=None):
     transport = storage if transport is None else transport
-    owner = training.attempt_storage_owner(run, attempt, artifact["key"])
+    owner = attempt_storage_owner(run, attempt, artifact["key"])
     result = read_redacted_log(run, attempt, name, artifact, transport=transport)
     output, output_sha = result["content"], result["sha256"]
-    key = training.artifact_key(
-        owner, attempt.id, f"redacted-logs/{name}.{output_sha}.log"
-    )
+    key = artifact_key(owner, attempt.id, f"redacted-logs/{name}.{output_sha}.log")
     accounting = getattr(transport, "_write_accounting", None)
     observation = (
         write_accounting.Observation(
@@ -314,37 +312,10 @@ def redacted_log(run, attempt, name, artifact, *, transport=None):
     }
 
 
-def verify_summary(run, attempt, artifact, *, transport=None):
-    transport = storage if transport is None else transport
-    owner = training.attempt_storage_owner(run, attempt, artifact["key"])
-    if artifact["size_bytes"] > SUMMARY_BYTES:
-        raise ValueError("Observation artifact exceeds its bound")
-    response = storage_io.get_object(transport, owner.bucket, artifact["key"])
-    try:
-        body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
-    finally:
-        storage_access.close_registered(response["Body"])
-    if (
-        body.get("protocol") != 1
-        or body.get("run_id") != str(run.id)
-        or body.get("attempt_id") != str(attempt.id)
-        or body.get("config_digest") != run.config_digest
-    ):
-        raise ValueError("Observation artifact identity differs")
-
-
-def json_load_bounded(raw):
-    import json
-
-    if len(raw) > SUMMARY_BYTES:
-        raise ValueError("Observation artifact exceeds its bound")
-    return json.loads(raw)
-
-
 def checkpoint_available(run, attempt, checkpoint, *, transport=None):
     transport = storage if transport is None else transport
     try:
-        owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
+        owner = attempt_storage_owner(run, attempt, checkpoint["key"])
         response = storage_io.head_object(transport, owner.bucket, checkpoint["key"])
         metadata = response.get("Metadata", {})
         return (
@@ -416,7 +387,7 @@ async def recovery(
         reasons.append("authority_unavailable")
     if checkpoint and check_storage:
         try:
-            owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
+            owner = attempt_storage_owner(run, attempt, checkpoint["key"])
             available = await storage_io.read(
                 db,
                 owner,

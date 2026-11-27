@@ -68,16 +68,15 @@ async def geometry_for_annotation_version(
         annotation_id=annotation.id,
         annotation_version=annotation_version,
     )
-    expires_at = (
-        datetime.fromisoformat(str(revision["expires_at"]).replace("Z", "+00:00"))
-        if revision is not None
-        else None
-    )
-    if (
-        revision is None
-        or expires_at is None
-        or expires_at <= datetime.now(timezone.utc)
-    ):
+    raw_expires = str(revision["expires_at"]) if revision is not None else None
+    if raw_expires == "infinity":
+        expired = False
+    elif raw_expires in (None, "-infinity"):
+        expired = True
+    else:
+        expires_at = datetime.fromisoformat(raw_expires.replace("Z", "+00:00"))
+        expired = expires_at <= datetime.now(timezone.utc)
+    if revision is None or expired:
         raise MaskQCError(
             status_code=409,
             reason=missing_reason,

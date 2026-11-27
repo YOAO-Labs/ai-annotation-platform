@@ -23,7 +23,8 @@ from app.services import (
     storage_location as locations,
 )
 from app.services.content_snapshot import ContentError
-from app.services.dataset_references import register_entry, reference_snapshot
+from app.application.dataset_reference_registration import register_entry
+from app.services.dataset_references import reference_snapshot
 from app.services.filesystem_storage import FilesystemStorageError
 from tests.reference_provider_fixture import use_provider
 from yoao_assets_source.reference_protocol import (

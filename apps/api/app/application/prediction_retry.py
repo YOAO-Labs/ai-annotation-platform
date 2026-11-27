@@ -16,7 +16,7 @@ from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob
 from app.services.ml_backend import MLBackendService
 from app.schemas.async_job import AsyncJobRetryFailedResponse
-from app.services import async_job as jobs, prediction as prediction_service
+from app.services import jobs_lifecycle_data as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
 from app.services.prediction_retries import (
@@ -217,6 +217,7 @@ class SqlPredictionRetry(PredictionRetryPort):
                 )
 
             attempts = []
+            structured_conflict: HTTPException | None = None
             for failed_id in failed_ids:
                 try:
                     async with db.begin_nested():
@@ -226,15 +227,23 @@ class SqlPredictionRetry(PredictionRetryPort):
                             None,
                             credential,
                             project_id=job.project_id,
-                            follow_target_queue=False,
+                            follow_target_queue=True,
                         )
                 except HTTPException as error:
                     if error.status_code in {404, 409}:
+                        if (
+                            error.status_code == 409
+                            and isinstance(error.detail, dict)
+                            and structured_conflict is None
+                        ):
+                            structured_conflict = error
                         continue
                     raise
                 attempts.append(attempt)
 
             if not attempts:
+                if structured_conflict is not None:
+                    raise structured_conflict
                 raise HTTPException(
                     status_code=409,
                     detail="no retryable failed predictions remain for this job",

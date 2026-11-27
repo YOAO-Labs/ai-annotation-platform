@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.core import security
 from app.db.models.api_key import ApiKey
 from app.db.models.notification import Notification
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_notify import notify_job_terminal
 
 KIND = "managed_original_verification"
@@ -200,9 +200,10 @@ async def test_verification_signal_boundary_notifies_without_raw_error(
     await signals._apply_terminal(
         task_id, cancelled=cancelled, error="late private error"
     )
-    await db_session.refresh(row)
+    current = await verification.by_job(db_session, job_id)
+    assert current is not None
     expected = "cancelled" if cancelled and not running else "failed"
-    assert row.status == expected
+    assert current.status == expected
     rows = list(
         await db_session.scalars(
             select(Notification).where(Notification.target_id == job_id)
@@ -210,6 +211,6 @@ async def test_verification_signal_boundary_notifies_without_raw_error(
     )
     assert len(rows) == 1 and rows[0].type == "job." + expected
     assert "private" not in str(rows[0].payload)
-    assert row.error_code == (
+    assert current.error_code == (
         None if expected == "cancelled" else "verification_interrupted"
     )

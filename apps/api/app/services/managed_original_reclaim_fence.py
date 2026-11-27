@@ -10,7 +10,7 @@ from sqlalchemy import func, select, text
 
 
 def identity(bucket, object_key):
-    from app.services.managed_original_retention import group_lock_identity
+    from app.services.storage_identity import group_lock_identity
 
     return group_lock_identity(bucket, object_key)
 
@@ -56,7 +56,7 @@ async def protect_snapshot_references(db, snapshot):
     """Hold saved accepted-reference physical groups through version publication."""
     import uuid
 
-    from app.services.dataset_references import directory_reference_reclaim_facts
+    from app.services.dataset_reference_data import directory_reference_reclaim_facts
 
     groups = set()
     for sample in snapshot.get("samples", []):
@@ -155,6 +155,7 @@ async def protect_reference(db, run, entry):
 async def protect_observed_read(db, observed, anchor):
     """Check the saved S3 locator after its real Permit has been registered."""
     from sqlalchemy.ext.asyncio import AsyncSession
+
     from app.services import storage_access
 
     if not isinstance(anchor, dict) or anchor.get("kind") != "s3":

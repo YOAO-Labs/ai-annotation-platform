@@ -35,6 +35,12 @@ def migration(connection, revision="0221"):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module.op = Operations(MigrationContext.configure(connection))
+    from tests.frozen_namespaces import current as current_namespace
+
+    raw_execute = module.op.execute
+    module.op.execute = lambda sql, *a, **kw: raw_execute(
+        current_namespace(sql) if isinstance(sql, str) else sql, *a, **kw
+    )
     return module
 
 

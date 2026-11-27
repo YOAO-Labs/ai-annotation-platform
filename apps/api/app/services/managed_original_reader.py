@@ -7,9 +7,6 @@ routes instead pin the independently verified physical target version and ETag.
 
 import asyncio
 import contextvars
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from functools import partial
 import hashlib
 import math
 import re
@@ -17,6 +14,9 @@ import sys
 import tempfile
 import threading
 import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from functools import partial
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
@@ -145,7 +145,7 @@ class BinaryStage:
 
 def create_client(*, timeout_seconds):
     """Reuse the one-attempt same-origin transport, never its creation checks."""
-    from app.services.managed_original_creation import create_client as transport
+    from app.services.managed_original_client import create_client as transport
 
     return transport(timeout_seconds=timeout_seconds)
 
@@ -453,7 +453,11 @@ def _capture(
                     except BaseException as exc:
                         settled = not retain_on_close_error
                         closing = _failure(exc)
+                        if not settled:
+                            mark_unsettled(closing)
                         if primary is not None:
+                            if not settled:
+                                raise closing from primary
                             raise BaseExceptionGroup(
                                 "Original read and temporary close failed",
                                 [primary, closing],

@@ -178,12 +178,24 @@ def test_mask_wire_requires_exact_original_reference_and_native_alignment(mutati
             "sha256" if mutation == "sha" else "bytes"
         ] = "f" * 64 if mutation == "sha" else 1
     with pytest.raises((ValueError, TypeError)):
-        masks.normalize_predictions(raw, [1, 0], width=4, height=4)
+        masks.normalize_predictions(
+            raw,
+            [1, 0],
+            width=4,
+            height=4,
+            runtime_qualification=SEGMENTATION_RUNTIME,
+        )
 
 
 def test_wire_mapping_and_work_budgets_fail_closed(monkeypatch):
     assert (
-        masks.normalize_predictions(wire(), [1, 0], width=4, height=4)[0]["class_index"]
+        masks.normalize_predictions(
+            wire(),
+            [1, 0],
+            width=4,
+            height=4,
+            runtime_qualification=SEGMENTATION_RUNTIME,
+        )[0]["class_index"]
         == 1
     )
     monkeypatch.setattr(masks, "MAX_MATCH_RUN_OPERATIONS", 1)
@@ -191,7 +203,13 @@ def test_wire_mapping_and_work_budgets_fail_closed(monkeypatch):
         evaluate(truth((0, FULL)), predictions((0, 0.8, FULL)))
     monkeypatch.setattr(masks, "MAX_SAMPLE_RLE_BYTES", 1)
     with pytest.raises(ValueError, match="budget"):
-        masks.normalize_predictions(wire(), [0], width=4, height=4)
+        masks.normalize_predictions(
+            wire(),
+            [0],
+            width=4,
+            height=4,
+            runtime_qualification=SEGMENTATION_RUNTIME,
+        )
 
 
 async def world(monkeypatch, *, raster=False):
@@ -278,6 +296,8 @@ async def world(monkeypatch, *, raster=False):
         "deployment_id": str(ids["deployment"]),
         "project_id": str(ids["project"]),
         "sha256": "3" * 64,
+        "framework_version": "8.4.177",
+        "runtime_qualification": SEGMENTATION_RUNTIME,
         "classes_digest": content_digest(["person", "car"]),
         "classes": ["person", "car"],
         "bindings": ["person", "car"],
@@ -304,8 +324,9 @@ async def world(monkeypatch, *, raster=False):
         dataset_id=ids["dataset"],
         sample_task_ids=[ids["task"]],
     )
+    monkeypatch.setattr(service, "read_version", AsyncMock(return_value=version))
     spec = await service.frozen_spec(
-        SimpleNamespace(get=AsyncMock(return_value=version)),
+        SimpleNamespace(autoflush=False, get=AsyncMock(return_value=version)),
         SimpleNamespace(id=ids["project"]),
         body,
         ids["evaluation"],
@@ -366,14 +387,31 @@ async def test_shared_qualification_uses_independent_segment_profile_and_task_di
         "app.services.inference_backend_control.backend_control_service",
         lambda _db: SimpleNamespace(managed_evaluation_profile=remote),
     )
-    db = SimpleNamespace(
-        get=AsyncMock(
-            return_value=SimpleNamespace(
-                model_version_id=run.model_version_id,
-                registry_id=uuid.UUID(ref["registry_id"]),
+    monkeypatch.setattr(
+        managed,
+        "InferenceTopologyData",
+        lambda _db: SimpleNamespace(
+            registry_facts=AsyncMock(
+                return_value=SimpleNamespace(
+                    health_meta={
+                        "capabilities": {
+                            "managed_evaluation": True,
+                            "managed_model_compatibility": [
+                                {"framework": "ultralytics"}
+                            ],
+                        }
+                    },
+                    extra_params={},
+                )
             )
-        )
+        ),
     )
+    deployment = SimpleNamespace(
+        model_version_id=run.model_version_id,
+        registry_id=uuid.UUID(ref["registry_id"]),
+    )
+    monkeypatch.setattr(managed, "get_deployment", AsyncMock(return_value=deployment))
+    db = SimpleNamespace(get=AsyncMock(return_value=deployment))
     checked_ref, profile = await managed.qualification(
         db,
         SimpleNamespace(id=run.project_id, tool_bindings={}),

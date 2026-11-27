@@ -43,7 +43,7 @@ work 保留。绑定不创建连接，不开始、提交或回滚 SQL 事务。�
 这没有为多步权限检查引入跨事务授权令牌，也没有改变现有写入最终围栏。
 
 这是当前权限读取的源码／Native 边界资格；完整模块状态只在
-[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)维护。
+[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)维护。
 
 ## Notes
 

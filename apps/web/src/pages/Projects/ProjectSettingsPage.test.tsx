@@ -21,9 +21,6 @@ vi.mock("./sections/OwnerSection", () => ({
 vi.mock("./sections/DangerSection", () => ({
   DangerSection: () => <div>danger-section</div>,
 }));
-vi.mock("./sections/BatchesSection", () => ({
-  BatchesSection: () => <div>batches-section</div>,
-}));
 vi.mock("./sections/ClassesSection", () => ({
   ClassesSection: () => <div>classes-section</div>,
 }));
@@ -125,6 +122,27 @@ describe("ProjectSettingsPage", () => {
     expect(screen.getByText("workbench-target")).toBeInTheDocument();
     expect(screen.getByTestId("location")).toHaveTextContent(
       "/projects/p-video/annotate?returnTo=%2Fprojects%2Fp-video%2Fsettings",
+    );
+  });
+
+  it("opens the owner's batch management panel for the current project", async () => {
+    installProjectApi(projectResponse({}));
+    server.use(
+      http.get("*/api/v1/projects/p-image/batches", () => HttpResponse.json([])),
+      http.get("*/api/v1/projects/p-image/batches/unclassified-count", () =>
+        HttpResponse.json({ count: 7 }),
+      ),
+    );
+    renderSettingsPage("/projects/p-image/settings", <LocationProbe />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "批次管理" }));
+    expect(await screen.findByRole("heading", { name: "批次管理" })).toBeVisible();
+    expect((await screen.findByText("未归类任务")).parentElement).toHaveTextContent(
+      "7 个 未归类任务",
+    );
+    expect(screen.getByRole("button", { name: "创建批次" })).toBeEnabled();
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/projects/p-image/settings?section=batches",
     );
   });
 

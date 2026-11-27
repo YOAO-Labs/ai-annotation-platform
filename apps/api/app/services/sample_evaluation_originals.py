@@ -1,10 +1,7 @@
 """Current evaluation inputs use saved original facts and request authority."""
 
-import asyncio
 from contextlib import asynccontextmanager
-from contextvars import copy_context
 from dataclasses import dataclass, field
-from functools import partial
 import threading
 import uuid
 
@@ -15,11 +12,11 @@ from app.services import managed_original_reader as reader
 from app.services import original_content_access as access
 from app.services import original_sources, storage_access
 from app.services.content_snapshot import ContentError
+from app.services.bounded_thread import bounded_thread
 from app.services.original_binary_response import close_stage
-from app.services.training_datasets import bind_training_authority
+from app.services.training_authority import bind_training_authority
 
 COPY_SECONDS = 120
-THREAD_SECONDS = 30
 _slots = threading.BoundedSemaphore(2)
 
 
@@ -100,32 +97,8 @@ async def recheck_source(db, authority, source):
     access.check_clock(authority.proof, authority.key)
 
 
-async def bounded_thread(call, *args, **kwargs):
-    """A timeout or cancellation waits for the actual executor to settle."""
-    try:
-        pending = asyncio.get_running_loop().run_in_executor(
-            None, copy_context().run, partial(call, *args, **kwargs)
-        )
-    except BaseException as exc:
-        raise storage_access.mark_unsettled(exc)
-    try:
-        return await asyncio.wait_for(asyncio.shield(pending), THREAD_SECONDS)
-    except (asyncio.CancelledError, TimeoutError) as interrupted:
-        try:
-            await storage_access.finish(pending)
-        except BaseException as closing:
-            if getattr(closing, "storage_operation_unsettled", False):
-                storage_access.mark_unsettled(interrupted)
-        if isinstance(interrupted, TimeoutError):
-            error = ContentError("content_read_timeout", 504)
-            if getattr(interrupted, "storage_operation_unsettled", False):
-                storage_access.mark_unsettled(error)
-            raise error from None
-        raise
-
-
 def inspect_image(stage, snapshot):
-    from app.services.sample_evaluations import engine
+    from app.services import sample_evaluation_engine as engine
 
     stage.file.seek(0)
     with storage_access.closing_registered(Image.open(stage.file)) as image:
@@ -153,7 +126,7 @@ def inspect_image(stage, snapshot):
 @asynccontextmanager
 async def current_media(db, authority, snapshot):
     """Own the raw stage and admission through classification and final checks."""
-    from app.services.sample_evaluations import engine
+    from app.services import sample_evaluation_engine as engine
 
     try:
         if snapshot["file_type"] != "image":

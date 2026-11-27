@@ -45,7 +45,7 @@ Inference owner 与删除专用账号不因此扩权。不新增角色、服务�
 Node 可直接使用这两项 SQL 能力；API ORM 兼容绑定不要求 owner 使用 Python。
 
 成员集合过滤、投影及跨 owner joins 仍由
-[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)跟踪。
+[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)跟踪。
 本项不代替完整 Workspace 凭据、工件、独立运行与恢复验收。
 
 ## Notes

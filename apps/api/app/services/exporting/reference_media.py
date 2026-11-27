@@ -10,7 +10,7 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import key_authority

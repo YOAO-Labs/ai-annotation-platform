@@ -1,6 +1,9 @@
 """Business fixture cleanup cannot erase independent Task original responsibility."""
 
+import os
 import uuid
+
+import pytest
 
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.project import Project
@@ -13,6 +16,11 @@ from tests.identity_e2e_support import (
     fixture_and_fenced_http as fixture_and_fenced_http,
 )
 from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
+
+pytestmark = pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires verifier-owned module-data PostgreSQL environment",
+)
 
 
 async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(

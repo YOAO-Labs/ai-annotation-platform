@@ -6,8 +6,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy import select
 
 from app.db.models.dataset_asset import DatasetAssetLocation, StorageLocation
 from app.db.models.storage_connection import StorageConnection
@@ -15,56 +14,21 @@ from app.services import dataset_storage, original_sources as sources
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_s3_target import Target
-from tests.test_managed_original_reader import Provider
 from tests.test_original_sources import dataset_rows
+from tests.test_task_originals import current_original_session
 
 
 @pytest.fixture
-async def saved_db(test_engine, monkeypatch):
-    schema = "dataset_reads_" + uuid.uuid4().hex
-    tables = (
-        "storage_connections",
-        "storage_locations",
-        "storage_bindings",
-        "storage_maintenance_gates",
-        "storage_operations",
-        "storage_migration_read_publications",
-        "storage_migration_read_routes",
-        "dataset_items",
-        "dataset_assets",
-        "dataset_asset_locations",
-        "dataset_auxiliary_originals",
-        "tasks",
-        "task_dataset_item_links",
-        "managed_original_retirements",
-    )
-    async with test_engine.begin() as connection:
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        source = await connection.scalar(text("SELECT current_schema()"))
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" '
-                    f'(LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
+async def saved_db(managed_database, monkeypatch):
     monkeypatch.setattr(
         "app.services.connector_guard.get_allowlist",
         AsyncMock(return_value=["objects.example.test"]),
     )
-    try:
-        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+    async with managed_database() as engine:
+        async with current_original_session(engine) as db:
             await ensure_legacy_bindings(db)
             await db.commit()
             yield db
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
 
 
 async def saved_item(db):
@@ -84,6 +48,7 @@ async def saved_item(db):
         revision=2,
     )
     db.add(connection)
+    await db.flush()
     location = StorageLocation(
         id=uuid.uuid4(),
         name="saved-B-" + uuid.uuid4().hex,
@@ -106,10 +71,21 @@ async def saved_item(db):
     )
     key = target.key_prefix + "originals/" + uuid.uuid4().hex
     item.file_path = task.file_path = key
-    replica.location_id = location.id
-    replica.bucket = target.bucket
-    replica.object_key = key
-    replica.storage_ref = dataset_storage.make_ref(target, 2, key)
+    verified_at = replica.verified_at
+    await db.delete(replica)
+    await db.flush()
+    replica = DatasetAssetLocation(
+        asset_id=asset.id,
+        location_id=location.id,
+        bucket=target.bucket,
+        object_key=key,
+        role="managed_original",
+        reference_state="present",
+        etag="historical-etag",
+        verified_at=verified_at,
+        storage_ref=dataset_storage.make_ref(target, 2, key),
+    )
+    db.add(replica)
     await db.commit()
     return item, asset, replica, task, location, connection
 
@@ -150,7 +126,8 @@ async def test_saved_b_facts_stay_identical_when_current_credentials_rotate(
     await db.commit()
     target = await sources.read_target(db, after)
     assert target.config_revision == location.config_revision == 3
-    assert target._access.secret_enc == b"encrypted-rotated-credential"
+    assert target.connection_revision == connection.revision == 3
+    assert target.is_registered is True and target._access is None
     assert b"encrypted" not in repr(frozen).encode()
     assert (
         await db.scalar(select(DatasetAssetLocation.storage_ref)) == replica.storage_ref
@@ -161,27 +138,43 @@ async def test_public_reader_uses_saved_b_sidecar_and_closes_its_context(
     saved_db,
     monkeypatch,
 ):
-    from app.services import managed_original_reader as reader
-    from app.services.source_readers.s3 import S3Access
+    import io
+    from app.services import managed_original_reader as reader, saved_media_io
 
     db = saved_db
-    _item, _asset, _replica, task, _location, _connection = await saved_item(db)
+    _item, asset, _replica, task, _location, _connection = await saved_item(db)
     source = await sources.resolve_task(db, task.id)
     await db.commit()
-    provider = Provider()
-    provider.meta.endpoint_url = source.endpoint_url
-    provider.raw = provider.actual = b"saved"
     contexts = []
+    closed = []
 
-    @contextmanager
-    def client(access, *, read_timeout=None):
-        contexts.append((access.secret_enc, read_timeout))
-        try:
-            yield provider
-        finally:
-            provider.close()
+    class FakeClient:
+        @contextmanager
+        def download(self, family, action, payload):
+            from datetime import datetime, timezone
 
-    monkeypatch.setattr(S3Access, "client", client)
+            contexts.append((family, action, payload))
+
+            class _Stream(io.BytesIO):
+                metadata = {
+                    "ResponseMetadata": {"HTTPStatusCode": 200},
+                    "ContentLength": 5,
+                    "ETag": '"saved-etag"',
+                    "LastModified": datetime(
+                        2026, 1, 1, tzinfo=timezone.utc
+                    ).isoformat(),
+                }
+
+            stream = _Stream(b"saved")
+            try:
+                yield stream
+            finally:
+                stream.close()
+                closed.append(stream.closed)
+
+    monkeypatch.setattr(
+        saved_media_io, "saved_io_client", lambda *a, **kw: FakeClient()
+    )
     monkeypatch.setattr(
         reader, "create_client", lambda **_: pytest.fail("A client used")
     )
@@ -201,13 +194,12 @@ async def test_public_reader_uses_saved_b_sidecar_and_closes_its_context(
     )
     try:
         assert stage.file.read() == b"saved"
-        assert contexts == [(b"encrypted-original-credential", 30)]
-        assert provider.closed == 1
-        assert all(
-            params["Bucket"] == source.bucket and params["Key"] == source.object_key
-            for operation, params in provider.calls
-            if operation in {"get", "head"}
-        )
+        assert len(contexts) == 1
+        assert contexts[0][0] == "media"
+        assert contexts[0][1] == "original-read"
+        assert contexts[0][2]["id"] == str(asset.id)
+        assert contexts[0][2]["kind"] == "dataset_asset"
+        assert closed == [True]
     finally:
         stage.close()
 

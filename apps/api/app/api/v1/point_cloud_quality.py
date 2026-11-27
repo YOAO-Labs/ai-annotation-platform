@@ -50,7 +50,7 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityRunOut,
     PointCloudQualityRunRequest,
 )
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.content_snapshot import ContentError
 from app.services.audit import AuditAction, AuditService
 from app.services.point_cloud_quality.service import (

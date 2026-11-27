@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_, true
+from yoao_assets_media.contract import ReadSourceRequest
 from app.deps import (
     get_db,
     require_roles,
@@ -24,6 +25,7 @@ from app.schemas.dashboard import (
     ReviewerMiniStats,
 )
 from app.services.user_brief import resolve_briefs_with_project_role
+from app.services.video_poster_references import video_poster_urls
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_search_scope
 
@@ -134,12 +136,19 @@ async def _reviewing_batches(
         briefs_by_project[pid] = await resolve_briefs_with_project_role(db, pid, uids)
 
     cover_map: dict = {}
+    video_cover_requests: list[ReadSourceRequest] = []
     cover_batch_ids = [b.id for b, _ in batch_rows]
     if cover_batch_ids:
         item, eff_thumb, eff_blur = legacy_cover_facts(task_row)
         cover_rows = await db.execute(
             select(
-                task_row.batch_id, eff_thumb, eff_blur, task_row.id, task_row.file_type
+                task_row.batch_id,
+                task_row.id,
+                task_row.dataset_item_id,
+                task_row.file_type,
+                item.c.file_type,
+                eff_thumb,
+                eff_blur,
             )
             .select_from(task_row)
             .outerjoin(item, true())
@@ -150,24 +159,54 @@ async def _reviewing_batches(
             .order_by(task_row.batch_id, task_row.created_at.asc())
             .distinct(task_row.batch_id)
         )
-        cover_map = {
-            row[0]: (row[1], row[2], row[3], row[4]) for row in cover_rows.all()
-        }
+        for (
+            batch_id,
+            task_id,
+            item_id,
+            task_type,
+            item_type,
+            path,
+            blurhash,
+        ) in cover_rows.all():
+            cover_map[batch_id] = (
+                task_id,
+                item_id,
+                task_type,
+                item_type,
+                path,
+                blurhash,
+            )
+            if item_id is not None and (task_type == "video" or item_type == "video"):
+                video_cover_requests.append(
+                    ReadSourceRequest(
+                        actor_id=current_user.id,
+                        dataset_item_id=item_id,
+                        task_id=task_id,
+                    )
+                )
+    video_posters = await video_poster_urls(db, video_cover_requests)
+    video_posters_by_task = {
+        request.task_id: poster_url
+        for request, poster_url in zip(video_cover_requests, video_posters, strict=True)
+    }
 
     reviewing_batches = []
     for b, pname in batch_rows:
         per_proj = briefs_by_project.get(b.project_id, {})
         annotator = per_proj.get(str(b.annotator_id)) if b.annotator_id else None
-        cover_path, cover_blurhash, cover_task_id, cover_file_type = cover_map.get(
-            b.id, (None, None, None, None)
-        )
+        cover = cover_map.get(b.id)
         thumbnail_url: str | None = None
-        if cover_file_type == "video":
-            from app.services import video_derivatives
-
-            checked = await video_derivatives.thumbnail(db, task_id=cover_task_id)
-            if checked is not None and checked[0] == cover_path:
-                thumbnail_url = checked[1]
+        cover_blurhash: str | None = None
+        cover_task_id = None
+        if cover is not None:
+            task_id, item_id, task_type, item_type, cover_path, cover_blurhash = cover
+            cover_task_id = task_id
+        else:
+            task_id = item_id = None
+            task_type = item_type = None
+            cover_path = None
+        if item_id is not None and (task_type == "video" or item_type == "video"):
+            thumbnail_url = video_posters_by_task.get(task_id)
             cover_blurhash = None
         elif cover_path:
             from app.services import image_pyramid_objects, thumbnail_outputs

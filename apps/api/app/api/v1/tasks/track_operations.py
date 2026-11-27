@@ -50,7 +50,7 @@ from app.services.track_operation import (
     resolve_scene_track_context,
 )
 from app.services.scene_track_domain import diagnose_scene_tracks
-from app.services.labeling_scene_read import read_scene_data
+from app.services.labeling_scene import read_scene_data
 from app.services.scene_track_command import (
     PreparedSceneTrackCommand,
     apply_scene_track_command,

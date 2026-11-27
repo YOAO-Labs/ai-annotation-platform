@@ -7,8 +7,8 @@ from fastapi import HTTPException
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.application.dataset_reference_registration import register_entry
 from app.services import (
-    dataset_references as references,
     directory_previews as previews,
 )
 from app.services.content_snapshot import ContentError
@@ -19,7 +19,7 @@ from tests.test_storage_observation_readers import rate_world as rate_world, tot
 
 
 async def register(db, world, **kwargs):
-    return await references.register_entry(
+    return await register_entry(
         db, world[6].id, world[7].path_digest, world[2], **kwargs
     )
 

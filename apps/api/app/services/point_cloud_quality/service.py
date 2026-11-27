@@ -23,14 +23,14 @@ from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services.async_job import create_job, get_job
+from app.services.jobs_lifecycle_data import create_job, get_job
 from app.services.jobs_dispatch import (
     prepare_job_dispatch,
     publish_prepared_dispatch,
 )
 from app.services.async_job_terminal import JobTerminal
 from app.services.mask_qc.service import canonical_digest
-from app.services.point_cloud_quality import originals
+from app.services.point_cloud_quality import PointCloudQualityError, originals
 from app.services.point_cloud_quality.config import (
     effective_thresholds,
     load_point_cloud_quality_config,
@@ -56,13 +56,6 @@ from app.services.workspace_read_relations import project_rows
 
 MAX_QUALITY_TASKS = 5_000
 MAX_QUALITY_ANNOTATIONS = 20_000
-
-
-class PointCloudQualityError(RuntimeError):
-    def __init__(self, status_code: int, reason: str, **detail: Any):
-        super().__init__(reason)
-        self.status_code = status_code
-        self.detail = {"reason": reason, **detail}
 
 
 def _box_geometry(geometry: dict) -> bool:

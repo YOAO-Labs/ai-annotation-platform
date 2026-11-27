@@ -12,6 +12,16 @@ byte or item-count limit. Root application code owns conversion of its
 dataclasses to JSON-safe values and owns the transaction that applies Predictions
 and Meta rows.
 
+Registered directory images have no managed original. Bulk prediction freezes
+their reference membership in the input manifest. Both bulk and Workbench
+prediction stage the registered bytes and recheck the caller's access before
+dispatch and before replacing Predictions. A saved model result is not permission
+to write. Portable mask bytes stay in that result until the writer qualifies the
+whole group; external-only masks still require their storage objects. Previously
+sealed `source_missing` members are not rewritten. Submit a new prediction Job
+to capture a registered reference that was previously misclassified.
+Apply the database migration and module grants when rolling out the API and workers.
+
 The optional `postgres` extra supplies asyncpg for the small standalone
 `yoao-preannotation-results` CLI. It accepts one executor operation name and one
 request DTO as JSON on stdin, connects with `PREANNOTATION_RESULTS_DATABASE_URL`

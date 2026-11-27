@@ -284,12 +284,11 @@ async def test_scan_defers_publication_and_authority_locks_until_after_last_batc
 
 
 @pytest.fixture
-async def copy_db(test_engine):
+async def copy_db(managed_database):
     """Keep committed Native facts and independent sessions in one owned database."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
-    from tests.managed_image_inference_fixtures import managed_database
 
-    async with managed_database(test_engine.url) as engine:
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             try:
                 yield db
@@ -315,7 +314,7 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     from app.db.models.storage_connection import StorageConnection
     from app.db.models.dataset_source import DatasetSource, DatasetScanEntry
     from app.services.dataset_assets import ensure_legacy_bindings
-    from app.services.dataset_references import register_entry
+    from app.application.dataset_reference_registration import register_entry
     from app.services.source_readers.s3 import S3Access
     from tests.test_s3_references import s3_world, scan
     from tests.managed_original_client_support import Client
@@ -377,7 +376,15 @@ async def test_same_s3_location_copy_takes_target_before_final_source_locks(
     def transport(self, *, read_timeout=None):
         yield physical
 
+    from app.services import managed_s3_target, saved_media_io
+
+    monkeypatch.setattr(saved_media_io, "registered", lambda _target: False)
     monkeypatch.setattr(S3Access, "client", transport)
+    monkeypatch.setattr(
+        managed_s3_target.Target,
+        "client",
+        contextmanager(lambda self, **kwargs: (yield physical)),
+    )
     loop = asyncio.get_running_loop()
     observed = []
 

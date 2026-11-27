@@ -5,12 +5,12 @@ receipts remain historical; this current owner is the offline restore anchor.
 """
 
 import asyncio
-from collections.abc import Mapping
-from dataclasses import make_dataclass
-from datetime import datetime
 import json
 import re
 import uuid
+from collections.abc import Mapping
+from dataclasses import make_dataclass
+from datetime import datetime
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -18,22 +18,25 @@ from sqlalchemy.exc import DBAPIError
 from app.db.models.dataset_auxiliary_original import (
     DatasetAuxiliaryOriginal as Original,
 )
-from app.services import managed_original_creation as creation
-from app.services import original_sources as sources
 from app.services import (
     dataset_storage,
     original_source_data,
     storage_access,
     task_originals,
 )
+from app.services import managed_original_creation as creation
+from app.services import original_sources as sources
+from app.services.auxiliary_original_contract import (
+    MAX_CONTRACT_BYTES as MAX_CONTRACT_BYTES,
+)
+from app.services.auxiliary_original_contract import RAW_FIELDS
+from app.services.auxiliary_original_contract import contract
+from app.services.auxiliary_original_contract import reject
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 PREFIX = "__aap_auxiliary_originals__"
 MAX_BYTES = 256 * 1024**2
-MAX_CONTRACT_BYTES = 65536
-RAW_FIELDS = ("sample", "sample_data", "calibrated_sensor", "sensor", "ego_pose")
 FACTS = (
     "id",
     "creation_id",
@@ -57,54 +60,8 @@ _Snapshot = make_dataclass(
 )
 
 
-def reject(code="invalid_receipt", status=409):
-    raise ContentError("auxiliary_original_" + code, status)
-
-
 def _get(row, key):
     return row.get(key) if isinstance(row, Mapping) else getattr(row, key, None)
-
-
-def contract(kind, value):
-    """Validate the bounded original table contract, never a storage locator."""
-    if kind not in {"raw_lidar", "map"} or not isinstance(value, dict):
-        reject("contract_invalid")
-    try:
-        encoded = json.dumps(value, sort_keys=True, allow_nan=False)
-    except (TypeError, ValueError, RecursionError):
-        reject("contract_invalid")
-    if len(encoded.encode()) > MAX_CONTRACT_BYTES:
-        reject("source_budget_exceeded", 422)
-    if kind == "raw_lidar":
-        if set(value) != set(RAW_FIELDS) or any(
-            not isinstance(value[key], dict) for key in RAW_FIELDS
-        ):
-            reject("contract_invalid")
-        sample, data, calibrated, sensor, pose = (value[key] for key in RAW_FIELDS)
-        if (
-            not all(
-                row.get("token") for row in (sample, data, calibrated, sensor, pose)
-            )
-            or data.get("sample_token") != sample["token"]
-            or data.get("calibrated_sensor_token") != calibrated["token"]
-            or calibrated.get("sensor_token") != sensor["token"]
-            or data.get("ego_pose_token") != pose["token"]
-            or data.get("timestamp") != pose.get("timestamp")
-            or data.get("is_key_frame") is not True
-            or sensor.get("modality") != "lidar"
-            or not isinstance(data.get("filename"), str)
-            or not data["filename"].endswith(".pcd.bin")
-        ):
-            reject("contract_invalid")
-    elif (
-        not value.get("token")
-        or not value.get("filename")
-        or not isinstance(value.get("log_tokens"), list)
-        or not value["log_tokens"]
-        or not all(isinstance(key, str) and key for key in value["log_tokens"])
-    ):
-        reject("contract_invalid")
-    return json.loads(encoded)
 
 
 def raw_contract(metadata):

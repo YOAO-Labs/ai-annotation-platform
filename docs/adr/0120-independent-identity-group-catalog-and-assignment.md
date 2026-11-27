@@ -216,7 +216,7 @@ the boundary, not a claim that those checks passed.
 - Workspace projection and typed Audit: `apps/api/alembic/sql/0240_identity_groups.sql`.
 - Function-only grant contract: `infra/docker/identity-groups-grants.sql`.
 - Invitation remains a separate coordinator: `apps/api/app/application/invitation_acceptance.py`.
-- Remaining module gates: [module deployment status](../../docs-site/dev/concepts/module-deployment.md).
+- Remaining module gates: [module deployment status](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment).
 
 ## Local qualification
 

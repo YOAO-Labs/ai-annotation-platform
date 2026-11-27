@@ -37,7 +37,7 @@ from app.services.content_snapshot import ContentError
 from yoao_inference_contract.backend_control import BackendControlSetupResult
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from tests.inference_execution_test_ports import FakeModelExecutionPort
-from tests.factory import create_project
+from tests.factory import admitted_request, create_project
 from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
     attach_managed,
@@ -216,25 +216,30 @@ async def clean(world, monkeypatch, *, require_records=True):
 
 
 @pytest.mark.parametrize("managed_world", ["direct", "primary", "task"], indirect=True)
-@pytest.mark.parametrize("entry", ["interactive", "test"])
 async def test_both_endpoints_read_saved_original_and_retire_exact_versions(
     httpx_client,
     managed_world,
     super_admin,
-    entry,
     monkeypatch,
 ):
     world = managed_world
-    response = await call(httpx_client, world, auth(super_admin), entry)
-    assert response.status_code == 200, response.text
-    assert len(world.calls) == 1 and len(world.sources.captured) == 1
-    spec = world.sources.captured[0]
-    assert (spec.bucket, spec.object_key) == (
-        world.member.source.bucket,
-        world.member.source.object_key,
-    )
-    assert world.inputs.read_versions == world.inputs.signed_versions
-    await clean(world, monkeypatch)
+    for count, entry in enumerate(("interactive", "test"), start=1):
+        read_before = len(world.inputs.read_versions)
+        signed_before = len(world.inputs.signed_versions)
+        response = await call(httpx_client, world, auth(super_admin), entry)
+        assert response.status_code == 200, (entry, response.text)
+        assert len(world.calls) == count and len(world.sources.captured) == count, entry
+        spec = world.sources.captured[-1]
+        assert (spec.bucket, spec.object_key) == (
+            world.member.source.bucket,
+            world.member.source.object_key,
+        ), entry
+        assert len(world.inputs.signed_versions) > signed_before, entry
+        assert (
+            world.inputs.read_versions[read_before:]
+            == world.inputs.signed_versions[signed_before:]
+        ), entry
+        await clean(world, monkeypatch)
 
 
 @pytest.mark.parametrize("entry", ["interactive", "test"])
@@ -733,10 +738,7 @@ async def test_native_private_receipt_cannot_leave_its_actual_transaction(
         db_session,
         task,
         actor,
-        SimpleNamespace(
-            state=SimpleNamespace(api_key_id=None),
-            headers={"authorization": "Bearer " + super_admin[1]},
-        ),
+        admitted_request(actor, token=super_admin[1]),
         data,
     )
     await validate_native_receipt(

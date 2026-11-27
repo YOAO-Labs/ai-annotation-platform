@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from sqlalchemy.dialects import postgresql
 
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.guide_asset_upload import GuideAssetUpload
@@ -109,22 +108,25 @@ async def test_all_retained_annotation_states_protect_and_classify_saved_target(
     assert await location_is_referenced(db_session, location)
 
 
-async def test_task_locator_protects_location_independently_of_creation_or_binding():
+async def test_task_locator_protects_location_independently_of_creation_or_binding(
+    db_session,
+):
+    from sqlalchemy import text
+
     location = uuid.uuid4()
+    seen = []
 
     async def scalar(query):
-        entity = query.column_descriptions[0]["entity"]
-        if entity.__tablename__ != "task_originals":
-            return None
-        sql = str(
-            query.compile(
-                dialect=postgresql.dialect(),
-                compile_kwargs={"literal_binds": True},
-            )
-        )
-        assert str(location) in sql
-        assert "storage_ref" not in sql and "state" not in sql
-        return uuid.uuid4()
+        seen.append(str(query))
+        return True
 
-    db = SimpleNamespace(scalar=AsyncMock(side_effect=scalar))
+    db = SimpleNamespace(autoflush=False, scalar=AsyncMock(side_effect=scalar))
     assert await location_is_referenced(db, location)
+    assert seen and "location_storage_referenced" in seen[0]
+    definition = await db_session.scalar(
+        text(
+            "SELECT pg_get_functiondef("
+            "'yoao_assets_storage_v1.location_storage_referenced(uuid)'::regprocedure)"
+        )
+    )
+    assert "public.task_originals" in definition

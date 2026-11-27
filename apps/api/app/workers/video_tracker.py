@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.services.project_access import get_workspace_project
 from app.db.models.video_tracker_job import VideoTrackerJobKind, VideoTrackerJobStatus
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
+from app.services.async_job import ensure_video_tracker_summary
+from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData
 from app.services.async_job_notify import notify_job_terminal
 from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
 from app.services.accepted_tracker_inputs import TrackerInputDeferred
@@ -92,8 +94,8 @@ async def _run_video_tracker_job(job_id: str, celery_task_id: str | None) -> Non
                         if project_id
                         else None
                     )
-                    aj = await async_job_svc.ensure_video_tracker_summary(
-                        db,
+                    aj = await ensure_video_tracker_summary(
+                        JobsLifecyclePostgresData(db),
                         tracker_job_id=job.id,
                         kind=(
                             "video_correction"

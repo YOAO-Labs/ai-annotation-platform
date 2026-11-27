@@ -223,13 +223,14 @@ async def test_upload_owner_is_saved_before_sign_and_keeps_first_expiry(
     async def check(_db, _owner, **_kwargs):
         return 1
 
-    async def sign(db, owner, relative, content_type, *, expires_in):
+    async def sign(db, owner, relative, content_type, *, expires_in, source_owner):
         upload = await db.scalar(
             select(MaskFormatUpload).where(
                 MaskFormatUpload.logical_object_key == owner.logical_prefix + relative
             )
         )
         assert upload is not None and upload.storage_ref == owner.ref
+        assert source_owner == ("mask-format", upload.id)
         assert upload.upload_expires_at - upload.created_at == timedelta(seconds=900)
         assert content_type == upload.content_type == "application/json"
         signed.append(deepcopy(owner.ref))
@@ -298,7 +299,7 @@ async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
 ):
     from app.services import import_storage
     from app.db.models.annotation import Annotation
-    from app.workers import mask_format_import as worker
+    from app.application import mask_format_import as workflow
 
     user, _ = super_admin
     project, task, payload = await _seed_aap_import(db_session, owner_id=user.id)
@@ -369,7 +370,11 @@ async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
         batch.options_digest,
     )
     batch.status = "failed"
-    await service.resume_import(db_session, batch=batch, user_id=user.id)
+    await db_session.flush()
+    await service.resume_import(
+        db_session, batch_id=batch.id, project_id=project.id, user_id=user.id
+    )
+    await db_session.refresh(batch)
     assert original == (
         batch.staging_ref,
         batch.staged_sha256,
@@ -392,23 +397,20 @@ async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
     async def session():
         yield db_session
 
-    async def dispose():
-        pass
-
-    monkeypatch.setattr(worker, "materialize_staged_object", materialize)
-    monkeypatch.setattr(
-        worker,
-        "create_async_engine",
-        lambda *_a, **_kw: SimpleNamespace(dispose=dispose),
-    )
-    monkeypatch.setattr(worker, "async_sessionmaker", lambda *_a, **_kw: session)
+    monkeypatch.setattr(workflow, "materialize_staged_object", materialize)
     if tamper is None:
-        await worker._run_mask_format_import(str(batch.id), "mask-plan-regression")
+        await workflow.run_mask_format_import(
+            str(batch.id), "mask-plan-regression", session_factory=session
+        )
+        await db_session.refresh(batch)
         assert batch.status == "completed"
         assert batch.result_json["items"]["0"]["imported"] == 1
     else:
         with pytest.raises(RuntimeError, match="^format_plan_digest_conflict$"):
-            await worker._run_mask_format_import(str(batch.id), "mask-plan-regression")
+            await workflow.run_mask_format_import(
+                str(batch.id), "mask-plan-regression", session_factory=session
+            )
+        await db_session.refresh(batch)
         assert batch.status == "failed"
     annotations = (
         (

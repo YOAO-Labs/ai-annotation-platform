@@ -15,12 +15,17 @@ from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_source import DatasetScanEntry
 from app.db.models.dataset_asset import StorageLocationProbe
 from app.schemas.dataset_source import DatasetSourceCreate
-from app.schemas.storage_location import FilesystemLocationCreate
+from app.schemas.storage_location import (
+    FilesystemLocationCreate,
+    StorageLocationApply,
+    StorageLocationUpdate,
+)
 from app.services import (
     dataset_scans as scans,
     dataset_content as svc,
     filesystem_storage as fs,
     storage_location as locations,
+    storage_location_change as location_changes,
 )
 
 
@@ -33,7 +38,15 @@ async def content_world(db_session, super_admin, tmp_path, monkeypatch):
     return await create_content_world(db_session, super_admin[0], tmp_path, monkeypatch)
 
 
-async def create_content_world(db_session, actor, tmp_path, monkeypatch):
+async def create_content_world(
+    db_session,
+    actor,
+    tmp_path,
+    monkeypatch,
+    *,
+    use_user_ids=(),
+    original_cache_copies=0,
+):
     """Also usable with independently committed sessions in resource tests."""
     output = io.BytesIO()
     Image.new("RGB", (48, 32), "red").save(output, format="PNG")
@@ -53,7 +66,11 @@ async def create_content_world(db_session, actor, tmp_path, monkeypatch):
     location = await locations.create_filesystem(
         db_session,
         FilesystemLocationCreate(
-            name=f"content-{uuid.uuid4().hex}", root_handle="test"
+            name=f"content-{uuid.uuid4().hex}",
+            root_handle="test",
+            use_user_ids=list(use_user_ids),
+            cache_policy="on_demand" if original_cache_copies else "preview",
+            original_cache_quota_bytes=original_cache_copies * len(data),
         ),
     )
     probe = fs.probe_directory(location.config, "source/图片 空格.png")
@@ -101,6 +118,28 @@ async def create_content_world(db_session, actor, tmp_path, monkeypatch):
         )
     )
     return root, data, actor, dataset, location, source, run, entry
+
+
+async def change_content_location(db, world, **changes):
+    actor, previous = world[2], world[4]
+    update = StorageLocationUpdate(
+        expected_revision=previous.config_revision, **changes
+    )
+    try:
+        location = await locations.get_visible(db, previous.id, actor, lock=True)
+        review = await location_changes.preview(db, location, update, actor)
+        updated, _ = await location_changes.apply(
+            db,
+            location,
+            StorageLocationApply(
+                **update.model_dump(), impact_token=review["impact_token"]
+            ),
+            actor,
+        )
+    except HTTPException as exc:
+        pytest.fail(f"Fixture location change failed ({exc.status_code}): {exc.detail}")
+    assert updated.config_revision == previous.config_revision + 1
+    return (*world[:4], updated, *world[5:])
 
 
 async def test_verify_and_read_exact_content_without_creating_business_samples(
@@ -208,7 +247,9 @@ async def test_changes_during_read_cannot_commit_receipt(
         if mutation == "actor":
             actor.role = "employee"
         elif mutation == "location":
-            location.config_revision += 1
+            await change_content_location(
+                db_session, content_world, name=f"{location.name}-renamed"
+            )
         else:
             source.enabled = False
         await db_session.flush()

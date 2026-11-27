@@ -1,8 +1,8 @@
 """Committed canonical image repair through real API, owners and RLE storage.
 
-Only physical original/object bytes and the ML transport are substituted. SQL
-authority, publication, request credentials, attempts, readers and adoption use
-their production implementations in an independently committed private schema.
+Celery sends to an in-memory media queue under a separate Jobs publication
+LOGIN. Requests and workers commit independently in a disposable database;
+original/object bytes and the ML transport are fixtures.
 """
 
 import asyncio
@@ -60,11 +60,12 @@ from tests.managed_image_inference_fixtures import (
     assert_inputs_retired,
     attach_managed,
     db_session as db_session,
-    input_world as input_world,
     sync_world as sync_world,
 )
+from tests.mask_repair_publication import input_world as input_world
 from tests.raster_mask_support import Objects
 from tests.test_interactive_native_mask_endpoint import _setup
+from tests.test_jobs_quality_queue_binding import _messages, media_queue as media_queue
 from tests.test_managed_image_inference import httpx_client as httpx_client
 from tests.test_mask_repair_m5 import _seed_repair_issue
 from tests.test_ml_backend_project_scope import _seed_backend
@@ -105,7 +106,9 @@ def assert_reference(actual, rle):
 
 
 @pytest.fixture
-async def repair_world(db_session, sync_world, super_admin, monkeypatch, request):
+async def repair_world(
+    db_session, sync_world, super_admin, monkeypatch, request, media_queue
+):
     blobs = Objects()
     patch_owned_client(monkeypatch, blobs.client)
     from app.services.storage import storage_service
@@ -164,6 +167,7 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         factory=sync_world.factory,
         sources=sync_world,
         inputs=sync_world.inputs,
+        queue=media_queue,
         actor_id=actor.id,
         task_id=task.id,
         project_id=project.id,
@@ -177,7 +181,6 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         blobs=blobs,
         candidate=encode_coco_rle(pixels[:-1] + [0], 48, 32),
         calls=[],
-        dispatched=[],
         setup_value=_setup(["mask", "polygon"]),
         setup_during=None,
         during=None,
@@ -204,12 +207,6 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         return failure_result(kind, exc)
 
     monkeypatch.setattr(worker, "_candidate_failure_result", record_failure)
-
-    async def dispatch(batch_id, *, dispatcher, execution_id, rollback=False):
-        w.dispatched.append((batch_id, execution_id, rollback))
-        return execution_id
-
-    monkeypatch.setattr("app.api.v1.mask_qc.dispatch_repair_batch", dispatch)
 
     async def setup(registry_id):
         if w.setup_during:
@@ -343,7 +340,17 @@ async def execute(client, w, headers):
     body = response.json()
     assert_public(body)
     w.batch_id, w.job_id = uuid.UUID(body["id"]), uuid.UUID(body["async_job_id"])
+    await _published_execution(w, w.job_id, "run_mask_repair")
     return body
+
+
+async def _published_execution(w, job_id, task_name):
+    async with w.factory() as db:
+        execution_id = (await db.get(AsyncJob, job_id)).celery_task_id
+    assert _messages(w.queue) == [
+        (f"app.workers.mask_repair.{task_name}", execution_id, [str(w.batch_id)], {})
+    ]
+    return execution_id
 
 
 async def forward(w, *, job_id=None):
@@ -361,9 +368,9 @@ async def forward(w, *, job_id=None):
 
 
 async def rollback_worker(w, job_id):
-    async with w.factory() as db:
-        job = await db.get(AsyncJob, uuid.UUID(str(job_id)))
-        celery_task_id = job.celery_task_id
+    celery_task_id = await _published_execution(
+        w, uuid.UUID(str(job_id)), "rollback_mask_repair"
+    )
     await worker.run_mask_repair_rollback(
         str(w.batch_id),
         celery_task_id,
@@ -556,37 +563,71 @@ async def test_sam_after_actual_get_cannot_publish_stale_result(
     ), batch.result_json
 
 
-@pytest.mark.parametrize(
-    "change",
-    ["result", "metadata", "ledger", "parent", "plan", "lock", "canonical", "bytes"],
-)
+async def _assert_candidate_rejected(client, w, headers, prediction_id, change):
+    url = f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}"
+    preview = await client.get(url + "/mask-content/0", headers=headers)
+    assert preview.status_code in {404, 409, 503}, (change, preview.text)
+    accepted = await client.post(url + "/accept", headers=headers)
+    assert accepted.status_code in {404, 409, 503}, (change, accepted.text)
+    async with w.factory() as db:
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(Annotation)
+                .where(Annotation.parent_prediction_id == prediction_id)
+            )
+            == 0
+        ), change
+
+
+async def test_candidate_preview_and_adoption_reject_tampered_records(
+    repair_world, httpx_client, super_admin
+):
+    w, headers = repair_world, auth(super_admin)
+    prediction_id = (await candidate(httpx_client, w, headers)).id
+    url = f"/api/v1/tasks/{w.task_id}/predictions/{prediction_id}"
+    async with w.factory() as db:
+        prediction = await db.scalar(
+            select(Prediction).where(Prediction.id == prediction_id)
+        )
+        meta = await db.scalar(
+            select(PredictionMeta).where(PredictionMeta.prediction_id == prediction_id)
+        )
+        batch = await db.get(MaskRepairBatch, w.batch_id)
+        ledger = deepcopy(batch.result_json)
+        ledger["candidates"]["0"]["candidate_records"] = {}
+        for row, field, tampered in (
+            (prediction, "result", [{**prediction.result[0], "score": 0.123}]),
+            (meta, "extra", {**meta.extra, "unowned": True}),
+            (batch, "result_json", ledger),
+            (batch, "plan_json", {**batch.plan_json, "changed": True}),
+        ):
+            original = getattr(row, field)
+            setattr(row, field, tampered)
+            await db.commit()
+            try:
+                await _assert_candidate_rejected(
+                    httpx_client, w, headers, prediction_id, field
+                )
+            finally:
+                setattr(row, field, original)
+                await db.commit()
+            restored = await httpx_client.get(url + "/mask-content/0", headers=headers)
+            assert restored.status_code == 200, (field, restored.text)
+            assert restored.json() == w.candidate, field
+    accepted = await httpx_client.post(url + "/accept", headers=headers)
+    assert accepted.status_code == 200, accepted.text
+    assert len(accepted.json()) == 1
+
+
+@pytest.mark.parametrize("change", ["parent", "lock", "canonical", "bytes"])
 async def test_candidate_preview_and_adoption_reject_tampered_provenance(
     repair_world, httpx_client, super_admin, change
 ):
     w, headers = repair_world, auth(super_admin)
     prediction = await candidate(httpx_client, w, headers)
     async with w.factory() as db:
-        if change == "result":
-            row = await db.scalar(
-                select(Prediction).where(Prediction.id == prediction.id)
-            )
-            row.result = [{**row.result[0], "score": 0.123}]
-        elif change == "metadata":
-            meta = await db.scalar(
-                select(PredictionMeta).where(
-                    PredictionMeta.prediction_id == prediction.id
-                )
-            )
-            meta.extra = {**meta.extra, "unowned": True}
-        elif change == "ledger":
-            row = await db.get(MaskRepairBatch, w.batch_id)
-            value = deepcopy(row.result_json)
-            value["candidates"]["0"]["candidate_records"] = {}
-            row.result_json = value
-        elif change == "plan":
-            row = await db.get(MaskRepairBatch, w.batch_id)
-            row.plan_json = {**row.plan_json, "changed": True}
-        elif change == "parent":
+        if change == "parent":
             (await db.get(Annotation, w.annotation_id)).attributes = {"changed": True}
         elif change == "lock":
             (await db.get(Annotation, w.annotation_id)).is_locked = True
@@ -597,20 +638,7 @@ async def test_candidate_preview_and_adoption_reject_tampered_provenance(
                 if w.blobs.objects[key] == canonical_rle_bytes(w.candidate):
                     w.blobs.objects[key] = b"corrupt"
         await db.commit()
-    url = f"/api/v1/tasks/{w.task_id}/predictions/{prediction.id}"
-    preview = await httpx_client.get(url + "/mask-content/0", headers=headers)
-    assert preview.status_code in {404, 409, 503}, preview.text
-    accepted = await httpx_client.post(url + "/accept", headers=headers)
-    assert accepted.status_code in {404, 409, 503}, accepted.text
-    async with w.factory() as db:
-        assert (
-            await db.scalar(
-                select(func.count())
-                .select_from(Annotation)
-                .where(Annotation.parent_prediction_id == prediction.id)
-            )
-            == 0
-        )
+    await _assert_candidate_rejected(httpx_client, w, headers, prediction.id, change)
 
 
 async def test_offline_candidate_rejection_has_no_source_io(
@@ -681,6 +709,7 @@ async def test_resume_renews_request_authority_but_preserves_plan_and_source(
     assert resumed.status_code == 202, resumed.text
     w.job_id = uuid.UUID(resumed.json()["async_job_id"])
     assert w.job_id != old_job
+    await _published_execution(w, w.job_id, "run_mask_repair")
     w.failure = None
     count = len(w.calls)
     await forward(w, job_id=old_job)

@@ -8,11 +8,10 @@ import uuid
 import httpx
 from pydantic import ValidationError
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.security import create_access_token
 from app.db.models.dataset_asset import StorageLocation
-from app.db.models.api_key import ApiKey
 from app.db.models.user import User
 from app.db.models.original_cache import (
     OriginalCacheEntry as Entry,
@@ -332,7 +331,7 @@ async def test_cache_record_does_not_rewrite_source_missing_observation(
 
 @pytest.mark.parametrize("operation", ["patch", "cleanup"])
 @pytest.mark.parametrize("change", ["key_rotation", "role", "disabled"])
-async def test_admin_mutations_recheck_authority_after_waiting_for_locks(
+async def test_admin_mutations_preserve_authority_under_lock_contention(
     cache_http, monkeypatch, operation, change
 ):
     from app.api.v1 import storage_locations as routes
@@ -349,72 +348,106 @@ async def test_admin_mutations_recheck_authority_after_waiting_for_locks(
     credentials = key.json()
     key_id = uuid.UUID(credentials["id"])
     api_auth = {"Authorization": f"Bearer {credentials['plaintext']}"}
-    reached = asyncio.Event()
+    rotate_path = f"/api/v1/me/api-keys/{key_id}/rotate"
+    patch = {
+        "expected_revision": entry.location_revision,
+        "original_cache_quota_bytes": 10000,
+    }
+    if operation == "patch":
+        preview = await client.post(
+            path + "/change-preview", headers=api_auth, json=patch
+        )
+        assert preview.status_code == 200, preview.text
+        patch["impact_token"] = preview.json()["impact_token"]
+
+    async def mutate():
+        if operation == "patch":
+            return await client.patch(path, headers=api_auth, json=patch)
+        return await client.post(
+            path + "/original-cache/cleanup",
+            headers=api_auth,
+            json={
+                "expected_revision": entry.location_revision,
+                "recorded_before": cache.now().isoformat(),
+            },
+        )
+
+    key_checked = asyncio.get_running_loop().create_future()
+    lock_held = asyncio.Event()
     original = routes.key_authority
 
-    async def observed(*args, **kwargs):
-        proof = await original(*args, **kwargs)
-        reached.set()
+    async def observed(db, *args, **kwargs):
+        proof = await original(db, *args, **kwargs)
+        if not key_checked.done():
+            key_checked.set_result(await db.scalar(text("SELECT pg_backend_pid()")))
+            await lock_held.wait()
         return proof
 
-    preview = await client.post(
-        path + "/change-preview",
-        headers=api_auth,
-        json={
-            "expected_revision": entry.location_revision,
-            "original_cache_quota_bytes": 10000,
-        },
-    )
-    assert preview.status_code == 200, preview.text
     monkeypatch.setattr(routes, "key_authority", observed)
     async with world.factory() as blocker:
-        actor = await blocker.scalar(
-            select(User).where(User.id == world.manager.id).with_for_update()
-        )
-        if operation == "patch":
-            pending = asyncio.create_task(
-                client.patch(
-                    path,
-                    headers=api_auth,
-                    json={
-                        "expected_revision": entry.location_revision,
-                        "original_cache_quota_bytes": 10000,
-                        "impact_token": preview.json()["impact_token"],
-                    },
+        if change == "key_rotation":
+            await blocker.get(StorageLocation, world.location_id, with_for_update=True)
+            lock_held.set()
+        pending = asyncio.create_task(mutate())
+
+        def assert_waiting():
+            if pending.done():
+                pytest.fail(
+                    f"Mutation returned {pending.result().status_code} before waiting"
                 )
-            )
-        else:
-            pending = asyncio.create_task(
-                client.post(
-                    path + "/original-cache/cleanup",
-                    headers=api_auth,
-                    json={
-                        "expected_revision": entry.location_revision,
-                        "recorded_before": cache.now().isoformat(),
-                    },
-                )
-            )
+
         try:
-            await asyncio.wait_for(reached.wait(), timeout=5)
+            async with asyncio.timeout(5):
+                await asyncio.wait(
+                    (key_checked, pending), return_when=asyncio.FIRST_COMPLETED
+                )
+                assert_waiting()
+                if change != "key_rotation":
+                    actor = await blocker.get(
+                        User, world.manager.id, with_for_update=True
+                    )
+                    lock_held.set()
+                holder = await blocker.scalar(text("SELECT pg_backend_pid()"))
+                while not await blocker.scalar(
+                    text("SELECT :holder = ANY(pg_blocking_pids(:waiter))"),
+                    {"holder": holder, "waiter": key_checked.result()},
+                ):
+                    assert_waiting()
+                    await asyncio.sleep(0.01)
+            assert_waiting()
             if change == "key_rotation":
-                async with world.factory() as db:
-                    current = await db.get(ApiKey, key_id)
-                    current.key_hash = "rotated-while-waiting"
-                    await db.commit()
+                busy = await client.post(rotate_path, headers=auth)
+                assert busy.status_code == 503
             elif change == "role":
                 actor.role = "project_admin"
             else:
                 actor.is_active = False
             await blocker.commit()
             result = await asyncio.wait_for(pending, timeout=10)
-            assert result.status_code == 403
         finally:
-            await blocker.rollback()
             if not pending.done():
                 pending.cancel()
                 await asyncio.gather(pending, return_exceptions=True)
+
+    expected_state = "ready"
+    expected_revision = entry.location_revision
+    if change == "key_rotation":
+        if operation == "patch":
+            expected_revision += 1
+            assert result.status_code == 200, result.text
+            assert result.json()["config_revision"] == expected_revision
+        else:
+            expected_state = "deleting"
+            assert result.status_code == 202, result.text
+            assert result.json()["retired_count"] == 1
+        rotated = await client.post(rotate_path, headers=auth)
+        assert rotated.status_code == 200
+        denied = await mutate()
+        assert denied.status_code == 401, denied.text
+    else:
+        assert result.status_code == 403, result.text
+
     async with world.factory() as db:
-        assert (await db.get(Entry, entry.id)).state == "ready"
-        assert (
-            await db.get(StorageLocation, world.location_id)
-        ).config_revision == entry.location_revision
+        assert (await db.get(Entry, entry.id)).state == expected_state
+        location = await db.get(StorageLocation, world.location_id)
+        assert location.config_revision == expected_revision

@@ -22,7 +22,7 @@ from app.services.dataset_assets import (
 )
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_location import register_connection
-from tests.test_storage_locations_api import headers
+from tests.test_storage_locations_api import headers, stub_saved_binding_probe
 from tests.test_storage_maintenance_impact import key_headers
 
 BASE = "/api/v1/storage-locations/bindings/bug-reports"
@@ -60,7 +60,7 @@ async def world(db_session, super_admin, monkeypatch, test_engine):
         calls.append(target.facts)
         return {"conditional_write": True, "full_read": True, "delete": True}
 
-    monkeypatch.setattr(change, "probe_target", probe)
+    stub_saved_binding_probe(monkeypatch, change, probe)
     await db.commit()
     target_id = target.id
     yield db, connection, target, calls
@@ -175,27 +175,26 @@ async def test_unknown_historical_attachment_remains_rejected_without_blocking_s
     world, httpx_client, super_admin, annotator
 ):
     from app.db.models.bug_report import BugReport
-    from app.services.bug_attachment_uploads import _for_key
+    from app.services.bug_attachment_uploads import _registered_receipt
     from fastapi import HTTPException
 
     db, _, target, _ = world
     unknown = f"bug-report-attachments/{annotator[0].id}/{uuid.uuid4()}.png"
-    db.add(
-        BugReport(
-            id=uuid.uuid4(),
-            display_id="BUG-B8-UNKNOWN",
-            reporter_id=annotator[0].id,
-            user_role=annotator[0].role,
-            route="/test",
-            title="Unknown original",
-            description="Unowned remains unowned",
-            screenshot_url=unknown,
-            attachments=[],
-        )
+    report = BugReport(
+        id=uuid.uuid4(),
+        display_id="BUG-B8-UNKNOWN",
+        reporter_id=annotator[0].id,
+        user_role=annotator[0].role,
+        route="/test",
+        title="Unknown original",
+        description="Unowned remains unowned",
+        screenshot_url=unknown,
+        attachments=[],
     )
+    db.add(report)
     await db.commit()
     with pytest.raises(HTTPException) as refused:
-        await _for_key(db, unknown)
+        await _registered_receipt(db, annotator[0], report.id, unknown)
     assert refused.value.detail["code"] == "bug_attachment_unknown_owner"
     await db.commit()
     review = await preview(httpx_client, super_admin, target)
@@ -203,7 +202,7 @@ async def test_unknown_historical_attachment_remains_rejected_without_blocking_s
     result = await apply(httpx_client, super_admin, target, review)
     assert result.status_code == 200, result.text
     with pytest.raises(HTTPException):
-        await _for_key(db, unknown)
+        await _registered_receipt(db, annotator[0], report.id, unknown)
 
 
 @pytest.mark.parametrize("failure", ["expired", "tampered", "actor"])

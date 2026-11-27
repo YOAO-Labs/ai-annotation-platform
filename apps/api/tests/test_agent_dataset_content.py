@@ -217,7 +217,9 @@ async def test_agent_scan_preflight_confirm_and_authorized_original_share_existi
                 snapshot.close()
             commands = (
                 await db.scalars(
-                    select(SiteAgentCommand).where(SiteAgentCommand.id.in_(rows))
+                    select(SiteAgentCommand)
+                    .where(SiteAgentCommand.id.in_(rows))
+                    .execution_options(populate_existing=True)
                 )
             ).all()
             assert {row.state for row in commands} == {"applied"}

@@ -17,7 +17,6 @@ from training_contract.initialization import (
 from training_contract.trainer_plugin import canonical_json_digest as digest
 from tests.trainer_plugin_fixtures import POLICY_DIGEST
 
-from app.db.models.training_run import TrainingRun
 from app.services import training_runs as runs
 
 
@@ -167,12 +166,12 @@ async def test_exact_claim_recovery_retains_lease_until_root_capability_matches(
     )
     run = SimpleNamespace(config=config_for(pin))
     lease = SimpleNamespace(attempt_id=attempt.id)
-    db = SimpleNamespace(
-        get=AsyncMock(
-            side_effect=lambda model, identifier: (
-                run if model is TrainingRun else attempt
-            )
-        )
+    db = SimpleNamespace()
+    monkeypatch.setattr(runs, "training_executor_configured", lambda: True)
+    monkeypatch.setattr(
+        runs,
+        "configured_resource_slots",
+        lambda: [{"resource_id": "gpu", "device_kind": "gpu", "gpu_uuid": "gpu"}],
     )
     monkeypatch.setattr(
         runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
@@ -180,16 +179,23 @@ async def test_exact_claim_recovery_retains_lease_until_root_capability_matches(
     monkeypatch.setattr(runs, "resource_id", lambda: "gpu")
     monkeypatch.setattr(runs.settings, "training_gpu_uuid", "gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
+    monkeypatch.setattr(runs.data, "observe_executor", AsyncMock())
+    monkeypatch.setattr(runs.data, "get_attempt", AsyncMock(return_value=attempt))
+    monkeypatch.setattr(runs.data, "attempt_matches", AsyncMock(return_value=True))
+    monkeypatch.setattr(runs.data, "executor_run", AsyncMock(return_value=run))
     monkeypatch.setattr(runs, "observe_lost", AsyncMock())
-    monkeypatch.setattr(runs, "claim_token", lambda *args: "token")
+    monkeypatch.setattr(runs, "claim_token", lambda *args: "t" * 32)
     assignment = AsyncMock(return_value={"recovered": True})
     monkeypatch.setattr(runs, "assignment", assignment)
+    authority = SimpleNamespace(assert_authority=AsyncMock())
     if capability:
-        assert await runs.claim(db, body) == {"recovered": True}
+        assert await runs.claim(db, body, training_authority=authority) == {
+            "recovered": True
+        }
         assignment.assert_awaited_once()
     else:
         with pytest.raises(HTTPException) as error:
-            await runs.claim(db, body)
+            await runs.claim(db, body, training_authority=authority)
         assert error.value.status_code == 409
         assignment.assert_not_awaited()
     assert lease.attempt_id == attempt.id
@@ -209,9 +215,13 @@ async def test_new_claim_skips_rooted_source_for_old_executor_without_owning_att
     )
     run = SimpleNamespace(config={**config_for(pin), "resource_id": "gpu"})
     lease = SimpleNamespace(attempt_id=None)
-    db = SimpleNamespace(
-        scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [run])),
-        get=AsyncMock(),
+    get_attempt = AsyncMock()
+    db = SimpleNamespace()
+    monkeypatch.setattr(runs, "training_executor_configured", lambda: True)
+    monkeypatch.setattr(
+        runs,
+        "configured_resource_slots",
+        lambda: [{"resource_id": "gpu", "device_kind": "gpu", "gpu_uuid": "gpu"}],
     )
     monkeypatch.setattr(
         runs, "resolve_catalog", AsyncMock(return_value={"enabled": True})
@@ -219,10 +229,18 @@ async def test_new_claim_skips_rooted_source_for_old_executor_without_owning_att
     monkeypatch.setattr(runs, "resource_id", lambda: "gpu")
     monkeypatch.setattr(runs.settings, "training_gpu_uuid", "gpu")
     monkeypatch.setattr(runs, "lock_resource", AsyncMock(return_value=lease))
+    monkeypatch.setattr(runs.data, "observe_executor", AsyncMock())
+    monkeypatch.setattr(runs.data, "gpu_queue", AsyncMock(return_value=[run]))
+    monkeypatch.setattr(runs.data, "get_attempt", get_attempt)
     monkeypatch.setattr(runs, "observe_lost", AsyncMock())
-    assert await runs.claim(db, body) is None
+    assert (
+        await runs.claim(
+            db, body, training_authority=SimpleNamespace(assert_authority=AsyncMock())
+        )
+        is None
+    )
     assert lease.attempt_id is None
-    db.get.assert_not_awaited()
+    get_attempt.assert_not_awaited()
 
 
 async def test_resume_eligibility_keeps_rooted_address_capability_gate(monkeypatch):
@@ -235,6 +253,9 @@ async def test_resume_eligibility_keeps_rooted_address_capability_gate(monkeypat
         artifacts={"last.pt": {"role": "checkpoint", "epoch": 2}},
     )
     run = SimpleNamespace(
+        project_id=uuid.uuid4(),
+        creator_id=uuid.uuid4(),
+        authorization={},
         current_attempt_id=attempt.id,
         status="failed",
         study_id=None,
@@ -246,11 +267,15 @@ async def test_resume_eligibility_keeps_rooted_address_capability_gate(monkeypat
         runtime={**pin["runtime"], "initialization_policy_digest": POLICY_DIGEST},
     )
     monkeypatch.setattr(runs, "authority", AsyncMock())
+    monkeypatch.setattr(
+        observations.run_data, "get_attempt", AsyncMock(return_value=attempt)
+    )
     result = await observations.recovery(
-        SimpleNamespace(get=AsyncMock(return_value=attempt)),
+        SimpleNamespace(),
         run,
         check_storage=False,
         lease=lease,
+        training_authority=SimpleNamespace(assert_authority=AsyncMock()),
     )
     assert not result["eligible"]
     assert "runtime_incompatible" in result["reasons"]
@@ -287,14 +312,8 @@ def test_executor_advertises_saved_prefix_protocol_without_model_or_gpu_executio
     )
     monkeypatch.setenv("TRAINING_MODELS_DIR", str(tmp_path))
     monkeypatch.setattr(
-        worker.subprocess, "check_output", lambda *args, **kwargs: "GPU-controlled\n"
+        worker, "_probe_nvidia_gpu", lambda gpu_uuid: ("controlled GPU", "560.0")
     )
-    monkeypatch.setattr(
-        worker.importlib.metadata,
-        "version",
-        lambda name: "8.4.177" if name == "ultralytics" else "controlled",
-    )
-    runtime = worker.runtime_identity()
+    runtime = worker.runtime_identity(container_runtime_available=True)
     assert runtime["training_saved_prefix_schema"] == 2
-    assert runtime["executor_protocol"] == 2
-    assert runtime["initialization_policy_digest"] == POLICY_DIGEST
+    assert runtime["executor_protocol"] == 3

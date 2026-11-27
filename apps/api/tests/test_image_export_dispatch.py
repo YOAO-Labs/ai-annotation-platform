@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.services import async_job
+from app.services import jobs_lifecycle_data as async_job
 from app.services.jobs_dispatch import jobs_dispatch_data, prepare_job_dispatch
 from app.services.jobs_lifecycle_data import job_lock_statement
 from tests.factory import create_project, create_user

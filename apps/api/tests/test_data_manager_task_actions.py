@@ -358,6 +358,7 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
     from app.api.v1 import data_manager
     from app.services.exporting.service import ExportService
     from app.workers.export import _assert_export_task_scope
+    from tests.test_managed_prediction_requests import managed_task
 
     owner, token = super_admin
     project = await create_project(db_session, owner_id=owner.id)
@@ -369,6 +370,8 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
     sibling = await _task(
         db_session, project_id=project.id, display_id=f"T-DM-SIB-{uuid.uuid4().hex[:8]}"
     )
+    await managed_task(db_session, project, owner, task=selected)
+    await managed_task(db_session, project, owner, task=sibling)
     await db_session.commit()
     dispatch = AsyncMock(side_effect=lambda **kwargs: kwargs["execution_id"])
     monkeypatch.setattr(data_manager, "dispatch_job", dispatch)

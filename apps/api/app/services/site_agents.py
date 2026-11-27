@@ -13,7 +13,7 @@ from sqlalchemy import Uuid, column, func, select, table, text
 from app.config import settings
 from app.db.enums import UserRole
 from app.schemas.site_agent import AgentLimits, AgentRoot
-from app.services.dataset_content import key_authority
+from app.services.dataset_source_access import key_authority
 from app.services.identity_account_lock_data import IdentityAccountLockData
 
 PROTOCOL_VERSION = 1

@@ -43,8 +43,8 @@ from app.services.raster_mask_storage import (
     assert_raster_mask_write_enabled,
     resolve_mask_reference_objects,
     store_mask_reference_objects,
-    validate_mask_geometry_for_task,
 )
+from app.services.raster_mask_validation import validate_mask_geometry_for_task
 from app.services.task_matcher import resolve_task
 from app.utils.raster_mask_rle import coco_rle_area
 

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.deps import require_active_task_actor
 
-from app.services.reference_access import reference_task_guard
+from app.api.v1.reference_task_guard import reference_task_guard
 
 from app.api.v1.tasks import (
     acceptance_history,

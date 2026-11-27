@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import datetime
 from types import SimpleNamespace
 import uuid
@@ -20,12 +21,37 @@ from app.schemas._jsonb_types import SensorCalibration
 from app.schemas.native_json import SceneTrackEntry, SceneTrackIntervalEntry
 from app.services.content_snapshot import ContentError
 from app.services.exporting.service import ExportService, _export_annotation_copy
+from yoao_assets_catalog.spatial_values import calibration_digest
 from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
-from app.services.sensor_calibration import (
-    SensorCalibrationState,
-    _metadata_calibration,
-    calibration_digest,
-)
+
+
+class _SensorCalibrationError(ValueError):
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True)
+class SensorCalibrationState:
+    dataset_item_id: uuid.UUID
+    calibration: SensorCalibration
+    revision: int
+    digest: str
+    created_at: object | None = None
+
+
+def _metadata_calibration(metadata: dict | None) -> SensorCalibration:
+    raw = (metadata or {}).get("calibration")
+    if raw is None:
+        raise _SensorCalibrationError(
+            "camera_calibration_missing", "camera DatasetItem has no calibration"
+        )
+    try:
+        return SensorCalibration.model_validate(raw)
+    except Exception as exc:
+        raise _SensorCalibrationError(
+            "camera_calibration_invalid", "camera DatasetItem calibration is invalid"
+        ) from exc
 
 
 def _detached_values(model, facts):

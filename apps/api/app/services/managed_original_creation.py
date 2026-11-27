@@ -1,17 +1,14 @@
 """Durable allocation, conditional creation and publication without final deletion."""
 
 import asyncio
-from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
 import re
-from urllib.parse import urlsplit
 import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
 
-import boto3
-from botocore.config import Config
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -24,11 +21,12 @@ from app.services import (
     dataset_storage,
     storage_access,
     storage_registry_data,
+)
+from app.services import (
     storage_usage_accounting as accounting,
 )
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import (
-    LEGACY_LOCATION_ID,
     PURPOSE_BUCKET_ATTRIBUTES,
     ensure_legacy_bindings,
     validate_legacy_bindings,
@@ -37,8 +35,9 @@ from app.services.dataset_storage_keys import (
     managed_dataset_key,
     normalize_dataset_relative_path,
 )
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.managed_original_client import create_client
 from app.services.storage import storage_service
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 
 ORIGINS = {"direct", "zip", "connector", "directory_copy"}
 TERMINAL = {"verified", "failed", "conflict", "unknown"}
@@ -76,41 +75,6 @@ def _digest(value):
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-
-
-def create_client(*, timeout_seconds=60):
-    """Each physical operation owns one nonretrying, same-origin client."""
-    endpoint = (
-        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
-    )
-    target = urlsplit(endpoint)
-
-    def guard(request, **kwargs):
-        destination = urlsplit(request.url)
-        if (destination.scheme, destination.netloc) != (target.scheme, target.netloc):
-            reject("managed_original_redirect_denied")
-
-    try:
-        client = boto3.client(
-            "s3",
-            endpoint_url=endpoint,
-            aws_access_key_id=settings.minio_access_key,
-            aws_secret_access_key=settings.minio_secret_key,
-            config=Config(
-                connect_timeout=2,
-                read_timeout=max(10, min(timeout_seconds, 3600)),
-                retries={"total_max_attempts": 1, "mode": "standard"},
-                s3={"addressing_style": "path"},
-                proxies={},
-                signature_version="s3v4",
-            ),
-        )
-        client.meta.events.register("before-send.s3", guard)
-        return client
-    except BaseException:
-        raise storage_access.mark_unsettled(
-            ContentError("managed_original_client_unknown", 503)
-        ) from None
 
 
 async def _configuration(db, *, lock=False):
@@ -291,7 +255,7 @@ async def _validate(db, row, *, lock=False):
         ):
             reject("fixture_original_storage_changed")
         try:
-            from app.services.original_sources import _reads
+            from app.services.original_read_transaction import _reads
 
             async with _reads(db, lock):
                 if lock:
@@ -550,7 +514,7 @@ async def allocate_fixture_auxiliary(
     content_type,
 ):
     """Reserve a real map/raw-lidar owner intent on the private target."""
-    from app.services.auxiliary_originals import contract
+    from app.services.auxiliary_original_contract import contract
 
     if (
         not all(
@@ -590,7 +554,7 @@ async def allocate_auxiliary(
     requested_by=None,
     content_type="application/octet-stream",
 ):
-    from app.services.auxiliary_originals import contract
+    from app.services.auxiliary_original_contract import contract
 
     if (
         not isinstance(dataset_id, uuid.UUID)
@@ -709,7 +673,7 @@ async def _allocate(
                 FixtureRunAdmission,
                 FixtureRunResource,
             )
-            from app.services import fixture_run_ownership as ownership
+            from app.services import fixture_original_scope as ownership
 
             if fixture is not None and fixture_auxiliary is not None:
                 reject("fixture_original_admission_changed")
@@ -1552,6 +1516,7 @@ async def image_dimensions(db, allocation, created):
     if dims is not None:
         return dims
     from functools import partial
+
     from app.services import managed_original_reader as reader
 
     owner = original_locator(allocation)

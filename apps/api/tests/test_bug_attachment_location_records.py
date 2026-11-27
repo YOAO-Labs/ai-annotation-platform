@@ -3,12 +3,10 @@
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import uuid
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
 from sqlalchemy.exc import IntegrityError
 from app.db.models.bug_attachment_upload import BugAttachmentUpload
-from app.db.models.dataset_asset import StorageLocation
 from app.services import bug_attachment_storage as storage
 from app.services import bug_attachment_storage_target as targets
 from app.services.managed_original_retirement import managed_storage_identity
@@ -109,7 +107,7 @@ async def test_schema2_rejects_noncanonical_physical_facts(db_session, field, va
 
 
 async def test_current_credentials_do_not_rewrite_saved_physical_identity(monkeypatch):
-    from tests.test_avatar_storage_target import connection_target
+    from tests.test_avatar_storage_target import connection_target, origin_db
     from app.services import connector_guard
 
     ref = external_reference()
@@ -120,17 +118,16 @@ async def test_current_credentials_do_not_rewrite_saved_physical_identity(monkey
     connection.config.update(
         endpoint=ref["endpoint_url"], bucket=ref["bucket"], base_prefix="team/图片/"
     )
-    connection.secret_enc = b"rotated-encrypted-secret"
 
-    async def get(model, _identifier, **_kwargs):
-        return location if model is StorageLocation else connection
-
-    db = SimpleNamespace(get=AsyncMock(side_effect=get))
+    db = origin_db(connection, location)
     monkeypatch.setattr(connector_guard, "get_allowlist", AsyncMock(return_value=[]))
     row = record(storage_ref=ref)
     target = await storage.io_target(db, row)
     assert (
-        target._access.secret_enc == b"rotated-encrypted-secret"
+        target.is_registered
+        and target._access is None
+        and target.connection_revision == 100
+        and target.config_revision == 99
         and row.storage_ref == ref
     )
 

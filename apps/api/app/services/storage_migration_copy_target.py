@@ -1,21 +1,20 @@
 """Metadata-only migration target and finite registered-copy transport."""
 
-from contextlib import contextmanager
-from datetime import datetime
 import hashlib
 import re
+from contextlib import contextmanager
+from datetime import datetime
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
-
 from yoao_assets_source.saved_io import SavedIOError
 
 from app.services import storage_access, storage_registry_data
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.saved_io import saved_io_client
 from app.services.source_readers.s3 import directory_prefix
+from app.services.storage_identity import LEGACY_LOCATION_ID
 from app.services.storage_migration_copy import CopyError, CopyStopped
-from app.services.storage_migration_inventories import reject
+from app.services.storage_migration_guards import reject
 
 
 async def lock_scope(db, target_location_id):

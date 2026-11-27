@@ -566,6 +566,15 @@ async def test_geometry_receipt_only_authorizes_its_reviewed_geometry(monkeypatc
         await accept.validate_geometry_receipt(
             current.db, current.task, receipt, current.prediction.result[0]["geometry"]
         )
+    from app.services.raster_mask_validation import validate_mask_geometry_for_task
+
+    with pytest.raises(ContentError, match="prediction_video_result_receipt_invalid"):
+        await validate_mask_geometry_for_task(
+            current.db,
+            current.task,
+            {"type": "video_track_mask"},
+            video_result_receipt=receipt,
+        )
 
 
 async def test_source_close_unknown_is_sticky_and_never_reaches_final_locks(
@@ -642,6 +651,15 @@ async def test_probe_drift_closes_source_without_final_authority(monkeypatch):
 
 async def test_write_recheck_uses_current_credentials_after_own_new_rows(monkeypatch):
     current = world()
+    key_id = uuid.uuid4()
+    current.credentials = {
+        "schema": 1,
+        "actor_id": str(current.actor.id),
+        "api_key_id": str(key_id),
+        "key_fingerprint": "a" * 64,
+        "key_expires_at": None,
+        "jwt": None,
+    }
     install_flow(monkeypatch, current)
     receipt = await accept.qualify_acceptance(
         current.db, current.task, current.actor, current.request, current.prediction.id
@@ -653,9 +671,9 @@ async def test_write_recheck_uses_current_credentials_after_own_new_rows(monkeyp
     monkeypatch.setattr(accept, "key_authority", key)
     await accept.recheck_credentials(current.db, receipt)
     reauthorize.assert_awaited_once_with(
-        current.db, current.credentials, current.actor.id, None
+        current.db, current.credentials, current.actor.id, key_id
     )
-    key.assert_awaited_once_with(current.db, current.actor, None, "annotations:write")
+    key.assert_awaited_once_with(current.db, current.actor, key_id, "annotations:write")
 
 
 async def test_expired_current_credential_refuses_before_reauthorization(monkeypatch):
@@ -679,24 +697,35 @@ async def test_expired_current_credential_refuses_before_reauthorization(monkeyp
     reauthorize.assert_not_awaited()
 
 
-async def test_candidate_sql_guards_json_in_same_statement_before_hydration():
+async def test_candidate_sql_guards_json_in_same_statement_before_hydration(
+    monkeypatch,
+):
+    from app.services import labeling_core_read_relations
+    from app.services.labeling_core_read_relations import prediction_row
+
     captured = []
+    locked = AsyncMock()
+    monkeypatch.setattr(
+        labeling_core_read_relations, "lock_prediction_for_core_read_share", locked
+    )
 
     async def execute(statement):
         captured.append(str(statement.compile(dialect=postgresql.dialect())))
         return SimpleNamespace(one_or_none=lambda: (object(), False, None, None))
 
+    row_id = uuid.uuid4()
+    db = SimpleNamespace(execute=execute)
     with pytest.raises(ContentError, match="budget_exceeded"):
         await accept._bounded_row(
-            SimpleNamespace(execute=execute),
-            Prediction,
-            uuid.uuid4(),
+            db,
+            prediction_row,
+            row_id,
             ("result", "rejected_shape_indexes"),
             lock=True,
         )
+    locked.assert_awaited_once_with(db, row_id)
     assert len(captured) == 1
     assert "CASE WHEN" in captured[0] and "octet_length" in captured[0]
-    assert "FOR SHARE NOWAIT" in captured[0]
 
 
 @pytest.mark.parametrize("drift", ["version", "owner", "gate", "batch"])
@@ -996,28 +1025,24 @@ async def test_offline_rejection_has_current_write_auth_but_cannot_be_used_to_ac
 
 
 async def test_final_segment_lock_refreshes_full_cached_assignee_and_lease(monkeypatch):
-    from app.services import video_collaboration
+    from app.services import labeling_core_read_relations, video_collaboration
 
     current = world()
     segment_id = uuid.uuid4()
     selection = accept.selection_value(0, video_segment_id=segment_id)
-    refreshed = []
-
-    async def scalar(statement):
-        sql = str(statement.compile(dialect=postgresql.dialect()))
-        assert (
-            "video_segments.assignee_id" in sql
-            and "video_segments.lock_expires_at" in sql
-        )
-        assert statement.get_execution_options()["populate_existing"] is True
-        assert "FOR SHARE NOWAIT" in sql
-        refreshed.append(True)
-        return SimpleNamespace(id=segment_id)
+    events = []
+    locked = AsyncMock(side_effect=lambda *_a, **_kw: events.append("lock"))
+    monkeypatch.setattr(
+        labeling_core_read_relations, "lock_video_segment_for_core_read_share", locked
+    )
 
     async def scope(*args, **kwargs):
-        assert refreshed
+        if "scope" not in events:
+            assert events == ["lock"]
+            events.append("scope")
 
-    current.db.scalar, current.db.execute = scalar, AsyncMock()
+    current.db.autoflush = False
+    current.db.execute = AsyncMock()
     monkeypatch.setattr(
         video_collaboration, "assert_video_annotation_write_scope", scope
     )
@@ -1030,4 +1055,7 @@ async def test_final_segment_lock_refreshes_full_cached_assignee_and_lease(monke
         [0],
         lock=True,
     )
-    assert refreshed == [True]
+    locked.assert_awaited_once_with(
+        current.db, segment_id, current.task.dataset_item_id
+    )
+    assert events == ["lock", "scope"]

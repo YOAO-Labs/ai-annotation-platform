@@ -5,6 +5,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 import pytest
 from sqlalchemy import func, select
+from app.application.dataset_reference_registration import accept_revision
 from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_source import DatasetSourceItem
 from app.schemas.dataset_source import (
@@ -14,7 +15,6 @@ from app.schemas.dataset_source import (
 from app.services import (
     dataset_source_rules as rules,
     dataset_source_changes as changes,
-    dataset_source_revisions as revisions,
     dataset_source_sync as sync,
     dataset_registration as registration,
 )
@@ -29,7 +29,7 @@ from tests.test_dataset_source_changes import (
     picture,
 )
 from tests.test_dataset_source_relocations import moved_candidate
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.schemas.dataset_source import SourceSyncScheduleUpdate
 
 
@@ -77,6 +77,8 @@ async def test_rules_preserve_task_content_and_invalidate_preflight_and_plan(
     assert impact["counts"]["leaving_scope"] == 1
     await apply(db, world, value, impact)
     await db.commit()
+    await db.refresh(world[5])
+    await db.refresh(row)
     assert world[5].config["relative_path"] == original_config["relative_path"]
     assert (
         not row.enabled
@@ -90,6 +92,7 @@ async def test_rules_preserve_task_content_and_invalidate_preflight_and_plan(
         SourceSyncScheduleUpdate(expected_revision=row.revision, enabled=True),
         world[2],
     )
+    await db.refresh(row)
     assert row.state == "idle"
     r = await httpx_client.get(
         f"/api/v1/files/tasks/{task.id}/content",
@@ -134,7 +137,7 @@ async def test_head_move_invalidates_impact_even_when_counts_and_source_revision
     world, run, _, target, accept = await moved_candidate(db, world)
     value = payload(world, recursive=False)
     before = await rules.preview(db, world[5].id, value, world[2])
-    await revisions.accept(
+    await accept_revision(
         db, run.id, target["path_digest"], accept, world[2], relocate=True
     )
     after = await rules.preview(db, world[5].id, value, world[2])
@@ -160,6 +163,7 @@ async def test_paging_and_reentry_preserve_binding_identity(db_session, content_
     assert first["proof"] == second["proof"] and first["total"] == 3
     assert first["items"][0]["path_digest"] != second["items"][0]["path_digest"]
     await apply(db, world, value, first)
+    await db.refresh(world[5])
     reopen = payload(world)
     impact = await rules.preview(db, world[5].id, reopen, world[2])
     assert impact["counts"]["entering_scope"] == 3

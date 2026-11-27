@@ -288,30 +288,33 @@ async def test_snapshot_from_old_attempt_cannot_publish_after_cancel_and_resume(
     world, monkeypatch
 ):
     db, dataset, actor, *_ = world
-    run = await svc.start(db, dataset.id, actor, DatasetQualityConfig())
+    dataset_id = dataset.id
+    run = await svc.start(db, dataset_id, actor, DatasetQualityConfig())
+    run_id = run.id
     await db.commit()
     job = await db.get(AsyncJob, run.async_job_id)
+    job_id = job.id
     original = content.quality_snapshot
     replacement = []
 
     async def resume_after_capture(*args, **kwargs):
         snapshot = await original(*args, **kwargs)
         await svc.cancel_job(db, job, actor)
-        updated = await svc.resume(db, dataset.id, run.id, actor)
+        updated = await svc.resume(db, dataset_id, run_id, actor)
         await db.commit()
         replacement.append((args[1], snapshot.file, updated))
         return snapshot
 
     monkeypatch.setattr(content, "quality_snapshot", resume_after_capture)
-    await worker.execute(db, run.id, job.celery_task_id, "worker:test")
+    await worker.execute(db, run_id, job.celery_task_id, "worker:test")
     ((item_id, captured_file, updated),) = replacement
-    assert captured_file.closed and updated.async_job_id != job.id
-    current = await svc.require_run(db, dataset.id, run.id, actor)
+    assert captured_file.closed and updated.async_job_id != job_id
+    current = await svc.require_run(db, dataset_id, run_id, actor)
     assert current.status == "pending"
     assert current.generation == updated.generation
     assert current.processed == updated.processed
     row = await db.scalar(
-        select(Result).where(Result.run_id == run.id, Result.item_id == item_id)
+        select(Result).where(Result.run_id == run_id, Result.item_id == item_id)
     )
     assert row.state == "pending" and not row.bytes_verified and row.observed_at is None
 
@@ -408,7 +411,7 @@ async def test_exif_dimensions_and_budget_remain_distinct(monkeypatch):
 async def test_reference_dispatches_to_registered_worker_and_keeps_missing_separate(
     db_session, content_world, monkeypatch
 ):
-    from app.services.dataset_references import register_entry
+    from app.application.dataset_reference_registration import register_entry
 
     root, data, actor, ds, location, source, scan, entry = content_world
     await register_entry(

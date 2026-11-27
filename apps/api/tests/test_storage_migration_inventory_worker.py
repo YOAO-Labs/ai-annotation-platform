@@ -15,19 +15,21 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models.notification import Notification
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_migration_inventories as service
-from app.services.dataset_assets import ensure_legacy_bindings
+from app.services.dataset_assets import (
+    PURPOSE_BUCKET_ATTRIBUTES,
+    ensure_legacy_bindings,
+)
 from app.services.storage_migration_inventory import InventoryStopped
 from app.workers import storage_migration_inventory as worker
 from tests.factory import create_user
-from tests.managed_image_inference_fixtures import managed_database
 from tests.test_storage_migration_inventories import EmptySource
 
 
 @pytest.fixture
-async def world(test_db_url):
-    async with managed_database(test_db_url) as engine:
+async def world(managed_database):
+    async with managed_database() as engine:
         maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
         async with maker() as db:
             await ensure_legacy_bindings(db)
@@ -62,7 +64,7 @@ def fake_storage(monkeypatch, source, *, close_error=False):
         client=client,
         **{
             attribute: source["purpose_buckets"][purpose]
-            for purpose, attribute in service.PURPOSE_BUCKET_ATTRIBUTES.items()
+            for purpose, attribute in PURPOSE_BUCKET_ATTRIBUTES.items()
         },
     )
     monkeypatch.setattr(worker, "StorageService", lambda **kwargs: configured)
@@ -266,9 +268,7 @@ async def test_cancel_during_final_publish_drains_then_propagates(world, monkeyp
 async def test_early_header_error_closes_owned_sink_and_client(monkeypatch):
     source = {
         "endpoint": "http://source",
-        "purpose_buckets": {
-            purpose: purpose for purpose in service.PURPOSE_BUCKET_ATTRIBUTES
-        },
+        "purpose_buckets": {purpose: purpose for purpose in PURPOSE_BUCKET_ATTRIBUTES},
     }
     client = fake_storage(monkeypatch, source)
     sink = worker.ReportSink()

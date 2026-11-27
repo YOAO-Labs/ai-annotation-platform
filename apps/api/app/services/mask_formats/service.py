@@ -27,7 +27,7 @@ from app.schemas.mask_format import (
     MaskFormatImportPreflightResponse,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.async_job_terminal import JobTerminal
 from app.services import storage_access

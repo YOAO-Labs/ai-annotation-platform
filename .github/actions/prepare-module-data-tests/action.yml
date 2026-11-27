@@ -1,0 +1,29 @@
+name: Prepare module data tests
+description: Install the provider peers and pinned clients used by the disposable database verifier.
+inputs:
+  project-name:
+    description: Compose project running the pinned test MinIO service.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: Prepare verifier dependencies
+      shell: bash
+      env:
+        MINIO_PROJECT: ${{ inputs.project-name }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/minio-client"
+        docker compose --project-name "$MINIO_PROJECT" --file .github/e2e-minio.yml \
+          cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
+        chmod 700 "$RUNNER_TEMP/minio-client/mc"
+        echo "$RUNNER_TEMP/minio-client" >> "$GITHUB_PATH"
+        postgres_image=postgres@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
+        docker pull --platform linux/amd64 "$postgres_image"
+        docker tag "$postgres_image" postgres:16-alpine
+        for module in workspace notifications audit jobs; do
+          pnpm --dir "apps/$module/conformance/node" install --ignore-workspace --frozen-lockfile --ignore-scripts
+        done

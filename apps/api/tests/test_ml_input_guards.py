@@ -84,8 +84,6 @@ async def test_smoke_test_rejects_query_before_database_access(monkeypatch):
             SmokeTestRequest(url="http://backend.internal?token=secret"),
             request=None,
             db=NoDatabase(),
-            shadow_session_factory=None,
-            dispatch_context_factory=None,
             admin=object(),
         )
     assert exc.value.status_code == 422
@@ -112,9 +110,21 @@ async def test_probe_and_smoke_errors_do_not_echo_urls_or_credentials(monkeypatc
                 request=httpx.Request("GET", requested_url),
             )
 
+    class FailingControl:
+        async def manual_probe(self, *_args, **_kwargs):
+            raise httpx.ConnectError(
+                f"failed to connect to {requested_url}",
+                request=httpx.Request("GET", requested_url),
+            )
+
+    monkeypatch.setattr(
+        admin_ml_integrations,
+        "backend_control_service",
+        lambda _db: FailingControl(),
+    )
     monkeypatch.setattr(admin_ml_integrations.httpx, "AsyncClient", FailingClient)
     probe = await admin_ml_integrations.probe_backend(
-        ProbeRequest(url="http://backend.internal"), _admin=object()
+        ProbeRequest(url="http://backend.internal"), db=object(), _admin=object()
     )
     assert probe.error == "连接失败"
     assert "secret" not in probe.error
@@ -132,16 +142,20 @@ async def test_probe_and_smoke_errors_do_not_echo_urls_or_credentials(monkeypatc
         async def commit(self):
             return None
 
+    from app.services.inference_topology_data import InferenceTopologyData
+
     async def no_audit(*_args, **_kwargs):
         return None
 
+    async def empty_catalog(_self):
+        return []
+
     monkeypatch.setattr(admin_ml_integrations.AuditService, "log", no_audit)
+    monkeypatch.setattr(InferenceTopologyData, "registry_catalog", empty_catalog)
     smoke = await admin_ml_integrations.smoke_test_backend(
         SmokeTestRequest(url="http://backend.internal"),
         request=None,
         db=Database(),
-        shadow_session_factory=None,
-        dispatch_context_factory=None,
         admin=object(),
     )
     assert smoke.error == "连接失败"
@@ -159,7 +173,7 @@ async def test_warmup_checks_project_enablement_before_any_backend_call(monkeypa
         def __init__(self, *_args, **_kwargs):
             pass
 
-        async def get(self, requested_backend_id):
+        async def get_registry(self, requested_backend_id):
             calls.append(("get", requested_backend_id))
             return object()
 
@@ -179,8 +193,6 @@ async def test_warmup_checks_project_enablement_before_any_backend_call(monkeypa
             request=None,
             body={"task": "detection"},
             db=object(),
-            shadow_session_factory=None,
-            dispatch_context_factory=None,
             current_user=object(),
         )
     assert exc.value.status_code == 404

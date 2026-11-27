@@ -6,7 +6,7 @@ import threading
 import uuid
 
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset import Dataset, DatasetItem
@@ -15,6 +15,7 @@ from app.db.models.dataset_asset import (
     DatasetAssetLocation,
     StorageBinding,
 )
+from app.application.dataset_ingest import DatasetIngestWorkflow
 from app.services.dataset import DatasetService
 from app.services.dataset_assets import (
     register_item_asset,
@@ -46,9 +47,12 @@ class ObjectClient(CreationStorage):
 
 @pytest.fixture(autouse=True)
 def local_creation_client(monkeypatch):
-    from app.services import managed_original_creation as creations
+    from app.services import assets_source, managed_original_creation as creations
 
     monkeypatch.setattr(creations, "create_client", lambda **_: storage_service.client)
+    monkeypatch.setattr(
+        assets_source, "_managed_client", lambda _storage: storage_service.client
+    )
 
 
 def test_managed_paths_have_unique_identity_and_retain_logical_directories():
@@ -99,7 +103,8 @@ async def test_unknown_hash_and_placeholder_remain_unverified(db_session, super_
     assert item.updated_at == before
     assert asset.verification_state == "unverified"
     assert asset.checksum_value is None
-    assert asset.legacy_hash_hint == "f" * 32
+    stored_asset = await db_session.get(DatasetAsset, asset.id)
+    assert stored_asset is not None and stored_asset.legacy_hash_hint == "f" * 32
     replica = await db_session.scalar(
         select(DatasetAssetLocation).where(DatasetAssetLocation.asset_id == asset.id)
     )
@@ -164,8 +169,13 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
         )
         assert response.status_code == 200, response.text
         item_id = uuid.UUID(response.json()["item_id"])
-        item = await db_session.get(DatasetItem, item_id)
-        key = item.file_path
+        key = await db_session.scalar(
+            text(
+                "SELECT file_path FROM public.dataset_upload_intents WHERE item_id = :id"
+            ),
+            {"id": item_id},
+        )
+        assert key
         keys.append(key)
         staging_key = fake.presigned[-1][1]["Key"]
         assert staging_key != key
@@ -184,13 +194,20 @@ async def test_same_name_uploads_etag_dedup_rename_and_zero_bytes(
             )
     assert len(set(keys)) == 4
     assert all(thread != threading.get_ident() for thread in fake.read_threads)
-    assert dataset_relative_path(keys[1]) == "a-1.bin"
+    assert dataset_relative_path(keys[1]) == "a.bin"
     assert fake.objects[keys[0]] == b"original"
     assert fake.objects[keys[1]] == b"changed"
-    assert fake.objects[keys[2]] == b"original"
+    assert keys[2] not in fake.objects
+    assert fake.objects[keys[3]] == b""
     assert not [call for call in fake.calls if call[0] == "delete"]
     assert dataset.storage_scan_prefix == original_root
-    assets = list(await db_session.scalars(select(DatasetAsset)))
+    assets = list(
+        await db_session.scalars(
+            select(DatasetAsset)
+            .join(DatasetItem, DatasetItem.id == DatasetAsset.dataset_item_id)
+            .where(DatasetItem.dataset_id == dataset.id)
+        )
+    )
     assert {asset.checksum_value for asset in assets} == {
         hashlib.sha256(data).hexdigest() for data in [b"original", b"changed", b""]
     }
@@ -223,7 +240,7 @@ async def test_scan_uses_pinned_legacy_root_and_keeps_etag_separate(
         )
 
     monkeypatch.setattr(storage_service, "list_objects", listing)
-    svc = DatasetService(db_session)
+    svc = DatasetIngestWorkflow(db_session)
     assert (await svc.scan_and_import(dataset.id))[0].status == "added"
     assert (await svc.scan_and_import(dataset.id))[0].status == "skipped"
     assert set(seen) == {"old-name/", managed_dataset_prefix(dataset.id)}
@@ -290,12 +307,10 @@ async def test_legacy_hash_is_only_a_candidate_until_bytes_match(
     )
     assert await db_session.scalar(select(func.count()).select_from(DatasetAsset)) == 0
     fake.objects[item.file_path] = data
-    assert (
-        await find_verified_content(
-            db_session, dataset.id, hashlib.sha256(data).hexdigest(), legacy_md5=md5
-        )
-        is item
+    found = await find_verified_content(
+        db_session, dataset.id, hashlib.sha256(data).hexdigest(), legacy_md5=md5
     )
+    assert found is not None and found.id == item.id
     await db_session.refresh(item)
     assert item.updated_at == before and item.content_hash == md5
     asset = await db_session.scalar(
@@ -325,7 +340,8 @@ def test_changed_head_get_identity_is_rejected_and_stream_closed(monkeypatch):
 async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
     db_session, super_admin, monkeypatch
 ):
-    from app.services.scene_inference import _split_into_scene_groups
+    from yoao_assets_source.frame_layout import PreparedDatasetItem
+    from yoao_assets_source.scene_layout import _split_into_scene_groups
     from app.services.pointcloud_import import group_frames
     from app.services.exporting.packaging import relative_path_from_file_path
 
@@ -346,7 +362,7 @@ async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
             if key.startswith(prefix)
         ],
     )
-    svc = DatasetService(db_session)
+    svc = DatasetIngestWorkflow(db_session)
     assert [o.status for o in await svc.scan_and_import(dataset.id)] == ["added"] * 3
     assert [o.status for o in await svc.scan_and_import(dataset.id)] == ["skipped"] * 3
     items = list(await db_session.scalars(select(DatasetItem)))
@@ -364,12 +380,24 @@ async def test_scanned_aliases_are_used_by_scene_frame_grouping_and_export(
         relative_path_from_file_path(item.file_path, "renamed", item)
         for item in facts.values()
     } == expected
-    groups = _split_into_scene_groups(items, "renamed")
+    prepared_items = tuple(
+        PreparedDatasetItem(
+            id=item.id,
+            file_name=item.file_name,
+            file_path=item.file_path,
+            file_type=item.file_type,
+            logical_path=dataset_item_relative_path(item),
+            scene_id=item.scene_id,
+            frame_index=item.frame_index,
+        )
+        for item in items
+    )
+    groups = _split_into_scene_groups(prepared_items, "renamed")
     assert set(groups) == {"scene_a", scene_uuid}
     frames, _ = group_frames(groups["scene_a"])
     assert set(frames) == {"000001", "000001-1"}
     assert (
-        await svc._unique_file_name(dataset.id, "scene_a/lidar/000001.pcd")
+        await svc.assets._unique_file_name(dataset.id, "scene_a/lidar/000001.pcd")
         == "scene_a/lidar/000001-2.pcd"
     )
 
@@ -441,7 +469,6 @@ async def test_upload_completion_maps_storage_races_to_conflict(
     )
     assert response.status_code == 200, response.text
     item_id = uuid.UUID(response.json()["item_id"])
-    item = await db_session.get(DatasetItem, item_id)
     fake.objects[fake.presigned[-1][1]["Key"]] = b"original"
 
     def changed(**kwargs):
@@ -457,5 +484,12 @@ async def test_upload_completion_maps_storage_races_to_conflict(
     asset = await db_session.scalar(
         select(DatasetAsset).where(DatasetAsset.dataset_item_id == item_id)
     )
-    assert asset.verification_state == "unverified"
-    assert item.content_hash is None
+    assert asset is None
+    assert await db_session.get(DatasetItem, item_id) is None
+    assert (
+        await db_session.scalar(
+            text("SELECT state FROM public.dataset_upload_intents WHERE item_id = :id"),
+            {"id": item_id},
+        )
+        == "pending"
+    )

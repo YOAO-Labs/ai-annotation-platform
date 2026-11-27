@@ -8,12 +8,10 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.managed_image_inference_fixtures import managed_database
-
 
 @pytest.fixture
-async def migration_engine(test_db_url):
-    async with managed_database(test_db_url) as engine:
+async def migration_engine(managed_database):
+    async with managed_database() as engine:
         yield engine
 
 

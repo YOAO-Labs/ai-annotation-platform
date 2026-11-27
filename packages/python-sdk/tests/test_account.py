@@ -10,6 +10,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import ValidationError
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao._http import HttpTransport
@@ -330,7 +331,7 @@ def test_sensitive_cli_writes_require_confirmation_before_client(
     )
 
     assert result.exit_code != 0
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
 
 
 def test_password_cli_accepts_stdin_without_echoing_secrets(monkeypatch):
@@ -368,7 +369,7 @@ def test_avatar_upload_cli_requires_yes_before_opening_client(monkeypatch, tmp_p
     )
 
     assert result.exit_code != 0
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
 
 
 def test_event_cli_reports_partial_receipt_then_exits_nonzero(monkeypatch, tmp_path):

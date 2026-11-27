@@ -22,7 +22,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 from app.services.project_access import get_workspace_project
-from app.services.prediction import to_internal_shape
+from app.services.prediction_shapes import to_internal_shape
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_actor_scope,
@@ -40,7 +40,6 @@ from app.services.task_scope import lock_task_scope
 
 
 _ISSUER = object()
-_GEOMETRY = {"bbox", "rotated_bbox", "polygon", "multi_polygon", "polyline", "keypoint"}
 
 
 async def _lock_edit_scope(db, task_id):
@@ -147,12 +146,23 @@ async def _check_content(db, task, binding, prediction, metadata, *, final=False
     if metadata and (metadata.extra or {}).get("reference_native") is not None:
         from app.services.reference_native_predictions import qualify_candidate
 
-        await qualify_candidate(db, task, binding, prediction, metadata, final=final)
+        qualify_candidate(task, binding, prediction, metadata)
+        if final:
+            from app.services.raster_mask_validation import (
+                prepare_mask_payload_for_write,
+            )
+            from app.services.raster_mask_storage import RasterMaskContractError
+
+            try:
+                await prepare_mask_payload_for_write(db, task, prediction.result)
+            except RasterMaskContractError as exc:
+                raise HTTPException(exc.status_code, detail=exc.detail) from None
+            except (ValueError, KeyError, TypeError, StopIteration, IndexError) as exc:
+                raise ContentError("reference_native_candidate_invalid") from exc
         return
-    for shape in shapes:
-        geometry = to_internal_shape(deepcopy(shape)).get("geometry")
-        if not isinstance(geometry, dict) or geometry.get("type") not in _GEOMETRY:
-            raise ContentError("reference_prediction_geometry_not_supported")
+    from app.services.reference_native_predictions import require_reference_vectors
+
+    require_reference_vectors(shapes)
 
 
 async def _authorize(db, task, actor):

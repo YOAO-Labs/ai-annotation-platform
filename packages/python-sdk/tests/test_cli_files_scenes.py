@@ -5,6 +5,7 @@ from contextlib import nullcontext
 from types import SimpleNamespace
 from uuid import uuid4
 
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import files as files_cli
@@ -45,7 +46,7 @@ def test_file_upload_init_json_requires_yes_before_client(monkeypatch):
     )
 
     assert result.exit_code == 2
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
     assert client_requests == []
 
 
@@ -96,7 +97,7 @@ def test_thumbnail_backfill_json_refusal_does_not_open_client(monkeypatch):
     )
 
     assert result.exit_code == 2
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
     assert client_requests == []
 
 
@@ -243,7 +244,7 @@ def test_scene_update_confirmation_refusal_does_not_open_client(monkeypatch):
     )
 
     assert result.exit_code == 2
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
     assert client_requests == []
 
 

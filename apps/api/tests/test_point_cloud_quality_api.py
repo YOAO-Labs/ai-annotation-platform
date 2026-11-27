@@ -25,7 +25,7 @@ from yoao_workspace.point_quality_configuration_values import PointCloudQualityC
 from app.schemas.point_cloud_quality import (
     PointCloudQualityRunRequest,
 )
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.point_cloud_quality import originals
 from app.services.point_cloud_quality.service import (

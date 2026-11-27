@@ -16,17 +16,19 @@ from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import thumbnail_outputs as service
 from app.services import storage as storage_module
 from app.services import media_cache_accounting, storage_usage_accounting
+from dataclasses import replace
+
+from app.services import managed_s3_target
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.source_readers.s3 import S3Access
+from app.services.source_readers.s3 import S3Access, ScopedS3Access
 from tests.managed_original_provider_support import MemoryS3, error, response
-from tests.managed_image_inference_fixtures import managed_database
 from tests.test_media_cache_targets import switch as switch
 
 
 @pytest.fixture
-async def media_db(test_engine):
-    async with managed_database(test_engine.url) as engine:
+async def media_db(managed_database):
+    async with managed_database() as engine:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()
@@ -66,6 +68,28 @@ def client(monkeypatch):
         yield client
 
     monkeypatch.setattr(S3Access, "client", transport)
+    monkeypatch.setattr(ScopedS3Access, "client", transport)
+    original_target_for = managed_s3_target.target_for
+
+    async def local_target_for(db, location, **kwargs):
+        origin = await original_target_for(db, location, **kwargs)
+        if origin.is_registered:
+            return replace(
+                origin,
+                _access=ScopedS3Access(
+                    {"endpoint": origin.endpoint_url, "bucket": origin.bucket},
+                    {
+                        "endpoint": origin.endpoint_url,
+                        "access_key": "test",
+                        "secret_key": "test",
+                    },
+                    (),
+                ),
+            )
+        return origin
+
+    monkeypatch.setattr(managed_s3_target, "target_for", local_target_for)
+    monkeypatch.setattr(service.source, "registered", lambda target: False)
     return client
 
 

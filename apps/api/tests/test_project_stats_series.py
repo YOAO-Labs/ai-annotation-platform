@@ -8,15 +8,20 @@ import pytest
 from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.task import Task
+from tests.factory import create_project, create_task
 
 
 @pytest.mark.asyncio
 async def test_project_stats_returns_database_backed_series(
     httpx_client,
     db_session,
+    project_admin,
     super_admin,
 ):
-    user, token = super_admin
+    user, token = project_admin
+    other_project = await create_project(db_session, owner_id=super_admin[0].id)
+    await create_task(db_session, project_id=other_project.id)
+
     suffix = uuid.uuid4().hex[:6]
     now = datetime.now(timezone.utc)
     project = Project(

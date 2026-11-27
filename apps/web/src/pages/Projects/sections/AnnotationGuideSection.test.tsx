@@ -314,12 +314,15 @@ describe("AnnotationGuideSection", () => {
     const editor = (await screen.findByTestId("markdown-editor")) as HTMLTextAreaElement;
     vi.useFakeTimers();
 
+    editor.focus();
     fireEvent.change(editor, { target: { value: "# 待重试" } });
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1000);
     });
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("guide-save-status")).toHaveTextContent("保存失败：网络中断");
+    expect(editor).toHaveFocus();
+    expect(editor).toHaveValue("# 待重试");
     expect(mockPushToast).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -327,11 +330,12 @@ describe("AnnotationGuideSection", () => {
     });
     expect(mockMutateAsync).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByTestId("guide-save"));
+    fireEvent.click(screen.getByRole("button", { name: "重试保存" }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
     expect(mockMutateAsync).toHaveBeenCalledTimes(2);
+    expect(mockMutateAsync).toHaveBeenLastCalledWith({ annotation_guide: "# 待重试" });
     expect(screen.getByTestId("guide-save-status")).toHaveTextContent("已保存");
     unmount();
   });

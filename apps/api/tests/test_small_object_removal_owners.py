@@ -10,7 +10,7 @@ import uuid
 
 from botocore.exceptions import ClientError
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.avatar_upload import AvatarUpload
@@ -25,9 +25,8 @@ from app.services import media_cache_storage, object_removal_accounting as remov
 from app.services import storage, storage_access, storage_usage_accounting as usage
 from app.services import thumbnail_cleanup as thumbnails, thumbnail_outputs as outputs
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from tests.test_export_media_removal_accounting import MemoryRecorder
-from tests.test_media_cache_targets import media_db as media_db
 from tests.test_object_removal_storage import Objects
 
 KINDS = ("thumbnail", "avatar", "bug_attachment")
@@ -177,16 +176,12 @@ def test_thumbnail_predelete_failures_do_not_submit_or_mark_unsettled(fault):
 
 
 @pytest.fixture
-async def owners_db(media_db):
-    connection = await media_db.connection()
-    for table in (
-        AvatarUpload.__table__,
-        BugAttachmentUpload.__table__,
-        Mutation.__table__,
-    ):
-        await connection.run_sync(table.create)
-    await media_db.commit()
-    return media_db
+async def owners_db(managed_database):
+    async with managed_database() as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            yield db
 
 
 def test_thumbnail_failed_absence_keeps_attempt_unknown():
@@ -424,21 +419,43 @@ async def test_postphysical_business_guard_preserves_confirmed_fact(
     owners_db, monkeypatch, kind
 ):
     case = await install_case(owners_db, kind, monkeypatch)
-    module, name = (
-        (thumbnails, "eligible")
-        if kind == "thumbnail"
-        else (avatar_uploads, "_has_reference")
-        if kind == "avatar"
-        else (bug_uploads, "_has_read")
-    )
-    original = getattr(module, name)
+    if kind == "thumbnail":
+        original_finish = removal.finish
 
-    async def guarded(*args, **kwargs):
-        if case.client.closed:
-            return kind != "thumbnail"
-        return await original(*args, **kwargs)
+        async def guarded(recorder, original, *, settled=True):
+            result = await original_finish(recorder, original, settled=settled)
+            async with async_sessionmaker(
+                owners_db.bind, expire_on_commit=False
+            )() as side:
+                await side.execute(
+                    update(ThumbnailOutput)
+                    .where(ThumbnailOutput.id == case.id)
+                    .values(state="ready")
+                )
+                await side.commit()
+            return result
 
-    monkeypatch.setattr(module, name, guarded)
+        monkeypatch.setattr(removal, "finish", guarded)
+    elif kind == "avatar":
+        original_finish = avatar_uploads.avatar_upload_data.finish_retirement
+
+        async def guarded(*args, **kwargs):
+            if case.client.closed:
+                return False
+            return await original_finish(*args, **kwargs)
+
+        monkeypatch.setattr(
+            avatar_uploads.avatar_upload_data, "finish_retirement", guarded
+        )
+    else:
+        original_native = bug_uploads._native
+
+        async def guarded(db, statement, params):
+            if case.client.closed and statement is bug_uploads._LOCK_RETIREMENT:
+                return None
+            return await original_native(db, statement, params)
+
+        monkeypatch.setattr(bug_uploads, "_native", guarded)
     assert await execute(case) == 0
     (fact,) = await facts(case)
     assert fact.state == "confirmed" and fact.current_delta_bytes == 9

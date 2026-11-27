@@ -203,7 +203,7 @@ async def _enqueue_seed_video_backfill(
 ) -> uuid.UUID:
     """Persist the demo's video work and its dispatch before publishing it."""
     from app.db.models.async_job import AsyncJobKind
-    from app.services import async_job
+    from app.services import jobs_lifecycle_data as async_job
     from app.services.jobs_dispatch import (
         prepare_job_dispatch,
         publish_prepared_dispatch,

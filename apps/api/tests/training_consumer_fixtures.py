@@ -10,19 +10,38 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.services import training_storage_io
+from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import storage_service
 
 
 def mock_legacy_transport(monkeypatch):
     async def run(
-        db, owner, purpose, callback, *args, accounting=None, source_boot=None, **kwargs
+        db,
+        owner,
+        purpose,
+        callback,
+        *args,
+        target=None,
+        on_acquired=None,
+        expected_revision=None,
+        node_id=None,
+        timeout=None,
+        accounting=None,
+        source_attempt=None,
+        source_boot=None,
+        source_deletion=None,
+        source_key=None,
+        **kwargs,
     ):
+        assert owner.location_id == LEGACY_LOCATION_ID
+        if on_acquired is not None:
+            await on_acquired(None)
         return await asyncio.to_thread(callback, storage_service, *args, **kwargs)
 
     async def prepare(db, owner, **kwargs):
         return owner
 
-    def physical(target, callback, *args, accounting=None, **kwargs):
+    def physical(target, callback, *args, accounting=None, source=None, **kwargs):
         return callback(storage_service, *args, **kwargs)
 
     monkeypatch.setattr(training_storage_io, "run", run)

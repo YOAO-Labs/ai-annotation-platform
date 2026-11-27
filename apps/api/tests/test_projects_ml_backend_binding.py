@@ -50,13 +50,22 @@ async def _seed_backend(
     return b
 
 
+async def _image_probe(registry_id, probe_subject, *, timeout, limits):
+    del registry_id, probe_subject, timeout, limits
+    return ["image"]
+
+
 async def test_create_project_with_ml_backend_id_binds_backend(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     dummy = await _seed_project(db_session, user.id)
     backend = await _seed_backend(db_session, dummy.id, name="dino-sam2")
     await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.inference_backend_probe.backend_probe",
+        lambda: _image_probe,
+    )
 
     headers = {"Authorization": f"Bearer {token}"}
     body = {
@@ -73,12 +82,16 @@ async def test_create_project_with_ml_backend_id_binds_backend(
 
 
 async def test_patch_project_bind_backend_updates_binding(
-    httpx_client, super_admin, db_session
+    httpx_client, super_admin, db_session, monkeypatch
 ):
     user, token = super_admin
     proj = await _seed_project(db_session, user.id)
     backend = await _seed_backend(db_session, proj.id, name="grounded-sam2")
     await db_session.commit()
+    monkeypatch.setattr(
+        "app.services.inference_backend_probe.backend_probe",
+        lambda: _image_probe,
+    )
 
     headers = {"Authorization": f"Bearer {token}"}
     resp = await httpx_client.patch(
@@ -97,8 +110,9 @@ async def test_patch_project_unbind_backend_clears_binding(
     user, token = super_admin
     proj = await _seed_project(db_session, user.id, ai_enabled=True)
     backend = await _seed_backend(db_session, proj.id, name="gsam2-video")
-    pool = await MLBackendService(db_session)._pool_for_registry(backend.id)
-    proj.ml_backend_pool_id = pool.id
+    pool_id = await MLBackendService(db_session).pool_id_for_registry(backend.id)
+    assert pool_id is not None
+    proj.ml_backend_pool_id = pool_id
     await db_session.flush()
     await db_session.commit()
 
@@ -120,8 +134,11 @@ async def test_get_project_backend_prefers_explicit_binding(db_session, super_ad
     fallback = await _seed_backend(db_session, proj.id, name="fallback")
     assert explicit.id != fallback.id
 
-    explicit_pool = await MLBackendService(db_session)._pool_for_registry(explicit.id)
-    proj.ml_backend_pool_id = explicit_pool.id
+    explicit_pool_id = await MLBackendService(db_session).pool_id_for_registry(
+        explicit.id
+    )
+    assert explicit_pool_id is not None
+    proj.ml_backend_pool_id = explicit_pool_id
     await db_session.flush()
 
     svc = MLBackendService(db_session)

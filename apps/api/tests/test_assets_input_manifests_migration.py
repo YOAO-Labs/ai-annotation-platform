@@ -1,23 +1,27 @@
-"""Static checks for the bounded bulk image input-manifest migration."""
+"""Capability contracts and PostgreSQL cutover for bulk image input manifests."""
 
 from __future__ import annotations
 
 import ast
-import importlib.util
+import asyncio
 from pathlib import Path
-from tests.contract_schemas import load_contract_schema
-from tests.grant_script import read_psql_grant_script
 import re
 from uuid import uuid4
 
+from alembic import command
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
-from app.db.models.async_job import AsyncJob
-from tests.factory import create_project
-from tests.test_assets_catalog_native import _seed_actor
+from tests.contract_schemas import load_contract_schema
+from tests.grant_script import read_psql_grant_script
+from tests.managed_image_inference_fixtures import _owned_database
+from tests.migration_helpers import load
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL_DIR = ROOT / "apps/api/alembic/sql"
@@ -163,50 +167,137 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
     )
 
 
-def test_0222_upgrade_fails_closed_on_unmanifested_active_bulk_image_jobs():
-    migration = re.sub(r"\s+", " ", MIGRATION.read_text(encoding="utf-8"))
-    assert "job.status IN ('pending', 'running')" in migration
-    assert "project.data_type = 'image'" in migration
-    assert "AND NOT project.scene_mode" in migration
-    assert "COALESCE(job.payload ->> 'execution_scope', 'bulk') = 'bulk'" in migration
-    assert "active legacy image " in migration
-    assert "preannotation Jobs lack frozen input identity" in migration
+@pytest.fixture
+async def pre_manifest_database(test_db_url):
+    admin = create_async_engine(test_db_url, poolclass=NullPool)
+    try:
+        async with _owned_database(admin) as (engine, _):
+            config = Config("alembic.ini")
+            url = engine.url.render_as_string(hide_password=False).replace("%", "%%")
+            config.set_main_option("sqlalchemy.url", url)
+            await asyncio.to_thread(command.upgrade, config, "bo0221")
+            yield engine, config
+    finally:
+        await admin.dispose()
 
 
 @pytest.mark.asyncio
-async def test_0222_upgrade_gate_rejects_live_legacy_bulk_image_job(test_engine):
-    path = ROOT / "apps/api/alembic/versions/0222_bulk_image_input_manifests.py"
-    spec = importlib.util.spec_from_file_location("bulk_image_manifest_migration", path)
-    assert spec is not None and spec.loader is not None
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+async def test_0222_upgrade_only_blocks_legacy_active_bulk_image_jobs(
+    pre_manifest_database,
+):
+    engine, config = pre_manifest_database
+    migration = load(MIGRATION.name)
+    version = text("SELECT version_num FROM public.alembic_version")
+    jobs = text("SELECT to_jsonb(job) FROM public.async_jobs AS job ORDER BY job.id")
+    insert_job = text(
+        "INSERT INTO public.async_jobs(id, kind, status, project_id, user_id, payload) "
+        "VALUES (:id, :kind, :status, :project, :actor, :payload)"
+    ).bindparams(bindparam("payload", type_=JSONB))
 
-    async with test_engine.connect() as connection:
-        transaction = await connection.begin()
-        try:
-            async with AsyncSession(bind=connection, expire_on_commit=False) as db:
-                actor_id = await _seed_actor(db)
-                project = await create_project(db, owner_id=actor_id)
-                job_id = uuid4()
-                db.add(
-                    AsyncJob(
-                        id=job_id,
-                        kind="batch_predict",
-                        project_id=project.id,
-                        user_id=actor_id,
-                        status="pending",
-                        celery_task_id=str(job_id),
-                        payload={"execution_scope": "bulk"},
-                        result={},
-                    )
+    def run_upgrade(connection):
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+
+    async with engine.begin() as connection:
+        assert await connection.scalar(version) == "bo0221"
+        actor = uuid4()
+        await connection.execute(
+            text(
+                "INSERT INTO public.users(id, email, name, password_hash, role) "
+                "VALUES (:id, 'manifest-cutover@example.test', 'Cutover actor', "
+                "'test-only', 'super_admin')"
+            ),
+            {"id": actor},
+        )
+        image, scene, video = (uuid4() for _ in range(3))
+        await connection.execute(
+            text(
+                "INSERT INTO public.projects"
+                "(id, display_id, name, type_label, type_key, "
+                "owner_id, data_type, scene_mode) "
+                "VALUES (:id, :name, :name, :type_key, :type_key, :actor, :data_type, :scene)"
+            ),
+            [
+                {
+                    "id": project,
+                    "name": name,
+                    "type_key": type_key,
+                    "actor": actor,
+                    "data_type": data_type,
+                    "scene": scene_mode,
+                }
+                for project, name, type_key, data_type, scene_mode in (
+                    (image, "P-image", "image-det", "image", False),
+                    (scene, "P-scene", "image-det", "image", True),
+                    (video, "P-video", "video-track", "video", False),
                 )
-                await db.flush()
+            ],
+        )
 
-            def run_upgrade(sync_connection):
-                with Operations.context(MigrationContext.configure(sync_connection)):
-                    migration.upgrade()
-
+        bulk = {"execution_scope": "bulk"}
+        for status, payload in (
+            ("pending", bulk),
+            ("running", bulk),
+            ("pending", {}),
+            ("running", {}),
+            ("running", {**bulk, "accepted_input_manifest_protocol": "v0"}),
+        ):
             with pytest.raises(RuntimeError, match="lack frozen input identity"):
-                await connection.run_sync(run_upgrade)
-        finally:
-            await transaction.rollback()
+                async with connection.begin_nested():
+                    await connection.execute(
+                        insert_job,
+                        {
+                            "id": uuid4(),
+                            "kind": "batch_predict",
+                            "status": status,
+                            "project": image,
+                            "actor": actor,
+                            "payload": payload,
+                        },
+                    )
+                    await connection.run_sync(run_upgrade)
+
+        accepted = (
+            ("batch_predict", "completed", image, bulk),
+            ("batch_predict", "failed", image, {}),
+            ("batch_predict", "cancelled", image, bulk),
+            ("batch_predict", "running", image, {"execution_scope": "workbench"}),
+            ("batch_predict", "running", scene, bulk),
+            ("batch_predict", "running", video, bulk),
+            ("export", "pending", image, bulk),
+            (
+                "batch_predict",
+                "running",
+                image,
+                {
+                    **bulk,
+                    "accepted_input_manifest_protocol": "aap-assets-input-manifest/v1",
+                },
+            ),
+        )
+        await connection.execute(
+            insert_job,
+            [
+                {
+                    "id": uuid4(),
+                    "kind": kind,
+                    "status": status,
+                    "project": project,
+                    "actor": actor,
+                    "payload": payload,
+                }
+                for kind, status, project, payload in accepted
+            ],
+        )
+        before = (await connection.scalars(jobs)).all()
+        assert len(before) == len(accepted)
+
+    await asyncio.to_thread(command.upgrade, config, "bo0222")
+    async with engine.connect() as connection:
+        assert await connection.scalar(version) == "bo0222"
+        assert (await connection.scalars(jobs)).all() == before
+        for table in TABLES:
+            assert await connection.scalar(
+                text("SELECT to_regclass(:relation) IS NOT NULL"),
+                {"relation": f"public.{table}"},
+            )

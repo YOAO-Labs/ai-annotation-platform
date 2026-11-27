@@ -230,6 +230,7 @@ async def test_image_scope_blocks_only_its_dataset_and_fences_rebinding(worker_d
     from sqlalchemy import text
     from sqlalchemy.exc import DBAPIError
 
+    from app.db.models.dataset import Dataset
     from app.db.models.fixture_run import FixtureRun
     from app.services import fixture_run_ownership as ownership
 
@@ -238,6 +239,14 @@ async def test_image_scope_blocks_only_its_dataset_and_fences_rebinding(worker_d
     own_run, neighbor_run, neighbor_dataset = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     db.add_all(
         [
+            Dataset(
+                id=neighbor_dataset,
+                display_id=f"nbr-{neighbor_dataset.hex[:12]}",
+                name="Neighbor originals",
+                data_type="image",
+                created_by=project.owner_id,
+                metadata_={},
+            ),
             FixtureRun(id=own_run, family="scale"),
             FixtureRun(id=neighbor_run, family="scale"),
         ]
@@ -255,6 +264,13 @@ async def test_image_scope_blocks_only_its_dataset_and_fences_rebinding(worker_d
         published=True,
     )
     await ownership.seal(db, neighbor_run, family="scale")
+    assert (
+        await db.scalar(
+            text("SELECT yoao_assets_v1.seal_fixture_run_without_media(:run)"),
+            {"run": neighbor_run},
+        )
+        is True
+    )
     await db.commit()
 
     job_id, receipt, _ = await request(db, project)

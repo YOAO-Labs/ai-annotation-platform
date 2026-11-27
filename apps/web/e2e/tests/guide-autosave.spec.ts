@@ -72,6 +72,21 @@ test.describe("guide autosave", () => {
     await commitChineseInput(page, fixture.body, fixture.read);
     await expect.poll(fixture.read).toContain("停止输入后自动保存的规则规范");
 
+    const project = `**/api/v1/projects/${fixture.project_id}`;
+    await page.route(project, (route) =>
+      route.request().method() === "PATCH"
+        ? route.fulfill({ status: 503, json: { detail: "save unavailable" } })
+        : route.continue(),
+    );
+    await fixture.body.fill("失败后保留的规则");
+    await expect(page.getByTestId("guide-save-status")).toContainText("保存失败");
+    await expect(fixture.body).toBeFocused();
+    await expect(fixture.body).toHaveText("失败后保留的规则");
+    expect(await fixture.read()).toContain("停止输入后自动保存的规则规范");
+    await page.unroute(project);
+    await page.getByRole("button", { name: "重试保存", exact: true }).click();
+    await expect.poll(fixture.read).toContain("失败后保留的规则");
+
     await fixture.editor.getByRole("tab", { name: "源码", exact: true }).click();
     const source = fixture.editor.locator(".cm-content:visible");
     await source.fill("# 源码也自动保存\n\n保留这一条规则。");
@@ -124,41 +139,6 @@ test.describe("guide autosave", () => {
       "text-align",
       "right",
     );
-    expect(fixture.errors).toEqual([]);
-  });
-
-  test("a failed automatic save keeps the draft and waits for an explicit retry", async ({
-    page,
-    request,
-    seed,
-  }) => {
-    const fixture = await prepare(page, request, seed);
-    let writes = 0;
-    let reject = true;
-    await page.route(`**/api/v1/projects/${fixture.project_id}`, (route) => {
-      if (route.request().method() !== "PATCH") return route.continue();
-      writes += 1;
-      if (!reject) return route.continue();
-      return route.fulfill({
-        status: 503,
-        contentType: "application/json",
-        body: '{"detail":"automatic save unavailable"}',
-      });
-    });
-    await fixture.body.fill("失败后保留的最新规则");
-    await expect(page.getByTestId("guide-save-status")).toContainText("保存失败", {
-      timeout: 8_000,
-    });
-    await expect(fixture.body).toBeFocused();
-    await expect(fixture.body).toHaveText("失败后保留的最新规则");
-    expect(await fixture.read()).toBe("原有规则");
-    await page.waitForTimeout(1_500);
-    expect(writes).toBe(1);
-    reject = false;
-    await page.getByRole("button", { name: "重试保存", exact: true }).click();
-    await expect.poll(fixture.read).toContain("失败后保留的最新规则");
-    await expect(page.getByTestId("guide-save-status")).toHaveText("已保存");
-    expect(writes).toBe(2);
     expect(fixture.errors).toEqual([]);
   });
 

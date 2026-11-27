@@ -21,11 +21,11 @@ from app.services import export_media_transfer as transfer
 from app.services import storage_access
 from app.services import storage_usage_accounting as usage
 from app.services.content_snapshot import ContentError
-from tests import test_export_media_retirement as retirement_tests
+from tests import live_provider_guard
+from tests import test_export_media_bundle_models as models
+from tests.export_worker_native_fixtures import worker_db as worker_db
 from tests.test_export_media_removal_accounting import Provider
-
-gc_db = retirement_tests.gc_db
-owner = retirement_tests.owner
+from tests.test_export_media_retirement import database_owner, owner
 
 
 @pytest.fixture
@@ -259,13 +259,13 @@ async def mutations(db, owner_id):
 
 
 async def database_case(db, monkeypatch, *, count=1):
-    values = retirement_tests.model_tests._values()
+    values = models._values()
     if count == 2:
         values["inventory"]["objects"][
             physical.prefix_for(values["id"]) + str(uuid.uuid4()) + ".bin"
         ] = {"sha256": "b" * 64, "size_bytes": 11}
         values["object_count"], values["size_bytes"] = 2, 22
-    row = await retirement_tests.database_owner(db, **values)
+    row = await database_owner(db, **values)
     await db.commit()
     client = Provider(endpoint=row.storage_ref["endpoint_url"])
     client.close_count, client.close_failure = 0, None
@@ -311,9 +311,10 @@ async def database_case(db, monkeypatch, *, count=1):
 
 
 async def test_database_partial_delete_preserves_earlier_confirmed_fact(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    row, client = await database_case(gc_db, monkeypatch, count=2)
+    db = worker_db
+    row, client = await database_case(db, monkeypatch, count=2)
     owner_id = row.id
     original = client.delete_object
 
@@ -322,19 +323,20 @@ async def test_database_partial_delete_preserves_earlier_confirmed_fact(
         return original(**params)
 
     client.delete_object = lost_second_ack
-    assert await retirement.cleanup(gc_db) == {"deleted": 0, "retained": 0, "failed": 1}
-    facts = await mutations(gc_db, owner_id)
+    assert await retirement.cleanup(db) == {"deleted": 0, "retained": 0, "failed": 1}
+    facts = await mutations(db, owner_id)
     assert len(facts) == 2
     assert [
         (fact.state, fact.physical_outcome, fact.current_delta_bytes) for fact in facts
     ] == [("confirmed", "deleted", -11), ("unknown", "unknown", None)]
-    await gc_db.refresh(row)
+    await db.refresh(row)
     assert row.state == "retiring" and row.inventory and client.close_count == 1
-    assert await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 0
+    assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 0
 
 
-async def test_database_postguard_failure_keeps_physical_fact(gc_db, monkeypatch):
-    row, client = await database_case(gc_db, monkeypatch)
+async def test_database_postguard_failure_keeps_physical_fact(worker_db, monkeypatch):
+    db = worker_db
+    row, client = await database_case(db, monkeypatch)
     owner_id = row.id
     original = retirement._guard
     guards = 0
@@ -348,23 +350,24 @@ async def test_database_postguard_failure_keeps_physical_fact(gc_db, monkeypatch
             raise ContentError("changed_after_delete")
 
     monkeypatch.setattr(retirement, "_guard", changed)
-    assert (await retirement.cleanup(gc_db))["failed"] == 1
-    (fact,) = await mutations(gc_db, owner_id)
+    assert (await retirement.cleanup(db))["failed"] == 1
+    (fact,) = await mutations(db, owner_id)
     assert (fact.state, fact.physical_outcome, fact.current_delta_bytes) == (
         "confirmed",
         "deleted",
         -11,
     )
-    await gc_db.refresh(row)
+    await db.refresh(row)
     assert row.state == "retiring" and guards == 2
-    assert await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 0
+    assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 0
 
 
 @pytest.mark.parametrize("resource", ["client", "permit"])
 async def test_database_unknown_close_keeps_physical_fact_without_delta(
-    gc_db, monkeypatch, resource
+    worker_db, monkeypatch, resource
 ):
-    row, client = await database_case(gc_db, monkeypatch)
+    db = worker_db
+    row, client = await database_case(db, monkeypatch)
     owner_id = row.id
     if resource == "client":
         client.close_failure = OSError("client_close_failed")
@@ -375,29 +378,30 @@ async def test_database_unknown_close_keeps_physical_fact_without_delta(
             raise OSError("permit_close_failed")
 
         monkeypatch.setattr(storage_access.Permit, "_settle", fail)
-    assert (await retirement.cleanup(gc_db))["failed"] == 1
-    (fact,) = await mutations(gc_db, owner_id)
+    assert (await retirement.cleanup(db))["failed"] == 1
+    (fact,) = await mutations(db, owner_id)
     assert (fact.state, fact.physical_outcome, fact.current_delta_bytes) == (
         "unknown",
         "deleted",
         None,
     )
     assert client.close_count == 1
-    assert await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 1
-    await gc_db.refresh(row)
+    assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 1
+    await db.refresh(row)
     assert row.state == "retiring" and row.inventory
-    assert await retirement.cleanup(gc_db) == {"deleted": 0, "retained": 0, "failed": 0}
+    assert await retirement.cleanup(db) == {"deleted": 0, "retained": 0, "failed": 0}
 
 
 async def test_database_ordinary_publication_failure_keeps_business_success(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    row, client = await database_case(gc_db, monkeypatch)
+    db = worker_db
+    row, client = await database_case(db, monkeypatch)
     owner_id = row.id
 
     async def unavailable(*args, **kwargs):
         assert client.close_count == 1
-        async with async_sessionmaker(gc_db.bind)() as check:
+        async with async_sessionmaker(db.bind)() as check:
             assert (
                 await check.scalar(select(func.count()).select_from(StorageOperation))
                 == 0
@@ -405,17 +409,18 @@ async def test_database_ordinary_publication_failure_keeps_business_success(
         raise OSError("publication_unavailable")
 
     monkeypatch.setattr(usage, "publish", unavailable)
-    assert (await retirement.cleanup(gc_db))["deleted"] == 1
-    (fact,) = await mutations(gc_db, owner_id)
+    assert (await retirement.cleanup(db))["deleted"] == 1
+    (fact,) = await mutations(db, owner_id)
     assert fact.state == "pending" and fact.current_delta_bytes is None
-    await gc_db.refresh(row)
+    await db.refresh(row)
     assert row.state == "deleted"
 
 
 async def test_database_publication_cancellation_drains_real_recorder(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    row, client = await database_case(gc_db, monkeypatch)
+    db = worker_db
+    row, client = await database_case(db, monkeypatch)
     owner_id = row.id
     entered, release = asyncio.Event(), asyncio.Event()
     original = usage.publish
@@ -427,7 +432,7 @@ async def test_database_publication_cancellation_drains_real_recorder(
         return await original(*args, **kwargs)
 
     monkeypatch.setattr(usage, "publish", blocked)
-    pending = asyncio.create_task(retirement.cleanup(gc_db))
+    pending = asyncio.create_task(retirement.cleanup(db))
     try:
         await asyncio.wait_for(entered.wait(), 5)
         pending.cancel()
@@ -435,36 +440,38 @@ async def test_database_publication_cancellation_drains_real_recorder(
         pending.cancel()
         await asyncio.sleep(0)
         assert not pending.done()
-        assert (
-            await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 0
-        )
+        assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 0
     finally:
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await pending
-    (fact,) = await mutations(gc_db, owner_id)
+    (fact,) = await mutations(db, owner_id)
     assert (fact.state, fact.physical_outcome, fact.current_delta_bytes) == (
         "confirmed",
         "deleted",
         -11,
     )
-    await gc_db.refresh(row)
+    await db.refresh(row)
     assert row.state == "retiring" and client.close_count == 1
 
 
 async def test_real_minio_bundle_retires_versions_through_production_owner(
-    gc_db, monkeypatch
+    worker_db, monkeypatch
 ):
-    values = retirement_tests.model_tests._values()
-    ref = physical.make_ref(values["id"], bucket=settings.minio_export_bucket)
+    db = worker_db
+    bucket = live_provider_guard.owned_bucket(
+        settings.minio_export_bucket, purpose="export"
+    )
+    values = models._values()
+    ref = physical.make_ref(values["id"], bucket=bucket)
     values["storage_ref"] = ref
     row = Bundle(**values)
-    gc_db.add(row)
-    await gc_db.commit()
+    db.add(row)
+    await db.commit()
     owner_id = row.id
     (key,) = row.inventory["objects"]
     seed = physical.create_client()
-    factory = async_sessionmaker(gc_db.bind, expire_on_commit=False)
+    factory = async_sessionmaker(db.bind, expire_on_commit=False)
     loop = asyncio.get_running_loop()
     original_create, original_publish = physical.create_client, usage.publish
     closed = []
@@ -521,12 +528,12 @@ async def test_real_minio_bundle_retires_versions_through_production_owner(
         assert len(versions) == 2 and "null" not in versions
         monkeypatch.setattr(physical, "create_client", tracked)
         monkeypatch.setattr(usage, "publish", publish)
-        assert await retirement.cleanup(gc_db) == {
+        assert await retirement.cleanup(db) == {
             "deleted": 1,
             "retained": 0,
             "failed": 0,
         }
-        facts = await mutations(gc_db, owner_id)
+        facts = await mutations(db, owner_id)
         assert len(facts) == 2 and {fact.expected_version for fact in facts} == versions
         assert all(
             fact.state == "confirmed" and fact.physical_outcome == "deleted"
@@ -534,10 +541,8 @@ async def test_real_minio_bundle_retires_versions_through_production_owner(
         )
         assert sum(fact.current_delta_bytes for fact in facts) == -11
         assert all(fact.evidence["final_send_count"] == 1 for fact in facts)
-        assert (
-            await gc_db.scalar(select(func.count()).select_from(StorageOperation)) == 0
-        )
-        await gc_db.refresh(row)
+        assert await db.scalar(select(func.count()).select_from(StorageOperation)) == 0
+        await db.refresh(row)
         assert row.state == "deleted" and row.inventory
         response = seed.list_object_versions(Bucket=ref["bucket"], Prefix=key)
         assert not response.get("Versions") and not response.get("DeleteMarkers")

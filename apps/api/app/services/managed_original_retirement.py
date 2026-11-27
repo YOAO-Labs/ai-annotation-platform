@@ -14,16 +14,10 @@ from sqlalchemy.dialects.postgresql import insert
 from app.config import settings
 from app.db.models.dataset import Dataset
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
-from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_lifecycle_data import original_json
 from app.services.storage import storage_service
-
-
-def managed_storage_identity(endpoint_url, bucket):
-    """Match the existing full-cache physical identity recipe."""
-    return hashlib.sha256(
-        json.dumps([endpoint_url.rstrip("/"), bucket]).encode()
-    ).hexdigest()
+from app.services.storage_identity import LEGACY_LOCATION_ID
+from app.services.storage_identity import managed_storage_identity
 
 
 def _identity_evidence(row):
@@ -172,7 +166,7 @@ async def capture_managed_original_retirements(
             assertions = [await _saved_assertion(db, row) for row in rows]
             if fixture_run_id is not None:
                 from app.db.models.fixture_run import FixtureRunResource
-                from app.services.content_snapshot import ContentError
+                from app.services.content_errors import ContentError
 
                 for assertion in assertions:
                     creation_id = assertion["creation_id"]
@@ -234,10 +228,10 @@ async def capture_fixture_auxiliary_retirements(db, *, dataset_id, fixture_run_i
     from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
     from app.db.models.fixture_run import FixtureAuxiliaryIntent
     from app.db.models.managed_original_creation import ManagedOriginalCreation
-    from app.services import dataset_storage
-    from app.services.content_snapshot import ContentError
-    from app.services.fixture_run_ownership import _require_settled_original_receipt
     from app.db.models.storage_maintenance import StorageOperation
+    from app.services import dataset_storage
+    from app.services.content_errors import ContentError
+    from app.services.fixture_original_scope import _require_settled_original_receipt
     from app.services.managed_original_reclaim_fence import shared
 
     dataset = await db.get(Dataset, dataset_id, with_for_update=True)

@@ -34,7 +34,7 @@ from app.services.labeling_core_read_relations import (
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_contracts import IdentityActorStatus
 from app.schemas.video_tracker_job import VideoMaskCorrectionRequest
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.mask_repair import (
     canonical_digest,
     execute_repair_shard,

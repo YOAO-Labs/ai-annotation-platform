@@ -28,7 +28,7 @@ from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
 from app.config import settings
 from app.schemas.training_preview import TrainingPreviewOut, TrainingPreviewReport
 from app.schemas.training_run import ExecutorFence, TrainingRunCreate
-from app.services import async_job as jobs, training_runs as training
+from app.services import jobs_lifecycle_data as jobs, training_runs as training
 from app.services import training_adapters as adapters
 from app.services import training_dataset_data as datasets
 from app.services import training_preview_data as data
@@ -239,14 +239,11 @@ async def create(db, project, user, body, api_key_id):
         configuration=body.configuration,
         request_id=body.request_id,
     )
-    config = await training.frozen_config(
+    config, version = await training.frozen_inputs(
         db, project.id, run_body, observe_members=False
     )
     try:
         validate_request(config, body.seed, body.epoch, body.count)
-        version = await datasets.read_version(
-            db, body.dataset_id, project_id=project.id
-        )
         sources, summary = select_sources(version, body.seed)
     except (ValueError, TrainingDatasetError) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

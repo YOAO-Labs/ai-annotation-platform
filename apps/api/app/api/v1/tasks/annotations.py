@@ -72,10 +72,8 @@ from app.services.annotation_conversion import (
 )
 from app.services.ml_backend import MLBackendService
 from app.services.pipeline_validation import check_capability_violations
-from app.services.raster_mask_storage import (
-    RasterMaskContractError,
-    preflight_mask_payload_for_write,
-)
+from app.services.raster_mask_storage import RasterMaskContractError
+from app.services.raster_mask_validation import preflight_mask_payload_for_write
 from app.services.labeling_write_scope import (
     capture_task_source_binding,
     task_source_binding_matches,
@@ -214,7 +212,7 @@ async def get_neighbor_annotations(
     await task_access.assert_task_visible(db, task, current_user.id)
 
     try:
-        neighbors = await get_neighbors_for_task(db, task_id=task_id, k=k)
+        neighbors = await get_neighbors_for_task(db, task=task, k=k)
     except SceneFrameIndexInconsistent as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

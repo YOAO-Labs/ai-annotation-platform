@@ -20,7 +20,10 @@ from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from tests.test_export_media_storage import Client, RAW
 from tests.test_managed_original_reader import Provider
-from tests.test_storage_usage_accounting import accounting_factory as accounting_factory
+from tests.write_accounting_fixtures import (
+    accounting_factory as accounting_factory,
+    write_accounting_databases as write_accounting_databases,
+)
 
 
 class BaseLimit(BaseException):

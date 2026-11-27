@@ -611,7 +611,9 @@ def test_prepare_assets_rejects_missing_or_shell_injected_label(monkeypatch, tmp
 
 
 def test_plugin_deployment_modules_have_no_framework_hardcodings():
-    sdk_src = Path(__file__).resolve().parents[1] / "src" / "yoao"
+    import yoao.container_runtime as runtime_module
+
+    sdk_src = Path(runtime_module.__file__).resolve().parent
     repo_root = Path(__file__).resolve().parents[3]
     targets = [
         sdk_src / "container_runtime.py",

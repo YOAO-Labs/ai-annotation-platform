@@ -133,7 +133,7 @@ def relations(kind, row):
                 and_(
                     Attempt.resume_from_id == node_id,
                     Attempt.run_id == row.get("run_id"),
-                    Attempt.ordinal > row.get("ordinal", 0),
+                    Attempt.ordinal > (row.get("ordinal") or 0),
                 ),
             ),
             "models": (

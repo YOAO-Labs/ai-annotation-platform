@@ -8,7 +8,7 @@ from alembic.operations import Operations
 import pytest
 from sqlalchemy import text
 
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from tests.test_dataset_content import content_world as content_world
 from tests.migration_helpers import bind, historical_schema, load, relation
 

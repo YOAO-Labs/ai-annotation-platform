@@ -1015,7 +1015,7 @@ async def retire(
     db: AsyncSession = Depends(get_db),
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    from app.services import trained_models
+    from app.services import learning_registry_usage
 
     installation = await _installation(db, installation_id)
     topology = InferenceTopologyData(db)
@@ -1023,7 +1023,7 @@ async def retire(
         raise HTTPException(
             status_code=404, detail={"error_code": "plugin_installation_not_found"}
         )
-    usage = await trained_models.registry_usage(db, installation.registry_id)
+    usage = await learning_registry_usage.registry_usage(db, installation.registry_id)
     if usage.active_releases or usage.frozen_executions:
         raise HTTPException(
             status_code=409,
@@ -1055,7 +1055,7 @@ async def cancel_prepared(
     db: AsyncSession = Depends(get_db),
     admin: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    from app.services import trained_models
+    from app.services import learning_registry_usage
 
     installation = await _installation(db, installation_id)
     topology = InferenceTopologyData(db)
@@ -1063,7 +1063,7 @@ async def cancel_prepared(
         raise HTTPException(
             status_code=404, detail={"error_code": "plugin_installation_not_found"}
         )
-    usage = await trained_models.registry_usage(db, installation.registry_id)
+    usage = await learning_registry_usage.registry_usage(db, installation.registry_id)
     if usage.active_releases or usage.frozen_executions:
         raise HTTPException(
             status_code=409,

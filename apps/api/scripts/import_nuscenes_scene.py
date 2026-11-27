@@ -566,14 +566,23 @@ async def import_nuscenes(
                 for item in existing_items
                 if item.scene_id == scene.id and item.file_type == "image"
             ]
-            camera_by_frame_channel = {
-                (
-                    item.frame_index,
+
+            def _camera_channel(item) -> str | None:
+                channel = (
                     ((item.metadata or {}).get("nuscenes_export") or {})
                     .get("sensor", {})
-                    .get("channel"),
-                ): item
-                for item in camera_items
+                    .get("channel")
+                )
+                if channel:
+                    return channel
+                rel = (item.metadata or {}).get("storage_relative_path") or ""
+                parts = PurePosixPath(rel).parts
+                if len(parts) >= 3 and parts[1] == "camera":
+                    return parts[2]
+                return None
+
+            camera_by_frame_channel = {
+                (item.frame_index, _camera_channel(item)): item for item in camera_items
             }
             lidar_items = [
                 item
@@ -914,7 +923,6 @@ async def import_nuscenes(
             )
             map_storage_key = map_owner.object_key
             map_sha256 = map_owner.sha256
-            await assets.bind_auxiliary_scene(scene.id, map_owner)
 
             await spatial.set_scene_source(
                 SetSceneSourceRequest(
@@ -941,6 +949,7 @@ async def import_nuscenes(
                 ),
                 same_session_native=True,
             )
+            await assets.bind_auxiliary_scene(scene.id, map_owner)
             observed_items = {
                 item.id: item for item in await assets.read_all_items(ds.id)
             }

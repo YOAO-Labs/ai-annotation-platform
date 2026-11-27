@@ -4,11 +4,12 @@ from datetime import timedelta
 import uuid
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.dataset_source import DatasetSourceItem, DatasetSourcePreview
 from app.db.models.site_agent import AgentCredential, AgentRegistration, Site
+from app.schemas.site_agent import AgentLimits
 from app.services import (
     agent_availability,
     agent_storage,
@@ -37,7 +38,7 @@ async def attach_agent(db, location, actor):
         last_seen=stamp,
         roots=[{"root_handle": "images", "root_revision": 3}],
         limits={},
-        reported_limits={},
+        reported_limits=AgentLimits().model_dump(),
         created_by=actor.id,
     )
     db.add(agent)
@@ -49,13 +50,22 @@ async def attach_agent(db, location, actor):
         expires_at=stamp + timedelta(days=1),
     )
     db.add(credential)
-    location.kind = "agent"
-    location.config = {
-        **location.config,
-        "agent_id": str(agent.id),
-        "root_handle": "images",
-        "root_revision": 3,
-    }
+    current = await db.scalar(
+        select(StorageLocation.config).where(StorageLocation.id == location.id)
+    )
+    await db.execute(
+        update(StorageLocation)
+        .where(StorageLocation.id == location.id)
+        .values(
+            kind="agent",
+            config={
+                **(current or {}),
+                "agent_id": str(agent.id),
+                "root_handle": "images",
+                "root_revision": 3,
+            },
+        )
+    )
     await db.flush()
     return agent, credential, site
 
@@ -139,41 +149,42 @@ async def test_current_heartbeat_credentials_and_bound_root_share_one_projection
     db, world = db_session, content_world
     accepted = await accept_all_files(db, world)
     agent, credential, _ = await attach_agent(db, world[4], world[2])
+    location = await db.get(StorageLocation, world[4].id, populate_existing=True)
     stamp = await db.scalar(select(func.now()))
 
     async def current():
         await db.flush()
-        return (await agent_availability.for_locations(db, [world[4].id]))[world[4].id]
+        return (await agent_availability.for_locations(db, [location.id]))[location.id]
 
     assert (await current())["state"] == "online"
-    assert (await agent_storage.configuration(db, world[4])).location_id == world[4].id
+    assert (await agent_storage.configuration(db, location)).location_id == location.id
     agent.last_seen = stamp - HEARTBEAT_TTL
     assert (await current())["reason_code"] == "agent_offline"
     with pytest.raises(FilesystemStorageError, match="agent_offline"):
-        await agent_storage.configuration(db, world[4])
+        await agent_storage.configuration(db, location)
     agent.last_seen = stamp - HEARTBEAT_TTL + timedelta(microseconds=1)
     assert (await current())["state"] == "online"
     agent.draining = True
     assert (await current())["reason_code"] == "agent_draining"
     with pytest.raises(FilesystemStorageError, match="agent_draining"):
-        await agent_storage.configuration(db, world[4])
+        await agent_storage.configuration(db, location)
     agent.draining = False
     agent.roots = [{"root_handle": "other", "root_revision": 3}]
     assert (await current())["reason_code"] == "agent_root_revision_changed"
     with pytest.raises(FilesystemStorageError, match="agent_root_revision_changed"):
-        await agent_storage.configuration(db, world[4])
+        await agent_storage.configuration(db, location)
     agent.roots = [{"root_handle": "images", "root_revision": 2}]
     assert (await current())["reason_code"] == "agent_root_revision_changed"
     agent.roots = [{"root_handle": "images", "root_revision": 3}]
     credential.expires_at = stamp
     assert (await current())["reason_code"] == "credential_expired"
     with pytest.raises(FilesystemStorageError, match="credential_expired"):
-        await agent_storage.configuration(db, world[4])
+        await agent_storage.configuration(db, location)
     credential.expires_at = stamp + timedelta(days=1)
     agent.revoked_at = stamp
     assert (await current())["reason_code"] == "agent_revoked"
     with pytest.raises(FilesystemStorageError, match="agent_revoked"):
-        await agent_storage.configuration(db, world[4])
+        await agent_storage.configuration(db, location)
 
     observations = dataset_workbench.observations(
         world[3].id,
@@ -184,9 +195,10 @@ async def test_current_heartbeat_credentials_and_bound_root_share_one_projection
     projected = dataset_workbench.availability(hidden)
     assert projected["agent_status"] is None
     assert projected["source_name"] is None
-    world[4].kind = "filesystem"
-    world[4].config = {**world[4].config, "agent_id": "not-a-uuid"}
-    assert await agent_availability.for_locations(db, [world[4].id]) == {}
+    location.kind = "filesystem"
+    location.config = {**location.config, "agent_id": "not-a-uuid"}
+    await db.flush()
+    assert await agent_availability.for_locations(db, [location.id]) == {}
 
 
 async def test_ready_same_content_cache_is_still_readable_with_offline_agent(

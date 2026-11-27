@@ -247,15 +247,19 @@ def test_json_structure_and_nonfinite_are_bounded(monkeypatch, raw):
 async def test_authorized_final_reader_is_independent_of_registration_and_current_attempt(
     db_session, httpx_client, super_admin, annotator, monkeypatch
 ):
+    from tests.training_consumer_fixtures import mock_legacy_transport
+
     owner, token = super_admin
     project, dataset = await ready_dataset(db_session, owner)
     data, _ = await create_run(httpx_client, token, project, dataset)
     run = await db_session.get(TrainingRun, uuid.UUID(data["id"]))
     attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
     report, _, _, _, _ = evidence()
+    report["evaluation"]["version"] = run.config["framework_version"]
     report["comparison"]["config_digest"] = run.config_digest
     report["comparison"]["benchmark"]["classes"] = report["per_class"] = []
     report["comparison"]["benchmark"]["classes"] = run.config["classes"]
+    report["comparison"]["evaluator"]["version"] = run.config["framework_version"]
     report["comparison"]["evaluator"]["options"]["imgsz"] = 640
     raw = json.dumps(report).encode()
     attempt.status = run.status = "succeeded"
@@ -279,6 +283,7 @@ async def test_authorized_final_reader_is_independent_of_registration_and_curren
     await db_session.flush()
     run.current_attempt_id = second.id
     await db_session.commit()
+    mock_legacy_transport(monkeypatch)
     monkeypatch.setattr(
         artifacts.storage.client,
         "get_object",

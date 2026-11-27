@@ -331,6 +331,24 @@ async def test_video_decision_refuses_existing_editor_without_waiting(
         )
 
 
+async def test_frame_prediction_refuses_sustained_http_video_reader(video_task):
+    from app.api.v1.ml_backends import _reacquire_write_boundary
+
+    sessions, actor, task, _, _ = video_task
+    async with sessions() as reader, sessions() as writer:
+        await _http_authority(reader, task, actor)
+        await writer.execute(text("SET LOCAL lock_timeout = '0'"))
+        with pytest.raises(HTTPException) as busy:
+            async with asyncio.timeout(3):
+                await _reacquire_write_boundary(
+                    writer, task.id, actor, video_decision_project_id=task.project_id
+                )
+        assert (busy.value.status_code, busy.value.detail) == (
+            409,
+            {"reason": "task_busy"},
+        )
+
+
 async def test_video_decision_rejects_changed_task_after_media_reader_releases_it(
     video_task,
 ):

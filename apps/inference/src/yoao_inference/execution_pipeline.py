@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -196,6 +197,12 @@ def _failure_fact(exc: Exception, stage: int) -> dict[str, Any] | None:
             failure.observation.to_wire() if failure.observation is not None else None
         ),
     }
+
+
+class _ChildDispatchStopped(Exception):
+    def __init__(self, reason: Exception) -> None:
+        self.reason = reason
+        super().__init__(type(reason).__name__)
 
 
 class NativeMaskChildOutputUnsupported(ValueError):
@@ -494,11 +501,32 @@ async def execute_task_pipeline(
         if before_dispatch is not None:
 
             async def boundary(dispatch, _stage=stage_number):
-                await before_dispatch(_stage, dispatch)
+                try:
+                    await before_dispatch(_stage, dispatch)
+                except Exception as exc:
+                    if stage_index == 0:
+                        raise
+                    raise _ChildDispatchStopped(exc) from exc
 
-        operation = await model_ports[stage_index].execute(
-            operation_request, before_dispatch=boundary
+        pending = asyncio.create_task(
+            model_ports[stage_index].execute(
+                operation_request, before_dispatch=boundary
+            )
         )
+        cancelled: asyncio.CancelledError | None = None
+        while not pending.done():
+            try:
+                await asyncio.shield(pending)
+            except asyncio.CancelledError as exc:
+                if cancelled is None:
+                    cancelled = exc
+        if cancelled is not None:
+            try:
+                pending.result()
+            except BaseException:
+                pass
+            raise cancelled
+        operation = pending.result()
         if validate_results is not None:
             validated = await validate_results(stage_number, operation, context)
             if validated is not None:
@@ -653,6 +681,8 @@ async def execute_task_pipeline(
                     stage_outputs[stage_number] = shapes
                     if target == "geometry":
                         new_shapes.extend(shapes)
+                except _ChildDispatchStopped as stop:
+                    raise stop.reason from None
                 except Exception as exc:
                     stats[stage_number]["failed"] += len(geo.prompts)
                     stage_outputs[stage_number] = []
@@ -771,6 +801,8 @@ async def execute_task_pipeline(
                     stage_outputs[stage_number] = produced
                     if target == "geometry":
                         new_shapes.extend(produced)
+            except _ChildDispatchStopped as stop:
+                raise stop.reason from None
             except Exception as exc:
                 stats[stage_number]["failed"] += len(targeted)
                 stage_errors.append(

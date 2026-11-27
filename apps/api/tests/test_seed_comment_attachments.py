@@ -5,11 +5,13 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
+import os
 import threading
 from types import SimpleNamespace
 import uuid
 
 import pytest
+
 from sqlalchemy import delete, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -36,6 +38,15 @@ from tests.seed_owner_support import (
     _read_versions,
     fixture_original_reader,
 )
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 
 from app.db.models.async_job import AsyncJob
 from app.schemas.async_job import AsyncJobOut
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_job_progress as progress
 
 
@@ -146,8 +146,14 @@ async def test_generic_percentage_running_and_lease_payload_are_not_progress(
 async def test_backwards_database_clock_never_replaces_future_fact(db_session):
     job = await running(db_session)
     assert await observe(db_session, job)
-    job.last_progress_at = datetime.now(timezone.utc) + timedelta(days=1)
-    await db_session.flush()
+    future_at = datetime.now(timezone.utc) + timedelta(days=1)
+    await db_session.execute(
+        update(AsyncJob)
+        .where(AsyncJob.id == job.id)
+        .values(last_progress_at=future_at)
+        .execution_options(synchronize_session=False)
+    )
+    await db_session.refresh(job)
     old = (job.last_progress_at, copy.deepcopy(job.progress_observation))
     assert not await observe(db_session, job, marker="later")
     assert (job.last_progress_at, job.progress_observation) == old

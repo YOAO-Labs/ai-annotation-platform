@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import uuid
 
 import pytest
+from sqlalchemy import update
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
@@ -20,7 +21,11 @@ async def test_summary_scopes_counts_and_jobs_across_source_pages(
     db = db_session
     world, actor = managed_world
     location, source, run = world[4:7]
-    location.config = {**location.config, "scope": "global"}
+    await db.execute(
+        update(StorageLocation)
+        .where(StorageLocation.id == location.id)
+        .values(config={**location.config, "scope": "global"})
+    )
     source.enabled = False
     source.unregistered_at = datetime.now(timezone.utc)
     for index in range(21):
@@ -123,7 +128,11 @@ async def test_summary_retains_orphan_history_only_for_superadmin(
     world, _ = managed_world
     source, run = world[5:7]
     source.dataset_id = None
-    world[4].enabled = False
+    await db_session.execute(
+        update(StorageLocation)
+        .where(StorageLocation.id == world[4].id)
+        .values(enabled=False)
+    )
     await db_session.commit()
     url = f"/api/v1/storage-locations/{world[4].id}/source-summary"
     admin = (await httpx_client.get(url, headers=headers(super_admin))).json()
@@ -144,7 +153,11 @@ async def test_summary_rechecks_current_authority(
         await httpx_client.get(url, headers=headers(project_admin))
     ).status_code == 200
     if revocation == "grant":
-        world[4].config = {**world[4].config, "use_user_ids": []}
+        await db_session.execute(
+            update(StorageLocation)
+            .where(StorageLocation.id == world[4].id)
+            .values(config={**world[4].config, "use_user_ids": []})
+        )
     elif revocation == "role":
         actor.role = "employee"
     else:
@@ -234,7 +247,11 @@ async def test_active_registration_is_source_scoped_even_after_a_newer_scan(
     run.status = "completed"
     await db_session.commit()
     assert (await httpx_client.get(url, headers=headers(project_admin))).json() is None
-    world[4].config = {**world[4].config, "use_user_ids": []}
+    await db_session.execute(
+        update(StorageLocation)
+        .where(StorageLocation.id == world[4].id)
+        .values(config={**world[4].config, "use_user_ids": []})
+    )
     await db_session.commit()
     assert (
         await httpx_client.get(url, headers=headers(project_admin))

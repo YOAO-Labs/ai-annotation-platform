@@ -1,6 +1,5 @@
 """Ordinary consumer selectors and reviewed managed-target probe admission."""
 
-from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import text
@@ -10,18 +9,11 @@ from yoao_assets_source.saved_io import (
     READ_WRITE_SCOPES,
     SavedIOClient,
     SavedIOError,
-    valid_token,
 )
 
-from app.config import settings
+from app.config import assets_source_scoped_token, settings
 from app.services import storage_access
 
-_TOKEN_ATTRIBUTES = {
-    **{
-        access: f"assets_source_saved_io_{access}_token" for access in READ_WRITE_SCOPES
-    },
-    "connections": "assets_source_connections_token",
-}
 _BEGIN_PROBE = text("""
     SELECT yoao_assets_v1.begin_saved_binding_probe(
         CAST(:operation AS uuid), CAST(:actor AS uuid), CAST(:key AS uuid),
@@ -31,38 +23,12 @@ _BEGIN_PROBE = text("""
 """)
 
 
-def source_token(access: str) -> str:
-    tokens = {}
-    for scope, name in _TOKEN_ATTRIBUTES.items():
-        value = getattr(settings, name)
-        filename = getattr(settings, f"{name}_file")
-        if value and filename:
-            raise SavedIOError("source_unavailable", status_code=503)
-        if filename:
-            try:
-                value = Path(filename).read_text(encoding="utf-8").strip()
-            except (OSError, UnicodeError):
-                raise SavedIOError("source_unavailable", status_code=503) from None
-            if not value:
-                raise SavedIOError("source_unavailable", status_code=503)
-        if value:
-            if not valid_token(value):
-                raise SavedIOError("source_unavailable", status_code=503)
-            tokens[scope] = value
-    if (
-        len(set(tokens.values())) != len(tokens)
-        or settings.assets_source_token in tokens.values()
-    ):
-        raise SavedIOError("source_unavailable", status_code=503)
-    return tokens.get(access, "")
-
-
 def saved_io_client(access, *, timeout=None) -> SavedIOClient:
     if access not in READ_WRITE_SCOPES:
         raise ValueError("Invalid ordinary Source access scope")
     return SavedIOClient(
         settings.assets_source_url,
-        source_token(access),
+        assets_source_scoped_token(access),
         timeout=settings.assets_source_timeout_seconds if timeout is None else timeout,
     )
 

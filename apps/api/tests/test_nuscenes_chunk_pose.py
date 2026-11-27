@@ -28,10 +28,12 @@ from scripts.import_nuscenes_scene import import_nuscenes
 from tests.factory import create_project
 from tests.test_import_nuscenes_lite import (
     _FakeS3Client,
+    _restore_lite_actors as _restore_lite_actors,
     _use_distinct_sensor_files,
     _write_fake_nuscenes,
-    db_session as db_session,
     controlled_transport as controlled_transport,
+    db_session as db_session,
+    super_admin as super_admin,
 )
 
 

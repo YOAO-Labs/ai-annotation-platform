@@ -48,7 +48,7 @@ owner、append 和专用删除账号不因此扩权。没有新 JSON 协议、�
 项目锁。Node 直接使用两种引用锁和现有快照阶段，不经 Python 代理。
 
 其他业务快照和成员集合读取继续按
-[唯一模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)推进。
+[唯一模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)推进。
 本项不代表全部 Project 消费者或完整 Workspace 工件／凭据／恢复验收完成。
 
 ## Notes

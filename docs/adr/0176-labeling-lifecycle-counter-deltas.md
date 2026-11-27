@@ -60,4 +60,4 @@ autoflush，不添加手动 flush。只将原来返回的计数同步为 committ
 
 完整迁移升降级在独占测试资源内通过。冷工件、备份恢复与容量留到完整模块里程碑；
 本轮不切换日常运行环境、不推送、发布、部署生产或扩展 Go。其余工作仅在
-[唯一台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)继续跟踪。
+[唯一台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)继续跟踪。

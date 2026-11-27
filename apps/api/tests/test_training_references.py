@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import uuid
 
 import pytest
-from sqlalchemy.dialects import postgresql
+from sqlalchemy import text
 
 from app.db.models.training_run import TrainingRun
 from app.db.models.training_preview import TrainingPreview
@@ -64,7 +64,9 @@ async def test_rooted_training_bytes_require_exact_owner_root_endpoint_and_ident
 ):
     index, data, key = saved_case(service_name)
     family = categories.FAMILIES[index]
-    db = SimpleNamespace(execute=AsyncMock(return_value=[(f"ref:{index}", data)]))
+    db = SimpleNamespace(
+        autoflush=False, execute=AsyncMock(return_value=[(f"ref:{index}", data)])
+    )
     wrong_root = key.replace("公司/训练/", "其他/训练/", 1)
     objects = [{"key": key, "size": 7}, {"key": wrong_root, "size": 11}]
     result = await categories.classify(db, "listed-training", objects)
@@ -81,7 +83,9 @@ async def test_a_different_record_cannot_claim_the_same_saved_training_prefix(
 ):
     index, data, key = saved_case(service_name)
     data["project_id"] = str(uuid.uuid4())
-    db = SimpleNamespace(execute=AsyncMock(return_value=[(f"ref:{index}", data)]))
+    db = SimpleNamespace(
+        autoflush=False, execute=AsyncMock(return_value=[(f"ref:{index}", data)])
+    )
     result = await categories.classify(db, "listed-training", [{"key": key, "size": 7}])
     assert result["categories"]["unclassified"] == {"object_count": 1, "size_bytes": 7}
 
@@ -94,7 +98,9 @@ async def test_training_deletion_keeps_its_saved_endpoint_after_business_row_is_
 ):
     _, data, key = saved_case(service_name)
     data = {"storage_ref": data["storage_ref"], "prefix": data["storage_ref"]["prefix"]}
-    db = SimpleNamespace(execute=AsyncMock(return_value=[("training_deletion", data)]))
+    db = SimpleNamespace(
+        autoflush=False, execute=AsyncMock(return_value=[("training_deletion", data)])
+    )
     result = await categories.classify(db, "listed-training", [{"key": key, "size": 7}])
     expected = (
         "training_version"
@@ -108,37 +114,38 @@ async def test_training_deletion_keeps_its_saved_endpoint_after_business_row_is_
 
 
 @pytest.mark.parametrize(
-    "table",
+    "relation",
     [
-        "training_dataset_versions",
-        "training_runs",
-        "training_previews",
-        "sample_evaluation_runs",
-        "active_learning_rounds",
-        "training_storage_deletions",
+        "public.training_dataset_versions",
+        "yoao_learning_v1.training_run_storage_owner",
+        "yoao_learning_v1.training_preview_storage_owner",
+        "yoao_learning_v1.sample_evaluation_storage_owners",
+        "yoao_learning_v1.selection_storage_owners",
+        "public.training_storage_deletions",
     ],
 )
 async def test_location_protection_does_not_drop_a_saved_training_family_by_business_status(
-    table,
+    db_session, relation
 ):
     location = uuid.uuid4()
+    seen = []
 
     async def scalar(query):
-        entity = query.column_descriptions[0]["entity"]
-        if entity.__tablename__ != table:
-            return None
-        sql = str(
-            query.compile(
-                dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
-            )
-        )
-        assert str(location) in sql and "storage_ref" in sql
-        assert "status" not in sql
-        return uuid.uuid4()
+        seen.append(str(query))
+        return True
 
     assert await location_is_referenced(
-        SimpleNamespace(scalar=AsyncMock(side_effect=scalar)), location
+        SimpleNamespace(autoflush=False, scalar=AsyncMock(side_effect=scalar)), location
     )
+    assert seen and "location_storage_referenced" in seen[0]
+    definition = await db_session.scalar(
+        text(
+            "SELECT pg_get_functiondef("
+            "'yoao_assets_storage_v1.location_storage_referenced(uuid)'::regprocedure)"
+        )
+    )
+    line = next(row for row in definition.splitlines() if relation in row)
+    assert "storage_ref" in line and "status" not in line
 
 
 @pytest.mark.parametrize("kind", ["version", "run", "preview", "deletion"])

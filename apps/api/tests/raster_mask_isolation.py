@@ -46,7 +46,18 @@ def track_raster_owners(engine):
             elif isinstance(row, RasterMaskPublication):
                 owned.publications.add(row.id)
 
-    def register_operation(connection, cursor, _statement, _parameters, context, _many):
+    def register_insert(connection, cursor, sql, _parameters, context, _many):
+        if sql.startswith("SELECT yoao_labeling_v1.stage_raster_object("):
+            current(connection).objects.add(context.compiled_parameters[0]["id"])
+            return
+        if sql.startswith("SELECT yoao_labeling_v1.open_raster_publication("):
+            current(connection).publications.add(context.compiled_parameters[0]["id"])
+            return
+        if sql.startswith("SELECT yoao_assets_storage_v1.begin_physical_io("):
+            values = context.compiled_parameters[0]
+            if values["purpose"].startswith("raster_object_"):
+                current(connection).operations.add(values["operation"])
+            return
         compiled = context.compiled
         if compiled is None or not getattr(compiled.statement, "is_insert", False):
             return
@@ -102,7 +113,7 @@ def track_raster_owners(engine):
 
     listeners = (
         ("begin", begin),
-        ("after_cursor_execute", register_operation),
+        ("after_cursor_execute", register_insert),
         ("savepoint", savepoint),
         ("release_savepoint", release_savepoint),
         ("rollback_savepoint", rollback_savepoint),

@@ -336,7 +336,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
 
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
     const stage = page.getByTestId("workbench-stage");
-    await expect(stage).toBeVisible({ timeout: 20_000 });
+    await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 20_000 });
     await page.getByTestId("tool-btn-smart-point").click();
     await openContextToolbar(page, "interactive");
     const output = page.getByTestId("single-frame-output-geometry-select");
@@ -404,7 +404,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
 
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
     const stage = page.getByTestId("workbench-stage");
-    await expect(stage).toBeVisible({ timeout: 20_000 });
+    await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 20_000 });
     await page.getByTestId("tool-btn-smart-point").click();
     const box = await stage.boundingBox();
     if (!box) throw new Error("workbench stage has no bounding box");

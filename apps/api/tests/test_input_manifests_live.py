@@ -346,6 +346,7 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
     from app.db.models.ml_backend_registry import MLBackendRegistry
     from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
     from app.workers.predictions_retry import _do_retry_with_factory
+    from tests.test_batch_result_consumers_native import _runtime_connections
     from tests.test_staged_pipeline_worker import _bbox
 
     caplog.set_level(logging.WARNING, logger="httpx")
@@ -427,11 +428,8 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
         origin = str(runtime.control_client.base_url).rstrip("/")
         monkeypatch.setattr(settings, "assets_media_url", origin)
         monkeypatch.setattr(settings, "assets_media_token", runtime.control_token)
-        monkeypatch.setattr(
-            settings,
-            "database_url",
-            test_engine.url.render_as_string(hide_password=False),
-        )
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
+        _runtime_connections(monkeypatch, runtime)
         monkeypatch.setattr(settings, "ml_backend_storage_host", None)
         model_calls, roi_pixels, legacy_urls = [], [], []
         fail_model = {"enabled": True}
@@ -606,6 +604,9 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
             retained = failed[tasks[1].id].extra["accepted_input"]
             assert retained["sha256"] == sha256(original).hexdigest()
             assert "accepted_input" not in failed[tasks[2].id].extra
+            assert failed[tasks[2].id].error_type == next(
+                member.error for member in page.members if member.task_id == tasks[2].id
+            )
             retained_failure, missing_failure = (
                 failed[tasks[1].id].id,
                 failed[tasks[2].id].id,

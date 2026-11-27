@@ -10,7 +10,7 @@ from unittest.mock import Mock
 
 import pytest
 from PIL import Image
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
@@ -50,67 +50,35 @@ async def seed_published(db, client, admin, monkeypatch):
 
 
 @pytest.fixture
-async def trained_retry_world(managed_worker_world, app_module):
-    """Commit only these retry cases while preserving the ordinary test fixtures."""
+async def trained_retry_world(managed_worker_world, app_module, monkeypatch):
+    """Serve the retry routes from the worker's own disposable database."""
     import httpx
 
     from app.deps import get_db
-    from app.db.models.trained_model import ModelRelease, ProjectModelSelection
-    from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.db.models.training_run import TrainingRun
     from tests.conftest import _create_user
 
-    world = managed_worker_world
-    missing = object()
-    previous = app_module.dependency_overrides.get(get_db, missing)
-    try:
-        async with world.factory() as db:
-            admin = await _create_user(
-                db,
-                "super_admin",
-                f"trained-retry-{uuid.uuid4().hex}@test.local",
-                "Trained retry owner",
-            )
+    async with managed_worker_world.factory() as db:
+        admin = await _create_user(
+            db,
+            "super_admin",
+            f"trained-retry-{uuid.uuid4().hex}@test.local",
+            "Trained retry owner",
+        )
 
-            async def override():
-                yield db
+        async def override():
+            yield db
 
-            app_module.dependency_overrides[get_db] = override
-            try:
-                async with httpx.AsyncClient(
-                    transport=httpx.ASGITransport(app=app_module),
-                    base_url="http://test",
-                ) as client:
-                    yield SimpleNamespace(db=db, client=client, admin=admin)
-            finally:
-                if previous is missing:
-                    app_module.dependency_overrides.pop(get_db, None)
-                else:
-                    app_module.dependency_overrides[get_db] = previous
-                await db.rollback()
-    finally:
-        async with world.factory() as db:
-            versions = select(TrainedModelVersion.id).where(
-                TrainedModelVersion.project_id.in_(world.projects)
-            )
-            for model in (ProjectModelSelection, ModelRelease):
-                await db.execute(
-                    delete(model).where(model.project_id.in_(world.projects))
-                )
-            await db.execute(
-                delete(ModelDeployment).where(
-                    ModelDeployment.model_version_id.in_(versions)
-                )
-            )
-            for model in (TrainedModelVersion, TrainingRun, TrainingDatasetVersion):
-                await db.execute(
-                    delete(model).where(model.project_id.in_(world.projects))
-                )
-            await db.commit()
+        with monkeypatch.context() as patch:
+            patch.setitem(app_module.dependency_overrides, get_db, override)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app_module),
+                base_url="http://test",
+            ) as client:
+                yield SimpleNamespace(db=db, client=client, admin=admin)
 
 
 @pytest.fixture
-async def audited_prediction_world(test_engine, app_module):
+async def audited_prediction_world(managed_database, app_module):
     """Keep immutable audit records until the owned database is removed."""
     import httpx
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -118,11 +86,10 @@ async def audited_prediction_world(test_engine, app_module):
     from app.deps import get_db
     from app.services.dataset_assets import ensure_legacy_bindings
     from tests.conftest import _create_user
-    from tests.managed_image_inference_fixtures import managed_database
 
     missing = object()
     previous = app_module.dependency_overrides.get(get_db, missing)
-    async with managed_database(test_engine.url) as engine:
+    async with managed_database() as engine:
         factory = async_sessionmaker(engine, expire_on_commit=False)
         async with factory() as db:
             await ensure_legacy_bindings(db)
@@ -283,7 +250,7 @@ async def test_controlled_crop_uses_its_frozen_identity(
         del stages[1]["frozen_model_ref"]
     elif reference_state == "stale":
         stages[1]["frozen_model_ref"]["sha256"] = "0" * 64
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = await jobs.create_job(
         db,
@@ -410,7 +377,11 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
 
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.storage_maintenance import StorageOperation
-    from app.services import async_job as jobs, prediction_inputs, prediction_originals
+    from app.services import (
+        jobs_lifecycle_data as jobs,
+        prediction_inputs,
+        prediction_originals,
+    )
     from app.services.prediction_execution import load_snapshot
     from app.workers import predictions_retry
 
@@ -633,14 +604,12 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
                 )
             )
         ).all()
-        assert len(leases) == (1 if child_fails else 2)
+        assert len(leases) == 1
         assert all(
             lease.state == "cleanup_pending" and not lease.uncertain_write
             for lease in leases
         )
-        assert sorted(len(lease.inventory["objects"]) for lease in leases) == (
-            [2] if child_fails else [1, 2]
-        )
+        assert sorted(len(lease.inventory["objects"]) for lease in leases) == [2]
     for lease in leases:
         with monkeypatch.context() as clock:
             next_purge = lease.next_cleanup_at + timedelta(seconds=1)
@@ -704,7 +673,6 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     from app.services import accepted_inputs
     from tests.conftest import _create_user
     from yoao_assets_images.contract import ObjectIdentity
-    from yoao_assets_images_runtime.storage import S3ImageStorage
     from yoao_assets_inputs_runtime.storage import S3InputStorage
     from app.db.models.dataset import DatasetItem
 
@@ -744,15 +712,25 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     async def assert_versioning(_storage):
         return None
 
-    monkeypatch.setattr(S3ImageStorage, "head_source", head_source)
+    from yoao_assets_images_runtime.ordinary_original import OrdinaryImageOriginal
+
+    monkeypatch.setattr(OrdinaryImageOriginal, "head_source", head_source)
     monkeypatch.setattr(S3InputStorage, "assert_versioning", assert_versioning)
     await create_membership(
         db_session, project_id=project.id, user_id=member.id, role="annotator"
     )
     task.assignee_id = member.id
     await db_session.commit()
+    from app.services import jobs_dispatch
+
     dispatch = Mock(side_effect=lambda *a, **kw: SimpleNamespace(id=kw["task_id"]))
     monkeypatch.setattr(batch_predict, "apply_async", dispatch)
+
+    async def publish_prepared(_db, lease, *, publish):
+        publish()
+        return lease.execution_id
+
+    monkeypatch.setattr(jobs_dispatch, "publish_prepared_dispatch", publish_prepared)
     body = {
         "ml_backend_id": str(backend.id),
         "task_ids": [str(task.id)],
@@ -863,7 +841,7 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
     from app.services.prediction_execution import create_snapshot, load_snapshot
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
     from app.workers import async_jobs_cleanup
     from tests.factory import create_project
 

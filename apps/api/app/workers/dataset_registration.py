@@ -15,7 +15,7 @@ from app.services import dataset_scans as scans
 from app.services import filesystem_storage as fs
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import scan_snapshot
-from app.services.dataset_references import register_entry
+from app.application.dataset_reference_registration import register_entry
 from app.services.directory_policy import permits_preview
 from app.services.identity_read_relations import read_account_profile
 from app.workers.celery_app import celery_app

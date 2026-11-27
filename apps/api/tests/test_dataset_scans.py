@@ -9,6 +9,7 @@ from sqlalchemy import func, select, delete
 from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset_asset import StorageLocation
 from app.db.models.dataset_source import DatasetScanEntry
 from app.schemas.dataset_source import DatasetSourceCreate, DatasetSourceUpdate
 from app.schemas.storage_location import FilesystemLocationCreate
@@ -253,13 +254,14 @@ async def test_revocation_configuration_change_and_budget_block_batches(
             db_session, run.id, job.celery_task_id, fence, work, manifest(work)
         )
     actor.role = original_role
-    location.config_revision += 1
+    location_row = await db_session.get(StorageLocation, location.id)
+    location_row.config_revision += 1
     await db_session.flush()
     with pytest.raises(fs.FilesystemStorageError, match="configuration_changed"):
         await svc.apply_directory(
             db_session, run.id, job.celery_task_id, fence, work, manifest(work)
         )
-    location.config_revision -= 1
+    location_row.config_revision -= 1
     run.snapshot = {**run.snapshot, "budget": {"max_entries": 0, "max_directories": 1}}
     await db_session.flush()
     with pytest.raises(fs.FilesystemStorageError, match="scan_budget_exceeded"):

@@ -30,7 +30,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
 from app.services.storage import storage_service
 from app.config import settings
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import training_dataset_storage
 from app.services import managed_original_reader as reader
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -40,6 +40,18 @@ from scripts import seed_online_training as fixture_seed
 from scripts.seed_assets import SeedAssetError
 from tests._owned_s3 import patch_owned_client
 from tests.factory import create_project, create_user
+
+
+@pytest.fixture(autouse=True)
+async def _cleanup_raster_owners(test_engine):
+    from tests.raster_mask_isolation import (
+        remove_test_raster_owners,
+        track_raster_owners,
+    )
+
+    with track_raster_owners(test_engine) as created:
+        yield
+    await remove_test_raster_owners(test_engine, created)
 
 
 @pytest.fixture
@@ -116,6 +128,19 @@ def memory_storage(monkeypatch):
             body = StreamingBody(io.BytesIO(payload), len(payload))
             self.streams.append(body)
             return {**head, "Body": body}
+
+        def list_objects_v2(self, *, Bucket, Prefix="", **_extra):
+            keys = [
+                {"Key": key}
+                for (bucket, key) in sorted(self.objects)
+                if bucket == Bucket and key.startswith(Prefix)
+            ]
+            return {"Contents": keys, "IsTruncated": False}
+
+        def delete_objects(self, *, Bucket, Delete, **_extra):
+            for entry in Delete.get("Objects", []):
+                self.objects.pop((Bucket, entry["Key"]), None)
+            return {"Deleted": Delete.get("Objects", [])}
 
         def close(self):
             self.closed_clients += 1
@@ -1007,7 +1032,10 @@ async def test_concurrent_baseline_publication_reuses_the_new_existing_attempt(
 ):
     project = Project(id=uuid.uuid4(), owner_id=uuid.uuid4())
     existing = SimpleNamespace(
-        id=uuid.uuid4(), async_job_id=uuid.uuid4(), status=status
+        id=uuid.uuid4(),
+        async_job_id=uuid.uuid4(),
+        status=status,
+        storage_ref={"schema": 1},
     )
     db = SimpleNamespace(
         scalar=AsyncMock(side_effect=[None, existing]),

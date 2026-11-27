@@ -9,6 +9,7 @@ from uuid import uuid4
 import httpx
 import pytest
 from pydantic import ValidationError
+from rich.text import Text
 from typer.testing import CliRunner
 
 from yoao.cli import cross_frame_jobs as cross_frame_jobs_cli
@@ -574,7 +575,8 @@ def test_cross_frame_cli_confirms_and_preserves_job_item_receipts(
         cross_frame_jobs_cli.app,
         ["create", TASK_ID, "--body", str(body_path), "--json"],
     )
-    assert declined.exit_code == 2 and "--yes" in declined.output
+    assert declined.exit_code == 2
+    assert "--yes" in Text.from_ansi(declined.output).plain
 
     monkeypatch.setattr(
         cross_frame_jobs_cli,
@@ -613,7 +615,7 @@ def test_cli_confirmation_refusal_happens_before_client_creation(
     monkeypatch.setattr(command, "get_client", unexpected_client)
     result = runner.invoke(command.app, args)
     assert result.exit_code == 2
-    assert "--yes" in result.output
+    assert "--yes" in Text.from_ansi(result.output).plain
 
 
 def test_task_context_cli_passes_literal_cursor_and_segment(monkeypatch):

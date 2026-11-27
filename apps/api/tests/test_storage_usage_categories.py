@@ -14,7 +14,7 @@ from app.db.models.avatar_upload import AvatarUpload
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
-from app.db.models.image_pyramid import ImagePyramidOutput
+from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.original_cache import OriginalCacheEntry
 from app.db.models.prediction_input import PredictionInputLease
@@ -313,10 +313,16 @@ async def create_categories_world(db, actor, bucket):
     from app.services.image_pyramid_storage import prefix_for as pyramid_prefix
 
     pyramid_ref = {**pyramid["storage_ref"], "prefix": pyramid_prefix(pyramid_id)}
+    pyramid_asset = ImagePyramidAsset(
+        dataset_item_id=item.id,
+        profile_version="v1",
+    )
+    db.add(pyramid_asset)
+    await db.flush()
     db.add(
         ImagePyramidOutput(
             id=pyramid_id,
-            asset_id=uuid.uuid4(),
+            asset_id=pyramid_asset.id,
             generation=1,
             lease_token=uuid.uuid4(),
             storage_ref=pyramid_ref,

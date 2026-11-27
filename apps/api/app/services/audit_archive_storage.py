@@ -2,11 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from copy import deepcopy
-from contextlib import nullcontext
-from dataclasses import dataclass, field, make_dataclass
-from datetime import date, datetime, timezone
 import hashlib
 import ipaddress
 import json
@@ -14,17 +9,23 @@ import math
 import re
 import tempfile
 import time
-from urllib.parse import urlsplit
 import uuid
 import zlib
+from collections.abc import Mapping
+from contextlib import nullcontext
+from copy import deepcopy
+from dataclasses import dataclass, field, make_dataclass
+from datetime import date, datetime, timezone
+from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
 
 from app.config import settings
 from app.services import storage_access
-from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
-from app.services.managed_original_retirement import managed_storage_identity
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage import storage_service
+from app.services.storage_errors import AuditArchiveStorageError
+from app.services.storage_identity import LEGACY_LOCATION_ID, managed_storage_identity
 from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 MAX_BYTES = 64 * 1024**3
@@ -86,24 +87,6 @@ _FACTS = (
     "state",
     "published_at",
 )
-_MESSAGES = {
-    "audit_archive_storage_identity_changed": "归档存储身份与已保存的归属不匹配",
-    "audit_archive_storage_unpinned": "归档尚未保存独立存储归属",
-    "audit_archive_storage_invalid_key": "归档对象键与归档记录不匹配",
-    "audit_archive_storage_invalid_receipt": "归档身份或内容回执不合法",
-    "audit_archive_storage_binding_unproven": "归档存储绑定尚未登记或无法核实",
-    "audit_archive_storage_integrity_mismatch": "归档字节与独立内容回执不一致",
-    "audit_archive_storage_missing": "已保存的归档对象不存在",
-    "audit_archive_storage_budget": "归档核验超过读取预算",
-    "audit_archive_storage_unavailable": "归档存储暂不可用",
-}
-
-
-class AuditArchiveStorageError(ValueError):
-    def __init__(self, code, *, status_code=409):
-        super().__init__(_MESSAGES.get(code, "归档存储暂不可用"))
-        self.code = code
-        self.status_code = status_code
 
 
 def _reject(code="audit_archive_storage_integrity_mismatch"):

@@ -51,7 +51,8 @@ async def _command(db: AsyncSession, sql: str, client_type, request, unavailable
         await db.flush()
 
     async def execute(payload: str):
-        return await db.scalar(text(sql), {"request": payload})
+        async with db.begin_nested():
+            return await db.scalar(text(sql), {"request": payload})
 
     try:
         return await client_type(execute).command(request)

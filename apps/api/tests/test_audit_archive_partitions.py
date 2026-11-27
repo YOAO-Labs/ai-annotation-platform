@@ -32,6 +32,7 @@ from app.services.audit_archive_partitions import (
     SourcePartition,
     build_archive,
     catalog,
+    lock_source,
     parse_bounds,
     partition_name,
     retention_cutoff,
@@ -762,6 +763,7 @@ async def test_same_size_source_mutation_is_detected_by_full_sha(
             await owner.execute(
                 text(f"ALTER TABLE {case.source.qualified} ENABLE TRIGGER USER")
             )
+            await lock_source(owner, case.source)
             observed = await stream_source(owner, case.source)
             await owner.commit()
         output, _, _ = await _facts(case)

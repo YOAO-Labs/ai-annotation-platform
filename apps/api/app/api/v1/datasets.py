@@ -462,16 +462,7 @@ async def sniff_axis_convention(
         raise
     if result.result is None:
         return SniffAxisConventionResponse()
-    return SniffAxisConventionResponse(
-        best=result.result.best,
-        score=result.result.score,
-        candidates=result.result.candidates,
-        source=result.result.source,
-        camera_role=result.result.camera_role,
-        camera_item_id=result.result.camera_item_id,
-        per_camera=result.result.per_camera,
-        agreement=result.result.agreement,
-    )
+    return SniffAxisConventionResponse.model_validate(result.result.model_dump())
 
 
 @router.delete(
@@ -687,7 +678,9 @@ async def import_from_connection(
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
     registration_default: bool = Depends(get_registration_default),
 ):
-    from app.services import connector_guard
+    from app.services import connector_guard, storage_access
+    from app.services.content_snapshot import ContentError
+    from app.services.storage_location import connector_location_id
 
     capabilities = DatasetImportCapabilities(db)
     context = await capabilities.prepare(
@@ -695,6 +688,13 @@ async def import_from_connection(
         dataset_id=dataset_id,
         connection_id=payload.connection_id,
     )
+    source_location_id = connector_location_id(context.connection_id)
+    try:
+        maintenance_revision = await storage_access.check(
+            db, source_location_id, lock=True
+        )
+    except ContentError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
     try:
         await connector_guard.assert_connection_target_allowed(
             db,
@@ -731,6 +731,20 @@ async def import_from_connection(
         limits=limits,
         audit_context=_deletion_audit_context(request).model_dump(mode="json"),
     )
+    try:
+        await storage_access.check(
+            db,
+            source_location_id,
+            expected_revision=maintenance_revision,
+            lock=True,
+        )
+        await recheck_directory_write(request, db, dataset_id)
+    except ContentError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status, detail={"code": exc.code}) from None
+    except BaseException:
+        await db.rollback()
+        raise
     await db.commit()
     response.headers["Idempotency-Key"] = str(operation_id)
     return DatasetImportFromConnectionResponse(job_id=accepted.job_id)
@@ -800,6 +814,7 @@ async def upload_complete(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
+    http_request: Request = None,
 ):
     request = UploadCompleteRequest(
         operation_id=idempotency_key or uuid.uuid4(),
@@ -809,6 +824,12 @@ async def upload_complete(
     )
     gateway = AssetsSourceGateway(db)
     outcome = await gateway.complete_upload(request)
+    if http_request is not None:
+        try:
+            await recheck_directory_write(http_request, db, dataset_id)
+        except BaseException:
+            await db.rollback()
+            raise
     await db.commit()
     response.headers["Idempotency-Key"] = str(request.operation_id)
     if outcome.duplicate_of is not None:
@@ -1040,7 +1061,7 @@ async def _schedule_media_backfill(
 ) -> DatasetImageBackfillResponse:
     """Admit one durable Jobs-owned backfill through the canonical media worker."""
     from app.db.models.async_job import AsyncJobKind
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.data_management.actions import (
         assert_idempotent_request_matches,
         find_idempotent_job,

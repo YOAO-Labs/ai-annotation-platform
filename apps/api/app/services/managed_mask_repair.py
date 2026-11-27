@@ -17,7 +17,7 @@ from app.services import (
 )
 from app.services.content_snapshot import ContentError
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,
@@ -27,8 +27,13 @@ from app.services.labeling_core_read_relations import (
 )
 from app.services.dataset_content import content_http_error, key_authority
 from app.services.managed_image_inference import normalize_identity
-from app.services.mask_repair import canonical_digest, load_repair_batch
-from app.services.mask_repair_execution import authorize_repair_task
+from app.services.mask_repair_model import declared_model, freeze_model, lock_model
+from app.services.mask_repair_ledger import canonical_digest, load_repair_batch
+from app.services.mask_repair_authority import (
+    authorize_repair_task,
+    pending_reference_items,
+    unwrap_authority,
+)
 from app.services.project_write_guard import (
     lock_actor_project_authority,
     lock_actor_scope,
@@ -42,7 +47,8 @@ from app.services.task_scope import lock_task_scope
 
 _ISSUER = object()
 _READ_KINDS = {"candidate_read", "annotation_read"}
-_KINDS = _READ_KINDS | {"prediction", "mutation", "unit", "candidate_accept"}
+_GEOMETRY_WRITE_KINDS = {"prediction", "mutation", "candidate_accept"}
+_KINDS = _READ_KINDS | _GEOMETRY_WRITE_KINDS | {"unit"}
 _CONTEXT = {
     "batch_id",
     "repair_id",
@@ -227,8 +233,6 @@ async def freeze_item(db, task, actor, item, request):
     item["original_annotations"] = facts
     item["original_annotation"] = facts[item["annotation_id"]]
     if item["kind"] == "rerun_local_sam":
-        from app.services.reference_mask_repair import freeze_model
-
         item["original_model"] = await freeze_model(db, task, item)
 
 
@@ -301,8 +305,6 @@ async def check_annotations(db, batch, items, *, overrides=None, lock=True):
 async def capture_job_authority(
     db, batch, actor, request, *, rollback=False, initial=False
 ):
-    from app.services.reference_mask_repair import pending_reference_items
-
     bindings = {}
     for item in (batch.plan_json or {}).get("items") or []:
         frozen = item.get("original_input")
@@ -753,8 +755,6 @@ class ManagedRepairUnit:
         return await authorize_repair_task(db, task, actor, ai=self.ai)
 
     async def _validate(self, db, *, parents=True):
-        from app.services.reference_mask_repair import unwrap_authority
-
         job = await jobs.get_job(db, self.attempt.job_id)
         batch = await load_repair_batch(db, batch_id=self.attempt.batch_id)
         proof = unwrap_authority(
@@ -897,11 +897,9 @@ class ManagedRepairUnit:
         )
 
     def validate_capabilities(self, capabilities):
-        from app.services.reference_mask_repair import _model
-
         if (
             not self.model
-            or canonical_digest(_model(capabilities, self.model["model_id"]))
+            or canonical_digest(declared_model(capabilities, self.model["model_id"]))
             != self.model["model_digest"]
         ):
             raise ContentError("repair_model_changed")
@@ -925,9 +923,7 @@ class ManagedRepairUnit:
         self._finalizing = True
         await self.source.final()
         if self.ai:
-            from app.services.reference_mask_repair import ReferenceRepairUnit
-
-            await ReferenceRepairUnit._lock_model(self)
+            await lock_model(self.db, self.project_id, self.model, self.route)
             await self._validate_model(self.db)
         await self._final_guard(self.db)
 
@@ -1030,3 +1026,23 @@ class ManagedRepairUnit:
             )
         if closing is not None:
             raise closing
+
+
+async def validate_geometry_receipt(db, task, receipt, geometry, *, write):
+    """Scope dimensions to an exact geometry in a privately issued operation."""
+    from app.services.raster_mask_storage import (
+        collect_mask_geometries,
+        validate_image_mask_dimensions,
+    )
+
+    kind, payload = receipt_payload(receipt)
+    if kind not in (_GEOMETRY_WRITE_KINDS if write else _READ_KINDS):
+        raise ContentError("repair_original_receipt_invalid")
+    value = payload.get("mutations", []) if kind == "mutation" else payload
+    if not any(row == geometry for row in collect_mask_geometries(value)):
+        raise ContentError("repair_original_receipt_invalid")
+    evidence = await validate_receipt(
+        db, task.id, None, receipt, kind, payload, project_id=task.project_id
+    )
+    validate_image_mask_dimensions(geometry, evidence["width"], evidence["height"])
+    return evidence

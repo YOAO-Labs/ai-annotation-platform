@@ -28,6 +28,62 @@ def headers(actor):
     return {"Authorization": f"Bearer {actor[1]}"}
 
 
+def stub_saved_binding_probe(monkeypatch, module, legacy_probe):
+    """Run real probe_binding admission while substituting only the out-of-process Source HTTP client."""
+    from uuid import UUID
+
+    from app.services import managed_s3_target, saved_io, storage_access
+
+    monkeypatch.setattr(module, "probe_target", legacy_probe)
+
+    async def probe_binding(db, target, initial, probe_fn, *, permit_purpose):
+        if not target.is_registered:
+            return await storage_access.run(
+                db,
+                target.location_id,
+                permit_purpose,
+                probe_fn,
+                target,
+                expected_revision=initial["maintenance_revision"],
+            )
+
+        async def admit(permit):
+            async with db.begin_nested() as sp:
+                accepted = await db.scalar(
+                    saved_io._BEGIN_PROBE,
+                    {
+                        "operation": permit.id,
+                        "actor": UUID(initial["actor"]),
+                        "key": UUID(initial["key"])
+                        if initial["key"] is not None
+                        else None,
+                        "authority": initial["authority"],
+                        "purpose": target.purpose,
+                        "location": target.location_id,
+                        "config": target.config_revision,
+                        "connection": target.connection_revision,
+                        "generation": initial["current"]["generation"],
+                    },
+                )
+                await sp.rollback()
+            if accepted is not True:
+                raise managed_s3_target.error(target.purpose, "binding_unproven")
+
+        def invoke():
+            return probe_fn(target)
+
+        return await storage_access.run(
+            db,
+            target.location_id,
+            permit_purpose,
+            invoke,
+            expected_revision=initial["maintenance_revision"],
+            on_acquired=admit,
+        )
+
+    monkeypatch.setattr(module, "probe_binding", probe_binding)
+
+
 async def reviewed_patch(client, url, *, headers, json):
     """Explicitly review location edits; preserve the preview's validation failures."""
     preview = await client.post(url + "/change-preview", headers=headers, json=json)
@@ -365,7 +421,15 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
     httpx_client, project_admin, super_admin, db_session, monkeypatch
 ):
     from cryptography.fernet import Fernet
+    from yoao_assets_source import connections_workflow
     from app.db.models.storage_connection import StorageConnection
+    from tests.test_storage_connection_updates import (
+        _success,
+        install_in_process_connections_peer,
+    )
+
+    install_in_process_connections_peer(monkeypatch)
+    monkeypatch.setattr(connections_workflow, "probe_connection", _success)
 
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
@@ -405,7 +469,7 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
         purpose="test-pinned", location_id=location_id, bucket="pinned"
     )
     db_session.add(binding)
-    await db_session.flush()
+    await db_session.commit()
     for method, data in [
         ("delete", None),
         ("patch", {"expected_revision": 2, "config": payload["config"]}),
@@ -419,7 +483,7 @@ async def test_connector_location_preserves_scope_revision_and_reference_guards(
         )
         assert response.status_code == 409
     await db_session.delete(binding)
-    await db_session.flush()
+    await db_session.commit()
     response = await httpx_client.delete(
         f"/api/v1/storage-connections/{connection_id}", headers=headers(project_admin)
     )

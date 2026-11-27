@@ -3,12 +3,14 @@
 import asyncio
 from contextlib import closing
 from io import BytesIO
+import os
 import struct
 import uuid
 
 from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
+
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
@@ -32,6 +34,15 @@ from tests.seed_owned_scenarios import A, B, _build_owned, _cleanup_owned
 from tests.seed_owner_support import _read_versions, fixture_original_reader
 from tests.test_auxiliary_originals import map_source, raw_source
 from tests.test_dataset_source_deletion import _wait_for_lock_wait
+
+
+pytestmark = [
+    pytest.mark.asyncio,
+    pytest.mark.skipif(
+        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+        reason="requires the owned module-data PostgreSQL verifier",
+    ),
+]
 
 
 async def _assert_untrusted_session_denied(test_engine, consumer, command, params):

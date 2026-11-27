@@ -170,9 +170,15 @@ async def test_round_list_default_and_oversized_pages(
     client, db, project = list_api
     round_id = uuid.uuid4()
     load = AsyncMock(return_value=SimpleNamespace(id=round_id))
+    page = AsyncMock(return_value=[])
+    count = AsyncMock(return_value=0)
     monkeypatch.setattr(active_learning.service, "load_round", load)
-    db.scalars.return_value.all.return_value = []
-    db.scalar.return_value = 0
+    monkeypatch.setattr(
+        active_learning.data,
+        "decisions_page" if resource == "decisions" else "feedback_page",
+        page,
+    )
+    monkeypatch.setattr(active_learning.data, "receipt_count", count)
 
     response = await client.get(
         f"/api/v1/projects/{project.id}/active-learning-rounds/{round_id}/{resource}",
@@ -181,14 +187,12 @@ async def test_round_list_default_and_oversized_pages(
 
     assert response.status_code == expected_status
     if expected_status == 200:
-        sql = str(
-            db.scalars.call_args.args[0].compile(compile_kwargs={"literal_binds": True})
-        )
-        assert "LIMIT 20 OFFSET 0" in sql
+        page.assert_awaited_once_with(db, round_id, 20, 0)
+        count.assert_awaited_once()
     else:
         load.assert_not_awaited()
-        db.scalars.assert_not_awaited()
-        db.scalar.assert_not_awaited()
+        page.assert_not_awaited()
+        count.assert_not_awaited()
 
 
 @pytest.mark.parametrize("resource", ["lineage", "decisions"])

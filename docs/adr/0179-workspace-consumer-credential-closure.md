@@ -58,4 +58,4 @@ HTTP生命周期与搜索、1项Node。覆盖模板与项目创建／修改／�
 
 本结论仅关闭普通消费者的本地 Workspace SQL 凭据边界。完整 Workspace 的冷工件、
 统一运行装配、备份恢复与容量仍需集中验收，日常环境未切换，Go继续仅为实验。
-状态仅在[模块台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)维护。
+状态仅在[模块台账](https://yoao-labs.github.io/YOAO-Docs/dev/concepts/module-deployment#剩余工作台账)维护。

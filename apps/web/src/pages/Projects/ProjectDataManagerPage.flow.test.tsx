@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 describe("ProjectDataManagerPage task data", () => {
-  it("loads tasks at the API boundary and queries the resolved builtin view", async () => {
+  it("loads the builtin task view and lets users select and clear rows", async () => {
     const captured = installDataManagerApi();
 
     renderDataManager("/projects/p1/data-manager?lens=tasks&view=builtin:all");
@@ -99,6 +99,30 @@ describe("ProjectDataManagerPage task data", () => {
       limit: 20,
       offset: 0,
     });
+
+    const selectionHint = "可勾选任务进行批量操作";
+    const clearName = "清除任务选择";
+    const expectSelectionPanel = (text: string) => {
+      const panel = screen.getByText(text).closest("[data-dm-task-actions]");
+      expect(panel).toHaveClass("rounded-lg", "border", "p-2.5");
+    };
+    expectSelectionPanel(selectionHint);
+    expect(screen.getByRole("button", { name: clearName })).toBeDisabled();
+
+    const checkbox = screen.getByRole("checkbox", { name: "选择任务 T-1" });
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+
+    expect(checkbox).toBeChecked();
+    expectSelectionPanel("已选择 1 / 200 个任务");
+    const clearButton = screen.getByRole("button", { name: clearName });
+    expect(clearButton).toBeEnabled();
+    expect(clearButton).not.toHaveClass("invisible");
+
+    fireEvent.click(clearButton);
+    expect(checkbox).not.toBeChecked();
+    expectSelectionPanel(selectionHint);
+    expect(screen.getByRole("button", { name: clearName })).toBeDisabled();
   });
 
   it("filters the first task and summary requests from a dataset and class deep link", async () => {
@@ -388,19 +412,16 @@ describe("ProjectDataManagerPage task data", () => {
     for (let index = 0; index < 1000; index += 1) {
       filter = { op: "and", rules: [filter] };
     }
-    const search = updateDataManagerUrl("", {
-      lens: "tasks",
-      view: "builtin:all",
-      query: "",
-      filter,
-      sort: [{ field: "task.created_at", direction: "asc" }],
-      columns: ["display_id"],
-      selected: null,
-    }).toString();
+    const raw = JSON.stringify({ v: 1, value: filter });
+    const search = new URLSearchParams({ filter: raw, keep: "external-link" });
 
-    renderDataManager(`/projects/p1/data-manager?${search}`);
+    renderDataManager(`/projects/p1/data-manager?${search}`, <LocationProbe />);
 
-    await waitFor(() => expect(screen.getByText(/筛选条件嵌套超过/)).toBeInTheDocument());
+    expect(
+      await screen.findByText(/筛选条件嵌套超过 32 层/, { selector: '[role="alert"]' }),
+    ).toBeVisible();
+    expect(currentSearch().get("filter")).toBe(raw);
+    expect(currentSearch().get("keep")).toBe("external-link");
     expect(captured.taskQueries).toHaveLength(0);
     expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
   });
@@ -476,36 +497,5 @@ describe("ProjectDataManagerPage failure and asynchronous state", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
     });
     expect(currentView()).toBe("saved:v1");
-  });
-
-  it("maintains task actions bubble container styling consistently across selection states to prevent layout shift", async () => {
-    installDataManagerApi({
-      tasks: [
-        createDataManagerTask({
-          id: "task-bubble-1",
-          display_id: "T-bubble-1",
-        }),
-      ],
-    });
-
-    renderDataManager("/projects/p1/data-manager?lens=tasks&view=builtin:all");
-    expect(await screen.findByText("T-bubble-1")).toBeInTheDocument();
-
-    const actionsContainer = document.querySelector("[data-dm-task-actions]")!;
-    expect(actionsContainer).toBeInTheDocument();
-    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
-    expect(screen.getByText("可勾选任务进行批量操作")).toBeInTheDocument();
-
-    const checkbox = screen.getByRole("checkbox", { name: "选择任务 T-bubble-1" });
-    fireEvent.click(checkbox);
-
-    expect(await screen.findByText(/已选择 1 \/ 200 个任务/)).toBeInTheDocument();
-    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
-    const clearBtn = screen.getByRole("button", { name: "清除任务选择" });
-    expect(clearBtn).not.toHaveClass("invisible");
-
-    fireEvent.click(clearBtn);
-    expect(await screen.findByText("可勾选任务进行批量操作")).toBeInTheDocument();
-    expect(actionsContainer).toHaveClass("rounded-lg", "border", "p-2.5");
   });
 });

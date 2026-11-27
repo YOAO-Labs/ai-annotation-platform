@@ -35,7 +35,7 @@ def legacy_transport_boundary(monkeypatch):
     from app.services import training_storage_io
     from app.services.storage import storage_service
 
-    async def run(db, owner, purpose, callback, *args, **kwargs):
+    async def run(db, owner, purpose, callback, *args, source_boot=None, **kwargs):
         return callback(storage_service, *args, **kwargs)
 
     monkeypatch.setattr(training_storage_io, "run", run)
@@ -264,10 +264,18 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
 ):
     row = owned.preview
     events, added = [], []
+    existing_preview = [None]
 
-    async def flush():
-        added[0].id = uuid.uuid4()
+    async def create_preview(db, **kwargs):
+        created = SimpleNamespace(
+            id=uuid.uuid4(),
+            storage_ref=None,
+            async_job_id=None,
+            **kwargs,
+        )
+        added.append(created)
         events.append("flush")
+        return created
 
     async def allocate(db, record):
         assert record.id is not None
@@ -279,16 +287,29 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
         events.append("job")
         return SimpleNamespace(id=uuid.uuid4())
 
-    db = SimpleNamespace(
-        scalar=AsyncMock(side_effect=[None, 0]),
-        get=AsyncMock(side_effect=[owned.dataset, SimpleNamespace(runtime={})]),
-        add=added.append,
-        flush=flush,
-    )
+    db = SimpleNamespace()
     allocation = AsyncMock(side_effect=allocate)
     monkeypatch.setattr(training_preview_storage, "allocate", allocation)
     monkeypatch.setattr(
-        previews.training, "frozen_config", AsyncMock(return_value=row.spec["config"])
+        previews.data,
+        "request_preview",
+        AsyncMock(side_effect=lambda *args, **kwargs: existing_preview[0]),
+    )
+    monkeypatch.setattr(previews.data, "active_count", AsyncMock(return_value=0))
+    monkeypatch.setattr(
+        previews.data,
+        "get_lease",
+        AsyncMock(
+            return_value=SimpleNamespace(runtime={}, last_seen_at=previews.now())
+        ),
+    )
+    monkeypatch.setattr(previews.data, "create_preview", create_preview)
+    monkeypatch.setattr(previews.data, "pin_storage", AsyncMock())
+    monkeypatch.setattr(previews.data, "attach_job", AsyncMock())
+    monkeypatch.setattr(
+        previews.training,
+        "frozen_inputs",
+        AsyncMock(return_value=(row.spec["config"], owned.dataset)),
     )
     monkeypatch.setattr(previews, "validate_request", Mock())
     monkeypatch.setattr(
@@ -296,7 +317,9 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
         "select_sources",
         lambda *_: (row.spec["sources"], row.spec["pool_summary"]),
     )
-    monkeypatch.setattr(previews, "_capabilities", lambda _lease: {"online": True})
+    monkeypatch.setattr(
+        previews, "_capabilities", lambda lease: {"online": True, "reason": None}
+    )
     monkeypatch.setattr(previews.training, "runtime_compatible", lambda *_: True)
     monkeypatch.setattr(previews.jobs, "create_job", job)
     project, user = (
@@ -308,15 +331,19 @@ async def test_creation_allocates_once_after_id_before_job_and_replay_never_adop
     assert events == ["flush", "allocate", "job"]
     assert result is added[0]
     row.storage_ref = None
-    db.scalar = AsyncMock(return_value=row)
+    existing_preview[0] = row
     assert await previews.create(db, project, user, body, None) is row
     allocation.assert_awaited_once()
     assert events == ["flush", "allocate", "job"]
 
 
-async def test_input_urls_keep_dataset_owner_and_require_preview_owner_first(owned):
+async def test_input_urls_keep_dataset_owner_and_require_preview_owner_first(
+    owned, monkeypatch
+):
     row = owned.preview
-    db = SimpleNamespace(get=AsyncMock(return_value=owned.dataset), commit=AsyncMock())
+    read_version = AsyncMock(return_value=owned.dataset)
+    monkeypatch.setattr(previews.datasets, "read_version_facts", read_version)
+    db = SimpleNamespace(commit=AsyncMock())
     result = await previews.assignment(db, row)
     source = row.spec["sources"][0]
     assert result["source_urls"][source["task_id"]].startswith(
@@ -325,12 +352,12 @@ async def test_input_urls_keep_dataset_owner_and_require_preview_owner_first(own
     assert owned.client.calls == [("get_object", "frozen-inputs", source["media_key"])]
     row.storage_ref = None
     owned.client.calls.clear()
-    db.get.reset_mock()
+    read_version.reset_mock()
     with pytest.raises(HTTPException) as error:
         await previews.assignment(db, row)
     assert error.value.status_code == 409
     assert owned.client.calls == []
-    db.get.assert_not_awaited()
+    read_version.assert_not_awaited()
     assert (await previews.assignment(db, row, stop=True))["source_urls"] == {}
 
 
@@ -343,13 +370,37 @@ async def test_upload_and_success_finish_use_saved_bucket(owned, monkeypatch):
     monkeypatch.setattr(previews, "fenced", AsyncMock(return_value=(lease, row)))
     monkeypatch.setattr(previews.training, "authority", AsyncMock())
     monkeypatch.setattr(previews, "terminal", AsyncMock())
-    body = SimpleNamespace(artifacts=[PreviewArtifact(**spec) for spec in inventory])
-    urls = await previews.uploads(SimpleNamespace(commit=AsyncMock()), row.id, body)
+
+    async def authorize_uploads(db, preview_id, body, inv, put_expires_at):
+        row.upload_inventory = inv
+        row.put_expires_at = put_expires_at
+
+    async def finish_executor(
+        db, preview_id, body, status, at, error, receipt, artifacts
+    ):
+        lease.preview_id = None
+        row.status = status
+
+    monkeypatch.setattr(previews.data, "authorize_uploads", authorize_uploads)
+    monkeypatch.setattr(previews.data, "finish_executor", finish_executor)
+    monkeypatch.setattr(previews, "_terminal_job", AsyncMock())
+    authority = SimpleNamespace(assert_authority=AsyncMock())
+    body = SimpleNamespace(
+        boot_id=row.boot_id, artifacts=[PreviewArtifact(**spec) for spec in inventory]
+    )
+    urls = await previews.uploads(
+        SimpleNamespace(commit=AsyncMock()), row.id, body, training_authority=authority
+    )
     assert all(
         target["url"].startswith("https://owned-storage/old-preview/")
         for target in urls.values()
     )
-    await previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, finish_body(row))
+    await previews.finish(
+        SimpleNamespace(commit=AsyncMock()),
+        row.id,
+        finish_body(row),
+        training_authority=authority,
+    )
     assert row.artifacts["preview-0.png"]["sha256"] == raw["outputs"][0]["sha256"]
     assert lease.preview_id is None
     assert all(bucket == "old-preview" for _, bucket, _ in owned.client.calls)
@@ -374,15 +425,23 @@ async def test_unknown_output_owner_rejects_uploads_and_success_without_io(
     lease = SimpleNamespace(preview_id=row.id)
     monkeypatch.setattr(previews, "fenced", AsyncMock(return_value=(lease, row)))
     monkeypatch.setattr(previews.training, "authority", AsyncMock())
+    authority = SimpleNamespace(assert_authority=AsyncMock())
     for action in [
         previews.uploads(
             None,
             row.id,
             SimpleNamespace(
-                artifacts=[PreviewArtifact(**value) for value in inventory]
+                boot_id=row.boot_id,
+                artifacts=[PreviewArtifact(**value) for value in inventory],
             ),
+            training_authority=authority,
         ),
-        previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, finish_body(row)),
+        previews.finish(
+            SimpleNamespace(commit=AsyncMock()),
+            row.id,
+            finish_body(row),
+            training_authority=authority,
+        ),
     ]:
         with pytest.raises(HTTPException) as error:
             await action
@@ -475,12 +534,16 @@ async def test_unknown_owner_preserves_metadata_but_refuses_image_route(
     evidence(owned)
     row.status, row.storage_ref = "succeeded", None
     assert (await previews.output(row, db=None)).report is None
-    monkeypatch.setattr(api, "lock_owner", AsyncMock())
+    monkeypatch.setattr(api, "lock_project_manager", AsyncMock())
     monkeypatch.setattr(api, "load", AsyncMock(return_value=row))
     db = SimpleNamespace(commit=AsyncMock())
     with pytest.raises(HTTPException) as error:
         await api.image(
-            row.id, 0, project=SimpleNamespace(id=row.project_id), user=None, db=db
+            row.id,
+            0,
+            project=SimpleNamespace(id=row.project_id),
+            user=SimpleNamespace(id=uuid.uuid4()),
+            db=db,
         )
     assert error.value.status_code == 409
     db.commit.assert_not_awaited()
@@ -505,13 +568,18 @@ async def test_null_owner_claim_recovery_stops_without_input_signing(
         previews.token_for(row, row.claim_id).encode()
     ).hexdigest()
     lease = SimpleNamespace(preview_id=row.id)
+    executor_preview = AsyncMock(return_value=row)
     monkeypatch.setattr(previews, "lock_resource", AsyncMock(return_value=lease))
+    monkeypatch.setattr(previews.data, "executor_preview", executor_preview)
+    monkeypatch.setattr(previews.data, "preview_matches", AsyncMock(return_value=True))
     monkeypatch.setattr(previews.training, "authority", AsyncMock())
-    db = SimpleNamespace(get=AsyncMock(return_value=row))
-    result = await previews.claim(db, claim)
+    db = SimpleNamespace()
+    result = await previews.claim(
+        db, claim, training_authority=SimpleNamespace(assert_authority=AsyncMock())
+    )
     assert result["stop"] is True and result["source_urls"] == {}
     assert result["lease_token"] == previews.token_for(row, row.claim_id)
-    assert lease.preview_id == row.id and db.get.await_count == 1
+    assert lease.preview_id == row.id and executor_preview.await_count == 1
     assert owned.client.calls == []
 
 
@@ -524,12 +592,13 @@ async def test_null_owner_queued_claim_fails_without_acquiring_cpu_or_inputs(
     monkeypatch.setattr(previews, "lock_resource", AsyncMock(return_value=lease))
     monkeypatch.setattr(previews, "qualified_runtime", lambda _: True)
     monkeypatch.setattr(previews.training, "runtime_compatible", lambda *_: True)
+    monkeypatch.setattr(previews.data, "observe_executor", AsyncMock())
+    monkeypatch.setattr(previews.data, "queue", AsyncMock(return_value=[row]))
     terminal = AsyncMock()
     monkeypatch.setattr(previews, "terminal", terminal)
-    db = SimpleNamespace(
-        scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: [row])),
-        get=AsyncMock(),
-    )
+    read_version = AsyncMock()
+    monkeypatch.setattr(previews.datasets, "read_version_facts", read_version)
+    db = SimpleNamespace()
     claim = PreviewClaim(
         purpose="augmentation-preview",
         resource_id=previews.resource_id(),
@@ -538,9 +607,14 @@ async def test_null_owner_queued_claim_fails_without_acquiring_cpu_or_inputs(
         claim_id=row.claim_id,
         runtime={},
     )
-    assert await previews.claim(db, claim) is None
+    assert (
+        await previews.claim(
+            db, claim, training_authority=SimpleNamespace(assert_authority=AsyncMock())
+        )
+        is None
+    )
     assert terminal.await_args.args[2] == "failed"
-    db.get.assert_not_awaited()
+    read_version.assert_not_awaited()
     assert lease.preview_id is None and owned.client.calls == []
 
 
@@ -553,9 +627,14 @@ async def test_null_owner_heartbeat_and_terminal_receipt_can_settle(
     lease = SimpleNamespace(preview_id=row.id, last_seen_at=None)
     monkeypatch.setattr(previews, "fenced", AsyncMock(return_value=(lease, row)))
     monkeypatch.setattr(previews.training, "authority", AsyncMock())
+    monkeypatch.setattr(previews.data, "heartbeat", AsyncMock())
+    monkeypatch.setattr(previews, "_terminal_job", AsyncMock())
     request_cancel = AsyncMock()
     monkeypatch.setattr(previews.jobs, "request_cancel", request_cancel)
-    heartbeat = await previews.heartbeat(None, row.id, None)
+    authority = SimpleNamespace(assert_authority=AsyncMock())
+    heartbeat = await previews.heartbeat(
+        None, row.id, None, training_authority=authority
+    )
     assert heartbeat["stop"] and row.status == "cancelling"
     request_cancel.assert_awaited_once()
     if status == "expired-success":
@@ -565,19 +644,36 @@ async def test_null_owner_heartbeat_and_terminal_receipt_can_settle(
         row.status = "running"
         body = finish_body(row, status)
 
-    async def terminal(db, row, value, error):
+    async def finish_executor(
+        db, preview_id, req, value, at, error, receipt, artifacts
+    ):
+        lease.preview_id = None
         row.status = value
 
-    monkeypatch.setattr(previews, "terminal", terminal)
-    await previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, body)
+    monkeypatch.setattr(previews.data, "finish_executor", finish_executor)
+    await previews.finish(
+        SimpleNamespace(commit=AsyncMock()),
+        row.id,
+        body,
+        training_authority=authority,
+    )
     assert lease.preview_id is None
     assert row.status == ("cancelled" if status == "expired-success" else status)
     assert (
-        await previews.finish(SimpleNamespace(commit=AsyncMock()), row.id, body) is row
+        await previews.finish(
+            SimpleNamespace(commit=AsyncMock()),
+            row.id,
+            body,
+            training_authority=authority,
+        )
+        is row
     )
     with pytest.raises(HTTPException) as error:
         await previews.finish(
-            None, row.id, body.model_copy(update={"error_message": "changed receipt"})
+            None,
+            row.id,
+            body.model_copy(update={"error_message": "changed receipt"}),
+            training_authority=authority,
         )
     assert error.value.status_code == 409 and owned.client.calls == []
 
@@ -599,19 +695,30 @@ async def test_cleanup_preserves_unknown_pending_and_leased_rows_and_continues_a
     pending = expired(put_expires_at=previews.now() + timedelta(seconds=10))
     leased, failed, valid = expired(), expired(), expired()
     rows = [missing, wrong, pending, leased, failed, valid]
-    db = SimpleNamespace(
-        scalars=AsyncMock(return_value=SimpleNamespace(all=lambda: rows)),
-        scalar=AsyncMock(
-            side_effect=[None, None, None, "other-node/preview-cpu", None, None]
-        ),
-        commit=AsyncMock(),
-        delete=AsyncMock(),
-    )
+    deleted_ids = []
+    rows_by_id = {row.id: row for row in rows}
+
+    async def expire_for_cleanup(db, preview_id, at):
+        rows_by_id[preview_id].status = "expired"
+
+    async def delete_expired(db, preview_id, storage_ref, at):
+        deleted_ids.append(preview_id)
+        return True
+
+    db = SimpleNamespace(commit=AsyncMock())
     monkeypatch.setattr(
         previews,
         "lock_resource",
         AsyncMock(return_value=SimpleNamespace(preview_id=None)),
     )
+    monkeypatch.setattr(previews.data, "cleanup_queue", AsyncMock(return_value=rows))
+    monkeypatch.setattr(
+        previews.data,
+        "preview_has_lease",
+        AsyncMock(side_effect=lambda _db, pid: pid == leased.id),
+    )
+    monkeypatch.setattr(previews.data, "expire_for_cleanup", expire_for_cleanup)
+    monkeypatch.setattr(previews.data, "delete_expired", delete_expired)
     calls = []
 
     def delete(prefix, *, bucket):
@@ -625,7 +732,7 @@ async def test_cleanup_preserves_unknown_pending_and_leased_rows_and_continues_a
     assert calls == [
         ("old-preview", row.storage_ref["prefix"]) for row in [failed, valid]
     ]
-    db.delete.assert_awaited_once_with(valid)
+    assert deleted_ids == [valid.id]
     assert leased.status == "failed"
     assert failed.status == missing.status == "expired"
     assert owned.client.calls == []
