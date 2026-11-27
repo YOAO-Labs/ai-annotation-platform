@@ -4,8 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
@@ -14,9 +13,9 @@ from starlette.requests import Request
 
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.export import ExportRequestBody, LidarExportOptions
-from app.services import export_storage
+from app.services import export_media_bundles, export_media_storage, export_storage
 from app.services.content_snapshot import ContentError
-from app.services.exporting import lidar_jobs
+from app.services.exporting import lidar_inputs, lidar_jobs, lidar_media_paths
 
 
 def digest(value):
@@ -36,16 +35,8 @@ class JobDB:
         self.events.append("commit")
 
 
-class MediaStorageError(ValueError):
-    code = "export_media_storage_identity_changed"
-    status_code = 409
-
-
 @pytest.fixture
 def contract(monkeypatch):
-    import app.services as services
-    import app.services.exporting as exporting
-
     project = SimpleNamespace(id=uuid.uuid4(), data_type="lidar", display_id="P-LIDAR")
     batch_id = uuid.uuid4()
     opts = {"include_attributes": True, "lidar": {"kitti_camera_role": "camera_front"}}
@@ -140,37 +131,9 @@ def contract(monkeypatch):
         state.zip_owners.append(output)
         return {**owner, "object_key": "reserved.zip"}
 
-    for package, name, attributes in (
-        (
-            exporting,
-            "lidar_inputs",
-            {
-                "uses_contract": lambda p, t: (
-                    p.data_type == "lidar"
-                    and bool(
-                        {
-                            "pointmask",
-                            "kitti",
-                            "coco-multicamera",
-                            "nuscenes",
-                        }.intersection(t)
-                    )
-                ),
-                "collect": collect,
-            },
-        ),
-        (exporting, "lidar_media_paths", {"logical_sources": logical_sources}),
-        (services, "export_media_bundles", {"allocate": allocate}),
-        (
-            services,
-            "export_media_storage",
-            {"ExportMediaStorageError": MediaStorageError},
-        ),
-    ):
-        module = ModuleType(package.__name__ + "." + name)
-        module.__dict__.update(attributes)
-        monkeypatch.setitem(sys.modules, module.__name__, module)
-        monkeypatch.setattr(package, name, module, raising=False)
+    monkeypatch.setattr(lidar_inputs, "collect", collect)
+    monkeypatch.setattr(lidar_media_paths, "logical_sources", logical_sources)
+    monkeypatch.setattr(export_media_bundles, "allocate", allocate)
     monkeypatch.setattr(export_storage, "allocate", allocate_zip)
     return state
 
@@ -305,13 +268,11 @@ async def test_capture_maps_metadata_binding_errors_without_committing(
 
 
 async def test_capture_maps_bundle_owner_metadata_errors(contract, monkeypatch):
-    from app.services import export_media_bundles
-
     state = contract
     del state.job.payload["lidar_media"]
 
     async def unavailable(*args, **kwargs):
-        raise MediaStorageError()
+        raise export_media_storage.ExportMediaStorageError("identity_changed")
 
     monkeypatch.setattr(export_media_bundles, "allocate", unavailable)
     with pytest.raises(ContentError, match="export_media_storage_identity_changed"):

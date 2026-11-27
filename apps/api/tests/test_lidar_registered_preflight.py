@@ -697,8 +697,6 @@ async def test_registered_preflight_real_database_canonical_link_only(
 async def test_exact_frozen_worker_inputs_recheck_parent_rules_without_auxiliary_io(
     world, monkeypatch
 ):
-    from app.services.exporting import lidar_frozen
-
     parent, _member, _track = manual_members(world)
     world.view.annotations.remove(parent)
     world.snapshot.update(
@@ -707,7 +705,7 @@ async def test_exact_frozen_worker_inputs_recheck_parent_rules_without_auxiliary
         targets=["coco-multicamera", "nuscenes"],
         options={},
     )
-    monkeypatch.setattr(lidar_frozen, "FrozenLidar", lambda snapshot: world.view)
+    monkeypatch.setattr(preflight, "FrozenLidar", lambda snapshot: world.view)
     with pytest.raises(ContentError, match="multicamera_coco_parent_invalid"):
         await preflight.assert_frozen_lidar_ready(world.snapshot)
     assert world.calls == []
