@@ -35,13 +35,14 @@ async def discussion_command(
         await db.flush()
 
     async def execute(payload: str):
-        with db.no_autoflush:
-            return await db.scalar(
-                text(
-                    "SELECT yoao_labeling_v1.discussion_command(CAST(:request AS jsonb))"
-                ),
-                {"request": payload},
-            )
+        async with db.begin_nested():
+            with db.no_autoflush:
+                return await db.scalar(
+                    text(
+                        "SELECT yoao_labeling_v1.discussion_command(CAST(:request AS jsonb))"
+                    ),
+                    {"request": payload},
+                )
 
     try:
         return await LabelingDiscussionDataClient(execute).command(request)
@@ -82,13 +83,14 @@ async def task_event_command(
         await db.flush()
 
     async def execute(payload: str):
-        with db.no_autoflush:
-            return await db.scalar(
-                text(
-                    "SELECT yoao_labeling_v1.task_event_command(CAST(:request AS jsonb))"
-                ),
-                {"request": payload},
-            )
+        async with db.begin_nested():
+            with db.no_autoflush:
+                return await db.scalar(
+                    text(
+                        "SELECT yoao_labeling_v1.task_event_command(CAST(:request AS jsonb))"
+                    ),
+                    {"request": payload},
+                )
 
     try:
         return await LabelingTaskEventDataClient(execute).command(request)

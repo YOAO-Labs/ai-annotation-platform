@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.exc import IntegrityError
 from yoao_jobs.lifecycle import JobsLifecycleManager
 
@@ -141,6 +142,14 @@ async def writable(db, row):
 async def item(db, row):
     from app.services.storage_migration_finalizations import frozen_copy
 
+    try:
+        state = sa_inspect(row)
+    except Exception:
+        state = None
+    if state is not None and state.persistent:
+        unloaded = state.unloaded - {"source_report", "catalog", "baseline"}
+        if unloaded:
+            await db.refresh(row, attribute_names=sorted(unloaded))
     a = await last(db, row)
     location = await registry.get_location(db, row.target_location_id)
     connection = (

@@ -16,6 +16,7 @@ from app.services import (
     storage_location as locations,
     storage_observation_rates as rates,
 )
+from app.services.dataset_source_access import _actor_id
 from app.services.media_item_reads import read_item
 from app.services.storage import storage_service
 from app.services.storage_registry_data import get_probe
@@ -43,7 +44,7 @@ async def key_authority(db, actor, key_id, scope):
     from app.services.identity_account_lock_data import IdentityAccountLockData
 
     facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
-        actor.id, uuid.UUID(str(key_id))
+        _actor_id(actor), uuid.UUID(str(key_id))
     )
     if facts is None or ("*" not in facts.scopes and scope not in facts.scopes):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
@@ -51,14 +52,15 @@ async def key_authority(db, actor, key_id, scope):
 
 
 async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=None):
-    await scans.require_actor(db, actor.id)
+    actor_id = _actor_id(actor)
+    await scans.require_actor(db, actor_id)
     location, source, run, _ = await scans.run_context(db, run_id)
-    await scans.require_actor(db, actor.id, source)
+    await scans.require_actor(db, actor_id, source)
     await scans.validate_context(db, location, source, snapshot=run.snapshot)
     if run.status != "completed" or not run.complete:
         raise snapshots.ContentError("scan_incomplete")
     entry = await scan_data.observed_file(
-        db, run_id, path_digest, actor_id=actor.id, lock=lock
+        db, run_id, path_digest, actor_id=actor_id, lock=lock
     )
     if entry is None:
         raise HTTPException(404, "Observed image not found")
@@ -99,6 +101,7 @@ async def scan_snapshot(
     event_registration_id=None,
     require_range_support=False,
 ):
+    actor_id = _actor_id(actor)
     location, source, run, entry, node, anchor = await scan_context(
         db, run_id, path_digest, actor, node_id=node_id
     )
@@ -162,7 +165,7 @@ async def scan_snapshot(
         location=location,
         source=source,
         operation="scan_content",
-        actor_id=actor.id,
+        actor_id=actor_id,
         node_id=node,
         anchor=anchor,
         maintenance_revision=run.snapshot.get("maintenance_revision", 1),
@@ -181,7 +184,7 @@ async def scan_snapshot(
             observation=observation,
             rate_attempt=rate_attempt,
             validate=fault_authority,
-            actor_id=actor.id,
+            actor_id=actor_id,
             location_id=location.id,
             source_id=source.id,
             dataset_id=source.dataset_id,
@@ -223,7 +226,7 @@ async def scan_snapshot(
                     fence={
                         "source_id": str(source.id),
                         "run_id": str(run.id),
-                        "user_id": str(actor.id),
+                        "user_id": str(actor_id),
                     },
                 )
             elif isinstance(config, reference_storage.RegisteredReference):
@@ -241,7 +244,7 @@ async def scan_snapshot(
                         "job_id": str(event_job_id) if event_job_id else None,
                     },
                     digest,
-                    actor_id=actor.id,
+                    actor_id=actor_id,
                     key_id=api_key_id,
                     key_proof=key_proof,
                     maintenance_revision=run.snapshot.get("maintenance_revision", 1),
@@ -305,7 +308,7 @@ async def scan_snapshot(
         if verify and current.verified_content is None:
             if not await scan_data.verify_file(
                 db,
-                actor.id,
+                actor_id,
                 current,
                 {
                     **snapshot.public(),
@@ -397,7 +400,7 @@ async def public_task_identity(db, task_id, actor, *, request=None, api_key_id=N
 
     proof = await access.capture_credentials(db, actor, request)
     actor, key = await access.actor_and_key(
-        db, actor.id, api_key_id, "tasks:read", proof
+        db, _actor_id(actor), api_key_id, "tasks:read", proof
     )
     source = await task_source(db, task_id, actor, lock=True)
     await db.commit()
@@ -486,7 +489,7 @@ async def task_snapshot(
     from app.services import original_content_access as access
 
     proof = await access.capture_credentials(db, actor, request)
-    actor_id = actor.id
+    actor_id = _actor_id(actor)
     actor, key = await access.actor_and_key(
         db, actor_id, api_key_id, "tasks:read", proof
     )
@@ -606,7 +609,7 @@ async def quality_snapshot(
     """Keep original byte ownership separate from the quality result lease."""
     from app.services import original_content_access as access
 
-    actor_id = actor.id
+    actor_id = _actor_id(actor)
     actor, key = await access.actor_and_key(db, actor_id, api_key_id, "datasets:write")
     if (
         await quality_identity(db, item_id, actor, node_id=node_id, lock=True)

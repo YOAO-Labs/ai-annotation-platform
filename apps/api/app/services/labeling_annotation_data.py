@@ -50,12 +50,13 @@ def _native_error_fields(error: BaseException):
 
 async def annotation_write_command(db: AsyncSession, request: AnnotationWriteCommand):
     async def execute(request_json: str):
-        return await db.scalar(
-            text(
-                "SELECT yoao_labeling_v1.annotation_write_command(CAST(:request AS jsonb))"
-            ),
-            {"request": request_json},
-        )
+        async with db.begin_nested():
+            return await db.scalar(
+                text(
+                    "SELECT yoao_labeling_v1.annotation_write_command(CAST(:request AS jsonb))"
+                ),
+                {"request": request_json},
+            )
 
     try:
         return await AnnotationWriteDataClient(execute).command(request)

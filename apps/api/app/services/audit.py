@@ -6,8 +6,10 @@ from enum import Enum
 from typing import Any
 
 from fastapi import Request
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient_to_detached
+from sqlalchemy.orm.state import InstanceState
 
 from yoao_audit.append_contract import AppendEvent, AppendRequest
 from yoao_audit.postgres import AuditAppendPostgresData
@@ -258,6 +260,27 @@ async def append_http_metadata(db: AsyncSession, payload: dict[str, Any]) -> Non
         await AuditAppendPostgresData(db).append(AppendRequest.create([_event(None)]))
 
 
+async def _resolve_actor_fields(
+    db: AsyncSession, actor: User | IdentityActorFacts | None
+) -> tuple[Any, Any, Any]:
+    if actor is None:
+        return None, None, None
+    state = sa_inspect(actor, raiseerr=False)
+    if isinstance(state, InstanceState):
+        missing = [name for name in ("id", "email", "role") if name in state.unloaded]
+        if missing:
+            if state.persistent and state.session is db.sync_session:
+                await db.refresh(actor, attribute_names=missing)
+            else:
+                actor_id = state.identity[0] if state.identity else state.dict.get("id")
+                return actor_id, state.dict.get("email"), state.dict.get("role")
+    return (
+        getattr(actor, "id", None),
+        getattr(actor, "email", None),
+        getattr(actor, "role", None),
+    )
+
+
 class AuditService:
     """业务层显式打点。同事务 flush，由调用方 commit。"""
 
@@ -318,10 +341,11 @@ class AuditService:
             else None
         )
         ip = origin.ip if origin is not None else extract_client_ip(request)
+        actor_id, actor_email, actor_role = await _resolve_actor_fields(db, actor)
         event = AppendEvent(
-            actor_id=getattr(actor, "id", None),
-            actor_email=getattr(actor, "email", None),
-            actor_role=getattr(actor, "role", None),
+            actor_id=actor_id,
+            actor_email=actor_email,
+            actor_role=actor_role,
             action=action_str,
             target_type=target_type,
             target_id=str(target_id) if target_id is not None else None,
@@ -363,9 +387,7 @@ class AuditService:
             else None
         )
         ip = origin.ip if origin is not None else extract_client_ip(request)
-        actor_id = getattr(actor, "id", None)
-        actor_email = getattr(actor, "email", None)
-        actor_role = getattr(actor, "role", None)
+        actor_id, actor_email, actor_role = await _resolve_actor_fields(db, actor)
         events: list[AppendEvent] = []
         for it in items:
             events.append(

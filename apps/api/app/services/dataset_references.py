@@ -100,12 +100,13 @@ async def register_entry(
         final.close()
         raise snapshots.ContentError("reference_content_changed")
     revalidate = bool(revision_context and revision_context.get("revalidate"))
+    actor_id = access._actor_id(actor)
     prepared_copy = None
     prepared_preview = None
     try:
         unlocked_source = await access.require_source(db, initial_source.id, actor)
         unlocked_entry = await scan_data.observed_file(
-            db, run_id, path_digest, actor_id=actor.id, lock=False
+            db, run_id, path_digest, actor_id=actor_id, lock=False
         )
         if unlocked_entry is None:
             raise snapshots.ContentError("source_unavailable")
@@ -126,9 +127,9 @@ async def register_entry(
                 dataset,
                 final,
                 force_new=revision_context is not None,
-                requested_by=actor.id,
+                requested_by=actor_id,
                 authority={
-                    "actor_id": str(actor.id),
+                    "actor_id": str(actor_id),
                     "api_key_id": str(api_key_id) if api_key_id else None,
                     "key_proof": key_proof,
                     "source_id": str(unlocked_source.id),
@@ -155,7 +156,7 @@ async def register_entry(
         ):
             raise snapshots.ContentError("configuration_changed")
         dataset = await scans.require_dataset_write(db, source, snapshot=run.snapshot)
-        await scans.require_actor(db, actor.id, source)
+        await scans.require_actor(db, actor_id, source)
         if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         if (
@@ -252,9 +253,9 @@ async def register_entry(
                     prepared_copy,
                     uploaded,
                     force_new=revision_context is not None,
-                    requested_by=actor.id,
+                    requested_by=actor_id,
                     authority={
-                        "actor_id": str(actor.id),
+                        "actor_id": str(actor_id),
                         "api_key_id": str(api_key_id) if api_key_id else None,
                         "key_proof": key_proof,
                         "source_id": str(source.id),
@@ -312,7 +313,7 @@ async def register_entry(
                     "CAST(:previous AS uuid), :mode)"
                 ),
                 {
-                    "actor": actor.id,
+                    "actor": actor_id,
                     "source": source.id,
                     "revision": revision.id,
                     "previous": mapping.current_revision_id if mapping else None,
@@ -320,6 +321,17 @@ async def register_entry(
                 },
             ):
                 raise HTTPException(409, detail={"code": "source_revision_changed"})
+            if relocating and hasattr(db, "sync_session"):
+                for (model, key, _), instance in list(
+                    db.sync_session.identity_map.items()
+                ):
+                    if getattr(
+                        model, "__tablename__", None
+                    ) == "dataset_source_items" and key == (
+                        source.id,
+                        previous.path_digest,
+                    ):
+                        db.expunge(instance)
             mapping = await registration_data.source_head(db, source.id, path_digest)
             if relocating:
                 await registration.consume_relocation(
@@ -355,7 +367,7 @@ async def register_entry(
             await scans.validate_write_context(
                 db, location, source, snapshot=run.snapshot
             )
-            await scans.require_actor(db, actor.id, source)
+            await scans.require_actor(db, actor_id, source)
             if (
                 await key_authority(db, actor, api_key_id, "datasets:write")
                 != key_proof
@@ -373,7 +385,7 @@ async def register_entry(
                 final,
                 uploaded,
                 retired,
-                actor_id=actor.id,
+                actor_id=actor_id,
                 run_id=run.id,
                 job_id=event_job_id or run.async_job_id,
                 registration_id=event_registration_id,
@@ -385,7 +397,7 @@ async def register_entry(
             )
         )
         await scans.validate_write_context(db, location, source, snapshot=run.snapshot)
-        await scans.require_actor(db, actor.id, source)
+        await scans.require_actor(db, actor_id, source)
         if await key_authority(db, actor, api_key_id, "datasets:write") != key_proof:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
         if before_apply is not None:
@@ -612,7 +624,7 @@ async def apply_reference(db, source, run, entry, dataset, actor):
                 ":digest, :sha, CAST(:size AS bigint))"
             ),
             {
-                "actor": actor.id,
+                "actor": access._actor_id(actor),
                 "source": source.id,
                 "run": run.id,
                 "digest": path_digest,
@@ -668,8 +680,9 @@ class _ReferenceState:
 
 
 async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=None):
+    actor_id = access._actor_id(actor)
     if task_id is None:
-        await scans.require_actor(db, actor.id)
+        await scans.require_actor(db, actor_id)
     else:
         from app.services import task_access
         from app.services.original_sources import resolve_task_relation
@@ -683,7 +696,7 @@ async def _reference_state(db, item_id, actor, *, task_id=None, task_authorizer=
         if task_authorizer is not None:
             await task_authorizer(db, task, actor)
         else:
-            await task_access.assert_task_visible(db, task, actor.id)
+            await task_access.assert_task_visible(db, task, actor_id)
     state = await _reference_binding_state(db, item_id, task=task if task_id else None)
     if task_id is None:
         await access.require_source(db, state.facts.source_id, actor)
@@ -969,12 +982,13 @@ async def reference_snapshot(
             try:
                 await validate_business()
                 replica_grant, source_context = await physical(selected_route)
+                actor_id = access._actor_id(actor)
                 observation = await storage_fault_events.prepare(
                     db,
                     location_id=source_context["location_id"],
                     source_id=source_context["source_id"],
                     operation="reference_read",
-                    actor_id=actor.id,
+                    actor_id=actor_id,
                     node_id=node_id or locations.api_node_id(),
                     maintenance_revision=source_context["maintenance_revision"],
                     expected_context=source_context,
@@ -998,7 +1012,7 @@ async def reference_snapshot(
                     observation=observation,
                     rate_attempt=rate_attempt,
                     validate=validate,
-                    actor_id=actor.id,
+                    actor_id=actor_id,
                     task_id=task_id,
                     **{
                         key: source_context[key]
@@ -1029,7 +1043,7 @@ async def reference_snapshot(
                                 "source_id": str(source_context["source_id"]),
                                 "asset_id": str(source_context["asset_id"]),
                                 "run_id": str(source_context["run_id"]),
-                                "user_id": str(actor.id),
+                                "user_id": str(actor_id),
                                 **({"task_id": str(task_id)} if task_id else {}),
                             },
                         )
@@ -1043,7 +1057,7 @@ async def reference_snapshot(
                                 source_context, task_id, scope
                             ),
                             context["sha256"],
-                            actor_id=actor.id,
+                            actor_id=actor_id,
                             key_id=api_key_id,
                             key_proof=proof,
                             maintenance_revision=source_context["maintenance_revision"],

@@ -264,7 +264,7 @@ async def record_annotation_actor(
             raise
         await refresh_task_evidence(db, task, nowait=nowait)
     from app.services.labeling_tasks import LabelingTaskService
-    from app.application.task_workflow_errors import TaskWorkflowError
+    from app.services.task_workflow_errors import TaskWorkflowError
 
     try:
         return await LabelingTaskService(db).record_annotation_actor(

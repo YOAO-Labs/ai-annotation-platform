@@ -516,6 +516,20 @@ async def read(db, actor, request, report_id, key):
         raise http_error(exc) from None
 
 
+async def _sync_cached_upload(db, identifier, *, deleted=False):
+    sync_session = getattr(db, "sync_session", None)
+    if sync_session is None:
+        return
+    for (model, key, _), instance in list(sync_session.identity_map.items()):
+        if getattr(
+            model, "__tablename__", None
+        ) == "bug_attachment_uploads" and key == (identifier,):
+            if deleted:
+                db.expunge(instance)
+            else:
+                await db.refresh(instance)
+
+
 async def _cleanup_one(db, identifier):
     receipt = _decode_receipt(await _native(db, _PREPARE_CLEANUP, {"id": identifier}))
     if receipt is not None:
@@ -523,6 +537,7 @@ async def _cleanup_one(db, identifier):
     await db.commit()
     if receipt is None:
         return False
+    await _sync_cached_upload(db, identifier, deleted=False)
     target = await storage.io_target(db, receipt)
     source = saved_output_io.capture(target, "bug", receipt)
     recorder = removal.recorder(
@@ -575,6 +590,7 @@ async def _cleanup_one(db, identifier):
         },
     )
     await db.commit()
+    await _sync_cached_upload(db, identifier, deleted=bool(deleted))
     return deleted
 
 

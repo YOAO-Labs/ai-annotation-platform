@@ -141,6 +141,8 @@ async def generate(
             inspect_dimensions=kind == "task" and not allow_pyramid,
         )
         await db.rollback()
+        source_guard = None
+        await pending_guard.__aexit__(None, None, None)
         if encoded is None:
             return
         body, blurhash = encoded

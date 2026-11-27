@@ -40,7 +40,7 @@ from yoao_labeling.task_maintenance_contract import (
     ReadSourceLessProjectBatches,
     ReadSourceLessProjectCounters,
 )
-from app.application.task_workflow_errors import TaskWorkflowError
+from app.services.task_workflow_errors import TaskWorkflowError
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.labeling_project_counter_data import (

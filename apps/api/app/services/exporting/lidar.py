@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 
 from app.db.models.annotation import Annotation
+from app.services.exporting.lidar_pcd import MAX_PCD_POINTS, MAX_POINTMASK_INDICES
 from yoao_assets_catalog.spatial_values import SensorCalibration
 from yoao_assets_catalog.axis_convention import PsrDict, _euler_xyz_to_mat3
 from app.services.pointcloud_projection import (
@@ -1129,8 +1130,6 @@ def build_pointmask_label_bytes(
     category_map: dict[str, int],
 ) -> bytes:
     """Label the verified original record space, preserving annotation order."""
-    from app.services.exporting.lidar_pcd import MAX_PCD_POINTS, MAX_POINTMASK_INDICES
-
     if source_point_count is None:
         raise ValueError("pointmask_point_count_required")
     if type(source_point_count) is not int or source_point_count < 0:

@@ -462,16 +462,7 @@ async def sniff_axis_convention(
         raise
     if result.result is None:
         return SniffAxisConventionResponse()
-    return SniffAxisConventionResponse(
-        best=result.result.best,
-        score=result.result.score,
-        candidates=result.result.candidates,
-        source=result.result.source,
-        camera_role=result.result.camera_role,
-        camera_item_id=result.result.camera_item_id,
-        per_camera=result.result.per_camera,
-        agreement=result.result.agreement,
-    )
+    return SniffAxisConventionResponse.model_validate(result.result.model_dump())
 
 
 @router.delete(

@@ -45,7 +45,8 @@ async def quality_data_command(
         statement = _FUNCTIONS.get(function)
         if statement is None:
             raise QualityDataUnavailable()
-        return await db.scalar(statement, {"request": payload})
+        async with db.begin_nested():
+            return await db.scalar(statement, {"request": payload})
 
     try:
         return await QualityDataClient(execute).command(request)

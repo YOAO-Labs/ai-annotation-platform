@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import inspect as sa_inspect, select, text
 
 from app.db.enums import UserRole
 from app.db.models.dataset_source import (
@@ -117,6 +117,17 @@ async def validate_dataset_write(
             raise HTTPException(403, detail={"code": "access_revoked"})
 
 
+def _actor_id(actor):
+    try:
+        state = sa_inspect(actor)
+    except Exception:
+        return actor.id
+    identity = getattr(state, "identity", None)
+    if identity:
+        return identity[0]
+    return actor.id
+
+
 async def require_manager(db, actor_id):
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not actor.is_active or actor.role not in MANAGERS:
@@ -125,7 +136,7 @@ async def require_manager(db, actor_id):
 
 
 async def assert_dataset_manage(db, dataset_id, actor):
-    actor = await require_manager(db, actor.id)
+    actor = await require_manager(db, _actor_id(actor))
     dataset = await _dataset_authority(db, dataset_id)
     if dataset is None or (
         actor.role != UserRole.SUPER_ADMIN and dataset.created_by != actor.id
@@ -135,7 +146,7 @@ async def assert_dataset_manage(db, dataset_id, actor):
 
 
 async def require_source(db, source_id, actor):
-    actor = await require_manager(db, actor.id)
+    actor = await require_manager(db, _actor_id(actor))
     sources = visible_sources(actor.id, source_id=source_id)
     source = (await db.execute(select(sources))).one_or_none()
     if source is None:

@@ -1436,17 +1436,6 @@ class MaskMutationService:
                 "mutation",
                 payload.model_dump(mode="json"),
             )
-        task = (
-            await self._lock_task(task_id)
-            if reference_repair_receipt is None
-            else await self._lock_task(
-                task_id,
-                reference_receipt=reference_repair_receipt,
-                payload=payload,
-                actor=actor,
-            )
-        )
-
         preflight_task = await get_core_row(
             self.db, task_row, task_id, populate_existing=True
         )

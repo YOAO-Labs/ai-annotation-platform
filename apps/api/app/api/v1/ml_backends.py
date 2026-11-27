@@ -1702,7 +1702,7 @@ async def interactive_annotating_frame(
     async with prediction_inputs(
         input_session_factory,
         owner_id=uuid.uuid4(),
-        owner_kind="interactive_frame_predict",
+        owner_kind="frame_interactive",
         task_id=task.id,
     ) as inputs:
         jpeg_bytes = await _read_capped_frame(frame, request=request)

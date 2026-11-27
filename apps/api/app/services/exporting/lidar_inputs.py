@@ -29,6 +29,7 @@ from app.services.exporting.asset_facts import (
     scene_facts as Scene,
 )
 from app.services.exporting.core_reads import Project
+from app.services.exporting.lidar_sources import canonical_identity, media_type
 from app.services.labeling_core_read_relations import (
     annotation_row as Annotation,
     batch_row as TaskBatch,
@@ -174,8 +175,6 @@ def source_key(source):
             if name != "relation"
         }
     )
-    from app.services.exporting.lidar_sources import canonical_identity
-
     return digest(canonical_identity(result))
 
 
@@ -727,8 +726,6 @@ async def _collect(
                 for identifier in {source.relation.primary_link_id, link_id}
                 if identifier is not None and identifier in relation_index
             ]
-            from app.services.exporting.lidar_sources import media_type
-
             expected_type = media_type(role)
             if (
                 source.media_type != expected_type
