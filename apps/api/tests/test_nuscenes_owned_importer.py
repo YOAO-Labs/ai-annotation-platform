@@ -8,6 +8,7 @@ import uuid
 import numpy as np
 import pytest
 from sqlalchemy import select, text, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.enums import UserRole
 from app.config import settings
@@ -88,10 +89,16 @@ async def _restore_owned_originals(test_engine):
                     "ENABLE TRIGGER trg_managed_original_creation_history"
                 )
             )
+        await cleanup.execute(
+            text("DELETE FROM users WHERE id IN :actors").bindparams(actors_in),
+            {"actors": actors},
+        )
 
 
 @pytest.fixture
-async def owned_import(db_session, _restore_owned_originals, monkeypatch, tmp_path):
+async def owned_import(
+    db_session, test_engine, _restore_owned_originals, monkeypatch, tmp_path
+):
     await creation.bootstrap(db_session)
     from app.services.storage import storage_service
 
@@ -111,10 +118,10 @@ async def owned_import(db_session, _restore_owned_originals, monkeypatch, tmp_pa
         role=UserRole.SUPER_ADMIN,
         is_active=True,
     )
-    db_session.add(actor)
-    await db_session.flush()
-    db_session.expunge(actor)
     _restore_owned_originals.append(actor.id)
+    async with async_sessionmaker(test_engine, expire_on_commit=False)() as owner_db:
+        owner_db.add(actor)
+        await owner_db.commit()
     yield db_session, actor, client, root
 
 

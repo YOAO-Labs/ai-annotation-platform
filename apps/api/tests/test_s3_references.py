@@ -125,9 +125,10 @@ async def s3_world(db_session, super_admin, monkeypatch):
     db_session.add_all([connection, dataset])
     await db_session.flush()
     location = await locations.register_connection(db_session, connection)
+    connection_config = dict(connection.config)
     monkeypatch.setattr(backend.S3Reader, "_client", client)
     use_provider(
-        monkeypatch, location.id, lambda: backend.S3Reader(connection.config, {}, ())
+        monkeypatch, location.id, lambda: backend.S3Reader(connection_config, {}, ())
     )
     for node in ["worker:content@test", locations.api_node_id()]:
         result = await locations.perform_probe(

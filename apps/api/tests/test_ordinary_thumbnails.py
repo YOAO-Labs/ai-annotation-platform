@@ -45,9 +45,12 @@ from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 from app.services.workspace_e2e_fixtures import create_fixture_project
 from app.services import thumbnail_outputs
 from app.services import storage as storage_module
+from dataclasses import replace
+
+from app.services import managed_s3_target
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.managed_s3_target import Target
-from app.services.source_readers.s3 import S3Access
+from app.services.source_readers.s3 import S3Access, ScopedS3Access
 from app.services.storage import storage_service
 from app.workers import media
 from tests.managed_original_client_support import Client as OriginalClient, stage_client
@@ -252,6 +255,30 @@ async def native_world(
                 instance.close()
 
         monkeypatch.setattr(S3Access, "client", client)
+        monkeypatch.setattr(ScopedS3Access, "client", client)
+        original_target_for = managed_s3_target.target_for
+
+        async def local_target_for(db, location, **kwargs):
+            origin = await original_target_for(db, location, **kwargs)
+            if origin.is_registered:
+                return replace(
+                    origin,
+                    _access=ScopedS3Access(
+                        {"endpoint": origin.endpoint_url, "bucket": origin.bucket},
+                        {
+                            "endpoint": origin.endpoint_url,
+                            "access_key": "test",
+                            "secret_key": "test",
+                        },
+                        (),
+                    ),
+                )
+            return origin
+
+        monkeypatch.setattr(managed_s3_target, "target_for", local_target_for)
+        monkeypatch.setattr(
+            thumbnail_outputs.source, "registered", lambda target: False
+        )
 
         class OwnedStorage(storage_module.StorageService):
             def __init__(self, **kwargs):
@@ -298,15 +325,6 @@ async def native_world(
                 name="Ordinary thumbnails",
                 created_by=actor.id,
             )
-            item = DatasetItem(
-                id=uuid.uuid4(),
-                dataset_id=dataset.id,
-                file_name="saved.png",
-                file_path="pending",
-                file_type="image",
-                width=32,
-                height=16,
-            )
             connection = StorageConnection(
                 id=uuid.uuid4(),
                 name="B-" + uuid.uuid4().hex,
@@ -329,10 +347,6 @@ async def native_world(
                 config_revision=2,
                 connection_id=connection.id,
             )
-            db.add_all([dataset, connection])
-            await db.flush()
-            db.add_all([item, location])
-            await db.flush()
             target = Target(
                 location.id,
                 2,
@@ -342,7 +356,19 @@ async def native_world(
                 "公司/root/_aap_managed/datasets/",
                 purpose="datasets",
             )
-            item.file_path = target.key_prefix + "originals/" + uuid.uuid4().hex
+            item = DatasetItem(
+                id=uuid.uuid4(),
+                dataset_id=dataset.id,
+                file_name="saved.png",
+                file_path=target.key_prefix + "originals/" + uuid.uuid4().hex,
+                file_type="image",
+                width=32,
+                height=16,
+            )
+            db.add_all([dataset, connection])
+            await db.flush()
+            db.add_all([item, location])
+            await db.flush()
             asset = DatasetAsset(
                 id=uuid.uuid4(),
                 dataset_item_id=item.id,

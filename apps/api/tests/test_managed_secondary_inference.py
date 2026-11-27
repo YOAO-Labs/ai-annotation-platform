@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 import uuid
 
-import httpx
 from PIL import Image
 import pytest
 from sqlalchemy import select
@@ -28,9 +27,13 @@ from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.services import storage_access
 from app.services.annotation import AnnotationService
-from yoao_inference_contract.execution import ModelTaskResult, thaw_json
+from yoao_inference_contract.execution import (
+    ExecutionFailure,
+    ModelExecutionError,
+    ModelTaskResult,
+    thaw_json,
+)
 from tests.inference_execution_test_ports import FakeModelExecutionPort
-from tests import live_provider_guard
 from tests.conftest import create_registry_with_pool
 from tests.factory import (
     build_tool_bindings,
@@ -567,15 +570,34 @@ async def test_failures_and_empty_detections_keep_legacy_semantics(
 ):
     world = secondary_world
     if failure == "timeout":
-        world.failure = httpx.ReadTimeout("test timeout")
+        world.failure = ModelExecutionError(
+            ExecutionFailure(
+                request_id=uuid.uuid4(),
+                kind="transport",
+                code="backend_timeout",
+                status_code=504,
+                detail="test timeout",
+            )
+        )
     elif failure == "connect":
-        world.failure = httpx.ConnectError("test connection")
+        world.failure = ModelExecutionError(
+            ExecutionFailure(
+                request_id=uuid.uuid4(),
+                kind="transport",
+                code="backend_unreachable",
+                status_code=502,
+                detail="test connection",
+            )
+        )
     elif failure == "upstream":
-        request = httpx.Request("POST", "http://secondary.test/predict")
-        world.failure = httpx.HTTPStatusError(
-            "test upstream",
-            request=request,
-            response=httpx.Response(500, request=request),
+        world.failure = ModelExecutionError(
+            ExecutionFailure(
+                request_id=uuid.uuid4(),
+                kind="backend",
+                code="backend_http_error",
+                status_code=500,
+                detail="test upstream",
+            )
         )
     elif failure == "empty":
         world.empty = True
@@ -690,11 +712,11 @@ async def test_post_write_jwt_logout_rolls_back_attributes_and_audit(
     from app.core import token_blacklist
     from app.core.security import decode_access_token
 
-    live_provider_guard.owned_redis()
     world = secondary_world
     claims = decode_access_token(super_admin[1])
     jti = claims["jti"]
-    assert not await token_blacklist.is_blacklisted(jti)
+    async with world.factory() as check_db:
+        assert not await token_blacklist.is_blacklisted(jti, db=check_db)
     original = route.AuditService.log
     writes = []
 
@@ -704,21 +726,16 @@ async def test_post_write_jwt_logout_rolls_back_attributes_and_audit(
             writes.append(True)
             remaining = int(claims["exp"] - datetime.now(timezone.utc).timestamp())
             assert remaining > 0
-            await token_blacklist.blacklist_token(jti, remaining)
+            async with world.factory() as logout_db:
+                await token_blacklist.blacklist_token(jti, remaining, db=logout_db)
+                await logout_db.commit()
         return result
 
     monkeypatch.setattr(route.AuditService, "log", log_then_logout)
-    try:
-        response = await submit(httpx_client, world, auth(super_admin))
-        assert writes and response.status_code == 403, response.text
-        await assert_no_results(world)
-        await clean(world, monkeypatch)
-    finally:
-        redis = token_blacklist._get_redis()
-        try:
-            await redis.delete(token_blacklist._KEY_PREFIX + jti)
-        finally:
-            await redis.aclose()
+    response = await submit(httpx_client, world, auth(super_admin))
+    assert writes and response.status_code == 403, response.text
+    await assert_no_results(world)
+    await clean(world, monkeypatch)
 
 
 async def test_secondary_tombstone_prevents_downgrade_without_rewriting_history(

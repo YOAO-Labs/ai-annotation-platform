@@ -622,10 +622,10 @@ async def test_upload_rechecks_frozen_expiry_after_pending_acquired_and_final_co
     async def commit():
         nonlocal commits
         commits += 1
-        row = next(
-            value
-            for value in db_session.identity_map.values()
-            if isinstance(value, CommentAttachmentUpload)
+        row = await db_session.scalar(
+            select(CommentAttachmentUpload).order_by(
+                CommentAttachmentUpload.created_at.desc()
+            )
         )
         receipt = storage.snapshot(row)
         await original_commit()
@@ -711,7 +711,13 @@ async def test_binding_last_wait_expiry_preserves_the_committed_comment_and_owne
         original_commit = db_session.commit
 
         async def commit():
-            bound = row.bound_comment_id is not None
+            bound = (
+                await db_session.scalar(
+                    select(CommentAttachmentUpload.bound_comment_id).where(
+                        CommentAttachmentUpload.id == row.id
+                    )
+                )
+            ) is not None
             await original_commit()
             if bound:
                 db_session.expire(row, ["expires_at"])
@@ -729,16 +735,18 @@ async def test_binding_last_wait_expiry_preserves_the_committed_comment_and_owne
 
         monkeypatch.setattr(NotificationService, "publish_committed", published)
     else:
-        original_refresh = db_session.refresh
+        from app.services.annotation_comment import AnnotationCommentService
 
-        async def refresh(instance, *args, **kwargs):
-            result = await original_refresh(instance, *args, **kwargs)
+        original_refresh = AnnotationCommentService.refresh
+
+        async def refresh(service, instance, *args, **kwargs):
+            result = await original_refresh(service, instance, *args, **kwargs)
             if isinstance(instance, AnnotationComment):
                 db_session.expire(row, ["expires_at"])
                 expire()
             return result
 
-        monkeypatch.setattr(db_session, "refresh", refresh)
+        monkeypatch.setattr(AnnotationCommentService, "refresh", refresh)
 
     response = await httpx_client.post(
         f"/api/v1/annotations/{discussion[1].id}/comments",
@@ -812,10 +820,10 @@ async def test_executor_queue_wait_rechecks_expiry_before_actual_storage_io(
     frozen = {}
 
     async def run(db, location_id, purpose, call, *args, **kwargs):
-        row = next(
-            item
-            for item in db_session.identity_map.values()
-            if isinstance(item, CommentAttachmentUpload)
+        row = await db_session.scalar(
+            select(CommentAttachmentUpload).order_by(
+                CommentAttachmentUpload.created_at.desc()
+            )
         )
         frozen["receipt"] = storage.snapshot(row)
 
@@ -975,11 +983,20 @@ async def test_cancelled_read_waits_for_actual_body_close(
             closed.set()
 
     objects.body_factory = BlockingBody
+    claims = decode_access_token(super_admin[1])
     request = Request(
         {
             "type": "http",
             "headers": [(b"authorization", ("Bearer " + super_admin[1]).encode())],
         }
+    )
+    request.state.identity_principal = SimpleNamespace(
+        actor_id=super_admin[0].id,
+        credential_type="jwt",
+        credential_id=uuid.UUID(claims["jti"]),
+        generation=int(claims.get("gen", 0)),
+        expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc),
+        scopes=None,
     )
     task = asyncio.create_task(
         uploads.read(

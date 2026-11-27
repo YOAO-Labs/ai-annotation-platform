@@ -246,9 +246,8 @@ async def test_project_admin_list_is_scoped_to_owned_projects(
         f"/api/v1/video-tracker-jobs?project_id={other_task.project_id}",
         headers=_bearer(token),
     )
-    assert cross_project.status_code == 200, cross_project.text
-    assert cross_project.json()["items"] == []
-    assert cross_project.json()["counts"]["pending_review"] == 0
+    assert cross_project.status_code == 403, cross_project.text
+    assert cross_project.json()["detail"] == {"reason": "permission_denied"}
 
 
 async def test_cursor_pagination(httpx_client, super_admin, db_session):

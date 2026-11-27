@@ -1,6 +1,8 @@
+from contextlib import contextmanager
 import hashlib
 import json
 import os
+from pathlib import Path
 import tempfile
 import subprocess
 import uuid
@@ -48,6 +50,12 @@ from tests.video_derivative_fixtures import (
     publish_result,
     saved_url,
 )
+
+
+@contextmanager
+def _tmp_stage():
+    with tempfile.TemporaryDirectory() as directory:
+        yield Path(directory)
 
 
 @pytest.fixture(autouse=True)
@@ -227,6 +235,7 @@ async def test_build_frame_uses_original_stage_and_saved_output_owner(
                 video_objects.snapshot(output),
                 stage,
                 video_objects.snapshot(metadata),
+                native_stage=_tmp_stage(),
             )
             assert not source.closed
         assert source.closed
@@ -394,8 +403,9 @@ async def test_build_video_chunk_uses_smart_copy_when_keyframe_aligned(
                 video_objects.snapshot(output),
                 stage,
                 video_objects.snapshot(metadata),
+                native_stage=_tmp_stage(),
             )
-        await publish_result(db_session, output, authority, result, receipts)
+        output = await publish_result(db_session, output, authority, result, receipts)
         assert calls == ["smart:0:1000"]
         assert output.state == "ready" and result["generation_mode"] == "smart_copy"
         expected = {
@@ -464,6 +474,7 @@ async def test_build_video_chunk_transcodes_when_not_keyframe_aligned(
                 video_objects.snapshot(output),
                 stage,
                 video_objects.snapshot(metadata),
+                native_stage=_tmp_stage(),
             )
         await publish_result(db_session, output, authority, result, receipts)
         assert calls == ["transcode:0:30"]
@@ -529,6 +540,7 @@ async def test_build_video_chunk_falls_back_when_smart_copy_fails(
                 video_objects.snapshot(output),
                 stage,
                 video_objects.snapshot(metadata),
+                native_stage=_tmp_stage(),
             )
         await publish_result(db_session, output, authority, result, receipts)
         assert calls == ["smart", "transcode:0:30"]
@@ -1104,6 +1116,7 @@ async def _create_video_export_fixture(db_session, user):
         file_name="clip-a.mp4",
         file_path="videos/clip-a.mp4",
         file_type="video",
+        media_materialized_generation=1,
         metadata_={
             "video": {
                 "fps": 10,
@@ -1119,6 +1132,7 @@ async def _create_video_export_fixture(db_session, user):
         file_name="clip-b.mp4",
         file_path="videos/clip-b.mp4",
         file_type="video",
+        media_materialized_generation=1,
         metadata_={"video": {"fps": 10, "frame_count": 3}},
     )
     db_session.add_all([item_a, item_b])

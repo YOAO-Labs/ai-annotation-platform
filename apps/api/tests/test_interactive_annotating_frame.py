@@ -94,8 +94,13 @@ async def _seed(db, owner_id, *, is_interactive=True):
 
 
 @pytest.fixture
-def patched(monkeypatch):
+def patched(monkeypatch, test_engine):
     """Install control/execution port fakes and capture the actual model request."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.deps import get_prediction_input_session_factory
+    from app.main import app as app_module
+
     captured: dict = {}
     setup_payload = {
         "models": [
@@ -123,7 +128,9 @@ def patched(monkeypatch):
     )
 
     class FakeExecutionPort:
-        async def execute(self, operation):
+        async def execute(self, operation, *, before_dispatch=None):
+            if before_dispatch is not None:
+                await before_dispatch()
             task_data = thaw_json(operation.task_inputs[0])
             context = thaw_json(operation.context) or {}
             captured["operation"] = operation
@@ -197,15 +204,32 @@ def patched(monkeypatch):
         lambda *_args, **_kwargs: FakeExecutionPort(),
     )
 
-    def fake_upload(self, data, key):
-        captured["upload_key"] = key
+    async def fake_upload_frame(self, task, data):
+        captured["upload_task_id"] = task.id
         captured["upload_size"] = len(data)
         return FRAME_URL
 
     monkeypatch.setattr(
-        "app.services.storage.StorageService.upload_crop_bytes", fake_upload
+        "app.services.prediction_inputs.PredictionInputs.upload_frame",
+        fake_upload_frame,
     )
-    return captured
+    old_override = app_module.dependency_overrides.get(
+        get_prediction_input_session_factory
+    )
+    app_module.dependency_overrides[get_prediction_input_session_factory] = lambda: (
+        async_sessionmaker(test_engine, expire_on_commit=False)
+    )
+    try:
+        yield captured
+    finally:
+        if old_override is None:
+            app_module.dependency_overrides.pop(
+                get_prediction_input_session_factory, None
+            )
+        else:
+            app_module.dependency_overrides[get_prediction_input_session_factory] = (
+                old_override
+            )
 
 
 def _url(proj, backend) -> str:
@@ -239,7 +263,7 @@ async def test_frame_bytes_become_backend_file_path(
     assert patched["task_data"]["file_path"] == FRAME_URL
     assert patched["task_data"]["file_path"] != VIDEO_PATH
     assert patched["task_data"]["id"] == str(task.id)
-    assert patched["upload_key"] == f"frame-interactive/{task.id}/7.jpg"
+    assert patched["upload_task_id"] == task.id
     assert patched["upload_size"] == len(JPEG_BYTES)
 
 
@@ -308,7 +332,8 @@ async def test_mask_input_next_passthrough(
     assert body["cache_hit"] is False
     assert body["result"][0]["type"] == "polygonlabels"
     assert "prediction_id" not in body
-    assert patched["upload_key"].endswith("/3.jpg")
+    assert patched["upload_task_id"] == task.id
+    assert patched["upload_size"] == len(JPEG_BYTES)
 
 
 async def test_native_mask_frame_validates_jpeg_size_and_returns_lineage(
@@ -394,8 +419,8 @@ async def test_non_interactive_backend_rejected(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 400
-    assert "interactive" in resp.json()["detail"]
-    assert "upload_key" not in patched
+    assert resp.json()["detail"] == "该模型服务不支持交互式标注"
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched
 
 
@@ -422,7 +447,7 @@ async def test_interactive_frame_rejects_context_over_one_mib_before_upload(
     )
     assert resp.status_code == 413
     assert resp.json()["detail"]["reason"] == "interactive_context_too_large"
-    assert "upload_key" not in patched
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched
 
 
@@ -440,7 +465,7 @@ async def test_empty_frame_rejected(httpx_client, super_admin, db_session, patch
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Empty frame image"
-    assert "upload_key" not in patched
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched
 
 
@@ -459,7 +484,7 @@ async def test_invalid_context_json_rejected(
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Invalid context JSON"
-    assert "upload_key" not in patched
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched
 
 
@@ -475,7 +500,7 @@ async def test_unknown_task_rejected(httpx_client, super_admin, db_session, patc
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 404
-    assert "upload_key" not in patched
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched
 
 
@@ -495,7 +520,7 @@ async def test_cross_project_task_rejected(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 404
-    assert "upload_key" not in patched
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched
 
 
@@ -519,5 +544,5 @@ async def test_ai_interactive_disabled_rejected(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 403
-    assert "upload_key" not in patched
+    assert "upload_task_id" not in patched
     assert "task_data" not in patched

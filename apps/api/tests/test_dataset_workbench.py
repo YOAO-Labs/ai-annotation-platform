@@ -135,6 +135,7 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
 ):
     db, world = db_session, content_world
     actor_id = world[2].id
+    dataset_id = world[3].id
     world[5].cache_policy = "preview"
     await db.commit()
     original = await accept_all_files(db, world)
@@ -150,7 +151,7 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
         (world[0] / "图片 空格.png").write_bytes(b"not an image")
         world = await rescan(db, world)
         await preflight(db, world)
-        base = f"/api/v1/datasets/{world[3].id}/items/{item_id}"
+        base = f"/api/v1/datasets/{dataset_id}/items/{item_id}"
         item = (await httpx_client.get(base, headers=headers(super_admin))).json()
         assert item["availability"]["state"] == "preview_only"
         assert item["availability"]["allowed_actions"] == [

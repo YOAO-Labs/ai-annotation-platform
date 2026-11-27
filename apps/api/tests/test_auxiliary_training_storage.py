@@ -51,7 +51,10 @@ def make_case(service, purpose, namespace):
         "evidence": {"objects": [{"sha256": "a" * 64}]},
     }
     return service, SimpleNamespace(
-        id=identifier, project_id=project_id, storage_ref=ref
+        id=identifier,
+        project_id=project_id,
+        storage_ref=ref,
+        current_attempt_id=None,
     )
 
 

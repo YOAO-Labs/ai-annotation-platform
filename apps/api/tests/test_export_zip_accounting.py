@@ -473,21 +473,29 @@ async def test_both_async_owners_preserve_guards_and_drain_before_accounting(
 
     class Permit:
         revision = 3
+        _settled = False
 
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *args):
             assert provider.closed
+            self._settled = True
             order.append("settled")
 
     async def acquire(*args, **kwargs):
         order.append("acquired")
         return Permit()
 
-    async def settle(*args):
+    async def settle(permit, *args):
         assert provider.closed
+        permit._settled = True
         order.append("settled")
+
+    from app.services import export_execution_context
+
+    monkeypatch.setattr(export_execution_context, "enter_io", AsyncMock())
+    monkeypatch.setattr(export_execution_context, "settle_io", AsyncMock())
 
     monkeypatch.setattr(export_storage, "io_target", AsyncMock(return_value=None))
     monkeypatch.setattr(export_outputs, "_locked", AsyncMock(return_value=row))

@@ -56,6 +56,7 @@ def record(**changes):
             "file_count": 2,
             "created_at": CREATED,
             "expires_at": CREATED + timedelta(days=7),
+            "fixture": False,
             "storage_ref": reference(),
             "sha256": hashlib.sha256(RAW).hexdigest(),
             "size_bytes": len(RAW),

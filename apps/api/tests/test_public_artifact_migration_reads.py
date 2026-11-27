@@ -14,7 +14,7 @@ import pytest
 
 from app.db.enums import UserRole
 from app.services import audit_archive_reads, audit_archive_storage
-from app.services import avatar, avatar_storage, avatar_uploads
+from app.services import avatar, avatar_storage, avatar_upload_data, avatar_uploads
 from app.services import bug_attachment_storage, bug_attachment_uploads
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migrated_reads
@@ -232,15 +232,31 @@ def mapped_entry(monkeypatch, kind, version="source-version", *, after_read=None
         bug_attachment_uploads, "reauthorize", AsyncMock(return_value=actor)
     )
     if kind == "avatar":
+        monkeypatch.setattr(
+            avatar_upload_data, "read_ready", AsyncMock(return_value=row)
+        )
 
         async def call():
             return await avatar_uploads.read(db, row.token)
     elif kind == "attachment":
         monkeypatch.setattr(bug_attachment_uploads, "capture_authority", AsyncMock())
+
+        async def registered_receipt(_db, current_actor, report_id, _key):
+            if (
+                current_actor.role != UserRole.SUPER_ADMIN
+                and current_actor.id != row.owner_id
+            ):
+                raise HTTPException(403, {"code": "bug_attachment_forbidden"})
+            if row.state != "ready" or row.bound_report_id != report_id:
+                raise HTTPException(400, {"code": "bug_attachment_not_found"})
+            receipt = bug_attachment_uploads.snapshot(row)
+            bug_attachment_uploads._check_expiry(receipt)
+            return receipt
+
         monkeypatch.setattr(
             bug_attachment_uploads,
             "_registered_receipt",
-            AsyncMock(side_effect=lambda *_: bug_attachment_uploads.snapshot(row)),
+            AsyncMock(side_effect=registered_receipt),
         )
 
         async def call():
