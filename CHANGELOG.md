@@ -100,6 +100,14 @@
 
 ### Fixed
 
+- 修复交互式单帧推理接口（`POST /api/v1/ml-backends/{id}/interactive-annotating-frame`）将输入归属类型误写为 `interactive_frame_predict`（应为 `frame_interactive`）导致触发数据库约束 500 错误的问题。
+- 修复点云数据集坐标轴探测接口（`POST /api/v1/datasets/{id}/sniff-axis-convention`）直接将跨包 Pydantic 模型实例传给 API 响应模型导致返回 500 `ValidationError` 的问题。
+- 修复栅格 Mask 提交（`mask-mutations:commit`）在 S3 RLE 预检读取前提前持有任务 `FOR UPDATE` 行锁的问题，恢复先完成对象存储读取、再在短事务内锁定任务行并提交的锁顺序。
+- 修复普通图片缩略图生成在进入输出写入前未先释放原图读取许可的问题，避免输出写入失败或并发来源竞争时遗留未关闭存储操作记录或触发清理异常组。
+- 修复 Mask 质检版本对比（`mask-compare`）解析 PostgreSQL 无限保留期时间戳（`'infinity'`／`'-infinity'`）时触发 500 `ValueError` 的问题。
+- 修复数据集来源访问、预检登记、目录引用、审计日志写入与存储迁移副本序列化在事务回滚／提交后读取已过期 ORM 对象触发 `MissingGreenlet` 的问题，以及目录引用迁址与缺陷附件原生 SQL 更新后 SQLAlchemy 会话 identity-map 缓存陈旧行的问题。
+- 修复 6 个标注域原生 SQL 适配层（追踪控制、标注单条／批量、栅格 Mask 编辑、讨论与质检数据）在领域校验失败时中止外层事务（`InFailedSQLTransactionError`）的问题，统一以 `SAVEPOINT`（`begin_nested()`）隔离单次 SQL 能力调用。
+- 修复 `scripts/import_nuscenes_scene.py` 原地升级旧版 nuScenes 场景时无法从 `storage_relative_path` 推导相机通道以及在写入场景源元数据前过早绑定辅助地图场景导致 `source_changed` 失败的问题。
 - 修复普通数据库运行账号下项目格式列表接口（`GET /api/v1/projects/{id}/mask-formats`）因缺少 `yoao_labeling_v1.format_adapter_plugins` 属主移交与 5 项公开能力 `EXECUTE` 授权而返回 500 的问题，同时保持 `_format_adapter_public_projection` 私有辅助函数不可公开调用。
 - 修复 `GET /api/v1/async-jobs` 与 `GET /api/v1/async-jobs/{id}` 遗漏当前请求 API 密钥作用域与实时权限校验的问题（访问平台存储维护作业须实时具备 `*` 权限，访问数据集作业须具备 `datasets:read` 权限）；同步新增前向迁移 `bo0517` 及作用域查询能力 `async_job_list_page_scoped`／`async_job_list_total_scoped`，恢复超级管理员按类型查询 6 类平台存储维护作业列表的能力，非超管与受限密钥继续不可见。
 - 修复多目标视频追踪跨窗口关联计算边界框交并比时仅识别 `dict` 而不识别只读 `MappingProxyType` 几何对象的问题，恢复跨窗口目标重关联与新实例编号分配。
