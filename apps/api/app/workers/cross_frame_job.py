@@ -19,7 +19,7 @@ from app.db.models.async_job import AsyncJobStatus
 from app.db.models.task import Task
 from app.services.identity_contracts import IdentityActorFacts
 from app.services import task_access
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.annotation_mutation_contract import AnnotationMutationError
 from app.services.cross_frame_job import JOB_KIND, summarize_items

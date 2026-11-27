@@ -331,7 +331,7 @@ async def run_batch_request(**kwargs):
         if kwargs.get("async_job_id") is None:
             import uuid
 
-            from app.services import async_job as jobs
+            from app.services import jobs_lifecycle_data as jobs
 
             async with sessions() as db:
                 job = await jobs.create_job(

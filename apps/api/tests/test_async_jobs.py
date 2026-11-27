@@ -18,7 +18,7 @@ from app.db.models.notification import Notification
 from app.db.models.prediction import FailedPrediction
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from tests.factory import create_project
 

@@ -20,7 +20,7 @@ from app.deps import get_db, get_current_user
 from yoao_workspace_contract.access import ProjectAccess
 from app.schemas.async_job import AsyncJobOut
 from app.schemas.cross_frame_job import CrossFrameJobCreate, CrossFrameJobListResponse
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from app.services.cross_frame_job import (

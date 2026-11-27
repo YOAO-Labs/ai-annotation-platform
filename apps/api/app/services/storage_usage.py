@@ -11,7 +11,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.db.enums import UserRole
 from app.schemas.storage import BucketsResponse, BucketSummary
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_usage_accounting as accounting
 from app.services.async_job_notify import notify_job_terminal
 from app.services.dataset_assets import (

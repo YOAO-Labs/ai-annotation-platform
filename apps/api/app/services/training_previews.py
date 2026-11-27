@@ -28,7 +28,7 @@ from training_contract.trainer_plugin import TRAINER_PROTOCOL_VERSION
 from app.config import settings
 from app.schemas.training_preview import TrainingPreviewOut, TrainingPreviewReport
 from app.schemas.training_run import ExecutorFence, TrainingRunCreate
-from app.services import async_job as jobs, training_runs as training
+from app.services import jobs_lifecycle_data as jobs, training_runs as training
 from app.services import training_adapters as adapters
 from app.services import training_dataset_data as datasets
 from app.services import training_preview_data as data

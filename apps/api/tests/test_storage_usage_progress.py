@@ -7,7 +7,7 @@ import pytest
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.storage_usage import StorageUsageSnapshot
-from app.services import async_job as jobs, storage_usage as usage
+from app.services import jobs_lifecycle_data as jobs, storage_usage as usage
 from app.workers import storage_usage as worker
 from tests.test_storage_usage import ready as ready  # noqa: F401
 

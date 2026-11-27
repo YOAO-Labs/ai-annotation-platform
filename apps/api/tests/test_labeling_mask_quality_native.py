@@ -28,7 +28,7 @@ from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.db.models.mask_qc import MaskQCIssue
 from app.db.models.mask_repair_batch import MaskRepairBatch
-from app.services.async_job import create_job
+from app.services.jobs_lifecycle_data import create_job
 from tests.factory import create_project, create_task, create_user
 from tests.test_labeling_class_usage_reads_legacy import (
     _cleanup_owned,

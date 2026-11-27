@@ -116,7 +116,7 @@ async def _terminal_outcome(data, attempt):
 
 
 async def _notify_terminal(db, job_id):
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
 
     await async_job_svc.get_job(db, job_id, populate_existing=True)
@@ -193,7 +193,7 @@ def _one_result(results, task_id):
 
 
 async def _retry_job_payload(db, attempt):
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = await jobs.get_job(db, uuid.UUID(str(attempt.job_id)), populate_existing=True)
     payload = job.payload if job is not None and isinstance(job.payload, dict) else {}
@@ -555,7 +555,7 @@ async def _prepare_snapshot(execution, session_factory):
 
 async def _revalidate_retry_job(db, attempt):
     """Re-read the admitted Job and its accepted authority in the writer session."""
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = await jobs.get_job(db, uuid.UUID(str(attempt.job_id)), populate_existing=True)
     payload = job.payload if job is not None and isinstance(job.payload, dict) else {}

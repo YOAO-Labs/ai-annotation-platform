@@ -278,7 +278,7 @@ async def test_retry_binds_owner_authority_into_the_admitted_job_once(
     httpx_client, super_admin, db_session, monkeypatch
 ):
     """Admission writes the captured proof and snapshot into the native Job."""
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.prediction_execution import create_snapshot
 
     user, token = super_admin
@@ -415,7 +415,7 @@ def _passthrough_session_factory(db_session: AsyncSession):
 
 async def _admit_native_retry(db, failed_id, actor_id):
     from app.application.durable_prediction_retry import call_retry
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
     from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
 
     failed = await db.get(FailedPrediction, failed_id)

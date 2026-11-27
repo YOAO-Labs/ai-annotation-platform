@@ -16,7 +16,7 @@ from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.display_id import next_display_id
 from app.services.dataset_assets import find_verified_content, register_item_asset
 from app.services.dataset_storage_keys import (

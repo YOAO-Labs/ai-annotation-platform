@@ -23,7 +23,7 @@ from training_contract.input_membership import (
 
 from app.config import settings
 from app.schemas.training_run import ExecutorFence, ExecutorRecovery, TrainingRunCreate
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage

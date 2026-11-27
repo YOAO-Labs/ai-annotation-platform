@@ -118,7 +118,7 @@ async def _new_job(db, *, state, project, actor, storage, expected):
             },
         },
     )
-    from app.services import async_job
+    from app.services import jobs_lifecycle_data as async_job
 
     async_job.bind_execution_id(job, attempt_identifier(state))
     await db.flush()
@@ -130,7 +130,10 @@ async def _new_job(db, *, state, project, actor, storage, expected):
 async def _interrupt_after_pending_zip(db, receipt):
     from sqlalchemy import select
     from app.db.models.export_output import ExportOutput
-    from app.services import async_job as jobs, export_media_bundles as bundles
+    from app.services import (
+        jobs_lifecycle_data as jobs,
+        export_media_bundles as bundles,
+    )
     from app.services import export_outputs, export_storage
     from app.services.exporting import image_delivery, image_inputs, image_jobs
     from app.services.exporting.packaging import build_export_zip

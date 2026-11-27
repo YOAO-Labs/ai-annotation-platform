@@ -24,7 +24,7 @@ from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.db.models.user import User
 from app.schemas.dataset_source import DatasetSourceCreate
 from app.schemas.storage_location import FilesystemLocationCreate
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import dataset_scans as scans
 from app.services import filesystem_storage as filesystem
 from app.services import storage_location

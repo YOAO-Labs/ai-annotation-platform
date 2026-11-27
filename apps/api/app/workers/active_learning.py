@@ -16,7 +16,7 @@ from app.config import settings
 from app.services import (
     active_learning as service,
     active_learning_data as data,
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     managed_inference as managed,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError

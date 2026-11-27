@@ -13,7 +13,7 @@ from app.config import settings
 from app.db.models.prediction import Prediction
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.task import Task
-from app.services import async_job as async_job_service
+from app.services import jobs_lifecycle_data as async_job_service
 from app.services.annotation import AnnotationService
 from app.services.batch import BatchService
 from app.services.labeling_prediction_contract import (

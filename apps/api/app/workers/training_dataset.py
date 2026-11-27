@@ -22,7 +22,7 @@ from sqlalchemy.pool import NullPool
 
 from app.config import settings
 from app.services import training_dataset_data as data
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.storage import storage_service

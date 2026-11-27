@@ -501,7 +501,7 @@ async def import_annotations(
     `dry_run=true` 只预览。实际写入默认追加，`overwrite=true` 只替换匹配任务中
     此前导入的标注。新标注归本次操作者，以 `attributes._imported` 标记导入来源。
     """
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from app.services.annotations_import import import_native_json_annotations
 

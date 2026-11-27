@@ -24,7 +24,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
 from app.db.models.prediction_input import PredictionInputLease
-from app.services import prediction_references as refs, async_job as jobs
+from app.services import prediction_references as refs, jobs_lifecycle_data as jobs
 from app.deps import bearer_scheme, get_current_principal, get_db
 from app.services.accepted_input_manifests import SqlAlchemyManifestDatabase
 from app.services.content_snapshot import ContentError

@@ -797,7 +797,7 @@ async def seed(db, external: Path):
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
     from app.schemas.training_dataset import TrainingDatasetSelection
     from app.services import (
-        async_job as jobs,
+        jobs_lifecycle_data as jobs,
         original_cache as cache,
         prediction_inputs,
         directory_previews,

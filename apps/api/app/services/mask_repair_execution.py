@@ -3,15 +3,16 @@
 from dataclasses import dataclass
 import uuid
 
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_notify import notify_job_terminal
-from app.services.async_job_terminal import reconcile_mask_repair
+from app.services.async_job_terminal import JobTerminal
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.mask_repair import (
     begin_repair_execution,
     begin_repair_rollback,
     canonical_digest,
     load_repair_batch,
+    reconcile_job_terminal,
 )
 
 
@@ -115,7 +116,7 @@ async def start_attempt(db, batch_id, job_id, celery_task_id, *, rollback=False)
         return None
     if (job.payload or {}).get("cancel_requested"):
         await jobs.mark_cancelled(db, job.id)
-        await reconcile_mask_repair(db, job, cancelled=True, error=None)
+        await reconcile_job_terminal(db, JobTerminal(job.id, job.kind, cancelled=True))
         await notify_job_terminal(db, job_id=job.id)
         return None
     if canonical_digest(batch.plan_json) != batch.plan_digest:
@@ -150,7 +151,7 @@ async def lock_attempt(db, attempt):
         raise RepairAttemptStopped()
     if (job.payload or {}).get("cancel_requested"):
         await jobs.mark_cancelled(db, job.id, result={"reason": "cancelled_by_user"})
-        await reconcile_mask_repair(db, job, cancelled=True, error=None)
+        await reconcile_job_terminal(db, JobTerminal(job.id, job.kind, cancelled=True))
         await notify_job_terminal(db, job_id=job.id)
         await db.commit()
         raise RepairAttemptStopped()
@@ -165,8 +166,9 @@ async def release_unpublished(db, batch_id, job_id, *, rollback=False):
     if not _matches(batch, job, rollback=rollback) or job.status != "pending":
         return False
     await jobs.mark_failed(db, job.id, error="repair_dispatch_failed")
-    await reconcile_mask_repair(
-        db, job, cancelled=False, error="repair_dispatch_failed"
+    await reconcile_job_terminal(
+        db,
+        JobTerminal(job.id, job.kind, cancelled=False, error="repair_dispatch_failed"),
     )
     await notify_job_terminal(db, job_id=job.id)
     return True

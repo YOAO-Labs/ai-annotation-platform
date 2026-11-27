@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import Prediction, PredictionMeta
-from app.services.async_job import delete_batch_predict_jobs
+from app.services.jobs_lifecycle_data import delete_batch_predict_jobs
 
 pytestmark = pytest.mark.asyncio
 

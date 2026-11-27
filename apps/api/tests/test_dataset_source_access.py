@@ -624,7 +624,7 @@ async def test_directory_copy_ingest_retains_creation_after_revocation(
 async def test_async_job_does_not_expose_directory_authority(
     db_session, super_admin, content_world, httpx_client
 ):
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = await jobs.create_job(
         db_session,

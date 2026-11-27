@@ -13,7 +13,7 @@ from sqlalchemy import inspect
 
 from app.db.models.async_job import AsyncJobStatus
 from app.db.models.point_cloud_quality import PointCloudQualityRun
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.point_cloud_quality import service as quality_service
 from app.services.point_cloud_quality.execution import _cancel_requested
 from app.services.point_cloud_quality.service import PointCloudQualityError

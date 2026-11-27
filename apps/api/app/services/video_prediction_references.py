@@ -18,7 +18,7 @@ from yoao_inference_contract.execution import ModelExecutionDispatch, thaw_json
 
 from app.services import prediction_inputs, prediction_originals as authority
 from app.services import video_prediction_originals as originals
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.content_snapshot import ContentError
 from app.services.inference_topology_data import InferenceTopologyData
 from app.services.jobs_lifecycle_data import job_lock_statement

@@ -37,9 +37,9 @@ from app.schemas.mask_repair import (
     MaskRepairPlanSummary,
 )
 from app.services.quality_job_dispatch import QualityJobDispatcher
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
-from app.services.async_job_terminal import JobTerminal, committed_repair_units
+from app.services.async_job_terminal import JobTerminal
 from app.services.content_snapshot import ContentError
 from app.services.mask_mutation import MaskMutationService, scope_fingerprint
 from app.services.mask_qc.config import load_mask_qc_config, mask_qc_config_digest
@@ -1129,6 +1129,16 @@ def translate_http_exception(exc: HTTPException) -> MaskRepairError:
     )
 
 
+def _committed_repair_units(batch: MaskRepairBatch) -> int:
+    return sum(
+        1
+        for section in ("shards", "candidates")
+        for value in ((batch.result_json or {}).get(section) or {}).values()
+        if isinstance(value, dict)
+        and value.get("status") in {"completed", "dispatch_pending"}
+    )
+
+
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
     """Keep partial repair and rollback-failure semantics in the repair owner."""
     rollback = terminal.kind == "mask_repair_rollback"
@@ -1143,7 +1153,7 @@ async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> Non
         "rollback_failed"
         if rollback
         else "partial"
-        if committed_repair_units(batch)
+        if _committed_repair_units(batch)
         else "cancelled"
         if terminal.cancelled
         else "failed"
@@ -1179,7 +1189,7 @@ async def request_job_cancel(
                     operation="cancel_pending",
                     batch_id=batch.id,
                     status=(
-                        "partial" if committed_repair_units(batch) else "cancelled"
+                        "partial" if _committed_repair_units(batch) else "cancelled"
                     ),
                     completed_at=datetime.now(timezone.utc),
                 ),
@@ -1567,7 +1577,7 @@ async def finish_repair_execution(
     final_status = (
         "completed"
         if failed == 0 and completed
-        else ("partial" if committed_repair_units(batch) else "failed")
+        else ("partial" if _committed_repair_units(batch) else "failed")
     )
     completed_at = datetime.now(timezone.utc)
     summary = {

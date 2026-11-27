@@ -30,7 +30,7 @@ from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.user import User
 from app.services.storage import storage_service
 from app.config import settings
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import training_dataset_storage
 from app.services import managed_original_reader as reader
 from app.services.dataset_assets import LEGACY_LOCATION_ID

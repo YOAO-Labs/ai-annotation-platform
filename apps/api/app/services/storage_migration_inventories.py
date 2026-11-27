@@ -23,7 +23,7 @@ from app.schemas.storage_migration_inventory import (
     StorageMigrationInventoryItem,
     StorageMigrationInventoryRequest,
 )
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_access, storage_maintenance, storage_registry_data
 from app.services.audit import AuditService
 from app.services.dataset_assets import PURPOSE_BUCKET_ATTRIBUTES

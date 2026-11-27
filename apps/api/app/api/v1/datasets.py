@@ -1061,7 +1061,7 @@ async def _schedule_media_backfill(
 ) -> DatasetImageBackfillResponse:
     """Admit one durable Jobs-owned backfill through the canonical media worker."""
     from app.db.models.async_job import AsyncJobKind
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.data_management.actions import (
         assert_idempotent_request_matches,
         find_idempotent_job,

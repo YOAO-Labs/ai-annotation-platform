@@ -32,7 +32,7 @@ from app.application.quality_execution import (
     _AsyncJobLifecycle,
     execute_point_cloud_quality,
 )
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.point_cloud_quality import execution, originals, service
 from tests.factory import create_api_key, create_membership, create_user

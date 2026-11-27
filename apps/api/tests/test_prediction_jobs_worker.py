@@ -40,7 +40,7 @@ async def _run_batch(**kwargs):
     try:
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         if kwargs.get("async_job_id") is None:
-            from app.services import async_job as jobs
+            from app.services import jobs_lifecycle_data as jobs
 
             async with sessions() as db:
                 job = await jobs.create_job(
@@ -241,7 +241,7 @@ async def test_legacy_frame_execution_rejects_missing_retained_manifest_before_o
         "app.services.video_frame_service.build_context_from_task",
         metadata,
     )
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     admitted_job = await jobs.create_job(
         db_session,

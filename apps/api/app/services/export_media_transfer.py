@@ -20,7 +20,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.services import async_job, fixture_original_read
+from app.services import jobs_lifecycle_data as async_job, fixture_original_read
 from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical

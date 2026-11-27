@@ -13,7 +13,7 @@ from app.core import security
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.notification import NotificationService
 
 KIND = "storage_migration_inventory"

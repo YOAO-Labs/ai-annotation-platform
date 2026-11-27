@@ -56,7 +56,7 @@ from app.services.data_management.entities import DataManagerObjectService
 from app.services.data_management.entity_filters import validate_entity_view
 from app.services.data_management.views import validate_filter
 from app.services.data_management.tracks import DataManagerTrackService
-from app.services import async_job as async_job_service
+from app.services import jobs_lifecycle_data as async_job_service
 from app.services.audit import AuditService
 from app.services.exporting.packaging import clean_export_targets
 from app.services.data_management.task_filters import visible_tasks_stmt

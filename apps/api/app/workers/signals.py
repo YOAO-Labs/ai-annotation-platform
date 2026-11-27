@@ -31,9 +31,9 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.application.job_terminal import apply_signal_terminal
+from app.application.job_terminal import apply_signal_terminal, signal_training_dataset
 from app.config import settings
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
 
 log = logging.getLogger(__name__)
@@ -59,8 +59,6 @@ async def _apply_terminal(
             if aj is None:
                 return
             if aj.kind == "training_dataset":
-                from app.services.async_job_terminal import signal_training_dataset
-
                 changed = await signal_training_dataset(
                     db,
                     aj.id,

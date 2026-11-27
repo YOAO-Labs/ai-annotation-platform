@@ -15,7 +15,11 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.project import Project
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.schemas.async_job import AsyncJobListResponse, AsyncJobOut
-from app.services import async_job as jobs, async_job_access, storage_maintenance
+from app.services import (
+    jobs_lifecycle_data as jobs,
+    async_job_access,
+    storage_maintenance,
+)
 from app.services.jobs_list_query_data import JobsListQueryPostgresData
 
 

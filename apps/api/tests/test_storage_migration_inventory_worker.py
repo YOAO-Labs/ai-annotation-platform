@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models.notification import Notification
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_migration_inventories as service
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage_migration_inventory import InventoryStopped

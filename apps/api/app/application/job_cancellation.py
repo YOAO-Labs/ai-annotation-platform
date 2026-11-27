@@ -14,7 +14,7 @@ from app.services.project_access import get_workspace_project
 from app.application.job_terminal import reconcile_domain_terminal
 from app.application.task_creation_errors import raise_task_creation_http_failure
 from app.db.models.async_job import AsyncJobStatus
-from app.services import async_job as jobs, async_job_access
+from app.services import jobs_lifecycle_data as jobs, async_job_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services import cross_frame_job, mask_repair, prediction, sample_evaluations
 from app.services import training_datasets

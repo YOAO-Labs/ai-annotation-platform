@@ -16,7 +16,7 @@ from app.application.async_job_read import SqlAsyncJobReadAdapter
 from app.db.models.dataset import Dataset
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.dataset_source import DatasetScanRun, DatasetSource
-from app.services import async_job
+from app.services import jobs_lifecycle_data as async_job
 from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from app.services.jobs_lifecycle_data import job_lock_statement
 from tests.factory import create_user

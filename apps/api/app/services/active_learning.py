@@ -22,7 +22,7 @@ from app.services import (
     active_learning_pool as pool,
     active_learning_storage as owners,
     active_learning_originals as originals,
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     learning_models_data,
     managed_inference as managed,
     sample_evaluation_engine as detection,

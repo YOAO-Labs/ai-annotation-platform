@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import event, inspect as sa_inspect
 
 from app.db.models.async_job import AsyncJob
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from app.services.jobs_lifecycle_data import (
     JobsLifecyclePostgresData,

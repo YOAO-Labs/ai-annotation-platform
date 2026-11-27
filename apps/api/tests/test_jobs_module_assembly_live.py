@@ -263,7 +263,7 @@ async def _run():
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.data_management.actions import (
         lock_idempotency_key, find_idempotent_job, assert_idempotent_request_matches,
     )

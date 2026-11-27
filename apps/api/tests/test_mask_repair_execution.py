@@ -48,7 +48,7 @@ from app.db.models.task import Task
 from app.db.models.user import User
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.schemas.mask_repair import MaskRepairDryRunRequest
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.mask_repair import (

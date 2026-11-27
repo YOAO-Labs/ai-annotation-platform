@@ -8,8 +8,7 @@ import uuid
 
 from fastapi import HTTPException
 import numpy as np
-from sqlalchemy import select, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import text
 
 from app.db.enums import PlatformRole
 from app.services import comment_attachment_authority as credentials
@@ -170,7 +169,7 @@ async def check_authority(
 
 
 async def delegated(db, run):
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = (
         await jobs.get_job(db, run.async_job_id, populate_existing=True)
@@ -231,7 +230,7 @@ async def delegated(db, run):
 
 
 async def guard(db, context, *, lock=False):
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = (
         await db.scalar(
@@ -473,102 +472,3 @@ async def read_points(db, context, source, convention):
                 getattr(unavailable, "code", type(unavailable).__name__)
             ) from unavailable
         return points
-
-
-async def publication(db, run, context, observed):
-    """Retain all final authority/source locks for the caller's issue transaction."""
-    from app.services.labeling_core_read_relations import (
-        lock_task_rows_for_core_read_share,
-        task_dataset_item_link_row,
-        task_row,
-    )
-    from app.services.point_cloud_quality import service
-    from app.services.point_cloud_quality.config import (
-        load_point_cloud_quality_config,
-        point_cloud_quality_config_digest,
-    )
-
-    await check_authority(
-        db, context.authority, context.project_id, context.scope, all_tasks=True
-    )
-    current, _job = await guard(db, context, lock=True)
-    task_ids = [uuid.UUID(v) for v in context.scope["task_ids"]]
-    scene_ids = [uuid.UUID(v) for v in context.scope["scene_ids"]]
-    scene_params = {"scenes": scene_ids}
-    await lock_task_rows_for_core_read_share(db, task_ids)
-    await db.execute(
-        text(
-            "SELECT yoao_assets_v1.lock_point_cloud_original_scenes(CAST(:scenes AS uuid[]))"
-        ),
-        scene_params,
-    )
-    await db.execute(
-        text("SELECT yoao_labeling_v1.lock_point_quality_annotation_geometry(:run)"),
-        {"run": context.run_id},
-    )
-    await db.execute(
-        text(
-            "SELECT yoao_assets_v1.lock_point_cloud_original_poses(CAST(:scenes AS uuid[]))"
-        ),
-        scene_params,
-    )
-    item_ids = set(
-        await db.scalars(
-            select(task_row.dataset_item_id).where(task_row.id.in_(task_ids))
-        )
-    )
-    links = list(
-        await db.scalars(
-            select(task_dataset_item_link_row.id).where(
-                task_dataset_item_link_row.task_id.in_(task_ids)
-            )
-        )
-    )
-    if links:
-        item_ids.update(
-            await db.scalars(
-                text("""SELECT dataset_item_id
-                FROM yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(
-                    CAST(:links AS uuid[]), :size)"""),
-                {"links": links, "size": len(links)},
-            )
-        )
-    await db.execute(
-        text(
-            "SELECT yoao_assets_v1.lock_point_cloud_original_items(CAST(:items AS uuid[]))"
-        ),
-        {"items": sorted(v for v in item_ids if v)},
-    )
-    try:
-        project = (
-            await db.execute(
-                text(
-                    "SELECT * FROM yoao_workspace_v1.lock_point_cloud_original_configuration(:id)"
-                ),
-                {"id": context.project_id},
-            )
-        ).one_or_none()
-    except DBAPIError as exc:
-        if credentials._busy(exc):
-            raise HTTPException(409, {"code": "content_busy"}) from None
-        raise HTTPException(503, {"code": "content_unavailable"}) from None
-    if (
-        project is None
-        or canonical_digest(current.source_snapshot) != context.source_digest
-        or current.scope_json != context.scope
-        or point_cloud_quality_config_digest(
-            load_point_cloud_quality_config(current.config_snapshot)
-        )
-        != context.config_digest
-        or point_cloud_quality_config_digest(
-            load_point_cloud_quality_config(project.point_cloud_quality_config)
-        )
-        != context.config_digest
-        or await service.current_source_digest(db, current, project)
-        != context.source_digest
-    ):
-        raise ContentError("quality_source_changed")
-    for source, convention in observed.values():
-        await recheck(db, context, source, convention, commit=False)
-    await guard(db, context, lock=True)
-    access.check_clock(context.authority.proof, context.authority.key)

@@ -18,7 +18,7 @@ from app.services.assets_spatial_views import (
     spatial_item_references,
 )
 from app.schemas.training_dataset import TrainingDatasetSelection
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import training_dataset_originals as originals
 from app.services.content_snapshot import ContentError
 from app.services.async_job_notify import notify_job_terminal

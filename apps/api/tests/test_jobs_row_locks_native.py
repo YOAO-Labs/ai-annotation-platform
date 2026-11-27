@@ -17,7 +17,7 @@ from yoao_jobs.lifecycle_contract import (
 )
 from yoao_jobs.row_lock_contract import JOBS_ROW_LOCK_FUNCTIONS
 from app.db.models.async_job import AsyncJob
-from app.services import async_job as async_job_service
+from app.services import jobs_lifecycle_data as async_job_service
 from app.services.jobs_lifecycle_data import job_lock_statement
 from tests.test_jobs_list_query_native import _committed_identity_scope_world
 

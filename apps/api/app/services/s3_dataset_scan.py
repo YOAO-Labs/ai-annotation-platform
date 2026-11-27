@@ -1,6 +1,6 @@
 """Commit one S3 page and its continuation under the existing scan lease."""
 
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import dataset_scan_data as data
 from app.services import dataset_scans as scans
 from app.services import (

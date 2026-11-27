@@ -1334,7 +1334,7 @@ class BatchService:
         Returns: cascade_counts (含 tasks_reset / predictions / failed_predictions /
                  prediction_jobs / ai_annotations_deactivated).
         """
-        from app.services.async_job import delete_batch_predict_jobs
+        from app.services.jobs_lifecycle_data import delete_batch_predict_jobs
 
         cleanup = await execute_batch_control(
             self.db,

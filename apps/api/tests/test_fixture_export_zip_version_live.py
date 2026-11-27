@@ -18,7 +18,7 @@ from app.config import settings
 from app.application.fixture_export_retirement import retire_fixture_export
 from app.db.models.export_output import ExportOutput
 from app.services import (
-    async_job,
+    jobs_lifecycle_data as async_job,
     export_outputs,
     export_storage,
 )

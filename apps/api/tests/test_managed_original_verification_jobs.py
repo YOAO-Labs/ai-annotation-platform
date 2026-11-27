@@ -11,7 +11,7 @@ from sqlalchemy import select
 from app.core import security
 from app.db.models.api_key import ApiKey
 from app.db.models.notification import Notification
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_notify import notify_job_terminal
 
 KIND = "managed_original_verification"

@@ -250,7 +250,7 @@ async def test_controlled_crop_uses_its_frozen_identity(
         del stages[1]["frozen_model_ref"]
     elif reference_state == "stale":
         stages[1]["frozen_model_ref"]["sha256"] = "0" * 64
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     job = await jobs.create_job(
         db,
@@ -377,7 +377,11 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
 
     from app.db.models.prediction_input import PredictionInputLease
     from app.db.models.storage_maintenance import StorageOperation
-    from app.services import async_job as jobs, prediction_inputs, prediction_originals
+    from app.services import (
+        jobs_lifecycle_data as jobs,
+        prediction_inputs,
+        prediction_originals,
+    )
     from app.services.prediction_execution import load_snapshot
     from app.workers import predictions_retry
 
@@ -837,7 +841,7 @@ async def test_snapshot_integrity_and_dismissed_failures_survive_job_cleanup(
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
     from app.services.prediction_execution import create_snapshot, load_snapshot
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
     from app.workers import async_jobs_cleanup
     from tests.factory import create_project
 

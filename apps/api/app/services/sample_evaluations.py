@@ -27,7 +27,7 @@ from app.schemas.sample_evaluation import (
     EvaluationSpec,
 )
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     sample_evaluation_engine as engine,
     sample_evaluation_storage as owners,
     trained_models,

@@ -35,7 +35,7 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.deps import get_job_cancellation_port, get_job_execution_control
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.accepted_input_manifests import get_input_manifest_capture
 from yoao_inference.backend_transport import PredictionResult
 from app.services.labeling_prediction_contract import ApplyPredictionResultRequest

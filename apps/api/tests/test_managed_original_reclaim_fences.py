@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import managed_original_reclamation as observation
 from app.services import managed_original_reclaim_fence as fence
 from tests.test_managed_original_reclamation import (

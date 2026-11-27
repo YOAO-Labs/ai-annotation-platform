@@ -9,7 +9,7 @@ from yoao_inference_contract.topology import to_record
 from sqlalchemy import select
 
 from app.services.content_snapshot import ContentError
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.inference_topology_data import InferenceTopologyData
 from app.services.labeling_core_read_relations import (

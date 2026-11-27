@@ -15,7 +15,11 @@ from app.db.models.trained_model import (
     ProjectModelSelection,
     TrainedModelVersion,
 )
-from app.services import async_job, prediction_execution, trained_models
+from app.services import (
+    jobs_lifecycle_data as async_job,
+    prediction_execution,
+    trained_models,
+)
 from app.services.inference_topology_data import InferenceTopologyData
 from tests.test_trained_models import (
     controlled_artifacts,  # noqa: F401

@@ -15,7 +15,7 @@ from starlette.requests import Request
 from app.core.security import create_access_token, hash_password
 from app.db.models.api_key import ApiKey
 from app.db.models.task import Task
-from app.services import async_job as jobs, identity_request_authority
+from app.services import jobs_lifecycle_data as jobs, identity_request_authority
 from app.services.exporting import output_authority as authority
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import get_identity_gateway

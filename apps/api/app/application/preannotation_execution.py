@@ -333,7 +333,7 @@ async def _prepare_accepted_input_manifest(
     """Validate the durable selection and seal it before the existing Job claim."""
     from yoao_assets_input_manifests import contract as c
     from app.db.models.async_job import AsyncJobStatus
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
 
     fields = (
         request.accepted_input_manifest_protocol,
@@ -380,7 +380,9 @@ async def _prepare_accepted_input_manifest(
                             ):
                                 already_claimed = True
                             elif job.status == AsyncJobStatus.RUNNING.value:
-                                from app.services import async_job as async_job_svc
+                                from app.services import (
+                                    jobs_lifecycle_data as async_job_svc,
+                                )
                                 from app.services.async_job_notify import (
                                     notify_job_terminal,
                                 )
@@ -519,7 +521,7 @@ async def _prepare_accepted_video_manifest(
     from yoao_assets_video_inputs import execution as execution_contract
     from yoao_assets_video_inputs.execution import VideoInputFailure
     from app.db.models.async_job import AsyncJobStatus
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
 
     fields = (
         request.accepted_video_inputs_protocol,
@@ -842,7 +844,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
     from yoao_assets_inputs import contract as c
     from app.db.models.async_job import AsyncJobStatus
     from app.services.labeling_core_read_relations import get_core_row, task_row
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.accepted_inputs import input_gateway
     from app.services.prediction_references import frozen_reference_task
 
@@ -1154,7 +1156,7 @@ async def run_preannotation(
                             batch_results=batch_results,
                         )
 
-        from app.services import async_job as jobs
+        from app.services import jobs_lifecycle_data as jobs
 
         async with session_factory() as db:
             job = await jobs.get_job(db, uuid.UUID(request.async_job_id))
@@ -1376,7 +1378,7 @@ async def _execute_preannotation(
     from app.services.inference_topology_data import InferenceTopologyData
     from app.services.identity_account_lock_data import IdentityAccountLockData
     from app.services.identity_contracts import IdentityActorStatus
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.async_job_notify import notify_job_terminal
     from yoao_inference.gpu.contracts import (
         gpu_arbiter_failure_record,

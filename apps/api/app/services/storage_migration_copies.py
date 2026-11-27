@@ -23,7 +23,7 @@ from app.schemas.storage_migration_copy import (
     StorageMigrationCopyHistory,
 )
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     connector_guard,
     storage_access,
     storage_job_progress as progress,

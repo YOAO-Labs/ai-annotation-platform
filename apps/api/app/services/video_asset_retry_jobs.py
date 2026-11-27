@@ -5,7 +5,7 @@ import uuid
 from sqlalchemy import text
 
 from app.db.models.async_job import AsyncJobKind
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.async_job_notify import notify_job_terminal
 from app.services.jobs_lifecycle_data import job_lock_statement
 

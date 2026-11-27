@@ -18,7 +18,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.db.models.trained_model import ModelRelease, TrainedModelVersion
-from app.services import async_job as jobs, prediction_references as refs
+from app.services import jobs_lifecycle_data as jobs, prediction_references as refs
 from app.services import reference_native_predictions as native, trained_models
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement

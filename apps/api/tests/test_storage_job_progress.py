@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 
 from app.db.models.async_job import AsyncJob
 from app.schemas.async_job import AsyncJobOut
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import storage_job_progress as progress
 
 

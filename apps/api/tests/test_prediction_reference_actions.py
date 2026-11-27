@@ -16,7 +16,10 @@ from app.db.models.annotation import Annotation
 from app.db.models.api_key import ApiKey
 from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import Prediction, PredictionMeta, FailedPrediction
-from app.services import async_job as jobs, prediction_acceptance as acceptance
+from app.services import (
+    jobs_lifecycle_data as jobs,
+    prediction_acceptance as acceptance,
+)
 from app.services.content_snapshot import ContentError
 from app.services.jobs_lifecycle_data import job_lock_statement
 from yoao_inference.backend_transport import PredictionResult

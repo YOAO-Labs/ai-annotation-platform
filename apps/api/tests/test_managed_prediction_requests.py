@@ -15,7 +15,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.prediction import FailedPrediction
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.dataset_assets import register_item_asset
 from app.services.prediction_execution import load_snapshot
 from app.workers import predictions_retry, tasks as worker

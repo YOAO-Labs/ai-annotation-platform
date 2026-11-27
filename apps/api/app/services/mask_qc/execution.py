@@ -23,7 +23,7 @@ from app.services.mask_qc import (
     scan_temporal_frames,
 )
 from app.services.mask_qc.config import severity_for_rule
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 from app.services.mask_qc.service import (
     MAX_QC_OVERLAP_PAIRS,
     complete_run_summary,

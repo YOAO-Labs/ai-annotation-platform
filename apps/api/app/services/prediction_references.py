@@ -9,7 +9,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import (
     prediction_originals as originals,
     prediction_inputs,

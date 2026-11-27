@@ -17,7 +17,7 @@ from app.services import (
 )
 from app.services.content_snapshot import ContentError
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.labeling_core_read_relations import (
     annotation_row,
     get_core_row,

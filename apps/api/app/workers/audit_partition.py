@@ -44,7 +44,7 @@ def archive_old_audit_partitions(self) -> dict:
 
 async def _archive_async(retain_months: int, celery_task_id: str | None = None) -> dict:
     """Commit job ownership before I/O and preserve each published month."""
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services import storage_access
     from app.services.async_job_notify import notify_job_terminal
     from app.services.identity_account_lock_data import IdentityAccountLockData

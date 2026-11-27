@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.async_job import AsyncJob
 from app.services.async_job import ensure_video_tracker_summary
+from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData
 from tests.labeling_class_query_helpers import assert_owned_test_database
 
 pytestmark = [
@@ -33,7 +34,7 @@ async def test_concurrent_redelivery_keeps_one_summary_and_never_resets_terminal
     async def ensure(kind="video_tracker"):
         async with sessions() as db:
             summary = await ensure_video_tracker_summary(
-                db,
+                JobsLifecyclePostgresData(db),
                 tracker_job_id=job_id,
                 kind=kind,
                 user_id=None,
@@ -86,7 +87,7 @@ async def test_running_replacement_preserves_summary_after_worker_failure(db_ses
     job.staged_result = {"replacement": True}
     job_id = job.id
     summary = await ensure_video_tracker_summary(
-        db_session,
+        JobsLifecyclePostgresData(db_session),
         tracker_job_id=job_id,
         kind="video_tracker",
         user_id=None,

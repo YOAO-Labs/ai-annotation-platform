@@ -180,7 +180,7 @@ async def test_api_login_publishes_and_replays_immutable_training_package(
     test_engine, runtime_factory, monkeypatch, app_module
 ):
     from app.core.security import create_access_token
-    from app.services import async_job as jobs
+    from app.services import jobs_lifecycle_data as jobs
 
     async with committed_project(test_engine, monkeypatch) as (
         maker,

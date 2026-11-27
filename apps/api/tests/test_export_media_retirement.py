@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.services import async_job
+from app.services import jobs_lifecycle_data as async_job
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer

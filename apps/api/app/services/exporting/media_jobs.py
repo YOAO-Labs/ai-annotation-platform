@@ -17,7 +17,7 @@ async def create_export_job(
             opts=opts,
             task_ids=task_ids,
         )
-    from app.services import async_job
+    from app.services import jobs_lifecycle_data as async_job
 
     job = await async_job.create_job(
         db, kind="export", user_id=actor_id, project_id=project.id, payload=payload

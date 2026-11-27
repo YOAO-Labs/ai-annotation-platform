@@ -16,7 +16,7 @@ from app.db.enums import PlatformRole
 from app.db.models.async_job import AsyncJob
 from app.services.ml_backend import MLBackendService
 from app.schemas.async_job import AsyncJobRetryFailedResponse
-from app.services import async_job as jobs, prediction as prediction_service
+from app.services import jobs_lifecycle_data as jobs, prediction as prediction_service
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.prediction_retry import MAX_RETRY_COUNT, PredictionRetryDispatcher
 from app.services.prediction_retries import (

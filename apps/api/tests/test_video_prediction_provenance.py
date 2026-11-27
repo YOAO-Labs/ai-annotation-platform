@@ -540,7 +540,7 @@ async def test_video_retry_busy_frame_defers_before_model_execution(
     monkeypatch.setattr(prediction_retry_inputs, "get_core_row", get_row)
     monkeypatch.setattr(InferenceTopologyData, "registry_reference", registry_ref)
     monkeypatch.setattr(accepted_video_inputs, "video_input_gateway", gateway_factory)
-    monkeypatch.setattr("app.services.async_job.track_job", unexpected_job)
+    monkeypatch.setattr("app.services.jobs_lifecycle_data.track_job", unexpected_job)
 
     code = "input_busy" if wait_at == "source" else "frame_busy"
     with pytest.raises(FrozenInputRetryDeferred, match=code):

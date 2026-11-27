@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import dataset_content as content, dataset_quality as svc
 from app.services.content_snapshot import ContentError
 from app.services.dataset_quality_data import QualityData

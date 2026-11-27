@@ -493,7 +493,7 @@ async def test_http_handlers_capture_before_audit_commit_and_dispatch_identical_
     contract, monkeypatch, batch, capture_failure
 ):
     from app.api.v1 import batches, projects
-    from app.services import async_job
+    from app.services import jobs_lifecycle_data as async_job
     from app.services.audit import AuditService
     from app.services.exporting import (
         lidar_preflight,

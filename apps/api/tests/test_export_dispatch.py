@@ -9,7 +9,7 @@ from fastapi import Request
 from app.api.v1 import batches, data_manager, projects
 from app.db.models.async_job import AsyncJob
 from app.schemas.data_manager_actions import DataManagerTaskExportRequest
-from app.services import async_job as async_job_service
+from app.services import jobs_lifecycle_data as async_job_service
 from app.services import jobs_queue
 from app.services import jobs_dispatch
 from app.services.audit import AuditService

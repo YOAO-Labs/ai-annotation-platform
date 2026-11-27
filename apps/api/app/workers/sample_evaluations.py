@@ -15,7 +15,7 @@ from app.config import settings
 from app.services import evaluation_data as data
 from app.services.training_dataset_data import read_version
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     sample_evaluations as service,
     managed_inference as managed,
 )

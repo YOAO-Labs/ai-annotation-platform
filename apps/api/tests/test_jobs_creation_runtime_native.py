@@ -13,7 +13,8 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.services.async_job import create_job, ensure_video_tracker_summary
+from app.services.async_job import ensure_video_tracker_summary
+from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData, create_job
 from tests.test_asset_storage_cleanup_runtime import (
     _sqlstate,
     _verified_resource_manifest,
@@ -205,7 +206,7 @@ async def test_lan_jobs_creation_facade_view_and_video_summary_preserve_transact
         tracker_task_id = "video-summary-" + uuid.uuid4().hex
         async with maker() as writer:
             summary = await ensure_video_tracker_summary(
-                writer,
+                JobsLifecyclePostgresData(writer),
                 tracker_job_id=tracker_id,
                 kind="video_tracker",
                 user_id=None,
@@ -235,7 +236,7 @@ async def test_lan_jobs_creation_facade_view_and_video_summary_preserve_transact
         rolled_back_tracker_id = uuid.uuid4()
         async with maker() as writer:
             await ensure_video_tracker_summary(
-                writer,
+                JobsLifecyclePostgresData(writer),
                 tracker_job_id=rolled_back_tracker_id,
                 kind="video_tracker",
                 user_id=None,

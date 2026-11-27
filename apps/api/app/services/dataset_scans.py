@@ -11,7 +11,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from yoao_jobs.lifecycle import JobsLifecycleManager
 
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
     dataset_scan_data as data,
     dataset_source_access as access,
     filesystem_storage as fs,

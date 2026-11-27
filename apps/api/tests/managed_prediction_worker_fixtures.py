@@ -22,7 +22,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
 from app.deps import bearer_scheme, get_current_principal
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import prediction_originals as originals
 from app.services import prediction_references as refs
 from app.services.identity_gateway import IdentityGateway

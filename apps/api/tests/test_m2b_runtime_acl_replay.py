@@ -14,7 +14,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yoao_owner_data.postgres import verify_function_only_role
 
-from app.services.async_job import create_job
+from app.services.jobs_lifecycle_data import create_job
 from tests.test_asset_storage_cleanup_runtime import (
     _verified_resource_manifest,
     _verify_postgres,

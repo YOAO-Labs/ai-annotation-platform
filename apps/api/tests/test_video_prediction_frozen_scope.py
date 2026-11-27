@@ -23,7 +23,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.task import Task
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services import video_prediction_references as references
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import register_item_asset

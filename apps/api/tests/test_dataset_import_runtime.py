@@ -935,7 +935,7 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
                 {"id": stack.world.actor_id},
             )
         from datetime import datetime, timedelta, timezone
-        from app.services.async_job import delete_terminal_jobs_before
+        from app.services.jobs_lifecycle_data import delete_terminal_jobs_before
 
         async with stack.world.maker() as owner:
             await owner.execute(

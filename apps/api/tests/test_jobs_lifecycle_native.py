@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.jobs_lifecycle import _TRACE
 from app.db.models.async_job import AsyncJob
-from app.services import async_job as async_job_svc
+from app.services import jobs_lifecycle_data as async_job_svc
 
 
 @pytest.mark.asyncio

@@ -20,7 +20,7 @@ from fastapi import HTTPException
 
 from app.application.async_job_contracts import RetryCredentialAuthority
 from app.config import settings
-from app.services import async_job as jobs
+from app.services import jobs_lifecycle_data as jobs
 from app.services.labeling_core_read_relations import (
     get_core_row,
     task_row,

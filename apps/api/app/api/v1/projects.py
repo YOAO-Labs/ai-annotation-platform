@@ -1610,7 +1610,7 @@ async def trigger_preannotation(
                 raise HTTPException(status_code=422, detail=geo_violations[0].detail)
         pipeline_stages_payload = norm
 
-    from app.services import async_job as async_job_svc
+    from app.services import jobs_lifecycle_data as async_job_svc
     from app.services.data_management.actions import (
         assert_idempotent_request_matches,
         find_idempotent_job,

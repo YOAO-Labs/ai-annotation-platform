@@ -18,7 +18,7 @@ from app.schemas.managed_original_verification import (
     ManagedOriginalVerificationStart,
 )
 from app.services import (
-    async_job as jobs,
+    jobs_lifecycle_data as jobs,
 )
 from app.services import (
     storage_access,
