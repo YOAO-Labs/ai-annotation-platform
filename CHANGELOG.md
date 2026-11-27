@@ -100,6 +100,8 @@
 
 ### Fixed
 
+- 修复普通数据库运行账号下项目格式列表接口（`GET /api/v1/projects/{id}/mask-formats`）因缺少 `yoao_labeling_v1.format_adapter_plugins` 属主移交与 5 项公开能力 `EXECUTE` 授权而返回 500 的问题，同时保持 `_format_adapter_public_projection` 私有辅助函数不可公开调用。
+- 修复 `GET /api/v1/async-jobs` 与 `GET /api/v1/async-jobs/{id}` 遗漏当前请求 API 密钥作用域与实时权限校验的问题（访问平台存储维护作业须实时具备 `*` 权限，访问数据集作业须具备 `datasets:read` 权限）；同步新增前向迁移 `bo0517` 及作用域查询能力 `async_job_list_page_scoped`／`async_job_list_total_scoped`，恢复超级管理员按类型查询 6 类平台存储维护作业列表的能力，非超管与受限密钥继续不可见。
 - 修复多目标视频追踪跨窗口关联计算边界框交并比时仅识别 `dict` 而不识别只读 `MappingProxyType` 几何对象的问题，恢复跨窗口目标重关联与新实例编号分配。
 - 修复原件来源解析在任务关系查询阶段整行回填 `Task` ORM 导致加载大体积 `tags` 字段并覆盖调用方内存态对象的问题，改为仅投影来源归属所需的 7 个标量列。
 - 修复 `assets-source` 的 S3 连接器适配器在 `close()` 时未关闭自建 `boto3` 客户端的问题，确保物理存储维护门禁关闭时及时释放底层连接池。

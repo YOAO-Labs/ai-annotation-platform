@@ -1268,6 +1268,14 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_assets_v1.is_sealed_image_reference_member(uuid,uuid,uuid,uuid,text,uuid,text,integer,bigint)",
         )
     },
+    **{
+        signature: "0517_jobs_list_platform_storage.sql"
+        for signature in (
+            "yoao_jobs_v1._async_job_list_rows_scoped(uuid,text,text[],text[],uuid,text,boolean)",
+            "yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean)",
+            "yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "yoao_audit_append_client"
 AUDIT_QUERY_ROLE = "yoao_audit_query_client"
@@ -1930,6 +1938,7 @@ CURRENT_NAMESPACE_SQL = (
     "0510_notification_target_visibility.sql",
     "0513_inference_plugin_direct_mode.sql",
     "0516_image_reference_manifest_members.sql",
+    "0517_jobs_list_platform_storage.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",

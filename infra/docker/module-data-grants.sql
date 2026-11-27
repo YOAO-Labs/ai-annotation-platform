@@ -4046,9 +4046,15 @@ GRANT EXECUTE ON FUNCTION
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1._async_job_list_rows_scoped(uuid,text,text[],text[],uuid,text,boolean)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)
     OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean)
+    OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)
+    OWNER TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)
     OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_workspace_v1,
@@ -6752,6 +6758,20 @@ GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1._notification_task_visible(uuid,text,uuid,uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.notification_target_visible_to_actor(uuid,text,uuid,uuid,uuid)
+    OWNER TO :"labeling_owner";
+ALTER TABLE yoao_labeling_v1.format_adapter_plugins OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1._format_adapter_public_projection(
+    yoao_labeling_v1.format_adapter_plugins
+) OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.list_format_adapter_plugins(boolean)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.get_format_adapter_plugin(text)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.register_format_adapter_plugin(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.transition_format_adapter_plugin(jsonb)
+    OWNER TO :"labeling_owner";
+ALTER FUNCTION yoao_labeling_v1.open_format_adapter_plugin_secret(text)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 

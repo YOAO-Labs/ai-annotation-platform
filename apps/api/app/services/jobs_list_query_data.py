@@ -21,7 +21,12 @@ class JobsListQueryPostgresData:
         self.async_job_model = async_job_model
 
     @staticmethod
-    def _params(query: AsyncJobListQuery, *, include_page: bool) -> dict[str, Any]:
+    def _params(
+        query: AsyncJobListQuery,
+        *,
+        include_page: bool,
+        include_platform_storage: bool = False,
+    ) -> dict[str, Any]:
         params = {
             "actor_id": query.actor_id,
             "platform_role": query.platform_role,
@@ -32,9 +37,38 @@ class JobsListQueryPostgresData:
         }
         if include_page:
             params.update({"limit": query.limit, "offset": query.offset})
+        if include_platform_storage:
+            params["include_platform_storage"] = True
         return params
 
-    async def page(self, query: AsyncJobListQuery) -> list[Any]:
+    async def page(
+        self, query: AsyncJobListQuery, *, include_platform_storage: bool = False
+    ) -> list[Any]:
+        if include_platform_storage:
+            page_call = (
+                "yoao_jobs_v1.async_job_list_page_scoped("
+                "CAST(:actor_id AS pg_catalog.uuid), "
+                "CAST(:platform_role AS pg_catalog.text), "
+                "CAST(:statuses AS pg_catalog.text[]), "
+                "CAST(:kinds AS pg_catalog.text[]), "
+                "CAST(:project_id AS pg_catalog.uuid), "
+                "CAST(:search_pattern AS pg_catalog.text), "
+                "CAST(:limit AS pg_catalog.int4), "
+                "CAST(:offset AS pg_catalog.int4), "
+                "CAST(:include_platform_storage AS pg_catalog.bool))"
+            )
+        else:
+            page_call = (
+                "yoao_jobs_v1.async_job_list_page("
+                "CAST(:actor_id AS pg_catalog.uuid), "
+                "CAST(:platform_role AS pg_catalog.text), "
+                "CAST(:statuses AS pg_catalog.text[]), "
+                "CAST(:kinds AS pg_catalog.text[]), "
+                "CAST(:project_id AS pg_catalog.uuid), "
+                "CAST(:search_pattern AS pg_catalog.text), "
+                "CAST(:limit AS pg_catalog.int4), "
+                "CAST(:offset AS pg_catalog.int4))"
+            )
         statement = (
             select(self.async_job_model)
             .from_statement(
@@ -42,16 +76,7 @@ class JobsListQueryPostgresData:
                     "SELECT job.*, "
                     "yoao_jobs_v1.read_job_execution_snapshot(job.id) "
                     "AS execution_snapshot_id, progress.last_progress_at, "
-                    "progress.progress_observation FROM "
-                    "yoao_jobs_v1.async_job_list_page("
-                    "CAST(:actor_id AS pg_catalog.uuid), "
-                    "CAST(:platform_role AS pg_catalog.text), "
-                    "CAST(:statuses AS pg_catalog.text[]), "
-                    "CAST(:kinds AS pg_catalog.text[]), "
-                    "CAST(:project_id AS pg_catalog.uuid), "
-                    "CAST(:search_pattern AS pg_catalog.text), "
-                    "CAST(:limit AS pg_catalog.int4), "
-                    "CAST(:offset AS pg_catalog.int4)) AS job "
+                    f"progress.progress_observation FROM {page_call} AS job "
                     "CROSS JOIN LATERAL "
                     "yoao_jobs_v1.read_job_progress(job.id) AS progress"
                 )
@@ -60,15 +85,31 @@ class JobsListQueryPostgresData:
         )
         result = await self.session.execute(
             statement,
-            self._params(query, include_page=True),
+            self._params(
+                query,
+                include_page=True,
+                include_platform_storage=include_platform_storage,
+            ),
         )
         return list(result.scalars().all())
 
-    async def total(self, query: AsyncJobListQuery) -> int:
-        statement = select(
-            func.count(self.async_job_model.id).label("async_job_list_total")
-        ).from_statement(
-            text(
+    async def total(
+        self, query: AsyncJobListQuery, *, include_platform_storage: bool = False
+    ) -> int:
+        if include_platform_storage:
+            total_call = (
+                "SELECT yoao_jobs_v1.async_job_list_total_scoped("
+                "CAST(:actor_id AS pg_catalog.uuid), "
+                "CAST(:platform_role AS pg_catalog.text), "
+                "CAST(:statuses AS pg_catalog.text[]), "
+                "CAST(:kinds AS pg_catalog.text[]), "
+                "CAST(:project_id AS pg_catalog.uuid), "
+                "CAST(:search_pattern AS pg_catalog.text), "
+                "CAST(:include_platform_storage AS pg_catalog.bool)) "
+                "AS async_job_list_total"
+            )
+        else:
+            total_call = (
                 "SELECT yoao_jobs_v1.async_job_list_total("
                 "CAST(:actor_id AS pg_catalog.uuid), "
                 "CAST(:platform_role AS pg_catalog.text), "
@@ -77,9 +118,15 @@ class JobsListQueryPostgresData:
                 "CAST(:project_id AS pg_catalog.uuid), "
                 "CAST(:search_pattern AS pg_catalog.text))"
             )
-        )
+        statement = select(
+            func.count(self.async_job_model.id).label("async_job_list_total")
+        ).from_statement(text(total_call))
         result = await self.session.execute(
             statement,
-            self._params(query, include_page=False),
+            self._params(
+                query,
+                include_page=False,
+                include_platform_storage=include_platform_storage,
+            ),
         )
         return int(result.scalar_one())

@@ -65,6 +65,7 @@ BEGIN
     FOREACH signature IN ARRAY ARRAY[
         'yoao_jobs_v1.claim_dispatches(jsonb)',
         'yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)',
+        'yoao_jobs_v1._async_job_list_rows_scoped(uuid,text,text[],text[],uuid,text,boolean)',
         'yoao_jobs_v1._directory_job_ids(uuid,uuid)',
         'yoao_jobs_v1.dataset_active_job_facts(uuid)',
         'yoao_jobs_v1.read_storage_fault_job(uuid)',
@@ -136,7 +137,9 @@ BEGIN
         'yoao_jobs_v1.prepare_dispatch(jsonb)',
         'yoao_jobs_v1.finish_dispatch(jsonb)',
         'yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)',
+        'yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean)',
         'yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)',
+        'yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean)',
         'yoao_jobs_v1.dataset_job_visible(uuid,uuid)',
         'yoao_notifications_v1.append_notification(jsonb)',
         'yoao_notifications_v1.append_job_terminal_notification(jsonb)',
@@ -149,6 +152,7 @@ BEGIN
         'yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)',
         'yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)',
         'yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,uuid)',
+        'yoao_labeling_v1.list_format_adapter_plugins(boolean)',
         'public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[])',
         'public.image_export_scope_matches(uuid,uuid)'
     ] LOOP

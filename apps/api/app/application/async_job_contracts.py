@@ -71,9 +71,18 @@ class AsyncJobReadPort(Protocol):
         search: str | None,
         limit: int,
         offset: int,
+        api_key_id: UUID | None = None,
+        api_key_scopes: tuple[str, ...] | None = None,
     ) -> AsyncJobListResponse: ...
 
-    async def get_job(self, *, job_id: UUID, actor_id: UUID) -> AsyncJobOut | None: ...
+    async def get_job(
+        self,
+        *,
+        job_id: UUID,
+        actor_id: UUID,
+        api_key_id: UUID | None = None,
+        api_key_scopes: tuple[str, ...] | None = None,
+    ) -> AsyncJobOut | None: ...
 
 
 class JobCancellationPort(Protocol):

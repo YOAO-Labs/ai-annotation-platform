@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+from pathlib import Path
+import re
 import uuid
 
 import httpx
@@ -442,3 +444,48 @@ async def test_format_adapter_plugin_lifecycle_and_import_commit(
         )
     ).scalar_one()
     assert still_exists.id == ann.id
+
+
+def test_migration_0511_sql_security_invariants() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    sql = (
+        repo_root
+        / "apps/labeling/src/yoao_labeling/sql/0511_format_adapter_plugins.sql"
+    ).read_text(encoding="utf-8")
+    m2b = (repo_root / "infra/docker/m2b-runtime-grants.sql").read_text(
+        encoding="utf-8"
+    )
+    mod = (repo_root / "infra/docker/module-data-grants.sql").read_text(
+        encoding="utf-8"
+    )
+
+    def _norm(value: str) -> str:
+        collapsed = " ".join(value.split())
+        return re.sub(r"\(\s+", "(", re.sub(r"\s+\)", ")", collapsed))
+
+    normalized_sql = _norm(sql)
+    normalized_m2b = _norm(m2b)
+    normalized_mod = _norm(mod)
+
+    public_functions = (
+        "yoao_labeling_v1.list_format_adapter_plugins(boolean)",
+        "yoao_labeling_v1.get_format_adapter_plugin(text)",
+        "yoao_labeling_v1.register_format_adapter_plugin(jsonb)",
+        "yoao_labeling_v1.transition_format_adapter_plugin(jsonb)",
+        "yoao_labeling_v1.open_format_adapter_plugin_secret(text)",
+    )
+    private_helper = (
+        "yoao_labeling_v1._format_adapter_public_projection("
+        "yoao_labeling_v1.format_adapter_plugins)"
+    )
+
+    assert (
+        'ALTER TABLE yoao_labeling_v1.format_adapter_plugins OWNER TO :"labeling_owner";'
+        in normalized_mod
+    )
+    for fn in (*public_functions, private_helper):
+        assert f'ALTER FUNCTION {fn} OWNER TO :"labeling_owner";' in normalized_mod
+    for fn in public_functions:
+        assert f"REVOKE ALL ON FUNCTION {fn} FROM PUBLIC;" in normalized_sql
+        assert fn in normalized_m2b
+    assert "_format_adapter_public_projection" not in normalized_m2b

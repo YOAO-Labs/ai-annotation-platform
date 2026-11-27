@@ -514,7 +514,9 @@ GRANT EXECUTE ON FUNCTION
     yoao_jobs_v1.active_cross_frame_job(uuid,text),
     yoao_jobs_v1.apply_lifecycle(uuid,jsonb),
     yoao_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer),
+    yoao_jobs_v1.async_job_list_page_scoped(uuid,text,text[],text[],uuid,text,integer,integer,boolean),
     yoao_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text),
+    yoao_jobs_v1.async_job_list_total_scoped(uuid,text,text[],text[],uuid,text,boolean),
     yoao_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid),
     yoao_jobs_v1.bind_prediction_execution_snapshot(uuid,uuid,uuid),
     yoao_jobs_v1.bind_prediction_mask_object(uuid,uuid),
@@ -1737,6 +1739,11 @@ GRANT EXECUTE ON FUNCTION
     yoao_notifications_v1.claim_channel_deliveries(jsonb),
     yoao_notifications_v1.finish_channel_delivery(jsonb),
     yoao_labeling_v1.notification_target_visible_to_actor(uuid,text,uuid,uuid,uuid),
+    yoao_labeling_v1.list_format_adapter_plugins(boolean),
+    yoao_labeling_v1.get_format_adapter_plugin(text),
+    yoao_labeling_v1.register_format_adapter_plugin(jsonb),
+    yoao_labeling_v1.transition_format_adapter_plugin(jsonb),
+    yoao_labeling_v1.open_format_adapter_plugin_secret(text),
     yoao_diagnostics_v1.bug_report_visible_to_actor(uuid,uuid)
     TO :"application_role";
 
