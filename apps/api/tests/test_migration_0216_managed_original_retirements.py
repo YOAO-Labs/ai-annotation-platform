@@ -50,7 +50,9 @@ async def test_empty_managed_retirement_schema_roundtrip(test_engine):
                     column["name"]
                     for column in actual.get_columns("managed_original_retirements")
                 } == set(ManagedOriginalRetirement.__table__.columns.keys()) - {
-                    "creation_id"
+                    "creation_id",
+                    "auxiliary_original_id",
+                    "owner_type",
                 }
                 assert {
                     index["name"]

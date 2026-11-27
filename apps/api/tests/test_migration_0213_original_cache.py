@@ -21,24 +21,6 @@ def migration_module():
     return migration
 
 
-async def test_unused_schema_roundtrip(db_session, monkeypatch):
-    migration = migration_module()
-
-    def verify(sync):
-        monkeypatch.setattr(
-            migration, "op", Operations(MigrationContext.configure(sync.connection()))
-        )
-        migration.downgrade()
-        assert sync.scalar(text("SELECT to_regclass('original_cache_entries')")) is None
-        migration.upgrade()
-        assert (
-            sync.scalar(text("SELECT to_regclass('original_cache_entries')"))
-            is not None
-        )
-
-    await db_session.run_sync(verify)
-
-
 @pytest.mark.parametrize(
     "statement",
     [

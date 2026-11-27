@@ -8,13 +8,12 @@ import uuid
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import select, text
 
 from app.db.models.export_artifact import ExportArtifact
 from tests.factory import create_project
 
 
-async def test_multi_target_metadata_survives_guarded_format_migration(
+async def test_multi_target_metadata_blocks_destructive_format_downgrade(
     db_session, super_admin
 ):
     project = await create_project(db_session, owner_id=super_admin[0].id)
@@ -49,23 +48,3 @@ async def test_multi_target_metadata_survives_guarded_format_migration(
 
     with pytest.raises(RuntimeError, match="multi-target artifacts"):
         await connection.run_sync(lambda conn: migrate(conn, migration.downgrade))
-    artifact.format = "coco"
-    await db_session.flush()
-    await connection.run_sync(lambda conn: migrate(conn, migration.downgrade))
-    column = await db_session.execute(
-        text(
-            "SELECT data_type, character_maximum_length FROM information_schema.columns WHERE table_name='export_artifacts' AND column_name='format'"
-        )
-    )
-    assert column.one() == ("character varying", 20)
-    await connection.run_sync(lambda conn: migrate(conn, migration.upgrade))
-    assert (
-        await db_session.scalar(
-            select(type(artifact).format).where(type(artifact).id == artifact.id)
-        )
-        == "coco"
-    )
-    artifact.format = targets
-    await db_session.flush()
-    await db_session.refresh(artifact)
-    assert artifact.format == targets

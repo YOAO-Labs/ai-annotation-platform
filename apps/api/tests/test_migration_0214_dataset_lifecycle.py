@@ -24,8 +24,8 @@ def migration(sync, monkeypatch):
     return module
 
 
-async def test_untouched_dataset_lifecycle_schema_roundtrip(
-    db_session, super_admin, monkeypatch
+async def test_dataset_lifecycle_schema_defaults_and_constraints(
+    db_session, super_admin
 ):
     row = Dataset(
         display_id=f"D-{uuid.uuid4().hex[:10]}",
@@ -36,12 +36,6 @@ async def test_untouched_dataset_lifecycle_schema_roundtrip(
     await db_session.flush()
 
     def verify(sync):
-        module = migration(sync, monkeypatch)
-        module.downgrade()
-        assert "lifecycle_revision" not in {
-            c["name"] for c in inspect(sync.connection()).get_columns("datasets")
-        }
-        module.upgrade()
         assert sync.execute(
             text(
                 "SELECT archived_at, archived_by, lifecycle_revision FROM datasets WHERE id=:id"

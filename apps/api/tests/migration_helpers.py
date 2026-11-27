@@ -31,6 +31,12 @@ def bind(module, connection):
     return module
 
 
+def replay(sync_conn, migration, direction: str) -> None:
+    context = MigrationContext.configure(sync_conn)
+    with Operations.context(context):
+        getattr(migration, direction)()
+
+
 def relation(connection, schema, table):
     """Exact ``to_regclass`` for the owned schema, independent of ``public``."""
     return connection.scalar(
