@@ -2,7 +2,7 @@ name: Docs sync dispatch
 
 on:
   push:
-    branches: [main, dev]
+    branches: [dev]
     paths:
       - "apps/api/openapi.snapshot.json"
       - "apps/api/app/api/v1/**"
