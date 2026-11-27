@@ -4,7 +4,7 @@ The rules in docs-site/dev/concepts/backend-layers.md apply to each declared
 domain package or single-file service. Source is checked through AST, including
 function-local and relative imports.
 
-Rules enforced per declared ``app.services.<domain>``:
+Rules enforced per declared domain:
 
 
 1. No module in the package may import ``app.api``, ``app.workers`` or
@@ -32,6 +32,7 @@ import pytest
 
 _SERVICES_DIR = Path(__file__).resolve().parent.parent / "app" / "services"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+_INFERENCE_DIR = _REPO_ROOT / "apps/inference/src/yoao_inference"
 
 CURRENT_COMPAT_FACADES: tuple[str, ...] = ()
 
@@ -74,6 +75,7 @@ REMOVED_MODULES = (
     "app.services.export_lidar",
     "app.services.export_packaging",
     "app.services.export_video",
+    "app.services.gpu_arbitration",
     "app.services.gpu_arbiter_store",
     "app.services.gpu_arbiter",
     "app.services.gpu_admission_signer",
@@ -109,29 +111,24 @@ _LEGACY_CALL_SCAN_EXEMPT_FILES = {
 
 @dataclass(frozen=True)
 class DomainSpec:
-    """One new domain package and the rules it must satisfy."""
+    """One domain package or service module and the rules it must satisfy."""
 
     package: str
     legacy_facades: tuple[str, ...]
     lazy_roots: tuple[str, ...] = ()
     allowed_app_imports: tuple[str, ...] | None = None
     allowed_framework_imports: tuple[str, ...] = ()
+    source_root: Path = _SERVICES_DIR
+    module_prefix: str = "app.services"
 
 
 DOMAIN_PACKAGES = (
     DomainSpec(
-        package="gpu_arbitration",
-        legacy_facades=(
-            "app.services.gpu_arbiter_store",
-            "app.services.gpu_arbiter",
-            "app.services.gpu_admission_signer",
-            "app.services.gpu_arbiter_rollout",
-            "app.services.gpu_collector_database",
-            "app.services.gpu_dispatch_authority",
-            "app.services.gpu_membership_activation",
-            "app.services.gpu_rollout_control",
-        ),
-        lazy_roots=("gpu_arbitration",),
+        package="gpu",
+        legacy_facades=(),
+        lazy_roots=("gpu",),
+        source_root=_INFERENCE_DIR,
+        module_prefix="yoao_inference",
     ),
     DomainSpec(
         package="video_tracking",
@@ -632,12 +629,12 @@ DOMAIN_PACKAGES = (
 _FORBIDDEN_ROOTS = ("app.api", "app.workers", "app.application", "app.deps")
 
 
-def _module_path(rel_source: Path) -> str:
-    """``app/services/gpu_arbitration/ledger/store.py`` -> ``app.services.gpu_arbitration.ledger.store``."""
+def _module_path(rel_source: Path, module_prefix: str = "app.services") -> str:
+    """``exporting/lidar_inputs.py`` -> ``app.services.exporting.lidar_inputs``."""
     rel_parts = rel_source.with_suffix("").parts
     if rel_parts[-1] == "__init__":
         rel_parts = rel_parts[:-1]
-    parts = ("app", "services") + rel_parts
+    parts = (module_prefix,) + rel_parts
     return ".".join(parts)
 
 
@@ -771,26 +768,25 @@ def test_production_modules_do_not_import_experiments() -> None:
     assert not violations, "Production imports an experiment:\n" + "\n".join(violations)
 
 
-def _iter_domain_files(pkg: str) -> list[tuple[Path, str]]:
+def _iter_domain_files(spec: DomainSpec) -> list[tuple[Path, str]]:
     """Yield source modules for a declared service file or domain package."""
-    root = _SERVICES_DIR.joinpath(*pkg.split("."))
+    root = spec.source_root.joinpath(*spec.package.split("."))
     module_file = root.with_suffix(".py")
-    if module_file.is_file():
-        return [(module_file, _module_path(module_file.relative_to(_SERVICES_DIR)))]
-    if not root.is_dir():
-        return []
-    files = []
-    for path in sorted(root.rglob("*.py")):
-        rel = path.relative_to(_SERVICES_DIR)
-        files.append((path, _module_path(rel)))
-    return files
+    paths = [module_file] if module_file.is_file() else sorted(root.rglob("*.py"))
+    assert paths, (
+        f"declared domain {spec.module_prefix}.{spec.package} has no Python sources"
+    )
+    return [
+        (path, _module_path(path.relative_to(spec.source_root), spec.module_prefix))
+        for path in paths
+    ]
 
 
 def _iter_domain_files_all() -> list[tuple[DomainSpec, Path, str]]:
-    """Flat list across all declared domains that exist on disk."""
+    """Flat list across all declared domains."""
     flat = []
     for spec in DOMAIN_PACKAGES:
-        for path, module in _iter_domain_files(spec.package):
+        for path, module in _iter_domain_files(spec):
             flat.append((spec, path, module))
     return flat
 
@@ -900,20 +896,12 @@ def _strongly_connected_components(
     return components
 
 
-_HAS_ANY_DOMAIN = any(_iter_domain_files(spec.package) for spec in DOMAIN_PACKAGES)
-pytestmark = pytest.mark.skipif(
-    not _HAS_ANY_DOMAIN, reason="no domain package created yet (P0 baseline)"
-)
-
-
 @pytest.mark.parametrize(
     "spec", DOMAIN_PACKAGES, ids=[d.package for d in DOMAIN_PACKAGES]
 )
 def test_domain_package_forbidden_imports(spec: DomainSpec) -> None:
     """Domain services avoid entrypoints and respect their app-dependency boundary."""
-    files = _iter_domain_files(spec.package)
-    if not files:
-        pytest.skip(f"package app.services.{spec.package} not created yet")
+    files = _iter_domain_files(spec)
 
     offenders: list[str] = []
     forbidden = _FORBIDDEN_ROOTS + tuple(spec.legacy_facades)
@@ -956,7 +944,7 @@ def test_data_contracts_do_not_import_runtime_frameworks(spec: DomainSpec) -> No
         if root not in spec.allowed_framework_imports
     )
     offenders = []
-    for path, module in _iter_domain_files(spec.package):
+    for path, module in _iter_domain_files(spec):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for imported, _local in _collect_imports(
             tree, _source_context_module(path, module)
@@ -974,11 +962,9 @@ def test_data_contracts_do_not_import_runtime_frameworks(spec: DomainSpec) -> No
 )
 def test_domain_package_no_intra_package_local_imports(spec: DomainSpec) -> None:
     """No domain module hides an intra-package import inside a function body."""
-    files = _iter_domain_files(spec.package)
-    if not files:
-        pytest.skip(f"package app.services.{spec.package} not created yet")
+    files = _iter_domain_files(spec)
 
-    pkg_prefix = f"app.services.{spec.package}"
+    pkg_prefix = f"{spec.module_prefix}.{spec.package}"
     offenders: list[str] = []
     for path, module in files:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -1001,16 +987,13 @@ def test_domain_package_no_intra_package_local_imports(spec: DomainSpec) -> None
 )
 def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
     """Package ``__init__`` must not eager-import modules flagged as lazy roots."""
-    files = _iter_domain_files(spec.package)
-    if not files:
-        pytest.skip(f"package app.services.{spec.package} not created yet")
-
-    init_path = _SERVICES_DIR / spec.package / "__init__.py"
+    init_path = spec.source_root.joinpath(*spec.package.split("."), "__init__.py")
+    module = f"{spec.module_prefix}.{spec.package}"
     if not init_path.is_file():
-        pytest.fail(f"package app.services.{spec.package} has no __init__.py")
+        pytest.fail(f"package {module} has no __init__.py")
 
     tree = ast.parse(init_path.read_text(encoding="utf-8"), filename=str(init_path))
-    init_module = f"app.services.{spec.package}.__init__"
+    init_module = f"{module}.__init__"
     eager = [
         name for name, is_local in _collect_imports(tree, init_module) if not is_local
     ]
@@ -1159,6 +1142,8 @@ from app.services.gpu_arbiter_store import *
 import app.services.exporting
 importlib.import_module("app.services.data_manager")
 mock.patch(target="app.services." "task_views.TaskViewService")
+from app.services.gpu_arbitration.ledger import store
+importlib.import_module("app.services.gpu_arbitration")
 """
     )
     assert _legacy_references(tree, "app.services.__init__") == [
@@ -1167,8 +1152,11 @@ mock.patch(target="app.services." "task_views.TaskViewService")
         (0, "import", "app.services.export_video"),
         (0, "import", "app.services.export_video.build_mot_gt"),
         (0, "import", "app.services.gpu_arbiter_store"),
+        (0, "import", "app.services.gpu_arbitration.ledger"),
+        (0, "import", "app.services.gpu_arbitration.ledger.store"),
         (8, "call:importlib.import_module", "app.services.data_manager"),
         (9, "call:mock.patch", "app.services.task_views.TaskViewService"),
+        (11, "call:importlib.import_module", "app.services.gpu_arbitration"),
     ]
 
 
