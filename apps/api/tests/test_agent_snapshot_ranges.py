@@ -287,6 +287,9 @@ async def test_non_agent_provider_rejects_range_before_source_or_cache_io(
             None, uuid.uuid4(), "p" * 64, actor, require_range_support=True
         )
     elif kind == "reference":
+        monkeypatch.setattr(
+            "app.services.dataset_source_access.key_authority", authority
+        )
         operation = references.reference_snapshot(
             None, uuid.uuid4(), actor, require_range_support=True
         )
@@ -433,7 +436,9 @@ async def test_verified_cache_uses_current_source_kind_for_range_capability(
         monkeypatch.setattr(references, "reference_context", current)
         monkeypatch.setattr(references, "_cache_factory", lambda db: object())
         monkeypatch.setattr(original_cache, "read", cached)
-        monkeypatch.setattr("app.services.dataset_content.key_authority", authority)
+        monkeypatch.setattr(
+            "app.services.dataset_source_access.key_authority", authority
+        )
         actual = await references.reference_snapshot(
             None,
             uuid.uuid4(),
