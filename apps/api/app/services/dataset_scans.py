@@ -100,10 +100,13 @@ async def source_context(db, source_id):
 
 
 async def run_context(db, run_id):
-    run = await data.execution_run(db, run_id, lock=True)
+    run = await data.execution_run(db, run_id, lock=False)
     if run is None:
         raise HTTPException(404, "Dataset scan not found")
     location, source = await source_context(db, run.source_id)
+    run = await data.execution_run(db, run_id, lock=True)
+    if run is None:
+        raise HTTPException(404, "Dataset scan not found")
     job = (
         await jobs.get_job(db, run.async_job_id, populate_existing=True)
         if run.async_job_id

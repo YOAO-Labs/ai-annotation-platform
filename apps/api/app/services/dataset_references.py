@@ -916,7 +916,8 @@ async def reference_snapshot(
     if cache_factory:
         from sqlalchemy.exc import SQLAlchemyError
 
-        await db.rollback()
+        if db is not None and api_key_id is not None:
+            await db.commit()
         try:
             snapshot = await original_cache.read(
                 cache_factory,

@@ -375,7 +375,8 @@ def to_internal_shape(s: dict) -> dict:
     if not isinstance(s, dict):
         return {}
     if "geometry" in s:
-        if "tool_unit_id" not in s:
+        s = dict(s)
+        if s.get("tool_unit_id") not in _SCHEMA_TOOL_UNIT_IDS:
             s["tool_unit_id"] = _tool_unit_from_internal_geometry(
                 s.get("geometry")
             ) or derive_tool_unit_from_ls_type(s.get("type"))

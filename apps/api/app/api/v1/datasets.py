@@ -808,13 +808,13 @@ async def upload_init(
     },
 )
 async def upload_complete(
-    http_request: Request,
     dataset_id: uuid.UUID,
     item_id: uuid.UUID,
     response: Response,
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
+    http_request: Request = None,
 ):
     request = UploadCompleteRequest(
         operation_id=idempotency_key or uuid.uuid4(),
@@ -824,11 +824,12 @@ async def upload_complete(
     )
     gateway = AssetsSourceGateway(db)
     outcome = await gateway.complete_upload(request)
-    try:
-        await recheck_directory_write(http_request, db, dataset_id)
-    except BaseException:
-        await db.rollback()
-        raise
+    if http_request is not None:
+        try:
+            await recheck_directory_write(http_request, db, dataset_id)
+        except BaseException:
+            await db.rollback()
+            raise
     await db.commit()
     response.headers["Idempotency-Key"] = str(request.operation_id)
     if outcome.duplicate_of is not None:

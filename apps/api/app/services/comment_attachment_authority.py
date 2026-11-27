@@ -148,9 +148,21 @@ async def _actor(db, actor_id, allowed_roles=ALLOWED_ROLES):
     """Current account facts under Identity's own SHARE fence."""
     try:
         with db.no_autoflush:
-            accounts = await IdentityAccountLockData(db).lock_accounts(
-                [actor_id] if actor_id is not None else [], mode="share", nowait=True
+            previous_timeout = await db.scalar(text("SHOW lock_timeout"))
+            await db.execute(
+                text("SELECT set_config('lock_timeout', :timeout, true)"),
+                {"timeout": AUTHORITY_LOCK_TIMEOUT},
             )
+            accounts = await IdentityAccountLockData(db).lock_accounts(
+                [actor_id] if actor_id is not None else [],
+                mode="share",
+                nowait=False,
+            )
+            if previous_timeout is not None:
+                await db.execute(
+                    text("SELECT set_config('lock_timeout', :timeout, true)"),
+                    {"timeout": previous_timeout},
+                )
     except DBAPIError as exc:
         if _busy(exc):
             reject("comment_attachment_busy")

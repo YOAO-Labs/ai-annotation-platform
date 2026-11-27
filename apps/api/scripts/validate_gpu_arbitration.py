@@ -1508,12 +1508,18 @@ async def _run_action(
             async with dispatch_factory(request) as grant:
                 row["grant_generation"] = grant.generation
                 headers = {"Content-Type": "application/json"}
-                from app.services.ml_client import MLBackendClient
+                from yoao_inference.backend_transport import BackendTransport
 
-                headers.update(MLBackendClient(endpoint.client_subject())._headers())
+                transport = BackendTransport(
+                    endpoint.client_subject(),
+                    options=settings,
+                    dispatch_context=_readonly_dispatch,
+                    observe=observe_ml_backend,
+                )
+                headers.update(transport._headers())
                 headers[GPU_GENERATION_HEADER] = grant.generation
                 headers[GPU_ADMISSION_TOKEN_HEADER] = grant.admission_token
-                async with MLBackendClient(endpoint.client_subject())._http_client(
+                async with transport._http_client(
                     timeout=action.timeout_seconds
                 ) as client:
                     database_probe_started_ms = time.monotonic() * 1000

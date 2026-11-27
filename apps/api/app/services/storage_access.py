@@ -217,6 +217,8 @@ class Permit:
                 raise unsettled from None
             if cancelled is not None:
                 if exc is not None:
+                    if isinstance(exc, asyncio.CancelledError):
+                        return False
                     raise BaseExceptionGroup(
                         "Storage operation and permit settlement were interrupted",
                         [exc, cancelled],

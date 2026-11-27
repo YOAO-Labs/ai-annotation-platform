@@ -1408,7 +1408,6 @@ async def trigger_preannotation(
     )
     from app.services import prediction_references
 
-    freeze_image_scope = project.data_type == "image"
     requested_unit = next(
         (
             (stage.source or {}).get("execution_unit")
@@ -1417,6 +1416,7 @@ async def trigger_preannotation(
         ),
         None,
     )
+    freeze_image_scope = project.data_type == "image" and requested_unit != "scene"
     freeze_video_scope = project.data_type == "video" and requested_unit in {
         None,
         "video",

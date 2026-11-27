@@ -781,7 +781,8 @@ def apply_tracker_results(
     annotation.annotation_type = geometry["type"]
     if is_mask:
         annotation.tool_unit_id = "region"
-    annotation.version = int(annotation.version or 1) + 1
+    if not getattr(annotation, "_is_new", False):
+        annotation.version = int(annotation.version or 1) + 1
 
 
 def _partition_results_by_instance(
@@ -1629,9 +1630,14 @@ async def _lock_video_control_job_for_update(
     except VideoControlRejected as exc:
         if exc.status_code >= 500:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
-        if exc.status_code == 404:
-            return None
         reason = exc.detail.get("reason") if isinstance(exc.detail, dict) else None
+        if exc.status_code == 404:
+            if reason == "task_not_visible":
+                raise TrackerJobStateConflict(
+                    "project authority changed before tracker write",
+                    reason="permission_changed",
+                ) from exc
+            return None
         raise TrackerJobStateConflict(
             "tracker job is unavailable", reason=reason or "tracker_job_busy"
         ) from exc

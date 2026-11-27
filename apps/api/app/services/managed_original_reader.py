@@ -453,7 +453,11 @@ def _capture(
                     except BaseException as exc:
                         settled = not retain_on_close_error
                         closing = _failure(exc)
+                        if not settled:
+                            mark_unsettled(closing)
                         if primary is not None:
+                            if not settled:
+                                raise closing from primary
                             raise BaseExceptionGroup(
                                 "Original read and temporary close failed",
                                 [primary, closing],

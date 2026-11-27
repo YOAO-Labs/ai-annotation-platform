@@ -41,6 +41,15 @@ def dataset_relative_path(file_path: str, dataset_name: str = "") -> str:
                 else:
                     return parts[4]
             return "/".join(parts[2:])
+    if len(parts) == 5 and parts[0] == "dataset-sources":
+        try:
+            uuid.UUID(parts[1])
+            uuid.UUID(parts[2])
+            uuid.UUID(parts[3])
+        except ValueError:
+            pass
+        else:
+            return parts[4]
     prefix = f"{dataset_name}/"
     return path[len(prefix) :] if dataset_name and path.startswith(prefix) else path
 

@@ -312,8 +312,13 @@ async def run_secondary_inference(
         raise HTTPException(
             status_code=409, detail={"code": "prediction_input_required"}
         )
-    from app.services.storage import require_unowned_legacy_original, storage_service
+    from app.services.storage import (
+        require_legacy_task_path,
+        require_unowned_legacy_original,
+        storage_service,
+    )
 
+    require_legacy_task_path(task)
     await require_unowned_legacy_original(
         db,
         task.file_path,

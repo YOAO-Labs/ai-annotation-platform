@@ -90,6 +90,10 @@ def reject(code="bug_attachment_changed", status=409):
 
 
 def http_error(exc):
+    if isinstance(exc, BaseExceptionGroup):
+        for sub in exc.exceptions:
+            if isinstance(sub, (storage.BugAttachmentStorageError, ContentError)):
+                return http_error(sub)
     if isinstance(exc, storage.BugAttachmentStorageError):
         status = (
             404 if exc.code == "bug_attachment_storage_missing" else exc.status_code

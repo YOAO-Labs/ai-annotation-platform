@@ -31,7 +31,7 @@ from yoao_workspace_contract.access import (
     ProjectCapability,
 )
 from app.services.project_access import resolve_project_access
-from app.services.reference_keys import is_reference
+from app.services.reference_keys import is_reference, parse_reference
 from app.services.storage import storage_service
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
@@ -327,11 +327,19 @@ def _task_with_url(
                 break
 
     out = TaskOut.model_validate(task, from_attributes=True)
+    reference = is_reference(task.file_path)
+    content_sha256 = None
+    if reference:
+        file_url = None
+        try:
+            _, content_sha256 = parse_reference(task.file_path)
+        except ValueError:
+            pass
     out.file_url = file_url
+    out.storage_mode = "reference" if reference else "managed"
+    out.content_sha256 = content_sha256
     out.original_identity_path = (
-        f"/api/v1/files/tasks/{task.id}/original-identity"
-        if not is_reference(task.file_path)
-        else None
+        f"/api/v1/files/tasks/{task.id}/original-identity" if not reference else None
     )
     out.thumbnail_url = thumbnail_url
     out.image_width = width
@@ -340,7 +348,7 @@ def _task_with_url(
     out.video_metadata = (
         VideoMetadata.model_validate(video_metadata) if video_metadata else None
     )
-    out.image_pyramid = image_pyramid
+    out.image_pyramid = None if reference else image_pyramid
     if briefs is not None:
         if task.assignee_id is not None:
             out.assignee = briefs.get(str(task.assignee_id))

@@ -230,8 +230,8 @@ class ApplySceneTrackCommand(_Command):
             or len(self.after_intervals) != len(expected_intervals)
             or set(self.preview.source_revisions) != expected_tracks
             or (self.command.kind != "split" and self.created_track_id is not None)
-            or (self.command.kind != "resume" and self.target_task_id is not None)
-            or (self.command.kind == "resume" and self.target_task_id is None)
+            or (self.command.resume_frame is None and self.target_task_id is not None)
+            or (self.command.resume_frame is not None and self.target_task_id is None)
         ):
             raise ValueError("Prepared SceneTrack scope does not match its command")
         return self

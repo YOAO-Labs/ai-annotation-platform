@@ -1,6 +1,7 @@
 """Durable admission generations and unresolved physical storage operations."""
 
 from datetime import datetime
+from typing import Any
 import uuid
 
 from sqlalchemy import (
@@ -12,7 +13,7 @@ from sqlalchemy import (
     String,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -57,6 +58,7 @@ class StorageOperation(Base):
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    native_stage: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         CheckConstraint("revision >= 1", name="ck_storage_operation_revision"),

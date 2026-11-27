@@ -29,6 +29,8 @@ def content_http_error(exc):
         return exc
     if isinstance(exc, snapshots.ContentError):
         return HTTPException(exc.status, {"code": exc.code})
+    if isinstance(exc, BaseExceptionGroup) and storage_access.failure_unsettled(exc):
+        return HTTPException(503, {"code": "storage_operation_unsettled"})
     if isinstance(exc, fs.FilesystemStorageError):
         return HTTPException(409, {"code": exc.code})
     if isinstance(exc, (OSError, BotoCoreError, ClientError)):

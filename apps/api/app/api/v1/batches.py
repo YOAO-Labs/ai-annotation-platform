@@ -1340,19 +1340,7 @@ async def export_batch(
         "project_id": str(project_id),
         "batch_id": str(batch_id),
         "targets": targets,
-        "opts": {
-            "include_attributes": include_attributes,
-            "video_frame_mode": video_frame_mode,
-            "axis_frame": axis_frame,
-            "video_overlap_policy": video_overlap_policy,
-            "mots_frame_base": mots_frame_base,
-            **(
-                {"video_export_scope": video_scope_payload}
-                if video_scope_payload
-                else {}
-            ),
-            **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
-        },
+        "opts": export_opts,
         "async_job_id": str(job.id),
     }
     lease = await prepare_job_dispatch(

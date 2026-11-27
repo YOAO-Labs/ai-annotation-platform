@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -507,9 +508,25 @@ async def execute_task_pipeline(
                         raise
                     raise _ChildDispatchStopped(exc) from exc
 
-        operation = await model_ports[stage_index].execute(
-            operation_request, before_dispatch=boundary
+        pending = asyncio.create_task(
+            model_ports[stage_index].execute(
+                operation_request, before_dispatch=boundary
+            )
         )
+        cancelled: asyncio.CancelledError | None = None
+        while not pending.done():
+            try:
+                await asyncio.shield(pending)
+            except asyncio.CancelledError as exc:
+                if cancelled is None:
+                    cancelled = exc
+        if cancelled is not None:
+            try:
+                pending.result()
+            except BaseException:
+                pass
+            raise cancelled
+        operation = pending.result()
         if validate_results is not None:
             validated = await validate_results(stage_number, operation, context)
             if validated is not None:

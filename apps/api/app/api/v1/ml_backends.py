@@ -1560,14 +1560,14 @@ async def predict_frame(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    jpeg_bytes = await _read_capped_frame(frame, request=request)
+
     async with prediction_inputs(
         input_session_factory,
         owner_id=uuid.uuid4(),
         owner_kind="frame_predict",
         task_id=task.id,
     ) as inputs:
-        jpeg_bytes = await _read_capped_frame(frame, request=request)
-
         frame_url = await inputs.upload_frame(task, jpeg_bytes)
         await db.commit()
 
