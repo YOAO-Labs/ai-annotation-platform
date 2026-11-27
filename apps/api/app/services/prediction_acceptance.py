@@ -157,6 +157,8 @@ async def _check_content(db, task, binding, prediction, metadata, *, final=False
                 await prepare_mask_payload_for_write(db, task, prediction.result)
             except RasterMaskContractError as exc:
                 raise HTTPException(exc.status_code, detail=exc.detail) from None
+            except (ValueError, KeyError, TypeError, StopIteration, IndexError) as exc:
+                raise ContentError("reference_native_candidate_invalid") from exc
         return
     from app.services.reference_native_predictions import require_reference_vectors
 
