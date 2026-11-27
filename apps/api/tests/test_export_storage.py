@@ -105,6 +105,7 @@ def storage(monkeypatch):
         client=SimpleNamespace(meta=SimpleNamespace(endpoint_url=endpoint())),
     )
     monkeypatch.setattr(owners, "storage_service", service)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     return service
 
 

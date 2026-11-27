@@ -116,6 +116,7 @@ def patch_storage(monkeypatch, fake=None):
     patch_owned_client(monkeypatch, fake.client)
     monkeypatch.setattr(avatar, "storage_service", fake)
     monkeypatch.setattr(avatar_storage, "storage_service", fake)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", fake)
     return fake
 
 

@@ -106,6 +106,7 @@ class ExportObjects:
 def export_objects(monkeypatch):
     objects = ExportObjects()
     monkeypatch.setattr(export_storage, "storage_service", objects)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", objects)
     from app.services import storage as module
 
     objects.client.meta.config = Config(retries={"max_attempts": 3})

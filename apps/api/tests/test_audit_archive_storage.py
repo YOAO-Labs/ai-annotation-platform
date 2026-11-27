@@ -141,6 +141,7 @@ def storage(monkeypatch):
     client = Client(b"")
     service = SimpleNamespace(audit_archive_bucket="archive-current", client=client)
     monkeypatch.setattr(owners, "storage_service", service)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     return service
 
 

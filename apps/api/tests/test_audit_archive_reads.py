@@ -102,6 +102,7 @@ class ArchiveObjects:
 def objects(monkeypatch):
     value = ArchiveObjects()
     monkeypatch.setattr(storage, "storage_service", value)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", value)
     return value
 
 

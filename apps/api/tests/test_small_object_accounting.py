@@ -163,6 +163,7 @@ def patch_service(monkeypatch, kind, service):
     monkeypatch.setattr(MODULES[kind], "storage_service", service)
     if kind == "avatar":
         monkeypatch.setattr(avatar, "storage_service", service)
+        monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     elif kind == "comment":
         monkeypatch.setattr(comment_attachment_uploads, "storage_service", service)
     elif kind == "guide":

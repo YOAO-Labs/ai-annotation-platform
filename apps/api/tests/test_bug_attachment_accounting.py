@@ -116,13 +116,11 @@ def provider(monkeypatch):
     shared = SimpleNamespace(
         meta=SimpleNamespace(endpoint_url=endpoint(), config=client.meta.config)
     )
-    monkeypatch.setattr(
-        physical,
-        "storage_service",
-        SimpleNamespace(
-            client=shared, bug_reports_bucket=settings.minio_bug_reports_bucket
-        ),
+    service = SimpleNamespace(
+        client=shared, bug_reports_bucket=settings.minio_bug_reports_bucket
     )
+    monkeypatch.setattr(physical, "storage_service", service)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     configs = []
 
     def create(**kwargs):
@@ -495,6 +493,7 @@ async def test_real_minio_production_upload_and_single_duplicate_condition(
         Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
     )
     monkeypatch.setattr(physical, "storage_service", service)
+    monkeypatch.setattr("app.services.managed_s3_target.storage_service", service)
     if schema == 2:
         original = physical.allocate
 
