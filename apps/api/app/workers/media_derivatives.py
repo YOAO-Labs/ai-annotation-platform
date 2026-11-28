@@ -316,16 +316,16 @@ async def _claim(factory, identifier):
 
 async def claim_with_retry(factory, identifier):
     """Short reader locks never turn an untouched attempt into a failed owner."""
-    for attempt in range(8):
+    for attempt in range(1, originals.CONTENTION_ATTEMPTS + 1):
         try:
             return await _claim(factory, identifier)
         except (DBAPIError, ContentError) as exc:
             if not transient(exc):
                 raise
-            if attempt == 7:
+            if attempt == originals.CONTENTION_ATTEMPTS:
                 log.info("video derivative claim deferred: code=content_busy")
                 return None
-            await asyncio.sleep(0.05 * (attempt + 1))
+            await asyncio.sleep(0.05 * attempt)
 
 
 def transient(exc):
@@ -339,17 +339,17 @@ def transient(exc):
 
 
 async def fail_with_retry(factory, identifier, token, code):
-    for attempt in range(8):
+    for attempt in range(1, originals.CONTENTION_ATTEMPTS + 1):
         try:
             await fail(factory, identifier, token, code)
             return
         except (DBAPIError, ContentError) as exc:
             if not transient(exc):
                 raise
-            if attempt == 7:
+            if attempt == originals.CONTENTION_ATTEMPTS:
                 log.info("video derivative failure deferred: code=content_busy")
                 return
-            await asyncio.sleep(0.05 * (attempt + 1))
+            await asyncio.sleep(0.05 * attempt)
 
 
 async def run_outputs(identifiers, *, propagate_failure=False):

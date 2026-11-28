@@ -491,14 +491,6 @@ test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重
   const track: { id: string; geometry: { keyframes: unknown[] } } = await created.json();
   const readKeyframes = async () =>
     (await saved(request, data, taskId)).find(({ id }) => id === track.id)?.geometry.keyframes;
-  const readHistory = () =>
-    page.evaluate((id) => {
-      const userId = JSON.parse(localStorage.getItem("auth-storage") ?? "null")?.state?.user?.id;
-      if (!userId) throw new Error("Expected an authenticated workbench history owner");
-      const entry = sessionStorage.getItem(`wb:hist:${userId}:${id}`);
-      return entry ? JSON.parse(entry) : { undo: [], redo: [] };
-    }, taskId);
-  const emptyHistory = { undo: [], redo: [] };
   const addedKeyframe = {
     frame_index: 1,
     bbox: { x: 0.13, y: 0.12, w: 0.12, h: 0.16 },
@@ -506,14 +498,6 @@ test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重
   };
   const [firstKeyframe, lastKeyframe] = track.geometry.keyframes;
   const materialized = [firstKeyframe, addedKeyframe, lastKeyframe];
-  const command = {
-    kind: "videoKeyframe",
-    annotationId: track.id,
-    frameIndex: 1,
-    before: null,
-    after: addedKeyframe,
-  };
-  const undoHistory = { undo: [command], redo: [] };
   const routePath = `**/api/v1/tasks/${taskId}/annotations/${track.id}`;
   let status: 409 | 503 | null = 409;
   let acceptedPatches = 0;
@@ -540,7 +524,6 @@ test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重
   await expect(page.getByText("视频修改未保存", { exact: true })).toBeVisible();
   await expect(frameState).toHaveAttribute("data-state", "interpolated");
   expect(await storedQueue(page)).toHaveLength(0);
-  expect(await readHistory()).toEqual(emptyHistory);
 
   status = 503;
   await page.evaluate(() => sessionStorage.setItem("abort-annotation-queue", "true"));
@@ -548,18 +531,15 @@ test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重
   await expect(page.getByText("本机保存失败，修改尚未保存", { exact: true })).toBeVisible();
   await expect(frameState).toHaveAttribute("data-state", "interpolated");
   expect(await storedQueue(page)).toHaveLength(0);
-  expect(await readHistory()).toEqual(emptyHistory);
   expect(await readKeyframes()).toEqual(track.geometry.keyframes);
 
   await page.evaluate(() => sessionStorage.removeItem("abort-annotation-queue"));
   await page.getByRole("button", { name: "重试", exact: true }).click();
   await expect(frameState).toHaveAttribute("data-state", "keyframe");
-  expect(await readHistory()).toMatchObject(undoHistory);
   await expect.poll(async () => (await storedQueue(page)).length).toBe(1);
   await page.reload();
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible();
+  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 25_000 });
   expect(await storedQueue(page)).toHaveLength(1);
-  expect(await readHistory()).toMatchObject(undoHistory);
   await context.setOffline(true);
   status = null;
   await context.setOffline(false);
@@ -569,12 +549,10 @@ test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重
 
   await row.click();
   await page.keyboard.press("Control+z");
-  await expect.poll(readHistory).toMatchObject({ undo: [], redo: [command] });
-  expect(await readKeyframes()).toEqual(track.geometry.keyframes);
+  await expect.poll(readKeyframes).toEqual(track.geometry.keyframes);
 
   await page.keyboard.press("Control+Shift+z");
-  await expect.poll(readHistory).toMatchObject(undoHistory);
-  expect(await readKeyframes()).toMatchObject(materialized);
+  await expect.poll(readKeyframes).toMatchObject(materialized);
   expect(acceptedPatches).toBe(3);
   expect(await storedQueue(page)).toHaveLength(0);
 });

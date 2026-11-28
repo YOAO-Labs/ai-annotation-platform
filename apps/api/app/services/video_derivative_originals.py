@@ -33,6 +33,7 @@ from app.services.reference_keys import is_reference
 MAX_SOURCE_BYTES = 512 * 1024**2
 COPY_SECONDS = 300
 JOB_SECONDS = 1800
+CONTENTION_ATTEMPTS = 8
 _SHA = re.compile(r"[0-9a-f]{64}")
 _slots = threading.BoundedSemaphore(2)
 _RECEIPT_FIELDS = {
@@ -354,6 +355,20 @@ async def check(db, authority, *, lock=False, wait_for_item=False):
         return source
 
 
+async def check_for_generation(db, authority, *, lock=True):
+    for attempt in range(1, CONTENTION_ATTEMPTS + 1):
+        try:
+            return await check(db, authority, lock=lock, wait_for_item=True)
+        except ContentError as exc:
+            if (
+                exc.code != "content_busy"
+                or storage_access.failure_unsettled(exc)
+                or attempt == CONTENTION_ATTEMPTS
+            ):
+                raise
+            await asyncio.sleep(0.05 * attempt)
+
+
 async def authorize(db, task_id, actor, request):
     return await authorize_policy(db, "task", task_id, actor, request)
 
@@ -600,7 +615,7 @@ async def _session(db):
 
 async def _fresh(db, authority, source, guard):
     async with _session(db) as owned:
-        current = await check(owned, authority, lock=True)
+        current = await check_for_generation(owned, authority)
         if receipt(current) != receipt(source):
             reject("content_binding_changed", 409)
         await original_sources.recheck_read_route(owned, source)

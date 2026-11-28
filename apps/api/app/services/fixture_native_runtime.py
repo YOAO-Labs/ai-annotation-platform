@@ -1175,7 +1175,6 @@ class FixtureNativeRuntime:
         expected = set(outputs)
         generations = {}
         confirm_unlocked = set()
-        saw_worker = False
         try:
             async with asyncio.timeout_at(deadline), engine.connect() as connection:
                 while True:
@@ -1201,9 +1200,7 @@ class FixtureNativeRuntime:
                             "fixture_video_request_drain_busy",
                         )
                         generations[output] = (lease, token)
-                        if status == "running":
-                            saw_worker = True
-                        elif status == "unlocked":
+                        if status == "unlocked":
                             unlocked.add(output)
                     require_publisher()
                     if all(status == "published" for _, _, _, status in rows):
@@ -1211,7 +1208,6 @@ class FixtureNativeRuntime:
                     confirm_unlocked = unlocked
                     if unlocked:
                         continue
-                    _require(saw_worker, "fixture_video_request_drain_busy")
                     await asyncio.sleep(_VIDEO_REQUEST_DRAIN_INTERVAL)
         except TimeoutError as exc:
             raise RuntimeError("fixture_video_request_drain_busy") from exc

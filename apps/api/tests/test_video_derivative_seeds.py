@@ -375,6 +375,7 @@ async def test_fixture_seal_drain_retains_pending_request(monkeypatch):
         "published-as-worker-released",
         "queue-only",
         "queue-with-worker",
+        "between-workers",
         "stalled",
         "unknown",
         "unproven",
@@ -385,14 +386,18 @@ async def test_fixture_seal_drain_retains_pending_request(monkeypatch):
         "publisher-stopping",
     ],
 )
-async def test_fixture_seal_drain_waits_only_for_exact_active_publication(
+async def test_fixture_seal_drain_requires_all_owned_outputs_to_publish(
     monkeypatch, outcome
 ):
     from app.services import fixture_native_runtime as native
 
     run_id, output, lease, token = (uuid.uuid4() for _ in range(4))
     queued, queued_lease, queued_token = (uuid.uuid4() for _ in range(3))
-    outputs = [output, queued] if outcome == "queue-with-worker" else [output]
+    outputs = (
+        [output, queued]
+        if outcome in {"queue-with-worker", "between-workers"}
+        else [output]
+    )
     runtime = _video_request_drain_runtime(run_id)
 
     async def scalar(statement, _params):
@@ -402,10 +407,11 @@ async def test_fixture_seal_drain_waits_only_for_exact_active_publication(
 
     db = SimpleNamespace(scalar=scalar)
     observed, publish = asyncio.Event(), asyncio.Event()
+    published = set()
     call_count = 0
 
     async def execute(statement, params):
-        nonlocal call_count
+        nonlocal call_count, published
         assert statement is native._VIDEO_REQUEST_PUBLICATIONS
         assert params == {"run": run_id, "suite": runtime.suite_id, "outputs": outputs}
         call_count += 1
@@ -415,10 +421,11 @@ async def test_fixture_seal_drain_waits_only_for_exact_active_publication(
             rows = [(output, lease, token, "unproven")]
         elif outcome == "queue-only":
             rows = [(output, None, None, "queued")]
-        elif outcome == "queue-with-worker":
+        elif outcome in {"queue-with-worker", "between-workers"}:
             if call_count == 1:
+                state = "published" if outcome == "between-workers" else "running"
                 rows = [
-                    (output, lease, token, "running"),
+                    (output, lease, token, state),
                     (queued, None, None, "queued"),
                 ]
                 observed.set()
@@ -445,6 +452,7 @@ async def test_fixture_seal_drain_waits_only_for_exact_active_publication(
                 rows = [(output, lease, token, "unlocked")]
             else:
                 rows = [(output, lease, token, "published")]
+        published = {row[0] for row in rows if row[3] == "published"}
         return SimpleNamespace(all=lambda: rows)
 
     @asynccontextmanager
@@ -467,8 +475,10 @@ async def test_fixture_seal_drain_waits_only_for_exact_active_publication(
                     "published",
                     "published-as-worker-released",
                     "queue-with-worker",
+                    "between-workers",
                 }:
                     await runtime.drain_video_requests_before_seal(db, run_id, deadline)
+                    assert published == set(outputs)
                 else:
                     code = {
                         "publisher-failed": "publisher_failed",
@@ -490,16 +500,6 @@ async def test_fixture_seal_drain_waits_only_for_exact_active_publication(
                     stopped.set()
                 if outcome != "stalled":
                     publish.set()
-    assert call_count == {
-        "unknown": 1,
-        "unproven": 1,
-        "queue-only": 1,
-        "queue-with-worker": 4,
-        "lost-worker": 3,
-        "published-as-worker-released": 3,
-        "publisher-failed": 1,
-        "publisher-stopping": 1,
-    }.get(outcome, 2)
     dispose.assert_awaited_once()
 
 

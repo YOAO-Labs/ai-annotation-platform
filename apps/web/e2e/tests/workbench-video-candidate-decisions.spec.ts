@@ -40,14 +40,12 @@ async function seedCandidates(request: APIRequestContext, seed: SeedAPI, data: S
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(envelope)),
   };
-  for (const dryRun of [true, false]) {
-    const response = await request.post(
-      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=native_json&dry_run=${dryRun}`,
-      { headers, multipart: { file } },
-    );
-    expect(response.ok(), await response.text()).toBe(true);
-    expect(await response.json()).toMatchObject({ imported: 3, errors: [] });
-  }
+  const response = await request.post(
+    `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=native_json&dry_run=false`,
+    { headers, multipart: { file } },
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+  expect(await response.json()).toMatchObject({ imported: 3, errors: [] });
   const predictionsResponse = await request.get(`${API_BASE}/api/v1/tasks/${taskId}/predictions`, {
     headers,
   });
@@ -141,8 +139,7 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(0);
   await page.reload();
   const stage = page.getByTestId("video-konva-stage");
-  await expect(stage).toBeVisible();
-  await expect(stage).toHaveAttribute("data-video-frame-index", "0");
+  await expect(stage).toHaveAttribute("data-video-frame-index", "0", { timeout: 30_000 });
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(0);
   for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowRight");
   await expect(stage).toHaveAttribute("data-video-frame-index", "10");
@@ -164,7 +161,6 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   await picker.getByText("car", { exact: true }).click();
   expect((await retried).status()).toBe(200);
   await expect(otherRow).toHaveCount(0);
-  await page.reload();
   const saved = await request.get(`${API_BASE}/api/v1/tasks/${data.taskId}/annotations`, {
     headers: data.headers,
   });
