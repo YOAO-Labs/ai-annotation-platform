@@ -414,7 +414,7 @@ async def test_claimed_task_frame_survives_concurrent_update(
                         pytest.fail("worker bypassed the source lock")
                     await asyncio.sleep(0.01)
             if writer_kind == "task":
-                await asyncio.sleep(1.2)
+                await asyncio.sleep(3.4)
         finally:
             await writer.commit()
             await asyncio.gather(pending, return_exceptions=True)
