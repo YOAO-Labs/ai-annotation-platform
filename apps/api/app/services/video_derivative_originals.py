@@ -600,7 +600,7 @@ async def _session(db):
 
 async def _fresh(db, authority, source, guard):
     async with _session(db) as owned:
-        current = await check(owned, authority, lock=True)
+        current = await check(owned, authority, lock=True, wait_for_item=True)
         if receipt(current) != receipt(source):
             reject("content_binding_changed", 409)
         await original_sources.recheck_read_route(owned, source)

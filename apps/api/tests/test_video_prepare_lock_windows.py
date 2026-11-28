@@ -32,6 +32,7 @@ from app.services import video_frame_service as service
 from app.workers.media import generate_video_derivatives
 from tests.factory import admitted_request, make_user_dict
 from tests.video_derivative_fixtures import (
+    inventory,
     owned_metadata,
     owned_output,
     saved_url,
@@ -354,6 +355,60 @@ async def test_pending_frame_poll_leaves_the_slot_available_to_its_publisher(
         assert receipt.id == slot.output_id == pending.id
         assert receipt.state == "building"
         assert not enqueue
+
+
+@pytest.mark.parametrize("phase", ["source", "publish"])
+async def test_claimed_task_frame_survives_short_item_writer(committed_video, phase):
+    state = committed_video
+    async with state.factory() as db:
+        source = await originals.check(db, state.authority)
+        generation = await objects.read_attempt(
+            db, state.item_id, "metadata", state.generation_id
+        )
+        spec = core.frame_spec(generation, 0, 512, "webp")
+        frame, _ = await core.prepare(
+            db, state.item_id, state.authority, "frame", spec=spec
+        )
+        lease = await objects.claim(db, frame)
+        await db.commit()
+
+    async with state.factory() as writer, state.factory() as worker:
+        await writer.execute(
+            update(DatasetItem).where(DatasetItem.id == state.item_id).values(width=80)
+        )
+        holder = await writer.scalar(text("SELECT pg_backend_pid()"))
+        if phase == "source":
+            work = originals._fresh(worker, state.authority, source, None)
+        else:
+            result = {
+                "schema": 1,
+                "kind": "frame",
+                "spec": spec,
+                "metadata_output_id": str(generation.id),
+            }
+            receipts = inventory(frame, result, {"frame.webp": b"frame"})
+            work = core.publish(
+                worker, frame, state.authority, lease, result, receipts, None
+            )
+        pending = asyncio.create_task(work)
+        try:
+            async with asyncio.timeout(3):
+                while not await writer.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT FROM pg_locks WHERE NOT granted AND :holder = ANY(pg_blocking_pids(pid)))"
+                    ),
+                    {"holder": holder},
+                ):
+                    if pending.done():
+                        await pending
+                        pytest.fail("worker bypassed the source lock")
+                    await asyncio.sleep(0.01)
+        finally:
+            await writer.commit()
+            await asyncio.gather(pending, return_exceptions=True)
+        published = pending.result()
+        if phase == "publish":
+            assert published.state == "ready" and published.lease_token == lease
 
 
 @pytest.mark.parametrize("detached", [False, True], ids=["hit", "detached"])

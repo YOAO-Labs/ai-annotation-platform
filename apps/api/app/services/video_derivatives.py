@@ -466,7 +466,7 @@ async def check(
         authority,
         lock=lock,
         wait_for_item=(
-            not (write or building) and (token is not None or output.kind == "metadata")
+            token is not None or (not (write or building) and output.kind == "metadata")
         ),
     )
     if (
