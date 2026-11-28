@@ -461,14 +461,15 @@ async def check(
     building=False,
 ):
     """Compare the current logical slot, generation, authority and lease only."""
-    source = await originals.check(
-        db,
-        authority,
-        lock=lock,
-        wait_for_item=(
-            token is not None or (not (write or building) and output.kind == "metadata")
-        ),
-    )
+    if token is not None:
+        source = await originals.check_for_generation(db, authority, lock=lock)
+    else:
+        source = await originals.check(
+            db,
+            authority,
+            lock=lock,
+            wait_for_item=not (write or building) and output.kind == "metadata",
+        )
     if (
         source.item_id != output.dataset_item_id
         or originals.receipt(source) != output.original_ref

@@ -358,7 +358,10 @@ async def test_pending_frame_poll_leaves_the_slot_available_to_its_publisher(
 
 
 @pytest.mark.parametrize("phase", ["source", "publish"])
-async def test_claimed_task_frame_survives_short_item_writer(committed_video, phase):
+@pytest.mark.parametrize("writer_kind", ["item", "task"])
+async def test_claimed_task_frame_survives_concurrent_update(
+    committed_video, phase, writer_kind
+):
     state = committed_video
     async with state.factory() as db:
         source = await originals.check(db, state.authority)
@@ -373,9 +376,16 @@ async def test_claimed_task_frame_survives_short_item_writer(committed_video, ph
         await db.commit()
 
     async with state.factory() as writer, state.factory() as worker:
-        await writer.execute(
-            update(DatasetItem).where(DatasetItem.id == state.item_id).values(width=80)
-        )
+        if writer_kind == "task":
+            await writer.execute(
+                update(Task).where(Task.id == state.task_id).values(total_annotations=2)
+            )
+        else:
+            await writer.execute(
+                update(DatasetItem)
+                .where(DatasetItem.id == state.item_id)
+                .values(width=80)
+            )
         holder = await writer.scalar(text("SELECT pg_backend_pid()"))
         if phase == "source":
             work = originals._fresh(worker, state.authority, source, None)
@@ -403,6 +413,8 @@ async def test_claimed_task_frame_survives_short_item_writer(committed_video, ph
                         await pending
                         pytest.fail("worker bypassed the source lock")
                     await asyncio.sleep(0.01)
+            if writer_kind == "task":
+                await asyncio.sleep(1.2)
         finally:
             await writer.commit()
             await asyncio.gather(pending, return_exceptions=True)

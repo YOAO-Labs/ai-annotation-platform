@@ -354,6 +354,20 @@ async def check(db, authority, *, lock=False, wait_for_item=False):
         return source
 
 
+async def check_for_generation(db, authority, *, lock=True):
+    for attempt in range(3):
+        try:
+            return await check(db, authority, lock=lock, wait_for_item=True)
+        except ContentError as exc:
+            if (
+                exc.code != "content_busy"
+                or storage_access.failure_unsettled(exc)
+                or attempt == 2
+            ):
+                raise
+            await asyncio.sleep(0.05 * (attempt + 1))
+
+
 async def authorize(db, task_id, actor, request):
     return await authorize_policy(db, "task", task_id, actor, request)
 
@@ -600,7 +614,7 @@ async def _session(db):
 
 async def _fresh(db, authority, source, guard):
     async with _session(db) as owned:
-        current = await check(owned, authority, lock=True, wait_for_item=True)
+        current = await check_for_generation(owned, authority)
         if receipt(current) != receipt(source):
             reject("content_binding_changed", 409)
         await original_sources.recheck_read_route(owned, source)
