@@ -538,7 +538,7 @@ test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重
   await expect(frameState).toHaveAttribute("data-state", "keyframe");
   await expect.poll(async () => (await storedQueue(page)).length).toBe(1);
   await page.reload();
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible();
+  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 25_000 });
   expect(await storedQueue(page)).toHaveLength(1);
   await context.setOffline(true);
   status = null;

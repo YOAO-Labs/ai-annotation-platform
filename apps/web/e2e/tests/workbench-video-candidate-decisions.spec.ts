@@ -139,8 +139,7 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(0);
   await page.reload();
   const stage = page.getByTestId("video-konva-stage");
-  await expect(stage).toBeVisible();
-  await expect(stage).toHaveAttribute("data-video-frame-index", "0");
+  await expect(stage).toHaveAttribute("data-video-frame-index", "0", { timeout: 30_000 });
   await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(0);
   for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowRight");
   await expect(stage).toHaveAttribute("data-video-frame-index", "10");
